@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ group['group_no'] }} 그룹 구성{% endblock %}
+{% block content %}
+<h2>{{ group['group_no'] }} {% if group['group_name'] %}({{ group['group_name'] }}){% endif %}</h2>
+<p class="hint">이 조립품에 속한 부품들을 등록 순서대로 관리해. 검사 입력·성적서 출력에서 이 순서 그대로 사용돼.</p>
+
+<table>
+  <tr><th>순서</th><th>부품 자재번호</th><th>부품명</th><th>관리</th></tr>
+  {% for m in members %}
+  <tr>
+    <td>{{ m['item_order'] }}</td>
+    <td>{{ m['material_no'] }}</td>
+    <td>{{ m['material_name'] or '-' }}</td>
+    <td>
+      <form method="POST" action="{{ url_for('material_group_remove_member', group_no=group['group_no'], member_id=m['id']) }}"
+            onsubmit="return confirm('부품을 그룹에서 뺄까? (부품 자체 규격은 안 지워짐)');">
+        <button type="submit" style="padding:6px 12px; font-size:12.5px; margin:0; background:#fff; color:#dc2626; border:1px solid #dc2626;">제외</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4">아직 부품이 없어. 아래에서 추가해줘.</td></tr>
+  {% endfor %}
+</table>
+
+<div class="card" style="margin-top:20px;">
+  <h3 style="margin-top:0;">부품 추가</h3>
+  {% if available_materials %}
+  <form method="POST" action="{{ url_for('material_group_add_member', group_no=group['group_no']) }}">
+    <label>부품 자재번호 (규격 등록된 자재만 선택 가능)</label>
+    <select name="material_no" required>
+      {% for m in available_materials %}
+      <option value="{{ m['material_no'] }}">{{ m['material_no'] }} {% if m['material_name'] %}— {{ m['material_name'] }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">추가</button>
+  </form>
+  {% else %}
+  <p class="muted">추가할 수 있는(아직 이 그룹에 없는, 규격 등록된) 자재가 없어. 먼저 부품 규격부터 등록해줘.</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:16px; border-left:4px solid #dc2626;">
+  <form method="POST" action="{{ url_for('material_group_delete', group_no=group['group_no']) }}"
+        onsubmit="return confirm('그룹 자체를 삭제할까? (부품 개별 규격은 안 지워짐)');">
+    <button type="submit" style="background:#fff; color:#dc2626; border:1px solid #dc2626;">이 그룹 삭제</button>
+  </form>
+</div>
+
+<a href="{{ url_for('material_groups') }}" class="btn secondary" style="margin-top:16px;">그룹 목록으로</a>
+{% endblock %}

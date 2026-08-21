@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+{% block title %}규격 개별 등록{% endblock %}
+{% block content %}
+<style>
+  .quick-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
+                overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
+  .quick-grid th { background:#f3f4f6; color:#4b5563; padding:8px 4px; font-size:11.5px; white-space:nowrap; }
+  .quick-grid td { border:1px solid #e5e7eb; padding:0; }
+  .quick-grid input {
+    width:100%; box-sizing:border-box; padding:7px 6px; font-size:12.5px; border:none; border-radius:0; margin:0; background:transparent;
+  }
+  .quick-grid input:focus { outline:2px solid #2563eb; outline-offset:-2px; background:#eff6ff; }
+  .quick-grid td.rownum { background:#f9fafb; text-align:center; color:#9ca3af; font-size:11px; width:26px; }
+  .quick-grid td.del-cell { width:30px; text-align:center; background:#fff; }
+  .del-row-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:14px; padding:4px; }
+  .cond-cell { text-align:center; width:110px; }
+  .cond-btn { background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:6px;
+              padding:5px 8px; font-size:11.5px; cursor:pointer; white-space:nowrap; }
+  .cond-btn.has-items { background:#dcfce7; color:#16a34a; border-color:#86efac; }
+
+  /* 팝업 모달 */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:300;
+                    align-items:center; justify-content:center; padding:16px; }
+  .modal-overlay.open { display:flex; }
+  .modal-box { background:#fff; border-radius:14px; padding:20px; max-width:720px; width:100%;
+               max-height:88vh; overflow-y:auto; }
+  .modal-box h3 { margin-top:0; }
+  .item-row-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+  .item-row-table th { background:#f3f4f6; padding:6px 4px; font-size:11px; }
+  .item-row-table td { border:1px solid #e5e7eb; padding:3px; }
+  .item-row-table input, .item-row-table select { width:100%; padding:4px; font-size:11.5px; border:1px solid #d1d5db; border-radius:4px; }
+  .prev-list { margin-top:10px; border:1px solid #e5e7eb; border-radius:8px; padding:10px; background:#f9fafb; }
+  .prev-item-row { display:flex; align-items:center; gap:6px; padding:4px 0; font-size:12px; user-select:none; }
+  .prev-item-row input[type=checkbox] { width:auto; }
+  .tol-builder { display:flex; gap:3px; margin-top:4px; }
+  .tol-builder input, .tol-builder select { min-width:0; padding:3px !important; font-size:10.5px !important; }
+  .tol-builder .tol-base { width:46px; }
+  .tol-builder .tol-sign { width:44px; }
+  .tol-builder .tol-val { width:42px; }
+  .tol-apply-btn { background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:4px;
+                   font-size:10px; padding:3px 5px; cursor:pointer; white-space:nowrap; }
+</style>
+
+<h2>규격 개별 등록</h2>
+<p class="hint">
+  자재번호와 제품명을 입력하고, "측정조건" 버튼을 눌러 팝업에서 검사 항목까지 바로 입력할 수 있어.
+  팝업 안 "이전 자재 불러오기"로 앞서 입력한 자재의 항목을 그대로 복사해와서 빠르게 채울 수도 있어.
+  엑셀에서 자재번호·제품명 두 열을 복사해서 표 첫 칸에 붙여넣기(Ctrl+V)해도 여러 줄이 한 번에 채워져.
+</p>
+
+<form method="POST" id="quickForm">
+  <input type="hidden" name="rows_json" id="rowsJson">
+  <input type="hidden" name="items_json" id="itemsJson">
+  <div style="margin-bottom:8px;">
+    <button type="button" class="btn secondary" style="margin-top:0;" onclick="openBatchModal()">📦 선택 자재에 동일 조건 일괄 적용</button>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="quick-grid" id="quickGrid">
+      <tr>
+        <th style="width:24px;"><input type="checkbox" id="checkAllRows" onclick="document.querySelectorAll('.row-select').forEach(c=>c.checked=this.checked)"></th>
+        <th></th>
+        <th style="min-width:160px;">자재번호</th>
+        <th style="min-width:220px;">제품명</th>
+        <th class="cond-cell">측정조건</th>
+        <th></th>
+      </tr>
+    </table>
+  </div>
+  <div style="margin-top:10px; display:flex; gap:8px;">
+    <button type="button" id="addRowBtn" class="btn secondary" style="margin-top:0;">+ 행 추가</button>
+    <button type="submit">등록</button>
+  </div>
+</form>
+
+{# ===== 측정조건 입력 팝업 ===== #}
+<div class="modal-overlay" id="condModal">
+  <div class="modal-box">
+    <h3 id="condModalTitle">측정조건 입력</h3>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button" class="btn secondary" style="margin-top:0;" onclick="addItemRow()">+ 항목 추가</button>
+      <button type="button" class="btn secondary" style="margin-top:0;" onclick="togglePrevPanel()">📋 이전 자재 불러오기</button>
+    </div>
+
+    <div class="prev-list" id="prevPanel" style="display:none;">
+      <p class="hint" style="margin:0 0 8px;">불러올 항목을 드래그(또는 클릭)해서 여러 개 선택한 다음 "선택 항목 불러오기"를 눌러줘.</p>
+      <div id="prevMaterialList"></div>
+      <button type="button" class="btn secondary" style="margin-top:10px;" onclick="copySelectedPrevItems()">선택 항목 불러오기</button>
+    </div>
+
+    <table class="item-row-table" id="itemRowTable">
+      <thead>
+        <tr>
+          <th style="width:34px;">기호</th><th style="min-width:150px;">규격표기</th>
+          <th style="width:70px;">판정유형</th><th style="width:60px;">하한</th><th style="width:60px;">상한</th>
+          <th style="width:90px;">검사방법</th><th style="width:90px;">AQL</th><th style="width:30px;"></th>
+        </tr>
+      </thead>
+      <tbody id="itemRowTbody"></tbody>
+    </table>
+
+    {# 배치모드에서 이미 조건이 있는 자재가 섞여있을 때 보여주는 확인 목록 #}
+    <div class="prev-list" id="conflictPanel" style="display:none; border-color:#fca5a5; background:#fef2f2;">
+      <p class="hint" style="margin:0 0 8px; color:#dc2626;">아래 자재들은 이미 측정조건이 입력돼 있어. 체크된 것만 지금 입력한 조건으로 덮어써져.</p>
+      <div id="conflictList"></div>
+    </div>
+
+    <div style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" class="btn secondary" style="margin-top:0;" onclick="closeCondModal()" id="closeBtnNormal">닫기(저장됨)</button>
+      <button type="button" class="btn secondary" style="margin-top:0; display:none;" onclick="closeCondModal()" id="closeBtnBatch">취소</button>
+      <button type="button" style="margin-top:0; display:none;" onclick="commitBatchApply()" id="applyBtnBatch">선택 자재에 적용</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLS = ['material_no', 'material_name'];
+const grid = document.getElementById('quickGrid');
+let rowCount = 0;
+let rowSeq = 0;                 // 각 행의 고유 rowId 발급용
+const materialItems = {};       // rowId -> [item, ...]
+let currentModalRowId = null;
+
+let batchMode = false;
+let batchItems = [];            // 배치모드일 때 편집 대상 배열
+let batchTargetRowIds = [];     // "동일 조건 적용" 버튼 누를 때 선택돼있던 자재 행들
+
+function makeEmptyItem(order) {
+  return { item_order: order, item_name: '', spec_display: '', judge_type: 'numeric',
+           lower_limit: '', upper_limit: '', inspect_method: '', aql_select: '4', aql_percent: '' };
+}
+
+// 항목 순서(0-based idx)에서 A,B,C...Z,AA,AB... 형태의 기호를 자동 생성
+function autoItemLabel(idx) {
+  let n = idx, label = '';
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return label;
+}
+
+// 규격표기 조합형 빌더 계산 (spec_detail.html과 동일 로직)
+function computeTolerance(base, sign, tol) {
+  base = parseFloat(base);
+  tol = parseFloat(tol);
+  if (isNaN(base) || isNaN(tol)) return null;
+  const isPercent = sign.endsWith('%');
+  const baseSign = sign.replace('%', '');
+  const actualTol = isPercent ? base * tol / 100 : tol;
+  let lower, upper;
+  if (baseSign === '+') { lower = base; upper = base + actualTol; }
+  else if (baseSign === '-') { lower = base - actualTol; upper = base; }
+  else { lower = base - actualTol; upper = base + actualTol; }
+  lower = Math.round(lower * 1000) / 1000;
+  upper = Math.round(upper * 1000) / 1000;
+  const tolDisplay = isPercent ? `${tol}%` : `${tol}`;
+  return { text: `${base} ${baseSign}${tolDisplay}`, lower, upper };
+}
+
+function applyQuickTolerance(arrRefStr, idx) {
+  const base = document.getElementById(`qTolBase_${idx}`).value;
+  const sign = document.getElementById(`qTolSign_${idx}`).value;
+  const val = document.getElementById(`qTolVal_${idx}`).value;
+  const result = computeTolerance(base, sign, val);
+  if (!result) { alert('기준값과 공차값을 숫자로 입력해줘.'); return; }
+  const arr = batchMode ? batchItems : materialItems[currentModalRowId];
+  arr[idx].spec_display = result.text;
+  arr[idx].lower_limit = result.lower;
+  arr[idx].upper_limit = result.upper;
+  renderItemRows();
+}
+
+function addRow() {
+  rowCount++;
+  rowSeq++;
+  const rowId = rowSeq;
+  materialItems[rowId] = [];
+  const tr = document.createElement('tr');
+  tr.dataset.rowId = rowId;
+  tr.innerHTML = `<td style="text-align:center; background:#fff;"><input type="checkbox" class="row-select" data-row-id="${rowId}"></td>` +
+    `<td class="rownum">${rowCount}</td>` +
+    COLS.map(c => `<td><input type="text" data-col="${c}"></td>`).join('') +
+    `<td class="cond-cell"><button type="button" class="cond-btn" onclick="openCondModal(${rowId})">측정조건 입력</button></td>` +
+    `<td class="del-cell"><button type="button" class="del-row-btn" onclick="this.closest('tr').remove(); delete materialItems[${rowId}];">✕</button></td>`;
+  grid.appendChild(tr);
+  return tr;
+}
+
+for (let i = 0; i < 15; i++) addRow();
+
+document.getElementById('addRowBtn').addEventListener('click', () => addRow());
+
+// 엑셀에서 여러 셀을 복사해 붙여넣으면(탭/줄바꿈 구분) 현재 칸부터 자동으로 채워짐
+grid.addEventListener('paste', function (e) {
+  const target = e.target;
+  if (target.tagName !== 'INPUT' || !target.dataset.col) return;
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  if (!text.includes('\t') && !text.includes('\n')) return;
+  e.preventDefault();
+
+  const startRow = target.closest('tr');
+  const startColIdx = COLS.indexOf(target.dataset.col);
+  const lines = text.replace(/\r/g, '').split('\n').filter((l, i, arr) => !(i === arr.length - 1 && l === ''));
+
+  let currentRow = startRow;
+  lines.forEach((line, rowOffset) => {
+    if (rowOffset > 0) {
+      currentRow = currentRow.nextElementSibling;
+      if (!currentRow) currentRow = addRow();
+    }
+    const cells = line.split('\t');
+    cells.forEach((val, colOffset) => {
+      const colIdx = startColIdx + colOffset;
+      if (colIdx >= COLS.length) return;
+      const input = currentRow.querySelectorAll('input[data-col]')[colIdx];
+      if (input) input.value = val.trim();
+    });
+  });
+});
+
+// ===== 측정조건 팝업 (단일 자재용) =====
+function openCondModal(rowId) {
+  batchMode = false;
+  currentModalRowId = rowId;
+  const tr = grid.querySelector(`tr[data-row-id="${rowId}"]`);
+  const materialNo = tr.querySelector('input[data-col="material_no"]').value || '(자재번호 미입력)';
+  document.getElementById('condModalTitle').textContent = `측정조건 입력 — ${materialNo}`;
+  document.getElementById('prevPanel').style.display = 'none';
+  document.getElementById('conflictPanel').style.display = 'none';
+  document.getElementById('closeBtnNormal').style.display = 'inline-block';
+  document.getElementById('closeBtnBatch').style.display = 'none';
+  document.getElementById('applyBtnBatch').style.display = 'none';
+  renderItemRows();
+  document.getElementById('condModal').classList.add('open');
+}
+
+function closeCondModal() {
+  document.getElementById('condModal').classList.remove('open');
+  if (!batchMode) updateCondBadge(currentModalRowId);
+  currentModalRowId = null;
+  batchMode = false;
+}
+
+function updateCondBadge(rowId) {
+  const tr = grid.querySelector(`tr[data-row-id="${rowId}"]`);
+  if (!tr) return;
+  const btn = tr.querySelector('.cond-btn');
+  const count = (materialItems[rowId] || []).length;
+  btn.textContent = count > 0 ? `측정조건 (${count}개)` : '측정조건 입력';
+  btn.classList.toggle('has-items', count > 0);
+}
+
+function currentEditArray() {
+  return batchMode ? batchItems : materialItems[currentModalRowId];
+}
+
+function addItemRow() {
+  const items = currentEditArray();
+  items.push(makeEmptyItem(items.length + 1));
+  renderItemRows();
+}
+
+function removeItemRow(idx) {
+  currentEditArray().splice(idx, 1);
+  renderItemRows();
+}
+
+function renderItemRows() {
+  const tbody = document.getElementById('itemRowTbody');
+  const items = currentEditArray() || [];
+  const arrRef = batchMode ? 'batchItems' : `materialItems[${currentModalRowId}]`;
+  // 기호(item_name)와 순서(item_order)는 화면 입력칸 없이 목록 순서대로 자동 부여
+  items.forEach((it, idx) => {
+    it.item_name = autoItemLabel(idx);
+    it.item_order = idx + 1;
+  });
+  tbody.innerHTML = items.map((it, idx) => `
+    <tr>
+      <td style="text-align:center; font-weight:700; color:#6b7280;">${it.item_name}</td>
+      <td>
+        <input type="text" value="${it.spec_display}" onchange="${arrRef}[${idx}].spec_display=this.value">
+        <div class="tol-builder">
+          <input type="text" inputmode="decimal" class="tol-base" placeholder="기준값" id="qTolBase_${idx}">
+          <select class="tol-sign" id="qTolSign_${idx}">
+            <option value="+">+</option>
+            <option value="-">-</option>
+            <option value="±" selected>±</option>
+            <option value="+%">+%</option>
+            <option value="-%">-%</option>
+            <option value="±%">±%</option>
+          </select>
+          <input type="text" inputmode="decimal" class="tol-val" placeholder="공차" id="qTolVal_${idx}">
+          <button type="button" class="tol-apply-btn" onclick="applyQuickTolerance('${arrRef}', ${idx})">적용</button>
+        </div>
+      </td>
+      <td>
+        <select onchange="${arrRef}[${idx}].judge_type=this.value">
+          <option value="numeric" ${it.judge_type==='numeric'?'selected':''}>수치</option>
+          <option value="visual" ${it.judge_type==='visual'?'selected':''}>육안</option>
+          <option value="ok_ng" ${it.judge_type==='ok_ng'?'selected':''}>O,X</option>
+        </select>
+      </td>
+      <td><input type="text" inputmode="decimal" value="${it.lower_limit}" onchange="${arrRef}[${idx}].lower_limit=this.value"></td>
+      <td><input type="text" inputmode="decimal" value="${it.upper_limit}" onchange="${arrRef}[${idx}].upper_limit=this.value"></td>
+      <td><input type="text" value="${it.inspect_method}" onchange="${arrRef}[${idx}].inspect_method=this.value"></td>
+      <td>
+        <select onchange="${arrRef}[${idx}].aql_select=this.value; renderItemRows();">
+          <option value="4" ${it.aql_select==='4'?'selected':''}>4</option>
+          <option value="1.5" ${it.aql_select==='1.5'?'selected':''}>1.5</option>
+          <option value="0.65" ${it.aql_select==='0.65'?'selected':''}>0.65</option>
+          <option value="전수" ${it.aql_select==='전수'?'selected':''}>전수</option>
+          <option value="퍼센트" ${it.aql_select==='퍼센트'?'selected':''}>퍼센트</option>
+        </select>
+        ${it.aql_select === '퍼센트' ? `<input type="number" step="0.1" placeholder="%" value="${it.aql_percent}" style="margin-top:3px;" onchange="${arrRef}[${idx}].aql_percent=this.value">` : ''}
+      </td>
+      <td><button type="button" class="del-row-btn" onclick="removeItemRow(${idx})">✕</button></td>
+    </tr>
+  `).join('');
+}
+
+// ===== 이전 자재 불러오기 (드래그 다중선택) =====
+function togglePrevPanel() {
+  const panel = document.getElementById('prevPanel');
+  const willOpen = panel.style.display === 'none';
+  panel.style.display = willOpen ? 'block' : 'none';
+  if (willOpen) renderPrevMaterialList();
+}
+
+function renderPrevMaterialList() {
+  const listDiv = document.getElementById('prevMaterialList');
+  const otherRowIds = Object.keys(materialItems)
+    .map(Number)
+    .filter(rid => rid !== currentModalRowId && materialItems[rid].length > 0);
+
+  if (otherRowIds.length === 0) {
+    listDiv.innerHTML = '<p class="muted" style="margin:0;">아직 항목이 입력된 다른 자재가 없어.</p>';
+    return;
+  }
+
+  listDiv.innerHTML = otherRowIds.map(rid => {
+    const tr = grid.querySelector(`tr[data-row-id="${rid}"]`);
+    const materialNo = tr.querySelector('input[data-col="material_no"]').value || `(행 ${rid})`;
+    const itemsHtml = materialItems[rid].map((it, idx) => `
+      <label class="prev-item-row">
+        <input type="checkbox" class="prev-check" data-src-row="${rid}" data-src-idx="${idx}">
+        ${it.item_name || '?'} — ${it.spec_display || '(규격표기 없음)'}
+      </label>
+    `).join('');
+    return `<div style="margin-bottom:10px;"><b style="font-size:12.5px;">${materialNo}</b>${itemsHtml}</div>`;
+  }).join('');
+
+  // 드래그로 여러 체크박스 한번에 선택
+  let dragging = false, dragValue = null;
+  listDiv.querySelectorAll('.prev-check').forEach(cb => {
+    cb.addEventListener('mousedown', () => { dragging = true; dragValue = !cb.checked; cb.checked = dragValue; });
+    cb.addEventListener('mouseenter', () => { if (dragging) cb.checked = dragValue; });
+    cb.addEventListener('touchstart', () => { dragging = true; dragValue = !cb.checked; cb.checked = dragValue; });
+  });
+  document.addEventListener('mouseup', () => { dragging = false; });
+  document.addEventListener('touchend', () => { dragging = false; });
+}
+
+function copySelectedPrevItems() {
+  const checked = document.querySelectorAll('.prev-check:checked');
+  const target = currentEditArray();
+  checked.forEach(cb => {
+    const srcRow = Number(cb.dataset.srcRow);
+    const srcIdx = Number(cb.dataset.srcIdx);
+    const srcItem = materialItems[srcRow][srcIdx];
+    target.push({ ...srcItem, item_order: target.length + 1 });
+  });
+  renderItemRows();
+  document.getElementById('prevPanel').style.display = 'none';
+}
+
+// ===== 선택 자재에 동일 조건 일괄 적용 =====
+function openBatchModal() {
+  const selected = Array.from(document.querySelectorAll('.row-select:checked')).map(cb => Number(cb.dataset.rowId));
+  if (selected.length === 0) {
+    alert('먼저 조건을 적용할 자재를 체크해줘.');
+    return;
+  }
+  batchMode = true;
+  batchTargetRowIds = selected;
+  batchItems = [];
+  document.getElementById('condModalTitle').textContent = `선택 자재 ${selected.length}개에 적용할 조건 입력`;
+  document.getElementById('prevPanel').style.display = 'none';
+  document.getElementById('conflictPanel').style.display = 'none';
+  document.getElementById('closeBtnNormal').style.display = 'none';
+  document.getElementById('closeBtnBatch').style.display = 'inline-block';
+  document.getElementById('applyBtnBatch').style.display = 'inline-block';
+  renderItemRows();
+  document.getElementById('condModal').classList.add('open');
+}
+
+function commitBatchApply() {
+  if (batchItems.length === 0) {
+    alert('적용할 조건을 최소 1개 이상 입력해줘.');
+    return;
+  }
+  // 이미 조건이 입력된 자재(충돌)와 비어있는 자재를 나눔
+  const conflictRowIds = batchTargetRowIds.filter(rid => (materialItems[rid] || []).length > 0);
+  const cleanRowIds = batchTargetRowIds.filter(rid => (materialItems[rid] || []).length === 0);
+
+  if (conflictRowIds.length > 0 && document.getElementById('conflictPanel').style.display === 'none') {
+    // 1단계: 충돌 목록을 보여주고 다시 확인받음 (기본 전부 체크)
+    const panel = document.getElementById('conflictPanel');
+    const listDiv = document.getElementById('conflictList');
+    listDiv.innerHTML = conflictRowIds.map(rid => {
+      const tr = grid.querySelector(`tr[data-row-id="${rid}"]`);
+      const materialNo = tr.querySelector('input[data-col="material_no"]').value || `(행 ${rid})`;
+      const count = materialItems[rid].length;
+      return `<label class="prev-item-row">
+        <input type="checkbox" class="conflict-check" data-row-id="${rid}" checked>
+        ${materialNo} — 기존 측정조건 ${count}개 있음 (덮어씀)
+      </label>`;
+    }).join('');
+    panel.style.display = 'block';
+    return;  // 사용자가 확인 체크 후 다시 "선택 자재에 적용"을 눌러야 최종 적용됨
+  }
+
+  // 2단계(또는 충돌 없음): 최종 적용
+  let confirmedConflictIds = [];
+  if (conflictRowIds.length > 0) {
+    confirmedConflictIds = Array.from(document.querySelectorAll('.conflict-check:checked')).map(cb => Number(cb.dataset.rowId));
+  }
+  const finalTargets = [...cleanRowIds, ...confirmedConflictIds];
+
+  finalTargets.forEach(rid => {
+    materialItems[rid] = batchItems.map((it, idx) => ({ ...it, item_order: idx + 1 }));
+    updateCondBadge(rid);
+  });
+
+  alert(`${finalTargets.length}개 자재에 조건이 적용됐어.`);
+  closeCondModal();
+}
+
+// ===== 제출 =====
+document.getElementById('quickForm').addEventListener('submit', function () {
+  const rows = [];
+  const itemsPerRow = [];
+  grid.querySelectorAll('tr[data-row-id]').forEach(tr => {
+    const vals = COLS.map(c => tr.querySelector(`input[data-col="${c}"]`).value.trim());
+    if (vals.some(v => v !== '')) {
+      rows.push(vals);
+      const rid = Number(tr.dataset.rowId);
+      itemsPerRow.push(materialItems[rid] || []);
+    }
+  });
+  document.getElementById('rowsJson').value = JSON.stringify(rows);
+  document.getElementById('itemsJson').value = JSON.stringify(itemsPerRow);
+});
+</script>
+{% endblock %}

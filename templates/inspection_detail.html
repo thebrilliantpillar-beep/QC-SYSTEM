@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}성적서 #{{ header['id'] }}{% endblock %}
+{% block content %}
+<style>
+  .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; font-size:14px; }
+  .meta-grid span { color:#6b7280; }
+  .result-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
+                  overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13.5px; margin-top:10px; }
+  .result-table th { background:#1f2937; color:#fff; padding:10px 8px; text-align:center; }
+  .result-table td { border-bottom:1px solid #e5e7eb; padding:10px 8px; text-align:center; }
+  .result-table tr:last-child td { border-bottom:none; }
+  .result-table tr:nth-child(even) td { background:#f9fafb; }
+  .approve-box { background:#fff; border-radius:12px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08);
+                 margin-top:20px; }
+  .btn-approve { background:#16a34a; color:#fff; border:none; padding:12px 28px; border-radius:8px;
+                 font-size:15px; font-weight:700; cursor:pointer; }
+  .btn-reject  { background:#dc2626; color:#fff; border:none; padding:12px 28px; border-radius:8px;
+                 font-size:15px; font-weight:700; cursor:pointer; margin-left:10px; }
+  .btn-special { background:#ea580c; color:#fff; border:none; padding:12px 28px; border-radius:8px;
+                 font-size:15px; font-weight:700; cursor:pointer; margin-left:10px; }
+  .reject-area { margin-top:14px; display:none; }
+  @media(max-width:600px){ .meta-grid{grid-template-columns:1fr;} }
+</style>
+
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:6px; flex-wrap:wrap;">
+  <h2 style="margin:0;">성적서 #{{ header['id'] }}</h2>
+  {% if header['overall_result'] == '합격' %}<span class="badge pass">합격</span>
+  {% elif header['overall_result'] == '검토필요' %}<span class="badge review">검토필요</span>
+  {% else %}<span class="badge fail">{{ header['overall_result'] }}</span>{% endif %}
+  <span class="badge pending">{{ header['status'] }}</span>
+</div>
+
+<div class="card">
+  <div class="meta-grid">
+    <div><span>자재번호</span><br><b>{{ header['material_no'] }}</b></div>
+    <div><span>자재명</span><br><b>{{ header['material_name'] or '-' }}</b></div>
+    <div><span>업체</span><br><b>{{ header['supplier'] or '-' }}</b></div>
+    <div><span>발주번호</span><br><b>{{ header['po_number'] or '-' }}</b></div>
+    <div><span>입고일</span><br><b>{{ header['receive_date'] or '-' }}</b></div>
+    <div><span>검사일</span><br><b>{{ header['inspect_date'] or '-' }}</b></div>
+    <div><span>검사자</span><br><b>{{ header['inspector'] or '-' }}</b></div>
+    <div><span>입고수량</span><br><b>{{ header['quantity'] or '-' }}</b></div>
+    <div><span>개당 측정 시간</span><br><b>{{ per_cycle_label }}</b></div>
+    <div><span>총 측정 시간</span><br><b>{{ total_time_label }}</b></div>
+  </div>
+  {% if gauge_alerts %}
+  <div style="margin-top:14px; padding-top:14px; border-top:1px solid #e5e7eb;">
+    <span style="font-size:13px; color:#6b7280;">계측기 유효기간 임박</span>
+    <div style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+      {% for a in gauge_alerts %}
+      <div style="font-size:13px; {{ 'color:#dc2626; font-style:italic; font-weight:700;' if a['days_left'] <= 15 else 'color:#d97706;' }}">
+        {{ a['item_name'] }}{% if a['spec_display'] %} ({{ a['spec_display'] }}){% endif %} —
+        {% if a['days_left'] < 0 %}이미 만료 (D+{{ -a['days_left'] }}){% elif a['days_left'] == 0 %}오늘 만료{% else %}D-{{ a['days_left'] }}{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div style="overflow-x:auto;">
+  <table class="result-table">
+    <thead>
+      <tr>
+        <th>항목</th><th>측정값</th><th>최대</th><th>최소</th><th>판정</th><th>계측기<br>유효기간</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for it in items %}
+    <tr>
+      <td style="text-align:left; padding-left:14px;">
+        <span style="color:#9ca3af; font-size:11.5px; font-weight:700;">{{ it['item_name'] }}</span>
+        <span style="font-size:13.5px; margin-left:6px;">{{ it['spec_display'] or it['item_name'] }}</span>
+      </td>
+      <td style="font-size:12.5px;">{{ it['measured_value'] or '-' }}</td>
+      <td>{{ '%.2f'|format(it['max_value']) if it['max_value'] is not none else '-' }}</td>
+      <td>{{ '%.2f'|format(it['min_value']) if it['min_value'] is not none else '-' }}</td>
+      <td><span class="badge {{ 'pass' if it['result']=='합격' else ('fail' if it['result']=='불합격' else 'pending') }}">{{ it['result'] }}</span></td>
+      <td style="font-size:12.5px;">{{ it['gauge_expiry'] or '-' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# ===== 비고 (검사자/중간관리자/최종결정권자 각자 작성) ===== #}
+<div class="approve-box">
+  <h3 style="margin:0 0 6px;">비고</h3>
+  <p class="muted" style="margin:0 0 14px;">검사자·중간관리자·최종결정권자가 각자 자기 칸에 코멘트를 남길 수 있어. 성적서 파일에도 색깔 구분해서 그대로 들어가.</p>
+
+  <div style="display:grid; gap:14px;">
+    <div>
+      <span style="font-weight:700; color:#000000;">🔎 검사자</span>
+      {% if header['remark_inspector'] %}
+      <div style="color:#000000; font-size:13.5px; margin:4px 0;">{{ header['remark_inspector'] }}</div>
+      {% endif %}
+      {% if 'inspect' in user_perms %}
+      <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:4px;">
+        <input type="hidden" name="target_role" value="inspector">
+        <textarea name="remark_text" rows="2" placeholder="검사자 비고 입력...">{{ (header['remark_inspector'].split(': ',1)[1] if ': ' in (header['remark_inspector'] or '') else '') }}</textarea>
+        <button type="submit" style="margin-top:6px; padding:8px 16px; font-size:13.5px;">저장</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div>
+      <span style="font-weight:700; color:#006400;">🧑‍💼 중간관리자</span>
+      {% if header['remark_manager'] %}
+      <div style="color:#006400; font-size:13.5px; margin:4px 0;">{{ header['remark_manager'] }}</div>
+      {% endif %}
+      {% if 'inspect_all' in user_perms %}
+      <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:4px;">
+        <input type="hidden" name="target_role" value="manager">
+        <textarea name="remark_text" rows="2" placeholder="중간관리자 비고 입력...">{{ (header['remark_manager'].split(': ',1)[1] if ': ' in (header['remark_manager'] or '') else '') }}</textarea>
+        <button type="submit" style="margin-top:6px; padding:8px 16px; font-size:13.5px;">저장</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div>
+      <span style="font-weight:700; color:#4B0082;">👑 최종결정권자</span>
+      {% if header['remark_approver'] %}
+      <div style="color:#4B0082; font-size:13.5px; margin:4px 0;">{{ header['remark_approver'] }}</div>
+      {% endif %}
+      {% if 'approve' in user_perms %}
+      <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:4px;">
+        <input type="hidden" name="target_role" value="approver">
+        <textarea name="remark_text" rows="2" placeholder="최종결정권자(부장) 비고 입력...">{{ (header['remark_approver'].split(': ',1)[1] if ': ' in (header['remark_approver'] or '') else '') }}</textarea>
+        <button type="submit" style="margin-top:6px; padding:8px 16px; font-size:13.5px;">저장</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ===== 승인 워크플로우 ===== #}
+{% if header['status'] == 'pending' %}
+<div class="approve-box" style="border-left:4px solid #2563eb; margin-bottom:14px;">
+  <b>측정값 수정</b>
+  <p class="muted" style="margin:4px 0 10px;">승인 전 측정값을 수정할 수 있어.</p>
+  <a href="{{ url_for('edit_inspection', inspection_id=header['id']) }}" class="btn secondary" style="margin-top:0;">✏️ 측정값 수정</a>
+</div>
+
+<div class="approve-box">
+  <h3 style="margin:0 0 6px;">결정권자 승인</h3>
+  <p class="muted" style="margin:0 0 14px;">검토 후 승인 또는 반려해줘. 반려 시 사유를 입력하면 검사자에게 표시돼. 승인하려면 서명이 필요해.</p>
+  <form method="POST" action="{{ url_for('approve', inspection_id=header['id']) }}" id="approveForm" enctype="multipart/form-data">
+    <label>결정권자 이름</label>
+    <input name="approver" value="{{ g.user['display_name'] or g.user['username'] }}" readonly
+           style="max-width:260px; background:#f3f4f6; color:#374151;">
+
+    <div style="margin-top:14px;">
+      <label>서명 방식 <span style="color:#dc2626;">*</span></label>
+      <div style="display:flex; gap:16px; margin-bottom:8px;">
+        <label style="display:inline-flex; align-items:center; gap:6px; font-weight:400;">
+          <input type="radio" name="signature_method" value="draw" checked
+                 onchange="document.getElementById('sigDrawArea').style.display='block'; document.getElementById('sigUploadArea').style.display='none';"
+                 style="width:auto;">
+          직접 서명
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:6px; font-weight:400;">
+          <input type="radio" name="signature_method" value="upload"
+                 onchange="document.getElementById('sigDrawArea').style.display='none'; document.getElementById('sigUploadArea').style.display='block';"
+                 style="width:auto;">
+          서명 이미지 업로드
+        </label>
+      </div>
+
+      <div id="sigDrawArea">
+        <span class="muted" style="font-weight:400;">아래 칸에 손가락/펜으로 서명</span>
+        <canvas id="sigPad" width="320" height="120"
+                style="border:1px solid #d1d5db; border-radius:8px; background:#fff; touch-action:none; display:block; margin-top:6px;"></canvas>
+        <button type="button" id="sigClear" class="btn secondary" style="margin-top:6px; padding:6px 14px;">지우기</button>
+        <input type="hidden" name="signature_data" id="signatureData">
+      </div>
+
+      <div id="sigUploadArea" style="display:none;">
+        <span class="muted" style="font-weight:400;">PNG 또는 JPG 이미지 파일 선택</span>
+        <input type="file" name="signature_file" id="signatureFile" accept=".png,.jpg,.jpeg" style="margin-top:6px;">
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <button type="submit" name="action" value="approve" class="btn-approve" id="approveBtn">✔ 승인</button>
+      <button type="submit" name="action" value="special" class="btn-special" id="specialBtn">⚠ 특채 승인</button>
+      <button type="button" class="btn-reject" onclick="document.getElementById('rejectArea').style.display='block'">✘ 반려</button>
+    </div>
+
+    <div class="reject-area" id="rejectArea">
+      <label>반려 사유 <span style="color:#dc2626;">*</span></label>
+      <textarea name="reject_reason" rows="3" placeholder="반려 이유를 구체적으로 적어줘. 검사자 화면에 표시돼."></textarea>
+      <button type="submit" name="action" value="reject" class="btn-reject" style="margin-top:10px;">반려 확정</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('sigPad');
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#111827';
+  let drawing = false, hasSigned = false;
+
+  function pos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - rect.left, y: p.clientY - rect.top };
+  }
+  function start(e) { drawing = true; hasSigned = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+  function move(e) { if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+  function end() { drawing = false; }
+
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', end);
+
+  document.getElementById('sigClear').addEventListener('click', () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasSigned = false;
+  });
+
+  document.getElementById('approveForm').addEventListener('submit', function (e) {
+    const action = e.submitter ? e.submitter.value : null;
+    if (action === 'approve' || action === 'special') {
+      const method = document.querySelector('input[name="signature_method"]:checked').value;
+      if (method === 'draw') {
+        if (!hasSigned) {
+          alert('승인하려면 서명이 필요해.');
+          e.preventDefault();
+          return;
+        }
+        document.getElementById('signatureData').value = canvas.toDataURL('image/png');
+      } else {
+        const fileInput = document.getElementById('signatureFile');
+        if (!fileInput.files || fileInput.files.length === 0) {
+          alert('서명 이미지 파일을 선택해줘.');
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+  });
+})();
+</script>
+
+{% elif header['status'] == 'rejected' %}
+<div class="approve-box" style="border-left:4px solid #dc2626;">
+  <b style="color:#dc2626;">반려됨</b> — {{ header['approver'] or '' }} ({{ header['approved_at'] or '' }})<br>
+  <span style="color:#6b7280; font-size:13.5px;">{{ header['reject_reason'] or '사유 없음' }}</span>
+  <br>
+  <a href="{{ url_for('reinspect', inspection_id=header['id']) }}" class="btn" style="margin-top:12px; display:inline-block;">재검사 입력</a>
+</div>
+
+{% elif header['status'] == 'approved' %}
+{% set label, cls = status_display(header) %}
+<div class="approve-box" style="border-left:4px solid {{ '#ea580c' if cls=='special' else ('#16a34a' if cls=='pass' else '#dc2626') }};">
+  <b style="color:{{ '#ea580c' if cls=='special' else ('#16a34a' if cls=='pass' else '#dc2626') }};">
+    {{ label }}{{ ' 완료 ⚠' if cls=='special' else ' 완료' }}
+  </b> — {{ header['approver'] or '' }} ({{ header['approved_at'] or '' }})
+  {% if header['pdf_path'] %}
+  <br><span class="muted" style="font-size:13px;">저장 위치: {{ header['pdf_path'] }}</span>
+  {% else %}
+  <br><span class="muted" style="font-size:13px;">아직 xlsx/PDF로 출력 안 됨 — "출력 대기" 화면에서 출력해줘.</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

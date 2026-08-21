@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}승인 대기 목록{% endblock %}
+{% block content %}
+<h2>승인 대기 목록</h2>
+
+{% if not pending %}
+<div class="card"><p class="muted" style="margin:0;">현재 승인 대기 중인 성적서가 없어.</p></div>
+{% else %}
+<div class="card" style="padding:10px 14px; border-left:4px solid var(--pending);">
+  <b>{{ pending|length }}건</b> 승인 대기 중이야. 아래 항목을 클릭하면 상세 내용과 승인 화면이 열려.
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>번호</th>
+      <th>자재번호</th>
+      <th>자재명</th>
+      <th>업체</th>
+      <th>입고일</th>
+      <th>검사일</th>
+      <th>검사자</th>
+      <th>자동판정</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for i in pending %}
+  <tr class="clickable" onclick="location.href='{{ url_for('approve_view', inspection_id=i['id']) }}'">
+    <td>{{ i['id'] }}</td>
+    <td>{{ i['material_no'] }}</td>
+    <td style="text-align:left;">{{ i['material_name'] or '-' }}</td>
+    <td>{{ i['supplier'] or '-' }}</td>
+    <td>{{ i['receive_date'] or '-' }}</td>
+    <td>{{ i['inspect_date'] or '-' }}</td>
+    <td>{{ i['inspector'] or '-' }}</td>
+    <td>
+      {% if i['overall_result'] == '합격' %}
+        <span class="badge pass">합격</span>
+      {% elif i['overall_result'] == '검토필요' %}
+        <span class="badge review">검토필요</span>
+      {% else %}
+        <span class="badge pending">{{ i['overall_result'] or '-' }}</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

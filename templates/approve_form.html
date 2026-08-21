@@ -1,0 +1,464 @@
+{% extends "base.html" %}
+{% block title %}승인 — #{{ header['id'] }} {{ header['material_name'] or header['material_no'] }}{% endblock %}
+{% block content %}
+<style>
+/* ── 뒤로 링크 ── */
+.back-link { display:inline-flex; align-items:center; gap:6px; color:#6b7280; font-size:13px;
+             text-decoration:none; margin-bottom:14px; }
+.back-link:hover { color:#2563eb; }
+
+/* ── ① 신호등 배너 ── */
+.verdict-banner { border-radius:16px; padding:22px 26px; margin-bottom:18px;
+                  display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+.verdict-banner.all-pass  { background:linear-gradient(135deg,#dcfce7,#bbf7d0); border:2px solid #16a34a; }
+.verdict-banner.has-issue { background:linear-gradient(135deg,#fee2e2,#fecaca); border:2px solid #dc2626; }
+.verdict-icon { font-size:54px; line-height:1; flex-shrink:0; }
+.verdict-text h2 { margin:0 0 4px; font-size:21px; }
+.verdict-text p  { margin:0; font-size:14px; color:#374151; }
+.verdict-counts  { margin-left:auto; text-align:right; font-size:13px; color:#6b7280; line-height:1.8; }
+.verdict-counts b { font-size:24px; color:#111; display:block; }
+
+/* ── 기본 정보 그리드 ── */
+.info-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px 14px; font-size:13.5px; }
+.info-grid .lbl { color:#9ca3af; font-size:11px; font-weight:700; text-transform:uppercase; }
+.info-grid .val { font-weight:700; color:#111; margin-top:1px; }
+@media(max-width:540px){ .info-grid{ grid-template-columns:1fr 1fr; } }
+
+/* ── ② 문제 항목 카드 ── */
+.problem-card { background:#fff; border-radius:12px; border-left:5px solid #dc2626;
+                padding:16px 18px; margin-bottom:10px;
+                box-shadow:0 2px 8px rgba(220,38,38,.13); }
+.item-header  { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+.item-name    { font-size:20px; font-weight:800; color:#111; }
+.item-spec    { font-size:13.5px; color:#374151; }
+.item-method-badge { font-size:12px; color:#6b7280; background:#f3f4f6;
+                      padding:2px 8px; border-radius:999px; }
+.spec-range   { font-size:13px; color:#374151; margin-bottom:8px; }
+.mval-list    { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.mval-chip    { padding:6px 14px; border-radius:8px; font-size:16px; font-weight:700;
+                background:#f3f4f6; color:#374151; border:2px solid transparent; }
+.mval-chip.out{ background:#fee2e2; color:#b91c1c; border-color:#fca5a5; }
+
+/* ── ③ 합격 항목 접기 ── */
+.pass-toggle { display:flex; align-items:center; justify-content:space-between;
+               background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px;
+               padding:12px 16px; cursor:pointer; font-size:14px; font-weight:600; color:#374151; }
+.pass-toggle:hover { background:#f0fdf4; border-color:#86efac; }
+.pass-toggle .icon { transition:transform .2s; }
+.pass-toggle.open .icon { transform:rotate(180deg); }
+.pass-body { display:none; border:1px solid #e5e7eb; border-top:none;
+             border-radius:0 0 10px 10px; overflow:hidden; margin-bottom:20px; }
+.pass-body.open { display:block; }
+.pass-table { width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
+.pass-table th { background:#f3f4f6; color:#6b7280; padding:8px 10px; text-align:left;
+                 font-size:11.5px; font-weight:700; border-bottom:1px solid #e5e7eb; }
+.pass-table td { padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+.pass-table tr:last-child td { border-bottom:none; }
+
+/* ── ④ 결정 카드 ── */
+.decision-cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:8px; }
+@media(max-width:560px){ .decision-cards{ grid-template-columns:1fr; } }
+.decision-card { border:2.5px solid #e5e7eb; border-radius:14px; padding:20px 14px;
+                 text-align:center; cursor:pointer; transition:all .15s;
+                 background:#fff; user-select:none; -webkit-tap-highlight-color:transparent; }
+.decision-card:hover { transform:translateY(-2px); box-shadow:0 4px 14px rgba(0,0,0,.1); }
+.decision-card.sel-pass    { border-color:#16a34a; background:#f0fdf4; box-shadow:0 0 0 3px rgba(22,163,74,.18); }
+.decision-card.sel-special { border-color:#ea580c; background:#fff7ed; box-shadow:0 0 0 3px rgba(234,88,12,.18); }
+.decision-card.sel-reject  { border-color:#dc2626; background:#fef2f2; box-shadow:0 0 0 3px rgba(220,38,38,.18); }
+.dc-icon  { font-size:38px; margin-bottom:8px; }
+.dc-title { font-size:17px; font-weight:800; margin-bottom:5px; }
+.dc-desc  { font-size:12.5px; color:#6b7280; line-height:1.5; }
+.rec-badge { display:inline-block; background:#ea580c; color:#fff; font-size:11px; font-weight:700;
+             padding:2px 8px; border-radius:999px; margin-bottom:6px; }
+
+/* ── ⑤ 하단 액션 영역 ── */
+.action-box { display:none; margin-top:16px; background:#fff; border-radius:14px;
+              padding:22px; box-shadow:0 2px 10px rgba(0,0,0,.09);
+              animation:fadeUp .2s ease; }
+.action-box.show { display:block; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+.action-box h3 { margin:0 0 10px; font-size:17px; }
+
+.sig-method-row { display:flex; gap:16px; margin-bottom:10px; }
+.sig-radio { display:inline-flex; align-items:center; gap:6px; font-weight:400; font-size:14px; cursor:pointer; }
+.sig-radio input { width:auto; }
+
+canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+                touch-action:none; display:block; margin-top:6px; max-width:100%; }
+
+.submit-final { width:100%; padding:16px; font-size:17px; font-weight:800; border:none;
+                border-radius:10px; cursor:pointer; margin-top:14px; }
+.submit-final.s-pass    { background:#16a34a; color:#fff; }
+.submit-final.s-special { background:#ea580c; color:#fff; }
+.submit-final.s-reject  { background:#dc2626; color:#fff; }
+
+/* ── 계측기·기타 ── */
+.gauge-warn { background:#fef3c7; border:1px solid #fbbf24; border-radius:10px;
+              padding:11px 16px; font-size:13px; margin-bottom:14px; }
+</style>
+
+<a href="{{ url_for('approve_list') }}" class="back-link">← 승인 대기 목록</a>
+
+{# ───────── ① 신호등 배너 ───────── #}
+{% set total_count   = all_items|length %}
+{% set problem_count = problem_items|length %}
+{% set pass_count    = pass_items|length %}
+
+<div class="verdict-banner {{ 'has-issue' if problem_count > 0 else 'all-pass' }}">
+  <div class="verdict-icon">{{ '🔴' if problem_count > 0 else '🟢' }}</div>
+  <div class="verdict-text">
+    {% if problem_count > 0 %}
+      <h2>⚠ 주의가 필요해!</h2>
+      <p>{{ problem_count }}개 항목이 규격을 벗어났어.<br>아래 내용 확인 후 결정해줘.</p>
+    {% else %}
+      <h2>✅ 전부 합격이야!</h2>
+      <p>모든 항목이 규격 범위 안에 있어.</p>
+    {% endif %}
+  </div>
+  <div class="verdict-counts">
+    <b>{{ total_count }}</b>전체 항목
+    {% if problem_count > 0 %}
+    <br><span style="color:#dc2626; font-weight:700;">{{ problem_count }}개 주의</span>
+    {% endif %}
+  </div>
+</div>
+
+{# ───────── 기본 정보 ───────── #}
+<div class="card" style="padding:16px 18px; margin-bottom:14px;">
+  <div class="info-grid">
+    <div><div class="lbl">자재번호</div><div class="val">{{ header['material_no'] }}</div></div>
+    <div><div class="lbl">자재명</div><div class="val">{{ header['material_name'] or '-' }}</div></div>
+    <div><div class="lbl">업체</div><div class="val">{{ header['supplier'] or '-' }}</div></div>
+    <div><div class="lbl">입고일</div><div class="val">{{ header['receive_date'] or '-' }}</div></div>
+    <div><div class="lbl">검사일</div><div class="val">{{ header['inspect_date'] or '-' }}</div></div>
+    <div><div class="lbl">검사자</div><div class="val">{{ header['inspector'] or '-' }}</div></div>
+    <div><div class="lbl">입고수량</div><div class="val">{{ header['quantity'] or '-' }}</div></div>
+    <div><div class="lbl">발주번호</div><div class="val">{{ header['po_number'] or '-' }}</div></div>
+    <div><div class="lbl">측정시간(개당)</div><div class="val">{{ per_cycle_label }}</div></div>
+  </div>
+</div>
+
+{# ───────── 계측기 경고 ───────── #}
+{% if gauge_alerts %}
+<div class="gauge-warn">
+  ⏰ <b>계측기 유효기간 임박:</b>
+  {% for a in gauge_alerts %}
+  {{ a['item_name'] }}
+  ({% if a['days_left'] < 0 %}만료 D+{{ -a['days_left'] }}{% elif a['days_left'] == 0 %}오늘 만료{% else %}D-{{ a['days_left'] }}{% endif %}){% if not loop.last %},{% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ───────── 비고 ───────── #}
+{% if header['remark_inspector'] or header['remark_manager'] or header['remark_approver'] %}
+<div class="card" style="padding:14px 18px; margin-bottom:14px; font-size:13.5px;">
+  <b style="font-size:12px; color:#9ca3af; font-weight:700; text-transform:uppercase;">💬 비고</b>
+  {% if header['remark_inspector'] %}<div style="margin-top:6px;">🔎 {{ header['remark_inspector'] }}</div>{% endif %}
+  {% if header['remark_manager'] %}<div style="margin-top:4px; color:#166534;">🧑‍💼 {{ header['remark_manager'] }}</div>{% endif %}
+  {% if header['remark_approver'] %}<div style="margin-top:4px; color:#4B0082;">👑 {{ header['remark_approver'] }}</div>{% endif %}
+</div>
+{% endif %}
+
+{# ───────── ② 문제 항목 카드 ───────── #}
+{% if problem_items %}
+<div style="margin-bottom:20px;">
+  <h3 style="font-size:16px; color:#dc2626; margin:0 0 10px; display:flex; align-items:center; gap:6px;">
+    🚨 규격 초과 항목 ({{ problem_count }}개)
+  </h3>
+  {% for it in problem_items %}
+  <div class="problem-card">
+    <div class="item-header">
+      <span class="item-name">{{ it['item_name'] }}</span>
+      <span class="item-spec">{{ it['spec_display'] or '' }}</span>
+      {% if it['inspect_method'] %}
+      <span class="item-method-badge">{{ it['inspect_method'] }}</span>
+      {% endif %}
+    </div>
+
+    <div class="spec-range">
+      규격:&nbsp;
+      {% if it['lower_limit'] is not none and it['upper_limit'] is not none %}
+        <b>{{ it['lower_limit'] }} ~ {{ it['upper_limit'] }}</b>
+      {% elif it['lower_limit'] is not none %}
+        <b>{{ it['lower_limit'] }} 이상</b>
+      {% elif it['upper_limit'] is not none %}
+        <b>{{ it['upper_limit'] }} 이하</b>
+      {% else %}
+        <b>규격 없음</b>
+      {% endif %}
+      &nbsp;|&nbsp; AQL: <b>{{ it['aql'] if it['aql'] is not none else '-' }}</b>
+    </div>
+
+    <div>
+      <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">측정값 (빨간 칸 = 규격 초과)</div>
+      <div class="mval-list">
+        {% if it['parsed_vals'] %}
+          {% for pv in it['parsed_vals'] %}
+          <span class="mval-chip {{ 'out' if pv['out'] else '' }}">{{ pv['display'] }}</span>
+          {% endfor %}
+        {% else %}
+          <span style="color:#9ca3af; font-size:13px;">측정값 없음</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if it['max_value'] is not none or it['min_value'] is not none %}
+    <div style="margin-top:8px; font-size:12.5px; color:#6b7280;">
+      최대 <b style="color:#111;">{{ '%.2f'|format(it['max_value']) if it['max_value'] is not none else '-' }}</b>
+      &nbsp;/&nbsp;
+      최소 <b style="color:#111;">{{ '%.2f'|format(it['min_value']) if it['min_value'] is not none else '-' }}</b>
+    </div>
+    {% endif %}
+
+    {% if it['gauge_days_left'] is not none and it['gauge_days_left'] <= 30 %}
+    <div style="margin-top:6px; font-size:12px; font-style:italic;
+         color:{{ '#dc2626' if it['gauge_days_left'] <= 0 else '#d97706' }};">
+      ⏰ 계측기 유효기간:
+      {% if it['gauge_days_left'] < 0 %}만료됨 (D+{{ -it['gauge_days_left'] }})
+      {% elif it['gauge_days_left'] == 0 %}오늘 만료
+      {% else %}D-{{ it['gauge_days_left'] }}{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ───────── ③ 합격 항목 접기/펼치기 ───────── #}
+{% if pass_items %}
+<div style="margin-bottom:24px;">
+  <div class="pass-toggle" id="passToggle" onclick="togglePass()">
+    <span>✅ 합격 항목 {{ pass_count }}개</span>
+    <span class="icon">▼</span>
+  </div>
+  <div class="pass-body" id="passBody">
+    <table class="pass-table">
+      <thead>
+        <tr>
+          <th>항목</th><th>규격</th><th>검사방법</th><th>측정값</th><th>판정</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for it in pass_items %}
+      <tr>
+        <td><b>{{ it['item_name'] }}</b></td>
+        <td style="font-size:12.5px;">{{ it['spec_display'] or '-' }}</td>
+        <td style="font-size:12.5px; color:#6b7280;">{{ it['inspect_method'] or '-' }}</td>
+        <td style="font-size:12.5px; color:#374151;">
+          {% if it['parsed_vals'] %}
+            {% for pv in it['parsed_vals'] %}{{ pv['display'] }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% else %}-{% endif %}
+        </td>
+        <td><span class="badge {{ 'pass' if it['result']=='합격' else 'pending' }}">{{ it['result'] or '-' }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ───────── ④ 결정 카드 ───────── #}
+<div>
+  <h3 style="font-size:18px; font-weight:800; margin:0 0 12px;">어떻게 결정할 거야?</h3>
+  <div class="decision-cards">
+
+    <div class="decision-card" id="card-pass" onclick="selectDecision('pass')">
+      <div class="dc-icon">✅</div>
+      <div class="dc-title" style="color:#15803d;">합격 승인</div>
+      <div class="dc-desc">규격 안에 있어.<br>정상 출하해도 돼.</div>
+    </div>
+
+    <div class="decision-card" id="card-special" onclick="selectDecision('special')">
+      {% if problem_count > 0 %}
+      <div class="rec-badge">검토필요 시 추천</div>
+      {% endif %}
+      <div class="dc-icon">⚠️</div>
+      <div class="dc-title" style="color:#c2410c;">특채 승인</div>
+      <div class="dc-desc">문제 있지만<br>사용하기로 결정.</div>
+    </div>
+
+    <div class="decision-card" id="card-reject" onclick="selectDecision('reject')">
+      <div class="dc-icon">❌</div>
+      <div class="dc-title" style="color:#b91c1c;">반려</div>
+      <div class="dc-desc">다시 검사해야 해.<br>검사자에게 전달.</div>
+    </div>
+
+  </div>
+</div>
+
+{# ───────── ⑤ 액션 폼 (결정 선택 후 슬라이드) ───────── #}
+<form method="POST" action="{{ url_for('approve', inspection_id=header['id']) }}"
+      id="approveForm" enctype="multipart/form-data">
+
+  <input type="hidden" name="action"           id="hiddenAction">
+  <input type="hidden" name="signature_data"   id="hiddenSigData">
+  <input type="hidden" name="signature_method" id="hiddenSigMethod" value="draw">
+  <input type="hidden" name="from_approve"     value="1">
+
+  {# 합격/특채 공통 서명 박스 #}
+  <div class="action-box" id="box-sign">
+    <h3 id="signBoxTitle" style="color:#15803d;">✅ 서명해줘</h3>
+    <p class="muted" style="margin:0 0 14px;" id="signBoxDesc">서명하면 합격으로 확정돼.</p>
+
+    <div class="sig-method-row">
+      <label class="sig-radio">
+        <input type="radio" name="ui_sig_method" value="draw" checked
+               onchange="setSigMethod('draw')"> 직접 서명
+      </label>
+      <label class="sig-radio">
+        <input type="radio" name="ui_sig_method" value="upload"
+               onchange="setSigMethod('upload')"> 이미지 업로드
+      </label>
+    </div>
+
+    <div id="drawArea">
+      <canvas id="sigPad" width="340" height="120"></canvas>
+      <button type="button" onclick="clearSig()" class="btn secondary"
+              style="margin-top:6px; padding:6px 16px; font-size:13px;">지우기</button>
+    </div>
+
+    <div id="uploadArea" style="display:none;">
+      <span class="muted" style="font-size:13px;">PNG / JPG 서명 이미지 선택</span>
+      <input type="file" name="signature_file" id="sigFileInput" accept=".png,.jpg,.jpeg"
+             style="margin-top:6px;">
+    </div>
+
+    <button type="button" class="submit-final s-pass" id="signSubmitBtn"
+            onclick="submitSign()">✅ 합격 승인 확정</button>
+  </div>
+
+  {# 반려 박스 #}
+  <div class="action-box" id="box-reject">
+    <h3 style="color:#b91c1c; margin:0 0 10px;">❌ 반려 사유를 적어줘</h3>
+    <p class="muted" style="margin:0 0 10px;">검사자 화면에 그대로 보여.</p>
+    <textarea name="reject_reason" rows="4"
+              placeholder="예) D항목 측정값이 규격 상한을 초과했어. 재측정 후 다시 제출해줘."
+              style="font-size:15px;"></textarea>
+    <button type="submit" class="submit-final s-reject"
+            onclick="document.getElementById('hiddenAction').value='reject';">❌ 반려 확정</button>
+  </div>
+
+</form>
+
+<div style="height:50px;"></div>
+
+<script>
+/* ── 서명 패드 ── */
+(function () {
+  const canvas = document.getElementById('sigPad');
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#111827';
+  let drawing = false;
+  window._hasSigned = false;
+
+  function pos(e) {
+    const r = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: (p.clientX - r.left) * (canvas.width / r.width),
+             y: (p.clientY - r.top)  * (canvas.height / r.height) };
+  }
+  canvas.addEventListener('mousedown', e => { drawing=true; window._hasSigned=true; const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); });
+  canvas.addEventListener('mousemove', e => { if(!drawing) return; const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); });
+  window.addEventListener('mouseup', () => drawing=false);
+  canvas.addEventListener('touchstart', e => { drawing=true; window._hasSigned=true; const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); }, {passive:false});
+  canvas.addEventListener('touchmove',  e => { if(!drawing) return; const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); }, {passive:false});
+  canvas.addEventListener('touchend',   () => drawing=false);
+
+  window.clearSig = function() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    window._hasSigned = false;
+  };
+})();
+
+function setSigMethod(method) {
+  document.getElementById('drawArea').style.display   = method === 'draw'   ? 'block' : 'none';
+  document.getElementById('uploadArea').style.display = method === 'upload' ? 'block' : 'none';
+  document.getElementById('hiddenSigMethod').value = method;
+}
+
+function submitSign() {
+  const method = document.getElementById('hiddenSigMethod').value;
+  if (method === 'draw') {
+    if (!window._hasSigned) { alert('서명을 먼저 해줘.'); return; }
+    document.getElementById('hiddenSigData').value =
+      document.getElementById('sigPad').toDataURL('image/png');
+  } else {
+    const fi = document.getElementById('sigFileInput');
+    if (!fi.files || fi.files.length === 0) {
+      alert('서명 이미지 파일을 선택해줘.'); return;
+    }
+  }
+  document.getElementById('approveForm').submit();
+}
+
+/* ── 결정 카드 선택 ── */
+let currentDecision = null;
+
+function selectDecision(type) {
+  if (currentDecision === type) {
+    // 같은 카드 다시 클릭 → 해제
+    document.getElementById('card-' + type).className = 'decision-card';
+    document.getElementById('box-sign').classList.remove('show');
+    document.getElementById('box-reject').classList.remove('show');
+    currentDecision = null;
+    return;
+  }
+  // 모두 초기화
+  ['pass','special','reject'].forEach(t => {
+    document.getElementById('card-' + t).className = 'decision-card';
+  });
+  document.getElementById('box-sign').classList.remove('show');
+  document.getElementById('box-reject').classList.remove('show');
+
+  // 선택 적용
+  document.getElementById('card-' + type).classList.add('sel-' + type);
+  currentDecision = type;
+
+  if (type === 'pass' || type === 'special') {
+    const btn   = document.getElementById('signSubmitBtn');
+    const title = document.getElementById('signBoxTitle');
+    const desc  = document.getElementById('signBoxDesc');
+    document.getElementById('hiddenAction').value = type === 'pass' ? 'approve' : 'special';
+
+    if (type === 'pass') {
+      title.textContent = '✅ 서명해줘';
+      title.style.color = '#15803d';
+      btn.textContent   = '✅ 합격 승인 확정';
+      btn.className     = 'submit-final s-pass';
+      desc.textContent  = '서명하면 이 검사가 합격으로 확정돼.';
+    } else {
+      title.textContent = '⚠️ 서명해줘';
+      title.style.color = '#c2410c';
+      btn.textContent   = '⚠️ 특채 승인 확정';
+      btn.className     = 'submit-final s-special';
+      desc.textContent  = '규격 초과를 인지하고 사용하기로 결정한 걸로 기록돼.';
+    }
+    document.getElementById('box-sign').classList.add('show');
+  } else {
+    document.getElementById('box-reject').classList.add('show');
+  }
+
+  setTimeout(() => {
+    const el = document.getElementById(type === 'reject' ? 'box-reject' : 'box-sign');
+    el.scrollIntoView({ behavior:'smooth', block:'start' });
+  }, 120);
+}
+
+/* ── 합격 항목 접기/펼치기 ── */
+function togglePass() {
+  const toggle = document.getElementById('passToggle');
+  const body   = document.getElementById('passBody');
+  toggle.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+/* ── 전체 합격이면 합격 항목 기본 펼침 ── */
+{% if problem_count == 0 %}
+window.addEventListener('load', () => {
+  document.getElementById('passToggle').classList.add('open');
+  document.getElementById('passBody').classList.add('open');
+});
+{% endif %}
+</script>
+{% endblock %}

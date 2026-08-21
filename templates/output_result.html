@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}성적서 출력 결과{% endblock %}
+{% block content %}
+<h2>성적서 출력 결과</h2>
+
+<table>
+  <tr><th>번호</th><th>자재번호</th><th>결과</th></tr>
+  {% for r in results %}
+  <tr>
+    <td>{{ r['id'] }}</td>
+    <td>{{ r['material_no'] }}</td>
+    <td>
+      {% if r['pdf_path'] and not r['error'] %}
+        <span class="badge pass">성공</span>
+        <div style="font-size:12px; color:#6b7280; margin-top:4px;">{{ r['pdf_path'] }}</div>
+      {% elif r['pdf_path'] %}
+        <span class="badge pending">일부 오류</span>
+        <div style="font-size:12px; color:#6b7280; margin-top:4px;">{{ r['error'] }}</div>
+      {% else %}
+        <span class="badge fail">실패</span>
+        <div style="font-size:12px; color:#dc2626; margin-top:4px;">{{ r['error'] or '원인 불명' }}</div>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<a href="{{ url_for('output_list') }}" class="btn secondary">출력 대기 목록으로</a>
+{% endblock %}

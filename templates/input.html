@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>입고검사 성적서 입력</title>
+<style>
+  :root{
+    --ink:#16202E; --muted:#5B6B80; --line:#D3DAE3; --line-2:#E6EAF0;
+    --paper:#FFFFFF; --bg:#EDF0F4;
+    --navy:#1F3A5F; --navy-d:#152A47;
+    --pass:#157347; --pass-bg:#E6F3EC;
+    --fail:#C0362C; --fail-bg:#FBEAE8;
+    --focus:#2C6FB5;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif; font-size:14px;}
+  .appbar{background:linear-gradient(180deg,var(--navy),var(--navy-d)); color:#fff;
+    padding:14px 18px; position:sticky; top:0; z-index:5;}
+  .appbar h1{font-size:16px; margin:0;}
+  .wrap{max-width:900px; margin:18px auto; padding:0 14px 120px;}
+  .sheet{background:var(--paper); border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .sheet-hd{text-align:center; padding:16px; border-bottom:2px solid var(--ink);}
+  .sheet-hd .title{font-size:19px; font-weight:800;}
+  .meta{display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid var(--line);}
+  .meta .f{display:flex; align-items:center; gap:8px; padding:9px 14px; border-top:1px solid var(--line-2);}
+  .meta .f:nth-child(odd){border-right:1px solid var(--line-2);}
+  .meta label{font-size:12px; color:var(--muted); min-width:78px; font-weight:600;}
+  .meta select, .meta input{flex:1; border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:inherit; background:#FBFCFE;}
+  table{width:100%; border-collapse:collapse; min-width:640px;}
+  th,td{border:1px solid var(--line); padding:6px; text-align:center; font-size:13px;}
+  thead th{background:#F1F4F8; font-size:12px;}
+  .col-spec{width:150px; text-align:left; padding-left:10px;}
+  .tbl-scroll{overflow-x:auto;}
+  td.meas input{width:46px; border:1px solid var(--line); border-radius:5px; padding:5px 3px; text-align:center; font:inherit; background:#FBFCFE;}
+  td.meas input.oob{border-color:var(--fail); background:var(--fail-bg); color:var(--fail); font-weight:700;}
+  .visual-sel{border:1px solid var(--line); border-radius:5px; padding:5px; font:inherit;}
+  td.verdict{font-weight:800;}
+  .v-pass{color:var(--pass); background:var(--pass-bg);} .v-fail{color:var(--fail); background:var(--fail-bg);}
+  .result{display:flex; align-items:center; gap:14px; padding:14px 16px; border-top:1px solid var(--line);}
+  .badge{font-size:16px; font-weight:800; padding:6px 18px; border-radius:8px;}
+  .badge.pass{color:var(--pass); background:var(--pass-bg); border:1.5px solid var(--pass);}
+  .badge.fail{color:var(--fail); background:var(--fail-bg); border:1.5px solid var(--fail);}
+  .badge.wait{color:var(--muted); background:#F1F4F8; border:1.5px dashed var(--line);}
+  .actionbar{position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--line);}
+  .actionbar .in{max-width:900px; margin:0 auto; padding:12px 16px; display:flex; gap:12px; align-items:center;}
+  .msg{font-size:13px; color:var(--muted); flex:1;}
+  button.act{border:0; border-radius:8px; padding:12px 20px; font:inherit; font-weight:700; cursor:pointer; background:var(--navy); color:#fff;}
+  button.act:disabled{opacity:.4;}
+</style>
+</head>
+<body>
+<div class="appbar"><h1>입고검사 성적서 입력</h1></div>
+<div class="wrap">
+  <div class="sheet">
+    <div class="sheet-hd">
+      <div class="title">자재 선택 후 측정값을 입력하세요</div>
+    </div>
+    <div class="meta">
+      <div class="f"><label>자재번호</label>
+        <select id="material">
+          <option value="">선택하세요</option>
+          {% for m in materials %}
+          <option value="{{ m.material_no }}">{{ m.material_no }} — {{ m.product_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="f"><label>검사 수량</label><input id="qty" type="number" value="4" min="1"></div>
+      <div class="f"><label>납품 업체</label><input id="vendor" value=""></div>
+      <div class="f"><label>발주 번호</label><input id="po_no" value=""></div>
+      <div class="f"><label>입고일/로트</label><input id="lot" value=""></div>
+      <div class="f"><label>검사 날짜</label><input id="inspect_date" type="date"></div>
+      <div class="f"><label>검사자</label><input id="inspector" value=""></div>
+    </div>
+    <div class="tbl-scroll">
+      <table id="tbl"><thead>
+        <tr><th style="width:34px">번호</th><th class="col-spec">검사 항목/규격</th><th>샘플</th>
+            <th>측정1</th><th>측정2</th><th>측정3</th><th>최대</th><th>최소</th><th>판정</th></tr>
+      </thead><tbody id="tbody">
+        <tr><td colspan="9" style="color:var(--muted); padding:20px;">자재를 먼저 선택하세요</td></tr>
+      </tbody></table>
+    </div>
+    <div class="result">
+      <span>검사 결과</span>
+      <span class="badge wait" id="overall">대기</span>
+    </div>
+  </div>
+</div>
+<div class="actionbar"><div class="in">
+  <div class="msg" id="statusMsg">자재를 선택하면 검사 항목이 표시됩니다.</div>
+  <button class="act" id="btnSubmit" disabled>검사 완료·저장</button>
+</div></div>
+
+<script>
+let SPEC = [];
+const materialSel = document.getElementById("material");
+const tbody = document.getElementById("tbody");
+const overall = document.getElementById("overall");
+const btnSubmit = document.getElementById("btnSubmit");
+const statusMsg = document.getElementById("statusMsg");
+
+materialSel.onchange = async () => {
+  const mat = materialSel.value;
+  if(!mat){ tbody.innerHTML = '<tr><td colspan="9" style="color:#5B6B80;padding:20px;">자재를 먼저 선택하세요</td></tr>'; return; }
+  const res = await fetch(`/api/spec/${mat}`);
+  SPEC = await res.json();
+  renderTable();
+};
+
+function renderTable(){
+  tbody.innerHTML = "";
+  SPEC.forEach((s, idx) => {
+    const tr = document.createElement("tr");
+    let cells = "";
+    for(let c=0;c<3;c++){
+      if(c < s.sample_n){
+        if(s.kind === "육안"){
+          cells += `<td class="meas"><select class="visual-sel" data-r="${idx}">
+            <option value="">–</option><option value="ok">합격</option><option value="ng">불합격</option></select></td>`;
+        } else {
+          cells += `<td class="meas"><input type="number" step="0.01" inputmode="decimal" data-r="${idx}" data-c="${c}"></td>`;
+        }
+      } else { cells += `<td style="background:#F7F9FB"></td>`; }
+    }
+    tr.innerHTML = `<td>${s.item}</td>
+      <td class="col-spec">${s.label||""}</td>
+      <td>${s.sample_n}</td>${cells}
+      <td data-mx="${idx}">—</td><td data-mn="${idx}">—</td>
+      <td class="verdict" data-v="${idx}">—</td>`;
+    tbody.appendChild(tr);
+  });
+  compute();
+}
+
+function compute(){
+  let allDone = true, allPass = true, anyInput = false;
+  SPEC.forEach((s, idx) => {
+    const vCell = document.querySelector(`[data-v="${idx}"]`);
+    const mxCell = document.querySelector(`[data-mx="${idx}"]`);
+    const mnCell = document.querySelector(`[data-mn="${idx}"]`);
+    if(s.kind === "육안"){
+      const sel = document.querySelector(`.visual-sel[data-r="${idx}"]`);
+      mxCell.textContent = "—"; mnCell.textContent = "—";
+      if(!sel || !sel.value){ vCell.textContent="—"; vCell.className="verdict"; allDone=false; return; }
+      anyInput = true;
+      const pass = sel.value === "ok";
+      vCell.textContent = pass ? "합격" : "불합격";
+      vCell.className = "verdict " + (pass ? "v-pass" : "v-fail");
+      if(!pass) allPass = false;
+      return;
+    }
+    const inputs = [...document.querySelectorAll(`input[data-r="${idx}"]`)];
+    const vals = [];
+    inputs.forEach(inp => {
+      const raw = inp.value.trim();
+      if(raw===""){ inp.classList.remove("oob"); return; }
+      const v = parseFloat(raw);
+      if(isNaN(v)) return;
+      vals.push(v);
+      inp.classList.toggle("oob", v < s.lo || v > s.hi);
+    });
+    if(vals.length < s.sample_n){
+      if(vals.length>0){ anyInput=true; mxCell.textContent=Math.max(...vals).toFixed(2); mnCell.textContent=Math.min(...vals).toFixed(2); }
+      else { mxCell.textContent="—"; mnCell.textContent="—"; }
+      vCell.textContent="—"; vCell.className="verdict"; allDone=false; return;
+    }
+    anyInput = true;
+    const mx=Math.max(...vals), mn=Math.min(...vals);
+    mxCell.textContent=mx.toFixed(2); mnCell.textContent=mn.toFixed(2);
+    const pass = vals.every(v => v>=s.lo && v<=s.hi);
+    vCell.textContent = pass?"합격":"불합격";
+    vCell.className = "verdict " + (pass?"v-pass":"v-fail");
+    if(!pass) allPass=false;
+  });
+  if(!anyInput){ overall.textContent="대기"; overall.className="badge wait"; }
+  else if(!allDone){ overall.textContent="진행중"; overall.className="badge wait"; }
+  else { overall.textContent = allPass?"합격":"불합격"; overall.className="badge " + (allPass?"pass":"fail"); }
+  btnSubmit.disabled = !(allDone && anyInput && materialSel.value);
+}
+document.addEventListener("input", compute);
+document.addEventListener("change", compute);
+
+btnSubmit.onclick = async () => {
+  const measurements = {}, visuals = {};
+  SPEC.forEach((s, idx) => {
+    if(s.kind === "육안"){
+      const sel = document.querySelector(`.visual-sel[data-r="${idx}"]`);
+      visuals[s.item] = sel.value;
+    } else {
+      const inputs = [...document.querySelectorAll(`input[data-r="${idx}"]`)];
+      measurements[s.item] = inputs.map(i => i.value.trim()==="" ? null : parseFloat(i.value));
+    }
+  });
+  const payload = {
+    material_no: materialSel.value,
+    vendor: document.getElementById("vendor").value,
+    po_no: document.getElementById("po_no").value,
+    lot: document.getElementById("lot").value,
+    inspect_date: document.getElementById("inspect_date").value,
+    inspector: document.getElementById("inspector").value,
+    qty: document.getElementById("qty").value,
+    measurements, visuals
+  };
+  btnSubmit.disabled = true;
+  statusMsg.textContent = "저장 중... (성적서 생성 + PDF 변환)";
+  const res = await fetch("/api/submit", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const data = await res.json();
+  if(data.ok){
+    statusMsg.innerHTML = `✅ 저장 완료 — 판정: <b>${data.overall}</b> · <a href="${data.pdf_url}" target="_blank">PDF 보기</a>`;
+  } else {
+    statusMsg.textContent = "❌ 오류: " + data.error;
+    btnSubmit.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

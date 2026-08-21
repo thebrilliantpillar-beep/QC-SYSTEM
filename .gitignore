@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# 데이터베이스 (실제 데이터 — 절대 커밋 금지)
+iqc.db
+iqc.db-shm
+iqc.db-wal
+
+# 자동 생성 폴더
+성적서 발행/
+backups/
+자동출력/
+
+# 서명 이미지
+static/signatures/
+
+# 환경 설정
+.env
+*.env
+
+# 가상환경
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 임시 파일
+*.tmp
+*.log
+temp/
+
+# Claude Code 세션 (launch.json은 유지)
+.claude/projects/

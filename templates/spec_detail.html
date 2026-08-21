@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}{{ material_no }} 규격{% endblock %}
+{% block content %}
+<style>
+  .spec-edit-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
+                      overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
+  .spec-edit-table th { background:#f3f4f6; color:#4b5563; padding:8px 4px; font-size:11.5px; }
+  .spec-edit-table td { border-bottom:1px solid #e5e7eb; padding:6px 4px; text-align:center; vertical-align:middle; }
+  .spec-edit-table input, .spec-edit-table select {
+    width:100%; padding:5px 3px; font-size:12px; border:1px solid #d1d5db; border-radius:5px; min-width:56px;
+  }
+  .spec-edit-table td.wide input { min-width:110px; }
+  .row-actions { display:flex; gap:4px; justify-content:center; }
+  .row-actions button { padding:5px 8px; font-size:11.5px; margin-top:0; border-radius:5px; }
+  .btn-del { background:#fff; color:#dc2626; border:1px solid #dc2626; }
+  .btn-del:hover { background:#fee2e2; }
+  .tol-builder { display:flex; gap:3px; margin-top:4px; }
+  .tol-builder input, .tol-builder select { min-width:0; }
+  .tol-builder .tol-base { width:52px; }
+  .tol-builder .tol-sign { width:52px; }
+  .tol-builder .tol-val { width:48px; }
+  .tol-apply-btn { background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:5px;
+                   font-size:10.5px; padding:4px 6px; cursor:pointer; white-space:nowrap; }
+</style>
+
+<h2>{{ material_no }} 검사 규격</h2>
+<p class="hint">항목을 직접 수정하거나 삭제할 수 있어. 판정유형을 "육안"으로 바꾸면 하한/상한은 저장 시 자동으로 비워져.
+  수치 항목은 규격표기 아래 "기준값·부호·공차값"으로 빠르게 조합해서 규격표기+하한/상한을 한번에 채울 수도 있어(직접 타이핑도 계속 가능).</p>
+
+<div class="card">
+  <h3 style="margin-top:0;">자재번호 / 자재명 수정</h3>
+  <p class="hint" style="margin-top:0;">자재번호를 바꾸면 지금부터 이 번호로 취급돼. 이미 입고·검사된 과거 성적서는 그대로 옛 번호로 남아.</p>
+  <form method="POST" action="{{ url_for('spec_material_rename', material_no=material_no) }}"
+        onsubmit="return confirm('자재번호/자재명을 변경할까? 과거 성적서 기록은 옛 번호로 그대로 남아있어.');">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:1; min-width:140px;"><label>자재번호</label><input type="text" name="new_material_no" value="{{ material_no }}" required></div>
+      <div style="flex:1; min-width:140px;"><label>자재명</label><input type="text" name="new_material_name" value="{{ material_name or '' }}"></div>
+      <button type="submit" style="margin-top:0;">변경 저장</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">기준서 정보</h3>
+  <p class="hint" style="margin-top:0;">
+    성적서 PDF 출력 시 뒤에 자동으로 붙는 기준서(SAM 양식)에 들어가는 정보야.
+    도면번호는 자재번호에서 자동 계산돼(<b>{{ drawing_no }}</b>) — 따로 입력 안 해도 돼.
+  </p>
+  <form method="POST" action="{{ url_for('spec_standard_info_update', material_no=material_no) }}">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:1; min-width:100px;"><label>도면 버전</label><input type="text" name="drawing_version" value="{{ material['drawing_version'] if material else '1' }}"></div>
+      <div style="flex:1; min-width:140px;"><label>개정 날짜</label><input type="date" name="revision_date" value="{{ material['revision_date'] if material else '' }}"></div>
+      <div style="flex:1; min-width:80px;"><label>판수(제O판)</label><input type="number" name="edition" value="{{ material['edition'] if material else 1 }}"></div>
+      <div style="flex:1; min-width:80px;"><label>단위</label><input type="text" name="unit" value="{{ material['unit'] if material else 'mm' }}"></div>
+      <button type="submit" style="margin-top:0;">저장</button>
+    </div>
+  </form>
+</div>
+
+{# 각 행의 수정용 폼을 테이블 바깥에 미리 선언 — <tr> 안에 <form>을 직접 넣을 수 없어서
+   input들은 form="spec-row-N" 속성으로 이 폼에 연결한다 #}
+{% for s in specs %}
+<form id="spec-row-{{ s['id'] }}" method="POST"
+      action="{{ url_for('spec_item_update', material_no=material_no, spec_id=s['id']) }}"></form>
+<form id="spec-del-{{ s['id'] }}" method="POST"
+      action="{{ url_for('spec_item_delete', material_no=material_no, spec_id=s['id']) }}"
+      onsubmit="return confirm('이 항목을 삭제할까?');"></form>
+{% endfor %}
+
+<form id="bulkDeleteForm" method="POST" action="{{ url_for('spec_item_delete_bulk', material_no=material_no) }}"
+      onsubmit="return confirm('선택한 항목을 모두 삭제할까?');"></form>
+
+{% if specs %}
+<button type="submit" form="bulkDeleteForm" class="btn-del" style="margin:0 0 10px; padding:9px 18px;">선택 삭제</button>
+{% endif %}
+
+<div style="overflow-x:auto;">
+  <table class="spec-edit-table">
+    <tr>
+      <th style="width:26px;"><input type="checkbox" id="checkAllSpecs" onclick="document.querySelectorAll('.spec-row-check').forEach(c=>c.checked=this.checked)"></th>
+      <th>순서</th><th>항목</th><th style="min-width:150px;">규격표기</th><th>판정유형</th>
+      <th>하한</th><th>상한</th><th>검사방법</th><th>AQL</th><th>관리</th>
+    </tr>
+    {% for s in specs %}
+    <tr>
+      <td><input type="checkbox" class="spec-row-check" form="bulkDeleteForm" name="spec_ids" value="{{ s['id'] }}"></td>
+      <td><input form="spec-row-{{ s['id'] }}" type="number" name="item_order" value="{{ s['item_order'] or 0 }}"></td>
+      <td><input form="spec-row-{{ s['id'] }}" type="text" name="item_name" value="{{ s['item_name'] or '' }}"></td>
+      <td class="wide">
+        <input form="spec-row-{{ s['id'] }}" type="text" name="spec_display" id="specDisplay_{{ s['id'] }}" value="{{ s['spec_display'] or '' }}">
+        <div class="tol-builder">
+          <input type="text" inputmode="decimal" class="tol-base" placeholder="기준값" id="tolBase_{{ s['id'] }}">
+          <select class="tol-sign" id="tolSign_{{ s['id'] }}">
+            <option value="+">+</option>
+            <option value="-">-</option>
+            <option value="±" selected>±</option>
+            <option value="+%">+%</option>
+            <option value="-%">-%</option>
+            <option value="±%">±%</option>
+          </select>
+          <input type="text" inputmode="decimal" class="tol-val" placeholder="공차" id="tolVal_{{ s['id'] }}">
+          <button type="button" class="tol-apply-btn" onclick="applyTolerance({{ s['id'] }})">적용</button>
+        </div>
+      </td>
+      <td>
+        <select form="spec-row-{{ s['id'] }}" name="judge_type">
+          <option value="numeric" {% if s['judge_type']=='numeric' %}selected{% endif %}>수치</option>
+          <option value="visual" {% if s['judge_type']=='visual' %}selected{% endif %}>육안</option>
+          <option value="ok_ng" {% if s['judge_type']=='ok_ng' %}selected{% endif %}>O,X</option>
+        </select>
+      </td>
+      <td><input form="spec-row-{{ s['id'] }}" type="text" inputmode="decimal" name="lower_limit" id="lowerLimit_{{ s['id'] }}" value="{{ s['lower_limit'] if s['lower_limit'] is not none else '' }}"></td>
+      <td><input form="spec-row-{{ s['id'] }}" type="text" inputmode="decimal" name="upper_limit" id="upperLimit_{{ s['id'] }}" value="{{ s['upper_limit'] if s['upper_limit'] is not none else '' }}"></td>
+      <td><input form="spec-row-{{ s['id'] }}" type="text" name="inspect_method" value="{{ s['inspect_method'] or '' }}"></td>
+      <td>
+        <select form="spec-row-{{ s['id'] }}" name="aql_select" onchange="const p=this.closest('td').querySelector('.aql-percent'); p.style.display = this.value==='퍼센트' ? 'inline-block' : 'none';">
+          <option value="4" {% if s['aql']|string == '4' %}selected{% endif %}>4</option>
+          <option value="1.5" {% if s['aql']|string == '1.5' %}selected{% endif %}>1.5</option>
+          <option value="0.65" {% if s['aql']|string == '0.65' %}selected{% endif %}>0.65</option>
+          <option value="전수" {% if s['aql'] == '전수' %}selected{% endif %}>전수</option>
+          <option value="퍼센트" {% if (s['aql']|string).startswith('퍼센트') %}selected{% endif %}>퍼센트</option>
+        </select>
+        <input form="spec-row-{{ s['id'] }}" type="number" step="0.1" name="aql_percent" class="aql-percent"
+               placeholder="%"
+               style="display:{{ 'inline-block' if (s['aql']|string).startswith('퍼센트') else 'none' }}; width:50px; margin-top:3px;"
+               value="{{ s['aql'][3:] if (s['aql']|string).startswith('퍼센트') else '' }}">
+      </td>
+      <td>
+        <div class="row-actions">
+          <button type="submit" form="spec-row-{{ s['id'] }}">저장</button>
+          <button type="submit" form="spec-del-{{ s['id'] }}" class="btn-del">삭제</button>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="10">등록된 항목이 없어.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h3 style="margin-top:0;">새 항목 추가</h3>
+  <form method="POST" action="{{ url_for('spec_item_add', material_no=material_no) }}">
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:80px;"><label>순서</label><input type="number" name="item_order"></div>
+      <div style="flex:1; min-width:80px;"><label>항목기호</label><input type="text" name="item_name" placeholder="예: H"></div>
+      <div style="flex:2; min-width:200px;">
+        <label>규격표기</label>
+        <input type="text" name="spec_display" id="specDisplay_new" placeholder="예: 10.0 ± 0.3 또는 외관" required>
+        <div class="tol-builder">
+          <input type="text" inputmode="decimal" class="tol-base" placeholder="기준값" id="tolBase_new">
+          <select class="tol-sign" id="tolSign_new">
+            <option value="+">+</option>
+            <option value="-">-</option>
+            <option value="±" selected>±</option>
+            <option value="+%">+%</option>
+            <option value="-%">-%</option>
+            <option value="±%">±%</option>
+          </select>
+          <input type="text" inputmode="decimal" class="tol-val" placeholder="공차" id="tolVal_new">
+          <button type="button" class="tol-apply-btn" onclick="applyTolerance('new')">적용</button>
+        </div>
+      </div>
+      <div style="flex:1; min-width:100px;">
+        <label>판정유형</label>
+        <select name="judge_type">
+          <option value="numeric">수치</option>
+          <option value="visual">육안</option>
+          <option value="ok_ng">O,X</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:80px;"><label>하한</label><input type="text" inputmode="decimal" name="lower_limit" id="lowerLimit_new"></div>
+      <div style="flex:1; min-width:80px;"><label>상한</label><input type="text" inputmode="decimal" name="upper_limit" id="upperLimit_new"></div>
+      <div style="flex:1; min-width:100px;"><label>검사방법</label><input type="text" name="inspect_method" placeholder="예: 버니어캘리퍼스"></div>
+      <div style="flex:1; min-width:70px;">
+        <label>AQL</label>
+        <select name="aql_select" id="newAqlSelect" onchange="document.getElementById('newAqlPercent').style.display = this.value==='퍼센트' ? 'block' : 'none';">
+          <option value="4">4</option>
+          <option value="1.5">1.5</option>
+          <option value="0.65">0.65</option>
+          <option value="전수">전수</option>
+          <option value="퍼센트">퍼센트</option>
+        </select>
+        <input type="number" step="0.1" name="aql_percent" id="newAqlPercent" placeholder="%" style="display:none; margin-top:6px;">
+      </div>
+    </div>
+    <button type="submit">항목 추가</button>
+  </form>
+</div>
+
+<a href="{{ url_for('inspect_select') }}" class="btn secondary">검사 대기 목록에서 입력하기</a>
+
+<script>
+// 규격표기 조합형 빌더 — 기준값+부호(+,-,±,+%,-%,±%)+공차값으로 규격표기·하한·상한을 한번에 계산
+function computeTolerance(base, sign, tol) {
+  base = parseFloat(base);
+  tol = parseFloat(tol);
+  if (isNaN(base) || isNaN(tol)) return null;
+  const isPercent = sign.endsWith('%');
+  const baseSign = sign.replace('%', '');
+  const actualTol = isPercent ? base * tol / 100 : tol;
+
+  let lower, upper;
+  if (baseSign === '+') { lower = base; upper = base + actualTol; }
+  else if (baseSign === '-') { lower = base - actualTol; upper = base; }
+  else { lower = base - actualTol; upper = base + actualTol; }
+
+  lower = Math.round(lower * 1000) / 1000;
+  upper = Math.round(upper * 1000) / 1000;
+  const tolDisplay = isPercent ? `${tol}%` : `${tol}`;
+  return { text: `${base} ${baseSign}${tolDisplay}`, lower, upper };
+}
+
+function applyTolerance(id) {
+  const base = document.getElementById(`tolBase_${id}`).value;
+  const sign = document.getElementById(`tolSign_${id}`).value;
+  const val = document.getElementById(`tolVal_${id}`).value;
+  const result = computeTolerance(base, sign, val);
+  if (!result) { alert('기준값과 공차값을 숫자로 입력해줘.'); return; }
+  document.getElementById(`specDisplay_${id}`).value = result.text;
+  document.getElementById(`lowerLimit_${id}`).value = result.lower;
+  document.getElementById(`upperLimit_${id}`).value = result.upper;
+}
+</script>
+{% endblock %}

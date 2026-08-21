@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}규격 일괄 등록{% endblock %}
+{% block content %}
+<h2>규격 일괄 등록</h2>
+<div class="card">
+  <p class="muted" style="margin-top:0;">
+    자재별로 항목/규격만 채워진 빈 성적서 양식(.xlsx) 파일들을 한 번에 올리면
+    파일 안의 모든 시트를 각각 읽어서(파일 하나에 여러 자재 시트가 섞여 있어도 OK)
+    자재번호·자재명·항목별 규격을 자동으로 찾아 등록해.
+  </p>
+  <p class="hint">
+    셀 위치나 열 순서가 시트마다 달라도 "자재번호"·"검사 항목"·"AQL" 같은 라벨 텍스트를
+    찾아서 위치를 스스로 판단하니 괜찮아. 다만 그 라벨 자체가 없거나 표현이 많이 다르면
+    못 읽고 경고로 표시돼.<br>
+    이미 등록된 자재번호를 다시 올리면 그 자재의 규격이 통째로 새 파일 내용으로 교체돼.<br>
+    규격 표기에서 하한/상한을 자동으로 못 읽은 항목은 등록은 되지만 결과 화면에 표시되니
+    규격 상세에서 직접 확인해줘.
+  </p>
+  <form method="POST" enctype="multipart/form-data">
+    <label>성적서 양식 파일 (여러 개 선택 가능)</label>
+    <input type="file" name="spec_files" accept=".xlsx,.xlsm" multiple required>
+
+    <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:16px;">
+      <input type="checkbox" name="is_group" value="1" id="isGroupCheck" style="width:auto;"
+             onchange="document.getElementById('groupFields').style.display = this.checked ? 'block' : 'none'">
+      이 파일(들)은 조립품 그룹이다 — 업로드되는 시트/자재들을 하나의 그룹으로 묶어줘
+    </label>
+    <div id="groupFields" style="display:none; margin-top:10px;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:160px;"><label>그룹(조립품) 자재번호</label><input type="text" name="group_no" placeholder="예: ASM-001"></div>
+        <div style="flex:1; min-width:160px;"><label>그룹 이름</label><input type="text" name="group_name" placeholder="예: 모터 어셈블리"></div>
+      </div>
+    </div>
+
+    <button type="submit">업로드 &amp; 등록</button>
+  </form>
+</div>
+{% endblock %}

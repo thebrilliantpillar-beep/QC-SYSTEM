@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}홈{% endblock %}
+{% block content %}
+<h2>최근 검사 현황</h2>
+
+{% if pending_count > 0 %}
+<div class="card" style="border-left: 4px solid var(--pending);">
+  <b>미검사 {{ pending_count }}건</b> 대기 중이야.
+  <a href="{{ url_for('inspect_select') }}" class="btn" style="margin-top:10px;">지금 검사하기</a>
+</div>
+{% endif %}
+
+{% if 'intake' in user_perms %}
+<a href="{{ url_for('intake') }}" class="btn secondary">+ 입고 리스트 등록</a>
+{% endif %}
+
+<table>
+  <tr><th>번호</th><th>자재번호</th><th>업체</th><th>검사일</th><th>결과</th><th>승인상태</th></tr>
+  {% for i in inspections %}
+  <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=i['id']) }}'">
+    <td>{{ i['id'] }}</td>
+    <td>{{ i['material_no'] }}</td>
+    <td>{{ i['supplier'] or '-' }}</td>
+    <td>{{ i['inspect_date'] or '-' }}</td>
+    <td>
+      {% if i['overall_result'] == '합격' %}<span class="badge pass">합격</span>
+      {% elif i['overall_result'] == '검토필요' %}<span class="badge review">검토필요</span>
+      {% else %}<span class="badge pending">{{ i['overall_result'] or '-' }}</span>{% endif %}
+    </td>
+    <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6">아직 등록된 검사가 없어.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

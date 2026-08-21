@@ -1,0 +1,406 @@
+{% extends "base.html" %}
+{% block title %}{{ intake['material_no'] }} 검사 입력{% endblock %}
+{% block content %}
+<style>
+  .form-header { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; font-size: 14px; }
+  .form-header span { color: var(--muted); }
+  .inspect-table { width: 100%; border-collapse: collapse; background: #fff;
+                   border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.07); font-size: 13px; }
+  .inspect-table th { background: #1f2937; color: #fff; padding: 10px 6px; text-align: center; font-weight: 600; }
+  .inspect-table td { border-bottom: 1px solid #e5e7eb; padding: 8px 5px; text-align: center; vertical-align: middle; }
+  .inspect-table tr:last-child td { border-bottom: none; }
+  .inspect-table tr:nth-child(even) td { background: #f9fafb; }
+  .spec-cell { text-align: left; font-size: 12.5px; color: #374151; line-height: 1.5; }
+  .sample-input { width: 68px; padding: 7px 4px; font-size: 13px; border: 1px solid #d1d5db;
+                  border-radius: 6px; text-align: center; }
+  .sample-input:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  .visual-select { padding: 7px 2px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 6px; width: 62px; }
+  .result-cell { font-weight: 700; font-size: 13px; }
+  .gauge-input { width: 128px; padding: 6px 4px; font-size: 12.5px; border: 1px solid #d1d5db;
+                 border-radius: 6px; text-align: center; }
+  .gauge-input:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  .gauge-input.gauge-expiring { color: #dc2626; font-style: italic; border-color: #dc2626; font-weight: 700; }
+  .disabled-cell { color: #d1d5db; background: #f3f4f6; }
+</style>
+
+<h2>{{ intake['material_no'] }} 검사 입력{% if is_group %} <span style="font-size:14px; color:#7c3aed; font-weight:600;">(조립품 그룹{% if group_name %} · {{ group_name }}{% endif %})</span>{% endif %}</h2>
+
+{% if is_group %}
+<div class="card" style="border-left:4px solid #7c3aed; background:#f5f3ff;">
+  <p class="muted" style="margin:0;">이 자재는 조립품 그룹이라 아래 표에 부품별로 구간이 나뉘어 있어. 부품 순서대로 쭉 이어서 측정하면 되고, 성적서는 부품마다 시트가 나뉜 파일 1개로 나가.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="form-header">
+    <div><span>업체</span><br><b>{{ intake['supplier'] or '-' }}</b></div>
+    <div><span>발주번호</span><br><b>{{ intake['po_number'] or '-' }}</b></div>
+    <div><span>제품명</span><br><b>{{ intake['product_name'] or '-' }}</b></div>
+    <div><span>입고일</span><br><b>{{ intake['receive_date'] or '-' }}</b></div>
+    <div><span>입고수량</span><br><b>{{ intake['quantity'] or '-' }}</b></div>
+  </div>
+</div>
+
+<form method="POST" id="inspectForm"
+      action="{% if edit_mode %}{{ url_for('edit_inspection_submit', inspection_id=edit_mode) }}{% endif %}">
+
+  <div class="card" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <div style="font-size:13.5px; color:#374151;">개당 측정 시간</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span id="stopwatch" style="font-size:20px; font-weight:700; font-variant-numeric:tabular-nums;">00:00</span>
+      <button type="button" id="swToggle" class="btn secondary" style="margin-top:0; padding:8px 16px;">시작</button>
+      <button type="button" id="swReset" class="btn secondary" style="margin-top:0; padding:8px 12px;">초기화</button>
+    </div>
+    <input type="hidden" name="actual_time_sec" id="actualTimeSec" value="{{ prefill.actual_time_sec if prefill else '0' }}">
+  </div>
+
+  <div class="card" style="padding:12px;">
+    <div style="display:flex; gap:16px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:160px;">
+        <label>검사일</label>
+        <input type="date" name="inspect_date" required
+               value="{{ prefill.inspect_date if prefill else '' }}">
+      </div>
+      <div style="flex:1; min-width:160px;">
+        <label>검사자</label>
+        <input name="inspector" value="{{ g.user['display_name'] or g.user['username'] }}" readonly
+               style="background:#f3f4f6; color:#374151;">
+      </div>
+    </div>
+    {% if prefill and prefill.reject_reason %}
+    <div style="margin-top:12px; padding:10px 14px; background:#fee2e2; border-radius:8px; font-size:13.5px; color:#dc2626;">
+      <b>반려 사유:</b> {{ prefill.reject_reason }}
+    </div>
+    {% endif %}
+  </div>
+
+  <div style="overflow-x:auto; margin-top:4px;">
+    <table class="inspect-table">
+      <thead>
+        <tr>
+          <th style="width:36px;">번호</th>
+          <th style="min-width:130px;">검사항목 / 규격</th>
+          <th style="width:46px;">AQL</th>
+          <th style="width:48px;">샘플<br>수량</th>
+          <th style="width:72px;">측정1</th>
+          <th style="width:72px;">측정2</th>
+          <th style="width:72px;">측정3</th>
+          <th style="width:72px;">측정4</th>
+          <th style="width:72px;">측정5</th>
+          <th style="width:72px;">측정6</th>
+          <th style="width:58px;">최대값</th>
+          <th style="width:58px;">최소값</th>
+          <th style="width:62px;">판정</th>
+          <th style="width:140px;">계측기<br>유효기간</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% set ns = namespace(last_material=None) %}
+      {% for s in specs %}
+        {% if is_group and s['material_no'] != ns.last_material %}
+        <tr>
+          <td colspan="14" style="background:#ede9fe; color:#5b21b6; font-weight:700; text-align:left; padding:8px 12px;">
+            🔩 부품: {{ s['material_no'] }}{% if s['material_name'] %} — {{ s['material_name'] }}{% endif %}
+          </td>
+        </tr>
+        {% set ns.last_material = s['material_no'] %}
+        {% endif %}
+        <tr>
+          <td><b>{{ s['item_name'] }}</b></td>
+          <td class="spec-cell">
+            {{ s['spec_display'] or '-' }}<br>
+            <span style="color:#9ca3af;font-size:11.5px;">{{ s['inspect_method'] or '-' }}</span>
+          </td>
+          <td>{{ s['aql'] }}</td>
+          <td><b>{{ s['sample_qty'] or '?' }}</b></td>
+
+          {% if s['judge_type'] == 'numeric' %}
+            {% set active_n = s['sample_qty'] if (s['sample_qty'] and s['sample_qty'] < 6) else 6 %}
+            {% for i in range(1, 7) %}
+              {% if i <= active_n %}
+            <td><input class="sample-input"
+                       name="item_{{ s['id'] }}_{{ i }}"
+                       data-id="{{ s['id'] }}"
+                       data-lo="{{ s['lower_limit'] }}"
+                       data-hi="{{ s['upper_limit'] }}"
+                       type="text"
+                       inputmode="decimal"
+                       pattern="[0-9]*\.?[0-9]*"
+                       oninput="restrictNumeric(this); recalc({{ s['id'] }}); checkAutoStop();"
+                       placeholder="-"
+                       disabled
+                       value="{{ prefill['item_' ~ s['id'] ~ '_' ~ i] if prefill else '' }}"></td>
+              {% else %}
+            <td class="disabled-cell">－</td>
+              {% endif %}
+            {% endfor %}
+            <td class="result-cell" id="max_{{ s['id'] }}">-</td>
+            <td class="result-cell" id="min_{{ s['id'] }}">-</td>
+            <td class="result-cell" id="res_{{ s['id'] }}">-</td>
+            <input type="hidden" name="item_{{ s['id'] }}_max" id="hmax_{{ s['id'] }}">
+            <input type="hidden" name="item_{{ s['id'] }}_min" id="hmin_{{ s['id'] }}">
+            <input type="hidden" name="item_{{ s['id'] }}_result" id="hres_{{ s['id'] }}">
+            {% if s['inspect_method'] and '육안' in s['inspect_method'] %}
+            <td style="color:#9ca3af;">해당없음</td>
+            {% else %}
+            <td><input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
+                       name="item_{{ s['id'] }}_gauge_expiry"
+                       oninput="checkGaugeExpiry(this)"
+                       value="{{ prefill['item_' ~ s['id'] ~ '_gauge_expiry'] if prefill else '' }}"></td>
+            {% endif %}
+
+          {% else %}{# 육안 항목 — 샘플수량이 6 미만이면 그만큼만 활성화 #}
+            {% set active_v = s['sample_qty'] if (s['sample_qty'] and s['sample_qty'] < 6) else 6 %}
+            {% for i in range(1, 7) %}
+              {% if i <= active_v %}
+            <td>
+              <select class="visual-select"
+                      name="item_{{ s['id'] }}_{{ i }}"
+                      data-id="{{ s['id'] }}"
+                      disabled
+                      onchange="recalcVisual({{ s['id'] }}); checkAutoStop();">
+                <option value="">-</option>
+                <option value="O" {% if prefill and prefill['item_' ~ s['id'] ~ '_' ~ i] == 'O' %}selected{% endif %}>O</option>
+                <option value="X" {% if prefill and prefill['item_' ~ s['id'] ~ '_' ~ i] == 'X' %}selected{% endif %}>X</option>
+              </select>
+            </td>
+              {% else %}
+            <td class="disabled-cell">－</td>
+              {% endif %}
+            {% endfor %}
+            <td>-</td><td>-</td>
+            <td class="result-cell" id="res_{{ s['id'] }}">-</td>
+            <input type="hidden" name="item_{{ s['id'] }}_result" id="hres_{{ s['id'] }}">
+            <td style="color:#9ca3af;">해당없음</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <button type="submit" style="margin-top:20px; width:100%; font-size:16px; padding:15px;">
+    판정 실행 &amp; 성적서 제출
+  </button>
+</form>
+
+{# ===== 태블릿용 방향 이동 D패드 — 측정값 입력칸 사이를 화면 버튼으로 이동 ===== #}
+<div id="navPad" style="position:fixed; right:14px; bottom:14px; z-index:200;
+     background:rgba(31,41,55,.92); border-radius:14px; padding:8px;
+     box-shadow:0 4px 14px rgba(0,0,0,.3); display:grid;
+     grid-template-columns:40px 40px 40px; grid-template-rows:40px 40px 40px; gap:4px;">
+  <div></div>
+  <button type="button" class="nav-btn" data-dir="up">▲</button>
+  <div></div>
+  <button type="button" class="nav-btn" data-dir="left">◀</button>
+  <div style="display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:10px;">이동</div>
+  <button type="button" class="nav-btn" data-dir="right">▶</button>
+  <div></div>
+  <button type="button" class="nav-btn" data-dir="down">▼</button>
+  <div></div>
+</div>
+<style>
+  .nav-btn { background:#374151; color:#fff; border:none; border-radius:8px; font-size:16px;
+             font-weight:700; cursor:pointer; margin:0; padding:0; }
+  .nav-btn:active { background:#2563eb; }
+</style>
+
+<script>
+function recalc(id) {
+  const inputs = document.querySelectorAll(`input[data-id="${id}"]`);
+  const lo = parseFloat(inputs[0].dataset.lo);
+  const hi = parseFloat(inputs[0].dataset.hi);
+  const vals = [];
+  inputs.forEach(inp => { const v = parseFloat(inp.value); if (!isNaN(v)) vals.push(v); });
+  if (vals.length === 0) {
+    ['max','min','res'].forEach(t => { document.getElementById(`${t}_${id}`).textContent = '-'; });
+    document.getElementById(`res_${id}`).style.color = '';
+    ['hmax','hmin','hres'].forEach(t => { document.getElementById(`${t}_${id}`).value = ''; });
+    return;
+  }
+  const mx = Math.max(...vals), mn = Math.min(...vals);
+  const ok = vals.every(v => v >= lo && v <= hi);
+  document.getElementById(`max_${id}`).textContent = mx.toFixed(2);
+  document.getElementById(`min_${id}`).textContent = mn.toFixed(2);
+  const resEl = document.getElementById(`res_${id}`);
+  resEl.textContent = ok ? '합격' : '불합격';
+  resEl.style.color = ok ? '#16a34a' : '#dc2626';
+  document.getElementById(`hmax_${id}`).value = mx;
+  document.getElementById(`hmin_${id}`).value = mn;
+  document.getElementById(`hres_${id}`).value = ok ? '합격' : '불합격';
+}
+
+function recalcVisual(id) {
+  const selects = document.querySelectorAll(`select[data-id="${id}"]`);
+  const vals = Array.from(selects).map(s => s.value).filter(v => v !== '');
+  const resEl = document.getElementById(`res_${id}`);
+  if (vals.length === 0) { resEl.textContent = '-'; resEl.style.color = ''; document.getElementById(`hres_${id}`).value = ''; return; }
+  const ok = vals.every(v => v === 'O');
+  resEl.textContent = ok ? '합격' : '불합격';
+  resEl.style.color = ok ? '#16a34a' : '#dc2626';
+  document.getElementById(`hres_${id}`).value = ok ? '합격' : '불합격';
+}
+
+// 페이지 로드 시 기존 값 있으면 재계산 (반려 후 재입력 케이스)
+window.addEventListener('load', () => {
+  document.querySelectorAll('input.sample-input[data-id]').forEach(inp => recalc(inp.dataset.id));
+  document.querySelectorAll('select[data-id]').forEach(sel => recalcVisual(sel.dataset.id));
+});
+
+// 태블릿 입력 시 숫자(소수점 포함)만 남기고 나머지 제거
+function restrictNumeric(input) {
+  let v = input.value.replace(/[^0-9.]/g, '');
+  const firstDot = v.indexOf('.');
+  if (firstDot !== -1) {
+    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
+  }
+  input.value = v;
+}
+
+// 계측기 유효기간이 D-15 이내(이미 지났어도 포함)면 빨간 기울임꼴로 강조
+function checkGaugeExpiry(input) {
+  const val = input.value.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(val);
+  if (!m) { input.classList.remove('gauge-expiring'); return; }
+  const target = new Date(+m[1], +m[2] - 1, +m[3]);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffDays = Math.round((target - today) / 86400000);
+  if (diffDays <= 15) {
+    input.classList.add('gauge-expiring');
+  } else {
+    input.classList.remove('gauge-expiring');
+  }
+}
+window.addEventListener('load', () => {
+  document.querySelectorAll('.gauge-input').forEach(checkGaugeExpiry);
+});
+
+// 개당 측정 시간 스톱워치 (수동 시작/정지) — 정지된 시간이 실제 제출값(actual_time_sec)이 됨
+// 타이머를 시작해야만 측정값 입력이 가능하고, 측정1(샘플 1개) 칸이 다 채워지면 자동으로 정지된다.
+let swRunning = false;
+let swEverStarted = {{ 'true' if (prefill and prefill.actual_time_sec) else 'false' }};
+
+function setInputsLocked(locked) {
+  document.querySelectorAll('.sample-input, .visual-select').forEach(el => {
+    el.disabled = locked;
+  });
+}
+
+function checkAutoStop() {
+  if (!swRunning) return;
+  const firstCycleEls = Array.from(document.querySelectorAll('.sample-input[name$="_1"], .visual-select[name$="_1"]'));
+  if (firstCycleEls.length === 0) return;
+  const allFilled = firstCycleEls.every(el => el.value !== '');
+  if (allFilled) {
+    document.getElementById('swToggle').click();  // 자동 정지
+  }
+}
+
+(function () {
+  const display = document.getElementById('stopwatch');
+  const toggleBtn = document.getElementById('swToggle');
+  const resetBtn = document.getElementById('swReset');
+  const hiddenInput = document.getElementById('actualTimeSec');
+  let seconds = parseInt(hiddenInput.value, 10) || 0;
+  let timerId = null;
+
+  function render() {
+    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    display.textContent = `${m}:${s}`;
+    hiddenInput.value = seconds;
+  }
+  render();
+  setInputsLocked(true);  // 페이지 로드 시 항상 잠금 — 타이머를 눌러야 입력 가능
+
+  toggleBtn.addEventListener('click', () => {
+    if (!swRunning) {
+      timerId = setInterval(() => { seconds++; render(); checkAutoStop(); }, 1000);
+      toggleBtn.textContent = '정지';
+      swRunning = true;
+      swEverStarted = true;
+      setInputsLocked(false);
+    } else {
+      clearInterval(timerId);
+      toggleBtn.textContent = '시작';
+      swRunning = false;
+    }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    clearInterval(timerId);
+    swRunning = false;
+    swEverStarted = false;
+    toggleBtn.textContent = '시작';
+    seconds = 0;
+    render();
+    setInputsLocked(true);  // 초기화하면 다시 시작을 눌러야 입력 가능
+  });
+})();
+
+document.getElementById('inspectForm').addEventListener('submit', function (e) {
+  if (!swEverStarted) {
+    alert('측정 시간 타이머를 먼저 시작해야 측정값을 입력하고 제출할 수 있어.');
+    e.preventDefault();
+    return;
+  }
+  if (swRunning) {
+    alert('측정 시간 타이머가 아직 켜져 있어. 정지를 누른 다음 제출해줘.');
+    e.preventDefault();
+    return;
+  }
+});
+
+// ===== 방향 이동 D패드 =====
+// 버그 수정: 버튼 클릭 시 포커스가 버튼으로 이동하므로 마지막 포커스된 입력칸을 별도 변수에 저장
+(function () {
+  let lastFocused = null;
+
+  // 측정칸에 포커스될 때마다 저장
+  document.addEventListener('focusin', function (e) {
+    if (e.target.classList.contains('sample-input') || e.target.classList.contains('visual-select')) {
+      lastFocused = e.target;
+    }
+  });
+
+  function getRows() {
+    const rows = [];
+    document.querySelectorAll('.inspect-table tbody tr').forEach(tr => {
+      const cells = Array.from(tr.querySelectorAll('.sample-input, .visual-select')).filter(el => !el.disabled);
+      if (cells.length > 0) rows.push(cells);
+    });
+    return rows;
+  }
+
+  function move(dir) {
+    const active = lastFocused;
+    if (!active || active.disabled) return;
+
+    const rows = getRows();
+    let rIdx = -1, cIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const j = rows[i].indexOf(active);
+      if (j !== -1) { rIdx = i; cIdx = j; break; }
+    }
+    if (rIdx === -1) return;
+
+    let target = null;
+    if (dir === 'left' && cIdx > 0) target = rows[rIdx][cIdx - 1];
+    if (dir === 'right' && cIdx < rows[rIdx].length - 1) target = rows[rIdx][cIdx + 1];
+    if (dir === 'up' && rIdx > 0) target = rows[rIdx - 1][Math.min(cIdx, rows[rIdx - 1].length - 1)];
+    if (dir === 'down' && rIdx < rows.length - 1) target = rows[rIdx + 1][Math.min(cIdx, rows[rIdx + 1].length - 1)];
+
+    if (target) {
+      target.focus();
+      if (target.select) target.select();
+      lastFocused = target;
+    }
+  }
+
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault()); // 포커스 이탈 방지
+    btn.addEventListener('click', () => move(btn.dataset.dir));
+  });
+})();
+</script>
+{% endblock %}

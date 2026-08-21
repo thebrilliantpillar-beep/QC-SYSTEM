@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}IQC 성적서 시스템{% endblock %}</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1e40af;
+    --bg: #f6f7fb;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --pass: #16a34a;
+    --fail: #dc2626;
+    --pending: #d97706;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Malgun Gothic", sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+  header { background: linear-gradient(135deg, #1f2937, #111827); color: #fff; padding: 16px 20px;
+           display: flex; align-items: center; gap: 20px; flex-wrap: wrap; position: relative; z-index: 50; }
+  header .logo { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
+  header a { color: #d1d5db; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px; }
+  header a:hover, header a.active { color: #fff; background: rgba(255,255,255,.1); }
+  .nav-dropdown { position: relative; }
+  .nav-dropdown > button { background: none; border: none; color: #d1d5db; font-size: 14px; padding: 6px 10px;
+                            border-radius: 6px; cursor: pointer; font-family: inherit; }
+  .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); }
+  .nav-dropdown .menu { display: none; position: absolute; top: 100%; left: 0; background: #1f2937;
+                         border-radius: 8px; padding: 6px; min-width: 170px; box-shadow: 0 8px 20px rgba(0,0,0,.3); margin-top:4px; }
+  .nav-dropdown.open .menu { display: block; }
+  .nav-dropdown .menu a { display: block; padding: 8px 10px; white-space: nowrap; }
+  main { padding: 20px 16px 60px; max-width: 780px; margin: 0 auto; }
+  h2 { font-size: 20px; margin: 4px 0 16px; }
+  h3 { font-size: 16px; color: #374151; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); margin-top: 10px;
+          border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  th, td { border-bottom: 1px solid var(--border); padding: 12px 10px; text-align: center; font-size: 13.5px; }
+  th { background: #f3f4f6; color: #4b5563; font-weight: 700; }
+  tr:last-child td { border-bottom: none; }
+  tr.clickable:hover { background: #f0f5ff; cursor: pointer; }
+  input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #d1d5db;
+                             border-radius: 8px; font-family: inherit; background: #fff; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary);
+                             box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  label { font-weight: 600; font-size: 13px; color: #4b5563; display: block; margin: 14px 0 6px; }
+  button, .btn { display: inline-block; padding: 12px 22px; background: var(--primary); color: #fff; border: none;
+                 border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
+                 margin-top: 16px; transition: background .15s; }
+  button:hover, .btn:hover { background: var(--primary-dark); }
+  .btn.secondary { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
+  .btn.secondary:hover { background: #eff6ff; }
+  .btn.block { display: block; text-align: left; margin-bottom: 8px; }
+  .card { background: var(--card); padding: 18px; border-radius: 12px; margin-bottom: 14px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700; }
+  .badge.pass { color: var(--pass); background: #dcfce7; }
+  .badge.fail { color: var(--fail); background: #fee2e2; }
+  .badge.pending { color: var(--pending); background: #fef3c7; }
+  .badge.muted { color: #6b7280; background: #f3f4f6; }
+  .badge.special { color: #ea580c; background: #ffedd5; }
+  .badge.review  { color: #7c3aed; background: #ede9fe; }
+  .flash { background: #fef3c7; border: 1px solid #fbbf24; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13.5px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">🧪 IQC 성적서</span>
+  {% if g.user %}
+  {% set perms = user_perms %}
+  <a href="{{ url_for('home') }}">홈</a>
+
+  {% if 'inspect' in perms or 'inspect_all' in perms or 'approve' in perms or 'output' in perms %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="this.parentElement.classList.toggle('open')">검사 ▾</button>
+    <div class="menu">
+      {% if 'inspect' in perms or 'inspect_all' in perms %}<a href="{{ url_for('inspect_select') }}">검사 입력</a>{% endif %}
+      {% if 'approve' in perms %}<a href="{{ url_for('approve_list') }}">승인 대기</a>{% endif %}
+      {% if 'output' in perms %}<a href="{{ url_for('output_list') }}">출력 대기</a>{% endif %}
+      <a href="{{ url_for('history') }}">검사 이력</a>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'spec' in perms or 'intake' in perms %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="this.parentElement.classList.toggle('open')">규격/자재 ▾</button>
+    <div class="menu">
+      {% if 'intake' in perms %}<a href="{{ url_for('intake') }}">입고 리스트</a>{% endif %}
+      {% if 'spec' in perms %}
+      <a href="{{ url_for('spec_list') }}">규격 관리</a>
+      <a href="{{ url_for('spec_quick_add') }}">규격 개별 등록</a>
+      <a href="{{ url_for('spec_import') }}">규격 일괄 등록</a>
+      <a href="{{ url_for('spec_review') }}">확인 필요 자재</a>
+      <a href="{{ url_for('material_groups') }}">자재 그룹</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'users' in perms or 'logs' in perms %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="this.parentElement.classList.toggle('open')">관리 ▾</button>
+    <div class="menu">
+      {% if 'users' in perms %}<a href="{{ url_for('user_management') }}">계정 관리</a>{% endif %}
+      {% if 'logs' in perms %}<a href="{{ url_for('activity_logs') }}">활동 로그</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <span style="margin-left:auto; display:flex; align-items:center; gap:10px; font-size:13px; color:#9ca3af;">
+    {{ g.user['display_name'] or g.user['username'] }}
+    <a href="{{ url_for('my_password') }}">비밀번호 변경</a>
+    <a href="{{ url_for('logout') }}">로그아웃</a>
+  </span>
+  {% endif %}
+</header>
+<script>
+document.addEventListener('click', function (e) {
+  document.querySelectorAll('.nav-dropdown.open').forEach(function (d) {
+    if (!d.contains(e.target)) d.classList.remove('open');
+  });
+});
+</script>
+<main>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer style="text-align:center; padding:18px 0 24px; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0; margin-top:32px;">
+  © 2026 윤주호 — IQC 입고검사 성적서 자동화 시스템.<br>
+  <span style="font-size:11px;">무단 복제·배포·수정을 금합니다. All rights reserved.</span>
+</footer>
+</body>
+</html>

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}입고 리스트{% endblock %}
+{% block content %}
+<style>
+  .intake-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
+                 overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
+  .intake-grid th { background:#f3f4f6; color:#4b5563; padding:8px 4px; font-size:11.5px; white-space:nowrap; }
+  .intake-grid td { border:1px solid #e5e7eb; padding:0; }
+  .intake-grid input {
+    width:100%; box-sizing:border-box; padding:7px 6px; font-size:12.5px; border:none; border-radius:0;
+    margin:0; background:transparent;
+  }
+  .intake-grid input:focus { outline:2px solid #2563eb; outline-offset:-2px; background:#eff6ff; }
+  .intake-grid td.rownum { background:#f9fafb; text-align:center; color:#9ca3af; font-size:11px; width:26px; }
+  .intake-grid td.del-cell { width:30px; text-align:center; background:#fff; }
+  .del-row-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:14px; padding:4px; }
+</style>
+
+<h2>입고 리스트 등록</h2>
+
+<div class="card">
+  <p class="muted">
+    엑셀에서 <b>입고날짜, 납품업체, 발주번호, 제품명, 자재번호, 입고수량</b> 순서로 드래그해서 복사한 다음,
+    아래 표의 첫 칸을 클릭하고 그대로 붙여넣기(Ctrl+V) 하면 여러 줄이 한 번에 채워져.
+    붙여넣은 다음 직접 눌러서 수정도 가능해. 빈 칸으로 남은 줄은 등록에서 자동으로 빠져.
+  </p>
+
+  <form method="POST" id="intakeForm">
+    <input type="hidden" name="rows_json" id="rowsJson">
+    <div style="overflow-x:auto;">
+      <table class="intake-grid" id="intakeGrid">
+        <tr>
+          <th></th>
+          <th style="min-width:110px;">입고날짜</th>
+          <th style="min-width:110px;">납품업체</th>
+          <th style="min-width:110px;">발주번호</th>
+          <th style="min-width:140px;">제품명</th>
+          <th style="min-width:120px;">자재번호</th>
+          <th style="min-width:80px;">입고수량</th>
+          <th></th>
+        </tr>
+      </table>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:8px;">
+      <button type="button" id="addRowBtn" class="btn secondary" style="margin-top:0;">+ 행 추가</button>
+      <button type="submit">등록</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const COLS = ['receive_date', 'supplier', 'po_number', 'product_name', 'material_no', 'quantity'];
+  const grid = document.getElementById('intakeGrid');
+  let rowCount = 0;
+
+  function addRow() {
+    rowCount++;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="rownum">${rowCount}</td>` +
+      COLS.map(c => `<td><input type="${c === 'receive_date' ? 'date' : 'text'}" data-col="${c}"></td>`).join('') +
+      `<td class="del-cell"><button type="button" class="del-row-btn" onclick="this.closest('tr').remove()">✕</button></td>`;
+    grid.appendChild(tr);
+    return tr;
+  }
+
+  for (let i = 0; i < 12; i++) addRow();
+
+  document.getElementById('addRowBtn').addEventListener('click', () => addRow());
+
+  // 엑셀에서 여러 셀을 복사해 붙여넣으면(탭/줄바꿈 구분) 현재 칸부터 자동으로 채워짐
+  grid.addEventListener('paste', function (e) {
+    const target = e.target;
+    if (target.tagName !== 'INPUT') return;
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text.includes('\t') && !text.includes('\n')) return;  // 단일 값 붙여넣기는 기본 동작 유지
+    e.preventDefault();
+
+    const startRow = target.closest('tr');
+    const startColIdx = COLS.indexOf(target.dataset.col);
+    const lines = text.replace(/\r/g, '').split('\n').filter((l, i, arr) => !(i === arr.length - 1 && l === ''));
+
+    let currentRow = startRow;
+    lines.forEach((line, rowOffset) => {
+      if (rowOffset > 0) {
+        currentRow = currentRow.nextElementSibling;
+        if (!currentRow) currentRow = addRow();
+      }
+      const cells = line.split('\t');
+      cells.forEach((val, colOffset) => {
+        const colIdx = startColIdx + colOffset;
+        if (colIdx >= COLS.length) return;
+        const input = currentRow.querySelectorAll('input')[colIdx];
+        if (input) input.value = val.trim();
+      });
+    });
+  });
+
+  document.getElementById('intakeForm').addEventListener('submit', function () {
+    const rows = [];
+    grid.querySelectorAll('tr').forEach(tr => {
+      const inputs = tr.querySelectorAll('input');
+      if (inputs.length === 0) return;
+      const vals = COLS.map(c => tr.querySelector(`input[data-col="${c}"]`).value.trim());
+      if (vals.some(v => v !== '')) rows.push(vals);
+    });
+    document.getElementById('rowsJson').value = JSON.stringify(rows);
+  });
+})();
+</script>
+
+<h3 style="margin-top:24px;">대기 중 ({{ pending|length }}건)</h3>
+<table>
+  <tr><th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+  {% for r in pending %}
+  <tr>
+    <td>{{ r['receive_date'] or '-' }}</td>
+    <td>{{ r['supplier'] or '-' }}</td>
+    <td>{{ r['po_number'] or '-' }}</td>
+    <td>{{ r['product_name'] or '-' }}</td>
+    <td>
+      {{ r['material_no'] }}
+      {% if r['material_no'] in group_nos %}
+        <span class="badge pending" style="margin-left:4px;">조립품</span>
+      {% elif r['material_no'] not in registered %}
+        <span class="badge fail" style="margin-left:4px;">규격 미등록</span>
+      {% endif %}
+    </td>
+    <td>{{ r['quantity'] or '-' }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6">대기 중인 입고 건이 없어.</td></tr>
+  {% endfor %}
+</table>
+
+{% if done %}
+<h3 style="margin-top:24px;">검사완료 ({{ done|length }}건)</h3>
+<table>
+  <tr><th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+  {% for r in done %}
+  <tr>
+    <td>{{ r['receive_date'] or '-' }}</td>
+    <td>{{ r['supplier'] or '-' }}</td>
+    <td>{{ r['po_number'] or '-' }}</td>
+    <td>{{ r['product_name'] or '-' }}</td>
+    <td>{{ r['material_no'] }}</td>
+    <td>{{ r['quantity'] or '-' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

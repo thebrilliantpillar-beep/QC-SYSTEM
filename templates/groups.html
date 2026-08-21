@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}자재 그룹(조립품){% endblock %}
+{% block content %}
+<h2>자재 그룹(조립품) 관리</h2>
+<p class="hint">
+  입고 시엔 조립품 하나(자재번호 1개)로 들어오지만, 검사할 땐 분해해서 부품별로 따로 측정하는 자재를 위한 기능이야.
+  여기서 조립품 자재번호를 만들고 실제 부품(각자 규격이 등록돼 있어야 함)들을 묶으면,
+  입고 리스트에는 조립품 자재번호로 한 줄만 등록하면 되고 검사할 땐 부품들이 순서대로 이어져서 나와.
+  성적서는 부품마다 시트로 나뉜 통합 파일 1개로 나가.
+</p>
+
+<table>
+  <tr><th>조립품 자재번호</th><th>이름</th><th>부품 수</th></tr>
+  {% for g in groups %}
+  <tr onclick="location.href='{{ url_for('material_group_detail', group_no=g['group_no']) }}'" style="cursor:pointer">
+    <td>{{ g['group_no'] }}</td>
+    <td>{{ g['group_name'] or '-' }}</td>
+    <td>{{ g['member_count'] }}개</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="3">등록된 그룹이 없어.</td></tr>
+  {% endfor %}
+</table>
+
+<div class="card" style="margin-top:20px;">
+  <h3 style="margin-top:0;">새 그룹 만들기</h3>
+  <form method="POST" action="{{ url_for('material_group_create') }}">
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:160px;"><label>조립품 자재번호</label><input type="text" name="group_no" required placeholder="예: ASM-001"></div>
+      <div style="flex:1; min-width:160px;"><label>이름(표시용)</label><input type="text" name="group_name" placeholder="예: 모터 어셈블리"></div>
+    </div>
+    <button type="submit">그룹 생성</button>
+  </form>
+</div>
+{% endblock %}

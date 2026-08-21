@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}검사 이력{% endblock %}
+{% block content %}
+<style>
+  .date-group { margin-bottom:18px; }
+  .date-header {
+    display:flex; align-items:center; justify-content:space-between;
+    background:#1f2937; color:#fff; padding:10px 14px; border-radius:8px 8px 0 0;
+    cursor:pointer; user-select:none;
+  }
+  .date-header:hover { background:#374151; }
+  .date-header .toggle-icon { font-size:12px; transition:transform .2s; }
+  .date-header.collapsed .toggle-icon { transform:rotate(-90deg); }
+  .date-body { display:block; overflow:hidden; }
+  .date-body.collapsed { display:none; }
+  .hist-table { width:100%; border-collapse:collapse; background:#fff; border-radius:0 0 8px 8px;
+                box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13px; }
+  .hist-table th { background:#f3f4f6; color:#4b5563; padding:9px 8px; text-align:center; border-bottom:1px solid #e5e7eb; }
+  .hist-table td { border-bottom:1px solid #f0f0f0; padding:9px 8px; text-align:center; vertical-align:middle; }
+  .hist-table tr:last-child td { border-bottom:none; }
+  .hist-table tr.clickable:hover td { background:#f0f5ff; cursor:pointer; }
+</style>
+
+<h2>검사 이력</h2>
+<p class="muted">입고일 기준으로 그룹화돼 있어. 날짜 헤더를 클릭하면 접거나 펼칠 수 있어.</p>
+
+{% if not sorted_dates %}
+<div class="card"><p class="muted" style="margin:0;">등록된 검사 이력이 없어.</p></div>
+{% endif %}
+
+{% for date in sorted_dates %}
+{% set rows = by_date[date] %}
+<div class="date-group">
+  <div class="date-header" onclick="toggleGroup(this)">
+    <span>📅 {{ date }} &nbsp;<span style="color:#9ca3af; font-size:13px; font-weight:400;">{{ rows|length }}건</span></span>
+    <span class="toggle-icon">▼</span>
+  </div>
+  <div class="date-body">
+    <table class="hist-table">
+      <thead>
+        <tr>
+          <th>번호</th>
+          <th>자재번호</th>
+          <th>자재명</th>
+          <th>업체</th>
+          <th>검사일</th>
+          <th>검사자</th>
+          <th>자동판정</th>
+          <th>승인상태</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for i in rows %}
+      <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=i['id']) }}'">
+        <td>{{ i['id'] }}</td>
+        <td>{{ i['material_no'] }}</td>
+        <td style="text-align:left;">{{ i['material_name'] or '-' }}</td>
+        <td>{{ i['supplier'] or '-' }}</td>
+        <td>{{ i['inspect_date'] or '-' }}</td>
+        <td>{{ i['inspector'] or '-' }}</td>
+        <td>
+          {% if i['overall_result'] == '합격' %}
+            <span class="badge pass">합격</span>
+          {% elif i['overall_result'] == '검토필요' %}
+            <span class="badge review">검토필요</span>
+          {% else %}
+            <span class="badge pending">{{ i['overall_result'] or '-' }}</span>
+          {% endif %}
+        </td>
+        <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+function toggleGroup(header) {
+  header.classList.toggle('collapsed');
+  const body = header.nextElementSibling;
+  body.classList.toggle('collapsed');
+}
+</script>
+{% endblock %}

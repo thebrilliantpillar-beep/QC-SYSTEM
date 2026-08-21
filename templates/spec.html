@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}규격 관리{% endblock %}
+{% block content %}
+<h2>규격 등록 자재 목록</h2>
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+  <a href="{{ url_for('spec_import') }}" class="btn" style="margin-top:0;">📄 성적서 양식 일괄 등록</a>
+  <a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 개별 등록</a>
+</div>
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:2; min-width:180px;">
+      <label>검색어</label>
+      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 자재명, 검사방식...">
+    </div>
+    <div style="flex:1; min-width:130px;">
+      <label>검색 기준</label>
+      <select name="by">
+        <option value="all" {% if search_by=='all' %}selected{% endif %}>전체</option>
+        <option value="material_no" {% if search_by=='material_no' %}selected{% endif %}>자재번호</option>
+        <option value="material_name" {% if search_by=='material_name' %}selected{% endif %}>자재명</option>
+        <option value="method" {% if search_by=='method' %}selected{% endif %}>검사방식</option>
+      </select>
+    </div>
+    <button type="submit" style="margin-top:0;">검색</button>
+    {% if query %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+  </form>
+</div>
+
+<form id="materialBulkDeleteForm" method="POST" action="{{ url_for('spec_delete_bulk') }}"
+      onsubmit="return confirm('선택한 자재의 규격을 전부 삭제할까? 되돌릴 수 없어.');"></form>
+
+{% if materials %}
+<button type="submit" form="materialBulkDeleteForm" style="margin:0 0 10px; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">선택 삭제</button>
+{% endif %}
+
+<table>
+  <tr>
+    <th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>
+    <th>자재번호</th><th>자재명</th>
+  </tr>
+  {% for m in materials %}
+  <tr>
+    <td onclick="event.stopPropagation()">
+      <input type="checkbox" class="material-check" form="materialBulkDeleteForm" name="material_nos" value="{{ m['material_no'] }}">
+    </td>
+    <td onclick="location.href='{{ url_for('spec_detail', material_no=m['material_no']) }}'" style="cursor:pointer">{{ m['material_no'] }}</td>
+    <td onclick="location.href='{{ url_for('spec_detail', material_no=m['material_no']) }}'" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="3">{% if query %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
