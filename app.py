@@ -37,7 +37,7 @@ import os, base64, io, time, shutil
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session, g
+from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file
 import database as db
 import report_builder
 import spec_import as spec_import_module
@@ -237,6 +237,18 @@ def my_password():
         return redirect(url_for("my_password"))
 
     return render_template("my_password.html")
+
+
+# ---------- DB 백업 다운로드 ----------
+
+@app.route("/download-db")
+@perm_required("users")
+def download_db():
+    db_path = os.path.join(os.path.dirname(__file__), "iqc.db")
+    today = _dt.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"iqc_backup_{today}.db"
+    record_change("DB 백업 다운로드", "system", 0, f"다운로드: {filename}")
+    return send_file(db_path, as_attachment=True, download_name=filename)
 
 
 # ---------- 계정 관리 (관리자 전용) ----------

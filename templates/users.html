@@ -4,6 +4,16 @@
 <h2>계정 관리</h2>
 <p class="hint">비밀번호는 평문으로 저장돼서 여기서 그대로 볼 수 있어(본인 계정 제외). 권한은 계정마다 필요한 것만 하나하나 체크해서 부여하면 돼.</p>
 
+<div style="margin-bottom:18px;">
+  <a href="{{ url_for('download_db') }}"
+     style="display:inline-flex; align-items:center; gap:8px; background:#2563eb; color:#fff;
+            padding:12px 20px; border-radius:10px; font-size:15px; font-weight:700;
+            text-decoration:none; box-shadow:0 2px 8px rgba(37,99,235,.25);">
+    💾 DB 백업 다운로드
+  </a>
+  <span class="muted" style="font-size:12px; margin-left:10px;">클릭하면 iqc_backup_날짜.db 파일로 저장돼.</span>
+</div>
+
 <table>
   <tr><th>아이디 / 이름</th><th>권한</th><th>비밀번호</th><th>생성일</th><th>관리</th></tr>
   {% for u in users %}
