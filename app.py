@@ -4277,12 +4277,11 @@ def data_migrate():
             flash("zip 파일이 손상됐거나 zip 형식이 아니야.")
             return redirect(url_for("data_migrate"))
 
-        if "iqc.db" not in names:
-            flash("zip 안에 iqc.db가 없어. 최상위에 iqc.db가 있어야 해.")
-            return redirect(url_for("data_migrate"))
+        has_db = "iqc.db" in names
+        # 부속 폴더(도면 등)만 추가로 올릴 때도 쓸 수 있게, iqc.db는 있으면 갈아끼우고 없으면 건너뛴다.
 
-        # 안전장치: 덮어쓰기 전에 현재 DB를 먼저 백업해둔다
-        if os.path.exists(db.DB_PATH):
+        # 안전장치: DB를 덮어쓰기 전에 현재 DB를 먼저 백업해둔다
+        if has_db and os.path.exists(db.DB_PATH):
             ts = _dt.now().strftime("%Y%m%d_%H%M%S")
             pre_backup = os.path.join(BACKUP_DIR, f"iqc_전이전백업_{ts}.db")
             try:
@@ -4295,10 +4294,11 @@ def data_migrate():
         for n in safe_names:
             zf.extract(n, tmp)
 
-        extracted_db = os.path.join(tmp, "iqc.db")
-        shutil.copy(extracted_db, db.DB_PATH)
-
-        moved = ["iqc.db"]
+        moved = []
+        if has_db:
+            extracted_db = os.path.join(tmp, "iqc.db")
+            shutil.copy(extracted_db, db.DB_PATH)
+            moved.append("iqc.db")
         for folder, dest in (
             ("signatures", SIGNATURE_DIR),
             ("ncr_photos", NCR_PHOTO_DIR),
@@ -4315,6 +4315,10 @@ def data_migrate():
                     else:
                         shutil.copy(s, d)
                 moved.append(folder)
+
+    if not moved:
+        flash("zip 안에 iqc.db나 알아보는 폴더(signatures/ncr_photos/backups/성적서 발행/도면)가 하나도 없어.")
+        return redirect(url_for("data_migrate"))
 
     flash(f"이전 완료: {', '.join(moved)}. 새로고침해서 데이터 확인해봐.")
     return redirect(url_for("home"))
