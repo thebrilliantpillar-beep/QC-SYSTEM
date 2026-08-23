@@ -3,8 +3,18 @@
 {% block content %}
 <h2>성적서 출력 결과</h2>
 
+{% set ok_results = results | selectattr('pdf_path') | rejectattr('error') | list %}
+
+{% if ok_results | length > 1 %}
+<a href="{{ url_for('output_download_zip') }}{% for r in ok_results %}{{ '&' if not loop.first else '?' }}id={{ r['id'] }}{% endfor %}"
+   class="btn" style="display:inline-flex; align-items:center; gap:6px; margin-bottom:14px;
+   padding:12px 20px; font-size:14px; font-weight:700;">
+  📦 전체 {{ ok_results | length }}건 zip으로 한 번에 다운로드
+</a>
+{% endif %}
+
 <table>
-  <tr><th>번호</th><th>자재번호</th><th>결과</th></tr>
+  <tr><th>번호</th><th>자재번호</th><th>결과</th><th>다운로드</th></tr>
   {% for r in results %}
   <tr>
     <td>{{ r['id'] }}</td>
@@ -21,9 +31,17 @@
         <div style="font-size:12px; color:#dc2626; margin-top:4px;">{{ r['error'] or '원인 불명' }}</div>
       {% endif %}
     </td>
+    <td>
+      {% if r['pdf_path'] %}
+      <a href="{{ url_for('output_download', inspection_id=r['id']) }}" class="btn secondary"
+         style="padding:8px 14px; font-size:13px;">⬇ 다운로드</a>
+      {% else %}
+      -
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>
 
-<a href="{{ url_for('output_list') }}" class="btn secondary">출력 대기 목록으로</a>
+<a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:14px; display:inline-block;">출력 대기 목록으로</a>
 {% endblock %}

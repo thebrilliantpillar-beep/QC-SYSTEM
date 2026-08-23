@@ -30,8 +30,11 @@
   <b style="font-size:13px; color:#374151;">📂 저장된 파일 경로</b>
   <div style="margin-top:8px; font-size:12.5px; word-break:break-all;">
     {% if header['pdf_path'] %}
-    <div style="padding:8px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; margin-bottom:6px;">
-      📄 <b>PDF:</b> {{ header['pdf_path'] }}
+    <div style="padding:8px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; margin-bottom:6px;
+         display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <span>📄 <b>PDF:</b> {{ header['pdf_path'] }}</span>
+      <a href="{{ url_for('output_download', inspection_id=header['id']) }}" class="btn secondary"
+         style="padding:8px 14px; font-size:13px; white-space:nowrap;">⬇ 기기로 다운로드</a>
     </div>
     {% else %}
     <div style="color:#dc2626; font-size:13px;">PDF 파일이 없어. 아래에서 재출력해줘.</div>

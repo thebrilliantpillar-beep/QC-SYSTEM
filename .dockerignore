@@ -1,0 +1,7 @@
+.git
+__pycache__
+*.pyc
+backups/
+성적서 발행/
+자동출력/
+iqc.db

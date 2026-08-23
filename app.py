@@ -2931,6 +2931,48 @@ def output_generate():
     return render_template("output_result.html", results=results)
 
 
+@app.route("/output/download/<int:inspection_id>")
+@perm_required("output")
+def output_download(inspection_id):
+    """생성된 성적서 PDF를 태블릿/PC 기기로 다운로드."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None or not header["pdf_path"] or not os.path.exists(header["pdf_path"]):
+        flash("다운로드할 PDF 파일이 없어. 먼저 출력해줘.")
+        return redirect(url_for("output_list"))
+    fname = os.path.basename(header["pdf_path"])
+    return send_file(header["pdf_path"], as_attachment=True, download_name=fname,
+                     mimetype="application/pdf")
+
+
+@app.route("/output/download-zip")
+@perm_required("output")
+def output_download_zip():
+    """여러 성적서 PDF를 zip 하나로 묶어서 기기로 다운로드."""
+    ids = [int(v) for v in request.args.getlist("id") if v.isdigit()]
+    buf = io.BytesIO()
+    used_names = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for insp_id in ids:
+            header, _ = db.get_inspection(insp_id)
+            if header is None or not header["pdf_path"] or not os.path.exists(header["pdf_path"]):
+                continue
+            name = os.path.basename(header["pdf_path"])
+            if name in used_names:
+                base, ext = os.path.splitext(name)
+                name = f"{base}_{insp_id}{ext}"
+            used_names.add(name)
+            zf.write(header["pdf_path"], arcname=name)
+
+    if not used_names:
+        flash("다운로드할 PDF 파일이 없어. 먼저 출력해줘.")
+        return redirect(url_for("output_list"))
+
+    buf.seek(0)
+    today = _dt.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(buf, as_attachment=True, download_name=f"성적서_{today}.zip",
+                     mimetype="application/zip")
+
+
 # ---------- 커스텀(자유양식) 성적서 템플릿 ----------
 
 # 디자이너에서 끌어다 쓰는 데이터 필드 → 성적서 헤더에서 값을 뽑는 규칙
