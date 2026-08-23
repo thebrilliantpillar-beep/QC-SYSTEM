@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ material_no }} 규격{% endblock %}
+{% block title %}{{ material_no }} 자재{% endblock %}
 {% block content %}
 <style>
   .spec-edit-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
@@ -23,7 +23,13 @@
                    font-size:10.5px; padding:4px 6px; cursor:pointer; white-space:nowrap; }
 </style>
 
-<h2>{{ material_no }} 검사 규격</h2>
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+  <h2 style="margin:0;">{{ material_no }} 검사 규격</h2>
+  <a href="{{ url_for('material_history', material_no=material_no) }}"
+     class="btn secondary" style="margin-top:0; padding:8px 16px; font-size:13px;">
+    📈 검사 이력 추적
+  </a>
+</div>
 <p class="hint">항목을 직접 수정하거나 삭제할 수 있어. 판정유형을 "육안"으로 바꾸면 하한/상한은 저장 시 자동으로 비워져.
   수치 항목은 규격표기 아래 "기준값·부호·공차값"으로 빠르게 조합해서 규격표기+하한/상한을 한번에 채울 수도 있어(직접 타이핑도 계속 가능).</p>
 
@@ -57,6 +63,91 @@
   </form>
 </div>
 
+<div class="card">
+  <h3 style="margin-top:0;">전수검사 설정</h3>
+  <p class="hint" style="margin-top:0;">
+    이 자재가 전수검사(100% 개별 측정) 대상이면 여기서 활성화해줘.
+    <b>검사항목(아래 목록)에 등록된 항목이 자동으로 전수검사 기록지의 열이 돼.</b>
+    활성화하면 성적서 상세에 "전수검사 기록지 입력" 버튼이 생기고, 출력 시 성적서 뒤에 자동으로 붙어 나가.
+  </p>
+
+  {% if full_inspect_config %}
+  <div style="background:#e8f5e9;border:1px solid #81c784;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:13px;">
+    ✓ 전수검사 활성화됨
+    {% if full_inspect_config.note %} — {{ full_inspect_config.note }}{% endif %}
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('full_inspect_config_save', material_no=material_no) }}">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div style="flex:2;min-width:200px;">
+        <label>시험 조건 메모 <span style="font-size:11px;color:#888">(선택, 기록지 상단에 표시)</span></label>
+        <input type="text" name="note"
+               value="{{ full_inspect_config.note if full_inspect_config else '' }}"
+               placeholder="예: 시험전압 27kV, 1분간">
+      </div>
+      <button type="submit" style="background:#1a6faf;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;cursor:pointer;">
+        {{ '설정 저장' if full_inspect_config else '전수검사 활성화' }}
+      </button>
+      {% if full_inspect_config %}
+      <button type="submit" name="action" value="disable"
+              style="background:#fff;border:1px solid #dc2626;color:#dc2626;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;"
+              onclick="return confirm('전수검사를 비활성화할까요? 이미 입력된 기록 데이터는 남아요.')">
+        사용 안 함
+      </button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">도면 파일</h3>
+  {% if drawing_has_auto %}
+  <p class="hint" style="margin-top:0;">자재번호와 일치하는 도면 파일(<b>{{ material_no }}.pdf</b>)이 자동으로 연결돼 있어.
+    다른 파일로 지정하고 싶으면 아래에서 선택해줘.</p>
+  {% else %}
+  <p class="hint" style="margin-top:0;">자재번호와 일치하는 도면 파일이 없어. 아래에서 직접 연결할 파일을 선택해줘.</p>
+  {% endif %}
+  <form method="POST" action="{{ url_for('spec_drawing_assign', material_no=material_no) }}"
+        style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:1; min-width:200px;">
+      <label>도면 파일 선택</label>
+      <select name="drawing_file" id="drawingFileSelect" style="width:100%;">
+        <option value="">— 자동(자재번호.pdf) —</option>
+        <option value="__loading__" disabled>불러오는 중...</option>
+      </select>
+    </div>
+    <button type="submit" style="margin-top:0;">저장</button>
+    {% if drawing_pdf %}
+    <a href="{{ url_for('serve_drawing', material_no=material_no) }}" target="_blank"
+       style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px;
+              background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:8px;
+              font-size:13.5px; font-weight:600; text-decoration:none; margin-top:0;">
+      📐 도면 보기
+    </a>
+    {% endif %}
+  </form>
+</div>
+<script>
+(function(){
+  var sel = document.getElementById('drawingFileSelect');
+  var current = "{{ (material['drawing_file'] or '') if material else '' }}";
+  fetch("{{ url_for('drawing_list_json') }}")
+    .then(function(r){ return r.json(); })
+    .then(function(files){
+      // 로딩 옵션 제거
+      sel.innerHTML = '<option value="">— 자동(자재번호.pdf) —</option>';
+      files.forEach(function(f){
+        var opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        if (f === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    });
+})();
+</script>
+
 {# 각 행의 수정용 폼을 테이블 바깥에 미리 선언 — <tr> 안에 <form>을 직접 넣을 수 없어서
    input들은 form="spec-row-N" 속성으로 이 폼에 연결한다 #}
 {% for s in specs %}
@@ -79,7 +170,28 @@
     <tr>
       <th style="width:26px;"><input type="checkbox" id="checkAllSpecs" onclick="document.querySelectorAll('.spec-row-check').forEach(c=>c.checked=this.checked)"></th>
       <th>순서</th><th>항목</th><th style="min-width:150px;">규격표기</th><th>판정유형</th>
-      <th>하한</th><th>상한</th><th>검사방법</th><th>AQL</th><th>관리</th>
+      <th>하한</th><th>상한</th><th>검사방법</th>
+      <th>
+        AQL
+        <span class="info-anchor">
+          <button class="info-btn" data-pop="pop-aql-spec-hdr" type="button">i</button>
+          <div id="pop-aql-spec-hdr" class="info-pop" style="left:auto;right:0;top:24px;">
+            <button class="info-pop-close">×</button>
+            <b>AQL 선택 기준</b>
+            <div style="margin-top:6px; color:#374151; line-height:1.8;">
+              <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
+              <b>1.5</b> 엄격<br>
+              <b>4</b> 일반 기준 — 샘플 가장 적음<br>
+              <b>전수</b> 입고 수량 전체 검사<br>
+              <b>퍼센트</b> 입고 수량의 N% 검사
+            </div>
+            <div style="margin-top:6px; font-size:11.5px; color:#6b7280; border-top:1px solid #e5e7eb; padding-top:5px;">
+              수치 AQL: 숫자 낮을수록 엄격하고 샘플 더 많음
+            </div>
+          </div>
+        </span>
+      </th>
+      <th>관리</th>
     </tr>
     {% for s in specs %}
     <tr>
@@ -175,7 +287,22 @@
       <div style="flex:1; min-width:80px;"><label>상한</label><input type="text" inputmode="decimal" name="upper_limit" id="upperLimit_new"></div>
       <div style="flex:1; min-width:100px;"><label>검사방법</label><input type="text" name="inspect_method" placeholder="예: 버니어캘리퍼스"></div>
       <div style="flex:1; min-width:70px;">
-        <label>AQL</label>
+        <label>AQL
+          <span class="info-anchor">
+            <button class="info-btn" data-pop="pop-aql-spec-new" type="button">i</button>
+            <div id="pop-aql-spec-new" class="info-pop">
+              <button class="info-pop-close">×</button>
+              <b>AQL 선택 기준</b>
+              <div style="margin-top:6px; line-height:1.8;">
+                <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
+                <b>1.5</b> 엄격<br>
+                <b>4</b> 일반 기준 — 샘플 가장 적음<br>
+                <b>전수</b> 입고 수량 전체 검사<br>
+                <b>퍼센트</b> 입고 수량의 N% 검사
+              </div>
+            </div>
+          </span>
+        </label>
         <select name="aql_select" id="newAqlSelect" onchange="document.getElementById('newAqlPercent').style.display = this.value==='퍼센트' ? 'block' : 'none';">
           <option value="4">4</option>
           <option value="1.5">1.5</option>

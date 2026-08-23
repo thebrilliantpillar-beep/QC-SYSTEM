@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}규격 개별 등록{% endblock %}
+{% block title %}자재 개별 등록{% endblock %}
 {% block content %}
 <style>
   .quick-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
@@ -41,7 +41,7 @@
                    font-size:10px; padding:3px 5px; cursor:pointer; white-space:nowrap; }
 </style>
 
-<h2>규격 개별 등록</h2>
+<h2>자재 개별 등록</h2>
 <p class="hint">
   자재번호와 제품명을 입력하고, "측정조건" 버튼을 눌러 팝업에서 검사 항목까지 바로 입력할 수 있어.
   팝업 안 "이전 자재 불러오기"로 앞서 입력한 자재의 항목을 그대로 복사해와서 빠르게 채울 수도 있어.
@@ -92,7 +92,28 @@
         <tr>
           <th style="width:34px;">기호</th><th style="min-width:150px;">규격표기</th>
           <th style="width:70px;">판정유형</th><th style="width:60px;">하한</th><th style="width:60px;">상한</th>
-          <th style="width:90px;">검사방법</th><th style="width:90px;">AQL</th><th style="width:30px;"></th>
+          <th style="width:90px;">검사방법</th>
+          <th style="width:90px;">
+            AQL
+            <span class="info-anchor">
+              <button class="info-btn" data-pop="pop-aql-quick" type="button">i</button>
+              <div id="pop-aql-quick" class="info-pop" style="left:auto;right:0;top:24px;z-index:600;">
+                <button class="info-pop-close">×</button>
+                <b>AQL 선택 기준</b>
+                <div style="margin-top:6px; color:#374151; line-height:1.8;">
+                  <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
+                  <b>1.5</b> 엄격<br>
+                  <b>4</b> 일반 기준 — 샘플 가장 적음<br>
+                  <b>전수</b> 입고 수량 전체 검사<br>
+                  <b>퍼센트</b> 입고 수량의 N% 검사
+                </div>
+                <div style="margin-top:6px; font-size:11.5px; color:#6b7280; border-top:1px solid #e5e7eb; padding-top:5px;">
+                  수치 AQL: 숫자 낮을수록 엄격하고 샘플 더 많음
+                </div>
+              </div>
+            </span>
+          </th>
+          <th style="width:30px;"></th>
         </tr>
       </thead>
       <tbody id="itemRowTbody"></tbody>

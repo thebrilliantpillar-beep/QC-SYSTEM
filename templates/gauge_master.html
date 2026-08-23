@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}계측기 관리 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+.gauge-status { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:700; }
+.gauge-status.expired  { background:#fee2e2; color:#dc2626; }
+.gauge-status.d15      { background:#fef2f2; color:#dc2626; }
+.gauge-status.d30      { background:#fef3c7; color:#92400e; }
+.gauge-status.ok       { background:#dcfce7; color:#16a34a; }
+.modal-bg { display:none; position:fixed; inset:0; z-index:9000;
+            background:rgba(0,0,0,.5); align-items:center; justify-content:center; }
+.modal-box { background:#fff; border-radius:14px; padding:24px; width:min(95vw,480px);
+             box-shadow:0 8px 30px rgba(0,0,0,.25); max-height:90vh; overflow-y:auto; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+  <h2 style="margin:0;">🔧 계측기 관리</h2>
+  <button onclick="openModal()" style="padding:10px 20px; font-size:14px; margin-top:0;">+ 계측기 등록</button>
+</div>
+
+{% if gauges %}
+<div style="overflow-x:auto;">
+<table>
+  <thead>
+    <tr>
+      <th>관리번호</th>
+      <th style="text-align:left; padding-left:12px;">계측기명</th>
+      <th>모델/규격</th>
+      <th>보관위치</th>
+      <th>최근 검교정</th>
+      <th>만료일</th>
+      <th>상태</th>
+      <th style="width:80px;"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for g in gauges %}
+  {% set dl = g['days_left'] if g['days_left'] != none else 9999 %}
+  <tr>
+    <td style="font-size:13px; color:var(--muted);">{{ g['gauge_no'] or '-' }}</td>
+    <td style="text-align:left; padding-left:12px; font-weight:700;">{{ g['name'] }}</td>
+    <td style="font-size:12.5px;">{{ g['model'] or '-' }}</td>
+    <td style="font-size:12.5px;">{{ g['location'] or '-' }}</td>
+    <td style="font-size:13px;">{{ g['last_calibrated'] or '-' }}</td>
+    <td style="font-size:13px; font-weight:{% if g['expiry_date'] and g['expiry_date'] <= d15 %}700{% else %}400{% endif %};">
+      {{ g['expiry_date'] or '-' }}
+    </td>
+    <td>
+      {% if not g['expiry_date'] %}
+        <span class="gauge-status ok">-</span>
+      {% elif g['expiry_date'] < today %}
+        <span class="gauge-status expired">만료</span>
+      {% elif g['expiry_date'] <= d15 %}
+        <span class="gauge-status d15">D-{{ dl|int }}</span>
+      {% elif g['expiry_date'] <= d30 %}
+        <span class="gauge-status d30">D-{{ dl|int }}</span>
+      {% else %}
+        <span class="gauge-status ok">정상</span>
+      {% endif %}
+    </td>
+    <td>
+      <button onclick="openModal({{ g['id'] }}, '{{ g['gauge_no'] or '' }}', '{{ g['name'] }}',
+                '{{ g['model'] or '' }}', '{{ g['location'] or '' }}',
+                '{{ g['last_calibrated'] or '' }}', '{{ g['expiry_date'] or '' }}',
+                '{{ (g['notes'] or '')|replace("'", "\\'") }}')"
+              style="background:none; border:1px solid var(--border); border-radius:6px;
+                     padding:4px 10px; font-size:12.5px; cursor:pointer; color:#374151; margin-top:0;">
+        수정
+      </button>
+      <form method="POST" action="{{ url_for('gauge_delete', gauge_id=g['id']) }}" style="display:inline;"
+            onsubmit="return confirm('{{ g['name'] }} 계측기를 삭제할까?')">
+        <button type="submit" style="background:none; border:none; color:var(--fail);
+                font-size:12.5px; cursor:pointer; padding:4px 6px; margin-top:0;">삭제</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div style="text-align:center; padding:40px 0; color:var(--muted);">
+  등록된 계측기가 없어. 오른쪽 위 버튼으로 추가해줘.
+</div>
+{% endif %}
+
+<!-- 등록/수정 모달 -->
+<div id="gaugeModal" class="modal-bg">
+  <div class="modal-box">
+    <h3 id="modalTitle" style="margin:0 0 16px;">계측기 등록</h3>
+    <form method="POST" action="{{ url_for('gauge_save') }}">
+      <input type="hidden" name="gauge_id" id="f_gauge_id">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 16px;">
+        <div>
+          <label>관리번호</label>
+          <input name="gauge_no" id="f_gauge_no" placeholder="예: GM-001">
+        </div>
+        <div>
+          <label>계측기명 <span style="color:var(--fail);">*</span></label>
+          <input name="name" id="f_name" required placeholder="예: 버니어캘리퍼스 200mm">
+        </div>
+        <div>
+          <label>모델/규격</label>
+          <input name="model" id="f_model" placeholder="예: Mitutoyo 500-196">
+        </div>
+        <div>
+          <label>보관위치</label>
+          <input name="location" id="f_location" placeholder="예: 검사실 2번 서랍">
+        </div>
+        <div>
+          <label>최근 검교정일</label>
+          <input type="date" name="last_calibrated" id="f_last_calibrated">
+        </div>
+        <div>
+          <label>검교정 만료일</label>
+          <input type="date" name="expiry_date" id="f_expiry_date">
+        </div>
+        <div style="grid-column:1/-1;">
+          <label>메모</label>
+          <input name="notes" id="f_notes" placeholder="담당자, 교정기관 등">
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:18px;">
+        <button type="submit" style="flex:1; padding:12px; font-size:14px;">저장</button>
+        <button type="button" onclick="closeModal()" class="btn secondary"
+                style="flex:1; padding:12px; font-size:14px; margin-top:0;">취소</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id, no, name, model, loc, lastCal, expiry, notes) {
+  var modal = document.getElementById('gaugeModal');
+  var isEdit = !!id;
+  document.getElementById('modalTitle').textContent = isEdit ? '계측기 수정' : '계측기 등록';
+  document.getElementById('f_gauge_id').value = id || '';
+  document.getElementById('f_gauge_no').value = no || '';
+  document.getElementById('f_name').value = name || '';
+  document.getElementById('f_model').value = model || '';
+  document.getElementById('f_location').value = loc || '';
+  document.getElementById('f_last_calibrated').value = lastCal || '';
+  document.getElementById('f_expiry_date').value = expiry || '';
+  document.getElementById('f_notes').value = notes || '';
+  modal.style.display = 'flex';
+}
+function closeModal() {
+  document.getElementById('gaugeModal').style.display = 'none';
+}
+document.getElementById('gaugeModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+{% endblock %}

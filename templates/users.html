@@ -2,7 +2,7 @@
 {% block title %}계정 관리{% endblock %}
 {% block content %}
 <h2>계정 관리</h2>
-<p class="hint">비밀번호는 평문으로 저장돼서 여기서 그대로 볼 수 있어(본인 계정 제외). 권한은 계정마다 필요한 것만 하나하나 체크해서 부여하면 돼.</p>
+<p class="hint">계정을 클릭하면 상세·권한 설정 페이지가 열려. 권한은 계정마다 기능별로 하나하나 부여해.</p>
 
 <div style="margin-bottom:18px;">
   <a href="{{ url_for('download_db') }}"
@@ -15,64 +15,28 @@
 </div>
 
 <table>
-  <tr><th>아이디 / 이름</th><th>권한</th><th>비밀번호</th><th>생성일</th><th>관리</th></tr>
+  <tr><th>아이디 / 이름</th><th>권한 수</th><th>생성일</th><th>설정</th></tr>
   {% for u in users %}
-  {% set u_perms = (u['permissions'] or '').split(',') %}
-  <tr>
-    <td style="text-align:left; padding-left:10px; min-width:180px;">
-      <form method="POST" id="profileform-{{ u['id'] }}" style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
-        <input type="hidden" name="action" value="update_profile">
-        <input type="hidden" name="user_id" value="{{ u['id'] }}">
-        <input type="text" name="username" value="{{ u['username'] }}" style="width:90px; padding:5px; font-size:12px; margin:0;">
-        <input type="text" name="display_name" value="{{ u['display_name'] or '' }}" placeholder="표시이름" style="width:80px; padding:5px; font-size:12px; margin:0;">
-        <button type="submit" style="padding:5px 8px; font-size:11.5px; margin:0;">저장</button>
-      </form>
+  {% set u_perm_count = (u['permissions'] or '').split(',')|select|list|length %}
+  <tr class="clickable" onclick="location.href='{{ url_for('user_detail', user_id=u['id']) }}'">
+    <td style="text-align:left; padding-left:14px;">
+      <b>{{ u['username'] }}</b>
+      {% if u['display_name'] %}<span class="muted"> · {{ u['display_name'] }}</span>{% endif %}
+      {% if u['id'] == current_user_id %}<span class="badge muted" style="margin-left:6px;">본인</span>{% endif %}
+      {% if u['is_final_approver'] %}<span class="badge" style="margin-left:6px; background:#fef3c7; color:#92400e;">⭐ 최종결정권자</span>{% endif %}
     </td>
-    <td style="text-align:left; padding-left:10px;">
-      <form method="POST" id="permform-{{ u['id'] }}">
-        <input type="hidden" name="action" value="update_permissions">
-        <input type="hidden" name="user_id" value="{{ u['id'] }}">
-        {% for p in all_perms %}
-        <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400; margin:2px 8px 2px 0; font-size:12px;">
-          <input type="checkbox" name="permissions" value="{{ p }}" style="width:auto;"
-                 {% if p in u_perms %}checked{% endif %}
-                 {% if u['id'] == current_user_id and p == 'users' %}disabled{% endif %}>
-          {{ perm_labels.get(p, p) }}
-        </label>
-        {% endfor %}
-        {% if u['id'] == current_user_id %}
-        <input type="hidden" name="permissions" value="users">
-        {% endif %}
-        <button type="submit" style="padding:5px 10px; font-size:11.5px; margin:4px 0 0;">저장</button>
-      </form>
-    </td>
-    <td style="font-family:monospace; font-size:12px;">
-      {{ '(본인 계정)' if u['id'] == current_user_id else u['password'] }}
-    </td>
-    <td style="font-size:12px; color:#6b7280;">{{ u['created_at'] }}</td>
-    <td>
-      <div style="display:flex; gap:4px; justify-content:center; flex-wrap:wrap;">
-        <form method="POST" style="display:inline;">
-          <input type="hidden" name="action" value="reset_password">
-          <input type="hidden" name="user_id" value="{{ u['id'] }}">
-          <input type="text" name="new_password" placeholder="새 비번" style="width:90px; padding:5px; font-size:12px; margin:0;">
-          <button type="submit" style="padding:5px 8px; font-size:11.5px; margin:0;">변경</button>
-        </form>
-        {% if u['id'] != current_user_id %}
-        <form method="POST" style="display:inline;" onsubmit="return confirm('{{ u['username'] }} 계정을 삭제할까?');">
-          <input type="hidden" name="action" value="delete">
-          <input type="hidden" name="user_id" value="{{ u['id'] }}">
-          <button type="submit" style="padding:5px 8px; font-size:11.5px; margin:0; background:#fff; color:#dc2626; border:1px solid #dc2626;">삭제</button>
-        </form>
-        {% endif %}
-      </div>
-    </td>
+    <td>{{ u_perm_count }}개</td>
+    <td style="font-size:12px; color:#6b7280;">{{ u['created_at'] | datetime_korean }}</td>
+    <td><a href="{{ url_for('user_detail', user_id=u['id']) }}"
+           onclick="event.stopPropagation()"
+           class="btn secondary" style="margin:0; padding:6px 12px; font-size:12.5px;">⚙️ 상세·권한</a></td>
   </tr>
   {% endfor %}
 </table>
 
 <div class="card" style="margin-top:20px;">
   <h3 style="margin-top:0;">새 계정 만들기</h3>
+  <p class="hint" style="margin-top:0;">먼저 계정을 만들면 상세 페이지로 이동해. 거기서 권한을 설정하면 돼.</p>
   <form method="POST">
     <input type="hidden" name="action" value="create">
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -80,16 +44,7 @@
       <div style="flex:1; min-width:120px;"><label>임시 비밀번호</label><input name="password" type="text" required></div>
       <div style="flex:1; min-width:120px;"><label>이름(표시용)</label><input name="display_name"></div>
     </div>
-    <label>권한</label>
-    <div style="display:flex; flex-wrap:wrap; gap:10px;">
-      {% for p in all_perms %}
-      <label style="display:inline-flex; align-items:center; gap:5px; font-weight:400;">
-        <input type="checkbox" name="permissions" value="{{ p }}" style="width:auto;">
-        {{ perm_labels.get(p, p) }}
-      </label>
-      {% endfor %}
-    </div>
-    <button type="submit">계정 생성</button>
+    <button type="submit">계정 생성 → 권한 설정</button>
   </form>
 </div>
 {% endblock %}

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}부적합 통보서 작성 — {{ header['material_no'] }}{% endblock %}
+{% block content %}
+<style>
+.ncr-section { background: #fff; border-radius: 12px; padding: 18px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; }
+.ncr-section h3 { font-size: 14px; font-weight: 700; color: #4b5563;
+                  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; font-size: 13.5px; }
+.info-grid .i-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.info-grid .i-val { font-weight: 700; }
+.defect-item { display: flex; justify-content: space-between; padding: 8px 12px;
+               background: #fef2f2; border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
+.defect-item .d-name { font-weight: 700; color: var(--fail); }
+</style>
+
+<h2>📋 부적합 통보서 작성</h2>
+
+<div class="ncr-section">
+  <h3>📦 검사 정보 (자동 입력)</h3>
+  <div class="info-grid">
+    <div><div class="i-label">자재번호</div><div class="i-val">{{ header['material_no'] }}</div></div>
+    <div><div class="i-label">제품명</div><div class="i-val">{{ header['material_name'] or '-' }}</div></div>
+    <div><div class="i-label">업체</div><div class="i-val">{{ header['supplier'] or '-' }}</div></div>
+    <div><div class="i-label">검사일</div><div class="i-val">{{ (header['inspect_date'] | date_korean) or '-' }}</div></div>
+    <div><div class="i-label">검사자</div><div class="i-val">{{ header['inspector'] or '-' }}</div></div>
+    <div><div class="i-label">판정</div>
+      <div class="i-val" style="color:var(--fail);">{{ header['overall_result'] }}</div>
+    </div>
+  </div>
+</div>
+
+{% if items %}
+<div class="ncr-section">
+  <h3>❌ 불합격 항목</h3>
+  {% for it in items %}
+  <div class="defect-item">
+    <span class="d-name">{{ it['item_name'] }}</span>
+    <span style="color:#374151;">{{ it['measured_value'] or '-' }} → {{ it['result'] }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<form method="POST">
+  <div class="ncr-section">
+    <h3>✍️ 통보서 내용</h3>
+
+    <label>발행일 <span style="color:var(--fail);">*</span></label>
+    <input type="date" name="issued_date" value="{{ today }}" required>
+
+    <label>불량 내용 <span style="color:var(--fail);">*</span></label>
+    <textarea name="defect_description" rows="4" required
+              placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛)"
+              style="resize:vertical;"></textarea>
+
+    <label>요구 조치사항 <span style="color:var(--fail);">*</span></label>
+    <textarea name="action_required" rows="3" required
+              placeholder="예: 불량 수량 전량 반품 후 재납품 요청. 원인 분석서 제출 요망."
+              style="resize:vertical;"></textarea>
+
+    <label>조치 기한</label>
+    <input type="date" name="due_date">
+  </div>
+
+  <button type="submit" style="width:100%; font-size:16px; padding:15px; margin-top:4px;">
+    부적합 통보서 발행
+  </button>
+</form>
+{% endblock %}

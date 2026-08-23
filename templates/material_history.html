@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}검사 이력 — {{ material_no }}{% endblock %}
+{% block content %}
+<style>
+.hist-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.hist-table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.hist-table th {
+  background: #f3f4f6;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  font-weight: 700;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.hist-table th.fixed-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #f3f4f6;
+}
+.hist-table td {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
+}
+.hist-table td.fixed-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card);
+  text-align: left;
+}
+.hist-table tr:hover td { background: #f9fafb; }
+.hist-table tr:hover td.fixed-col { background: #f3f4f6; }
+
+.cell-pass   { background: #f0fdf4; color: #15803d; font-weight: 700; }
+.cell-fail   { background: #fef2f2; color: #dc2626; font-weight: 700; }
+.cell-empty  { color: #d1d5db; }
+
+.result-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 800;
+}
+.result-badge.pass { background:#dcfce7; color:#16a34a; }
+.result-badge.fail { background:#fee2e2; color:#dc2626; }
+.result-badge.special { background:#fef9c3; color:#854d0e; }
+
+.item-group th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+}
+.item-group th.item-label {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 12px;
+}
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+  <div>
+    <h2 style="margin:0 0 4px;">📈 검사 이력 추적</h2>
+    <p style="margin:0; font-size:13px; color:var(--muted);">
+      <a href="{{ url_for('spec_detail', material_no=material_no) }}" style="color:var(--primary);">
+        {{ material_no }}
+      </a>
+      {% if material and material['material_name'] %} — {{ material['material_name'] }}{% endif %}
+      &nbsp;·&nbsp; 총 {{ inspections|length }}건
+    </p>
+  </div>
+  <a href="{{ url_for('spec_detail', material_no=material_no) }}" class="btn secondary"
+     style="padding:8px 16px; font-size:13px; margin-top:0;">← 규격으로</a>
+</div>
+
+{% if inspections %}
+<div class="hist-wrap">
+<table class="hist-table">
+  <thead>
+    <!-- 1행: 검사 메타 + 항목명 그룹 헤더 -->
+    <tr>
+      <th class="fixed-col" rowspan="2" style="min-width:90px;">검사일</th>
+      <th rowspan="2" style="min-width:80px;">업체</th>
+      <th rowspan="2" style="min-width:70px;">검사자</th>
+      <th rowspan="2" style="min-width:60px;">판정</th>
+      {% for name in item_names %}
+      <th colspan="2" class="item-label" style="border-bottom:none;">
+        {{ name }}
+      </th>
+      {% endfor %}
+    </tr>
+    <!-- 2행: 항목별 측정값 / 결과 -->
+    <tr class="item-group">
+      {% for name in item_names %}
+      <th style="font-size:11px; min-width:90px; background:#eff6ff; color:#6b7280;">측정값</th>
+      <th style="font-size:11px; min-width:50px; background:#eff6ff; color:#6b7280;">판정</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for insp in inspections %}
+  {% set row = items_dict.get(insp['id'], {}) %}
+  <tr>
+    <!-- 날짜 (클릭하면 성적서 상세로) -->
+    <td class="fixed-col">
+      <a href="{{ url_for('inspection_detail', inspection_id=insp['id']) }}"
+         style="color:var(--primary); font-weight:700; text-decoration:none;">
+        {{ (insp['inspect_date'] | date_korean) or '-' }}
+      </a>
+    </td>
+    <td>{{ insp['supplier'] or '-' }}</td>
+    <td style="font-size:12px;">{{ insp['inspector'] or '-' }}</td>
+    <td>
+      {% if insp['overall_result'] == '합격' %}
+        <span class="result-badge pass">합격</span>
+      {% elif insp['approval_type'] == 'special' %}
+        <span class="result-badge special">특채</span>
+      {% elif insp['overall_result'] %}
+        <span class="result-badge fail">{{ insp['overall_result'] }}</span>
+      {% else %}
+        <span class="result-badge" style="background:#f3f4f6; color:#6b7280;">-</span>
+      {% endif %}
+    </td>
+
+    {% for name in item_names %}
+    {% set it = row.get(name) %}
+    {% if it %}
+      {% set is_pass = it['result'] == '합격' or it['result'] == 'OK' %}
+      {% set is_fail = it['result'] == '불합격' or it['result'] == 'NG' %}
+      <td class="{% if is_pass %}cell-pass{% elif is_fail %}cell-fail{% endif %}"
+          style="font-size:12px;">
+        {% if it['measured_value'] %}
+          {% set vals = it['measured_value'].split(',') %}
+          {% if vals|length == 1 %}
+            {{ vals[0].strip() }}
+          {% else %}
+            {{ vals[0].strip() }}…<span style="font-size:10px; color:#9ca3af;">({{ vals|length }}개)</span>
+          {% endif %}
+        {% else %}
+          <span class="cell-empty">—</span>
+        {% endif %}
+      </td>
+      <td class="{% if is_pass %}cell-pass{% elif is_fail %}cell-fail{% endif %}">
+        {% if it['result'] %}
+          {% if is_pass %}✓{% elif is_fail %}✗{% else %}{{ it['result'] }}{% endif %}
+        {% else %}
+          <span class="cell-empty">—</span>
+        {% endif %}
+      </td>
+    {% else %}
+      <td class="cell-empty" style="color:#e5e7eb;">—</td>
+      <td class="cell-empty" style="color:#e5e7eb;">—</td>
+    {% endif %}
+    {% endfor %}
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p style="font-size:12px; color:var(--muted); margin-top:12px; text-align:center;">
+  ✓ = 합격 &nbsp; ✗ = 불합격 &nbsp; · 측정값이 여러 개면 첫 번째 값만 표시돼. 전체 값은 성적서 날짜를 눌러서 확인해줘.
+</p>
+
+{% else %}
+<div class="card" style="text-align:center; padding:40px; color:var(--muted);">
+  {{ material_no }}의 검사 이력이 아직 없어.
+</div>
+{% endif %}
+
+{% endblock %}

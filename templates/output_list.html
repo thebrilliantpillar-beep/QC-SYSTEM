@@ -17,7 +17,7 @@
       <td>{{ i['material_no'] }}</td>
       <td>{{ i['supplier'] or '-' }}</td>
       <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
-      <td style="font-size:12px; color:#6b7280;">{{ i['approved_at'] or '-' }}</td>
+      <td style="font-size:12px; color:#6b7280;">{{ (i['approved_at'] | datetime_korean) or '-' }}</td>
       <td>{{ i['approver'] or '-' }}</td>
     </tr>
     {% else %}
@@ -26,7 +26,23 @@
   </table>
 
   {% if pending %}
-  <div style="display:flex; gap:10px; margin-top:16px;">
+  <div style="margin-top:16px; padding:14px 18px; background:#f8fafc; border:1px solid #e2e8f0;
+              border-radius:10px; display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center;">
+    <span style="font-weight:600; font-size:14px; color:#374151;">포함할 문서</span>
+    <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer;">
+      <input type="checkbox" name="incl_drawing"  value="1" checked style="width:auto; accent-color:#2563eb;">
+      📐 도면
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer;">
+      <input type="checkbox" name="incl_standard" value="1" checked style="width:auto; accent-color:#2563eb;">
+      📋 기준서
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer;">
+      <input type="checkbox" name="incl_report"   value="1" checked style="width:auto; accent-color:#2563eb;">
+      📄 성적서
+    </label>
+  </div>
+  <div style="display:flex; gap:10px; margin-top:12px;">
     <button type="submit">선택 출력</button>
     <button type="submit" name="select_all" value="1" class="btn secondary" style="margin-top:0;">전체 출력</button>
   </div>

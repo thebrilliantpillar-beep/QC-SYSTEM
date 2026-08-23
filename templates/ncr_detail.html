@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% from "_glossary.html" import term %}
+{% block title %}{{ ncr['ncr_no'] }} — 부적합 통보서{% endblock %}
+{% block content %}
+<style>
+@media print {
+  header, footer, .no-print { display: none !important; }
+  main { padding: 0 !important; max-width: 100% !important; }
+  .ncr-doc { box-shadow: none !important; border: none !important; }
+  body { background: #fff !important; }
+}
+.btn-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.btn-bar button, .btn-bar a {
+  padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px;
+  cursor: pointer; text-decoration: none; border: none; margin-top: 0;
+}
+.ncr-doc {
+  background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  padding: 32px 28px; max-width: 720px; margin: 0 auto;
+}
+.ncr-title {
+  text-align: center; margin-bottom: 24px; border-bottom: 3px solid #1f2937; padding-bottom: 16px;
+}
+.ncr-title h1 { font-size: 22px; font-weight: 900; letter-spacing: 1px; margin: 0 0 4px; }
+.ncr-title .ncr-no { font-size: 13px; color: var(--muted); font-weight: 600; }
+.info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; }
+.info-table th, .info-table td { border: 1px solid #d1d5db; padding: 8px 10px; }
+.info-table th { background: #f3f4f6; font-weight: 700; width: 26%; text-align: left; color: #374151; }
+.content-box { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 14px;
+               font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; margin-bottom: 16px;
+               min-height: 70px; }
+.content-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; margin-top: 14px; }
+.sign-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; }
+.sign-box { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px; text-align: center;
+            font-size: 12.5px; min-height: 70px; }
+.sign-box .s-role { font-weight: 700; color: #4b5563; margin-bottom: 4px; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
+.photo-grid img { width: 100%; border-radius: 8px; border: 1px solid var(--border); object-fit: cover; aspect-ratio: 4/3; }
+
+/* 상태 배지 */
+.ncr-status { display:inline-flex; align-items:center; gap:6px; padding:6px 14px;
+              border-radius:999px; font-size:13px; font-weight:800; margin-bottom:14px; }
+.ncr-status.draft     { background:#fef9c3; color:#854d0e; border:1px solid #fbbf24; }
+.ncr-status.confirmed { background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; }
+.ncr-status.sent      { background:#dcfce7; color:#15803d; border:1px solid #86efac; }
+.ncr-status.issued    { background:#f3f4f6; color:#374151; border:1px solid #d1d5db; }
+
+/* 확인 완료 배너 */
+.confirm-banner {
+  background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px;
+  padding:12px 16px; margin-bottom:14px; font-size:13px;
+  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;
+}
+</style>
+
+<!-- 상태 표시 -->
+{% set status = ncr['status'] or 'draft' %}
+<div class="no-print" style="max-width:720px; margin:0 auto 0;">
+  <span class="ncr-status {{ status }}">
+    {% if status == 'draft' %}📝 초안 (작성 완료, 확인 대기)
+    {% elif status == 'confirmed' %}✅ 확인 완료 (발송 대기)
+    {% elif status == 'sent' %}📤 발송 완료
+    {% else %}📄 발행됨{% endif %}
+  </span>
+</div>
+
+<!-- 확인 대기 배너 (초안일 때만) -->
+{% if status == 'draft' and 'ncr_confirm' in user_perms %}
+<div class="confirm-banner no-print" style="max-width:720px; margin:0 auto 14px; display:block;">
+  <div style="margin-bottom:10px;">
+    <span style="font-weight:700;">아직 확인 전이야.</span>
+    <span style="color:#6b7280; margin-left:6px;">아래 문서를 검토한 뒤, 최종결정권자가 서명하고 확인 완료를 눌러줘.</span>
+  </div>
+
+  {% if not can_confirm %}
+  <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:9px;
+              padding:10px 13px; font-size:13px; color:#991b1b;">
+    🔒 <b>최종결정권자만 확인·발송할 수 있어.</b><br>
+    <span style="font-size:12.5px;">{{ confirm_block_reason }}</span>
+  </div>
+  {% else %}
+  <form method="POST" action="{{ url_for('ncr_confirm', ncr_id=ncr['id']) }}" id="ncrConfirmForm"
+        onsubmit="return prepareNcrSign()">
+    <input type="hidden" name="signature_data" id="ncrSigData">
+
+    <div style="background:#fff; border:1px solid var(--border); border-radius:9px; padding:12px;">
+      <b style="font-size:13.5px; color:#374151;">✍️ 최종결정권자 승인 서명 (필수)</b>
+      <p style="margin:4px 0 9px; font-size:12.5px; color:#6b7280;">
+        이 통보서는 협력사로 발송되는 문서라 승인 서명이 반드시 들어가.
+      </p>
+      <canvas id="ncrSigPad" width="340" height="120"
+              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+                     touch-action:none; display:block; max-width:100%;"></canvas>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <button type="button" onclick="clearNcrSig()" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
+        <button type="button" onclick="loadNcrDefaultSig()" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
+        <button type="submit"
+                style="background:#1d4ed8; color:#fff; padding:8px 18px; font-size:13.5px;
+                       border:none; border-radius:8px; cursor:pointer; font-weight:700; margin-top:0;">
+          ✅ 서명하고 확인 완료
+        </button>
+      </div>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if status == 'confirmed' %}
+<div class="no-print" style="max-width:720px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
+  확인자: <strong>{{ ncr['confirmed_by'] }}</strong> · {{ ncr['confirmed_at'] | datetime_korean }}
+  {% if ncr['confirm_signature'] %}&nbsp;|&nbsp;승인 서명 첨부됨{% endif %}
+</div>
+{% elif status == 'sent' %}
+<div class="no-print" style="max-width:720px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
+  발송 완료: <strong>{{ ncr['sent_to'] }}</strong> · {{ ncr['email_sent_at'] | datetime_korean }}
+  &nbsp;|&nbsp; 확인자: {{ ncr['confirmed_by'] }}
+</div>
+{% endif %}
+
+<!-- 버튼 바 -->
+<div class="btn-bar no-print" style="max-width:720px; margin:0 auto 16px;">
+  <button onclick="window.print()" style="background:#1f2937; color:#fff;">🖨️ 인쇄 / PDF</button>
+
+  {% if 'ncr_confirm' in user_perms %}
+  <button onclick="document.getElementById('photoModal').style.display='flex'"
+          style="background:#7c3aed; color:#fff;">📷 사진 첨부</button>
+
+  {% if status in ('confirmed', 'sent') %}
+  <button onclick="document.getElementById('emailModal').style.display='flex'"
+          style="background: var(--primary); color:#fff;">
+    ✉️ 이메일 발송
+    {% if status == 'sent' %}<span style="background:#bbf7d0; color:#166534; font-size:11px;
+      border-radius:999px; padding:2px 7px; margin-left:6px; font-weight:700;">발송됨</span>{% endif %}
+  </button>
+  {% else %}
+  <button disabled title="확인 완료 후 발송 가능"
+          style="background:#e5e7eb; color:#9ca3af; cursor:not-allowed;">
+    ✉️ 이메일 발송 (확인 후 활성화)
+  </button>
+  {% endif %}
+  {% endif %}
+
+  <a href="{{ url_for('ncr_list') }}"
+     style="background:#fff; border:1.5px solid var(--border); color:#374151;">← 목록</a>
+  <a href="{{ url_for('inspection_detail', inspection_id=ncr['inspection_id']) }}"
+     style="background:#fff; border:1.5px solid var(--border); color:#374151;">← 성적서</a>
+</div>
+
+<!-- 통보서 본문 -->
+<div class="ncr-doc">
+  <div class="ncr-title">
+    <div class="ncr-no">{{ ncr['ncr_no'] }}</div>
+    <h1>부적합 통보서</h1>
+    <div style="font-size:13px; color:var(--muted);">NON-CONFORMANCE REPORT</div>
+  </div>
+
+  <table class="info-table">
+    <tr>
+      <th>발행일</th><td>{{ ncr['issued_date'] or '-' }}</td>
+      <th>발행자</th><td>{{ ncr['issued_by'] or '-' }}</td>
+    </tr>
+    <tr>
+      <th>자재번호</th><td>{{ ncr['material_no'] }}</td>
+      <th>제품명</th><td>{{ ncr['material_name'] or '-' }}</td>
+    </tr>
+    <tr>
+      <th>업체명</th>
+      <td colspan="3">
+        {{ ncr['supplier'] or '-' }}
+        {% if supplier_info and supplier_info['contact'] %}
+          <span style="color:var(--muted); font-size:12.5px; margin-left:8px;">{{ supplier_info['contact'] }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% if ncr['due_date'] %}
+    <tr>
+      <th>조치 기한</th>
+      <td colspan="3" style="font-weight:700; color:var(--fail);">{{ ncr['due_date'] }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  <div class="content-label">📌 불량 내용</div>
+  <div class="content-box">{{ ncr['defect_description'] or '-' }}</div>
+
+  <div class="content-label">🔧 요구 조치사항</div>
+  <div class="content-box">{{ ncr['action_required'] or '-' }}</div>
+
+  {% if photos %}
+  <div class="content-label">📷 불량 사진</div>
+  <div class="photo-grid">
+    {% for photo in photos %}
+    <img src="{{ url_for('static', filename='ncr_photos/' ~ photo) }}" alt="불량 사진">
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="sign-row">
+    <div class="sign-box">
+      <div class="s-role">검사 담당</div>
+      <div style="margin-top:30px; font-weight:700; font-size:13px;">{{ ncr['issued_by'] or '' }}</div>
+    </div>
+    <div class="sign-box">
+      <div class="s-role">최종결정권자 승인</div>
+      {% if ncr['confirmed_by'] %}
+      {% if confirm_signature_url %}
+      <img src="{{ confirm_signature_url }}" alt="승인 서명"
+           style="height:42px; margin-top:4px; object-fit:contain;">
+      {% else %}
+      <div style="margin-top:30px;"></div>
+      {% endif %}
+      <div style="font-size:12px; color:#6b7280;">{{ ncr['confirmed_at'][:10] if ncr['confirmed_at'] else '' }}</div>
+      <div style="font-weight:700; font-size:13px;">{{ ncr['confirmed_by'] }}</div>
+      {% endif %}
+    </div>
+    <div class="sign-box">
+      <div class="s-role">업체 수령 확인</div>
+    </div>
+  </div>
+</div>
+
+<!-- 사진 첨부 모달 -->
+<div id="photoModal" style="display:none; position:fixed; inset:0; z-index:9000;
+     background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; padding:24px; width:min(92vw,400px);
+              box-shadow:0 8px 30px rgba(0,0,0,.3);">
+    <h3 style="margin:0 0 16px;">📷 사진 첨부</h3>
+    <form method="POST" action="{{ url_for('ncr_add_photo', ncr_id=ncr['id']) }}"
+          enctype="multipart/form-data">
+      <label style="display:block; margin-bottom:8px; font-weight:600; font-size:13.5px;">카메라 촬영</label>
+      <input type="file" name="photo" accept="image/*" capture="environment" style="margin-bottom:12px;">
+      <label style="display:block; margin-bottom:8px; font-weight:600; font-size:13.5px;">또는 갤러리에서 선택</label>
+      <input type="file" name="photo" accept="image/*" style="margin-bottom:16px;">
+      <div style="display:flex; gap:10px;">
+        <button type="submit" style="flex:1; padding:12px; font-size:14px;">첨부</button>
+        <button type="button" onclick="document.getElementById('photoModal').style.display='none'"
+                class="btn secondary" style="flex:1; padding:12px; font-size:14px; margin-top:0;">취소</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 이메일 발송 모달 -->
+<div id="emailModal" style="display:none; position:fixed; inset:0; z-index:9000;
+     background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; padding:24px; width:min(92vw,420px);
+              box-shadow:0 8px 30px rgba(0,0,0,.3);">
+    <h3 style="margin:0 0 16px;">✉️ 이메일 발송</h3>
+    {% if status == 'sent' %}
+    <div style="background:#fef3c7; border:1px solid #fbbf24; border-radius:8px; padding:10px 12px;
+                font-size:13px; margin-bottom:14px;">
+      이전 발송: <strong>{{ ncr['sent_to'] }}</strong> · {{ ncr['email_sent_at'] }}
+    </div>
+    {% endif %}
+    <form method="POST" action="{{ url_for('ncr_send_email', ncr_id=ncr['id']) }}">
+      <label>받는 사람 이메일 <span style="color:var(--fail);">*</span></label>
+      <input type="email" name="to_email" required
+             value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else (ncr['sent_to'] or '') }}"
+             placeholder="supplier@example.com">
+      <div class="hint" style="margin-top:4px;">첨부된 사진 {{ photos|length }}장이 함께 발송돼.</div>
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button type="submit" style="flex:1; padding:12px; font-size:14px;">발송</button>
+        <button type="button" onclick="document.getElementById('emailModal').style.display='none'"
+                class="btn secondary" style="flex:1; padding:12px; font-size:14px; margin-top:0;">취소</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if status == 'draft' and 'ncr_confirm' in user_perms and can_confirm %}
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
+<script>
+/* 부적합 통보서 최종결정권자 승인 서명 — 패드 구현은 static/signature_pad.js 공용 */
+(function () {
+  var pad = SignaturePad.attach('ncrSigPad');
+  if (!pad) return;
+  window.clearNcrSig = function () { pad.clear(); };
+  window.loadNcrDefaultSig = function () {
+    pad.loadDefault(function (ok) {
+      if (!ok) alert('저장된 기본 서명이 없어. 승인 화면에서 먼저 서명을 저장해줘.');
+    });
+  };
+  window.prepareNcrSign = function () {
+    return pad.fillAndConfirm('ncrSigData',
+      '부적합 통보서를 승인 서명하고 확인 완료 처리할까?
+이후 협력사로 이메일 발송이 가능해져.');
+  };
+})();
+</script>
+{% endif %}
+
+{% endblock %}

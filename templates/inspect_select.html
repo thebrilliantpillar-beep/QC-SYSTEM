@@ -25,29 +25,53 @@
 <table>
   <tr>
     <th style="width:26px;"><input type="checkbox" id="checkAllPending" onclick="document.querySelectorAll('.pending-check').forEach(c=>c.checked=this.checked)"></th>
-    <th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th>
+    <th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th><th>검사원</th>
   </tr>
   {% for r in pending %}
+  {% set inspectors = progress_map.get(r['id'], []) %}
   <tr>
     <td onclick="event.stopPropagation()">
       <input type="checkbox" class="pending-check" form="deleteForm" name="intake_ids" value="{{ r['id'] }}">
     </td>
-    <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">{{ r['receive_date'] or '-' }}</td>
+    <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">{{ r['supplier'] or '-' }}</td>
     <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">{{ r['po_number'] or '-' }}</td>
     <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">{{ r['product_name'] or '-' }}</td>
     <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">
       {{ r['material_no'] }}
-      {% if r['material_no'] in group_nos %}
+      {% if ' - ' in (r['product_name'] or '') %}
+        <span class="badge special" style="margin-left:4px;">MA 파츠</span>
+      {% elif r['material_no'] in group_nos %}
         <span class="badge pending" style="margin-left:4px;">조립품</span>
       {% elif r['material_no'] not in registered %}
         <span class="badge fail" style="margin-left:4px;">규격 미등록</span>
       {% endif %}
     </td>
     <td class="clickable" onclick="location.href='{{ url_for('inspect_form', intake_id=r['id']) }}'">{{ r['quantity'] or '-' }}</td>
+    <td onclick="event.stopPropagation()" style="min-width:120px;">
+      {% if inspectors %}
+      <div style="font-size:12px; color:#1d4ed8; font-weight:600;">
+        {% if inspectors|length == 1 %}
+          검사원 1 ({{ inspectors[0] }})
+        {% else %}
+          {% for name in inspectors %}검사원 {{ loop.index }} ({{ name }}){% if not loop.last %}<br>{% endif %}{% endfor %}
+        {% endif %}
+      </div>
+      {% set my_name = g.user['display_name'] or g.user['username'] %}
+      {% if my_name in inspectors %}
+      <form method="POST" action="{{ url_for('withdraw_inspector', intake_id=r['id']) }}" style="margin-top:4px;"
+            onsubmit="return confirm('검사에서 빠질까? 검사원이 1명이면 빠질 수 없어.');">
+        <button type="submit" style="font-size:11px; padding:3px 8px; background:#fff; color:#dc2626;
+                border:1px solid #dc2626; border-radius:6px; cursor:pointer; margin-top:0;">빠지기</button>
+      </form>
+      {% endif %}
+      {% else %}
+      <span style="font-size:12px; color:#9ca3af;">-</span>
+      {% endif %}
+    </td>
   </tr>
   {% else %}
-  <tr><td colspan="7">
+  <tr><td colspan="8">
     {% if query %}검색 결과가 없어.{% else %}
     대기 중인 입고 건이 없어.
     {% if 'intake' in user_perms %}<a href="{{ url_for('intake') }}">입고 리스트 등록</a>부터 해줘.{% endif %}

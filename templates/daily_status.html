@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% from "_glossary.html" import term %}
+{% block title %}금일 현황 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .flow { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:14px 0; }
+  @media (max-width:700px){ .flow{ grid-template-columns:repeat(2,1fr); } }
+  .step { background:#fff; border-radius:12px; padding:13px 12px; text-align:center;
+          box-shadow:0 1px 3px rgba(0,0,0,.06); text-decoration:none; color:inherit; display:block;
+          border:2px solid transparent; }
+  .step:hover { border-color:var(--primary); }
+  .step .s-l { font-size:11.5px; color:var(--muted); font-weight:700; }
+  .step .s-v { font-size:27px; font-weight:800; margin-top:4px; line-height:1.1; }
+  .step .s-u { font-size:11px; color:#9ca3af; margin-top:2px; }
+  .step.has .s-v { color:var(--fail); }
+  .step.zero .s-v { color:#16a34a; }
+
+  .kpi3 { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-bottom:6px; }
+  @media (max-width:620px){ .kpi3{ grid-template-columns:1fr; } }
+  .kbox { background:#fff; border-radius:12px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .kbox .t { font-size:12px; color:var(--muted); font-weight:700; margin-bottom:7px; }
+  .kbox .big { font-size:24px; font-weight:800; }
+  .kbox .sub { font-size:12px; color:#9ca3af; margin-top:3px; }
+
+  .bar { background:#f3f4f6; border-radius:999px; height:9px; overflow:hidden; margin-top:8px; }
+  .bar > div { height:100%; background:var(--primary); border-radius:999px; }
+
+  .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
+         margin-top:13px; overflow:hidden; }
+  .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex;
+                   align-items:center; gap:9px; font-size:14px; font-weight:800; color:#374151; }
+  .sec > summary::-webkit-details-marker { display:none; }
+  .sec > summary:hover { background:#f8fafc; }
+  .sec .cnt { font-size:12px; font-weight:700; border-radius:999px; padding:2px 9px; }
+  .cnt.red { background:#fee2e2; color:#991b1b; }
+  .cnt.gray { background:#f3f4f6; color:#6b7280; }
+  .sec .arrow { color:#9ca3af; font-size:12px; margin-left:auto; transition:transform .18s; }
+  .sec[open] .arrow { transform:rotate(90deg); }
+  .sec .body { border-top:1px solid var(--border); }
+
+  .item { display:flex; justify-content:space-between; align-items:center; gap:10px;
+          padding:10px 16px; border-bottom:1px solid #f1f5f9; font-size:13px; flex-wrap:wrap; }
+  .item:last-child { border-bottom:none; }
+  .item:hover { background:#f8fafc; cursor:pointer; }
+  .item .mno { font-weight:700; }
+  .item .sub { color:var(--muted); font-size:12px; }
+  .go { color:var(--primary); font-size:12px; font-weight:700; white-space:nowrap; }
+
+  .tblw { overflow-x:auto; }
+  .tblw table { width:100%; border-collapse:collapse; font-size:12.5px; margin:0; box-shadow:none; }
+  .tblw th { background:#f8fafc; text-align:left; padding:9px 12px; font-weight:700;
+             border-bottom:1px solid var(--border); white-space:nowrap; }
+  .tblw td { padding:8px 12px; border-bottom:1px solid #f1f5f9; text-align:left; white-space:nowrap; }
+  .tblw tr:last-child td { border-bottom:none; }
+  .num { text-align:right !important; font-variant-numeric:tabular-nums; }
+  .none { padding:22px 16px; text-align:center; color:#9ca3af; font-size:13px; }
+</style>
+
+<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+  <h2 style="margin:0;">📅 금일 현황</h2>
+  <form method="GET" style="display:flex; gap:7px; align-items:center;">
+    <input type="date" name="date" value="{{ s['날짜'] }}" style="width:158px; padding:8px 10px; margin:0;"
+           onchange="this.form.submit()">
+    {% if s['날짜'] != today %}
+    <a href="{{ url_for('daily_status') }}" class="btn secondary" style="margin:0; padding:8px 13px; font-size:13px;">오늘로</a>
+    {% endif %}
+  </form>
+</div>
+<p class="muted" style="margin:6px 0 0;">{{ s['날짜'] | date_korean }} 기준</p>
+
+{# ───────── 단계별로 밀려 있는 일 ───────── #}
+<p class="muted" style="font-size:12.5px; margin:16px 0 0;">지금 각 단계에 쌓여 있는 일 (오늘 것만이 아니라 전체)</p>
+{% set b = s['밀린일'] %}
+<div class="flow">
+  <a class="step {{ 'has' if b['검사대기'] else 'zero' }}" href="{{ url_for('inspect_select') }}">
+    <div class="s-l">🔍 검사 대기</div><div class="s-v">{{ b['검사대기'] }}</div><div class="s-u">건</div>
+  </a>
+  <a class="step {{ 'has' if b['승인대기'] else 'zero' }}" href="{{ url_for('approve_list') }}">
+    <div class="s-l">✅ 승인 대기</div><div class="s-v">{{ b['승인대기'] }}</div><div class="s-u">건</div>
+  </a>
+  <a class="step {{ 'has' if b['출력대기'] else 'zero' }}" href="{{ url_for('output_list') }}">
+    <div class="s-l">🖨️ 출력 대기</div><div class="s-v">{{ b['출력대기'] }}</div><div class="s-u">건</div>
+  </a>
+  <a class="step {{ 'has' if b['반려'] else 'zero' }}" href="{{ url_for('history') }}">
+    <div class="s-l">↩️ 반려</div><div class="s-v">{{ b['반려'] }}</div><div class="s-u">재검사 필요</div>
+  </a>
+</div>
+
+{# ───────── 오늘 실적 ───────── #}
+<div class="kpi3">
+  <div class="kbox">
+    <div class="t">📦 오늘 입고</div>
+    <div class="big">{{ s['입고']['건수'] }}<span style="font-size:14px; font-weight:600; color:#9ca3af;">건</span></div>
+    <div class="sub">{{ "{:,}".format(s['입고']['수량']) }}개 · 검사완료 {{ s['입고']['검사완료'] }}건</div>
+    <div class="bar"><div style="width:{{ s['입고']['진행률'] }}%;"></div></div>
+    <div class="sub">검사 진행률 {{ s['입고']['진행률'] }}%</div>
+  </div>
+  <div class="kbox">
+    <div class="t">🔍 오늘 검사</div>
+    <div class="big">{{ s['검사']['건수'] }}<span style="font-size:14px; font-weight:600; color:#9ca3af;">건</span></div>
+    <div class="sub">{{ "{:,}".format(s['검사']['수량']) }}개 검사</div>
+    <div class="sub" style="color:{{ '#dc2626' if s['검사']['불량건수'] else '#16a34a' }}; font-weight:700;">
+      불량·검토필요 {{ s['검사']['불량건수'] }}건
+    </div>
+  </div>
+  <div class="kbox">
+    <div class="t">✅ 오늘 결정</div>
+    <div class="big">{{ s['결정']['건수'] }}<span style="font-size:14px; font-weight:600; color:#9ca3af;">건</span></div>
+    <div class="sub">
+      합격 {{ s['결정']['합격'] }} · 특채 {{ s['결정']['특채'] }}{{ term('special') }} ·
+      <span style="color:{{ '#dc2626' if s['결정']['불합격'] else '#9ca3af' }};">불합격 {{ s['결정']['불합격'] }}</span>
+    </div>
+  </div>
+</div>
+
+{# ───────── 지금 손대야 할 일 ───────── #}
+{% set t = s['해야할일'] %}
+{% set total_todo = t['재검사필요']|length + t['통보서작성필요']|length + t['통보서확인필요']|length + t['통보서발송필요']|length %}
+
+<h3 style="margin:22px 0 0; font-size:15px;">
+  🛠️ 지금 손대야 할 일
+  <span style="font-size:13px; font-weight:700; color:{{ '#dc2626' if total_todo else '#16a34a' }};">
+    {{ total_todo }}건
+  </span>
+</h3>
+
+{% macro todo_sec(key, icon, title, items, hint) %}
+<details class="sec" {% if items %}open{% endif %}>
+  <summary>
+    {{ icon }} {{ title }}
+    <span class="cnt {{ 'red' if items else 'gray' }}">{{ items|length }}</span>
+    <span class="arrow">▶</span>
+  </summary>
+  <div class="body">
+    {% if hint %}<div style="padding:9px 16px; font-size:12px; color:#6b7280; background:#f8fafc;">{{ hint }}</div>{% endif %}
+    {% if not items %}<div class="none">처리할 게 없어. 👍</div>{% endif %}
+    {{ caller() }}
+  </div>
+</details>
+{% endmacro %}
+
+{% call todo_sec('recheck', '↩️', '반려됨 — 재검사 필요', t['재검사필요'],
+                 '관리자가 반려한 건이야. 다시 검사해서 성적서를 새로 올려야 해.') %}
+  {% for r in t['재검사필요'] %}
+  <div class="item" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r['id']) }}'">
+    <span>
+      <span class="mno">{{ r['material_no'] }}</span>
+      <span class="sub"> · {{ r['material_name'] or '-' }} · {{ r['supplier'] or '-' }}</span>
+      {% if r['reject_reason'] %}<div class="sub" style="color:#92400e;">사유: {{ r['reject_reason'] }}</div>{% endif %}
+    </span>
+    <span class="go">성적서 열기 →</span>
+  </div>
+  {% endfor %}
+{% endcall %}
+
+{% call todo_sec('ncr_new', '🔴', '불합격 확정 — 부적합 통보서 작성 필요', t['통보서작성필요'],
+                 '불합격이 확정됐는데 아직 통보서를 안 썼어. 협력사에 알리려면 통보서가 필요해.') %}
+  {% for r in t['통보서작성필요'] %}
+  <div class="item" onclick="location.href='{{ url_for('ncr_new', inspection_id=r['id']) }}'">
+    <span>
+      <span class="mno">{{ r['material_no'] }}</span>
+      <span class="sub"> · {{ r['material_name'] or '-' }} · {{ r['supplier'] or '-' }}
+        · 검사일 {{ r['inspect_date'] | date_korean }}</span>
+    </span>
+    <span class="go">통보서 작성 →</span>
+  </div>
+  {% endfor %}
+{% endcall %}
+
+{% call todo_sec('ncr_confirm', '✍️', '부적합 통보서 — 최종결정권자 확인 필요', t['통보서확인필요'],
+                 '작성은 끝났고, 최종결정권자가 서명해서 확인해야 발송할 수 있어.') %}
+  {% for r in t['통보서확인필요'] %}
+  <div class="item" onclick="location.href='{{ url_for('ncr_detail', ncr_id=r['id']) }}'">
+    <span>
+      <span class="mno">{{ r['ncr_no'] }}</span>
+      <span class="sub"> · {{ r['material_no'] }} · {{ r['supplier'] or '-' }}
+        · 작성 {{ r['issued_by'] or '-' }}</span>
+    </span>
+    <span class="go">확인하러 가기 →</span>
+  </div>
+  {% endfor %}
+{% endcall %}
+
+{% call todo_sec('ncr_send', '📤', '부적합 통보서 — 협력사 발송 필요', t['통보서발송필요'],
+                 '확인까지 끝났어. 이제 협력사로 보내면 돼.') %}
+  {% for r in t['통보서발송필요'] %}
+  <div class="item" onclick="location.href='{{ url_for('ncr_detail', ncr_id=r['id']) }}'">
+    <span>
+      <span class="mno">{{ r['ncr_no'] }}</span>
+      <span class="sub"> · {{ r['material_no'] }} · {{ r['supplier'] or '-' }}
+        · 확인 {{ r['confirmed_by'] or '-' }}</span>
+    </span>
+    <span class="go">발송하러 가기 →</span>
+  </div>
+  {% endfor %}
+{% endcall %}
+
+{# ───────── 오늘 검사자별 실적 ───────── #}
+<h3 style="margin:22px 0 0; font-size:15px;">👥 오늘 검사자별 실적</h3>
+<details class="sec" open>
+  <summary>인원별 처리량 <span class="cnt gray">{{ s['인원별']|length }}명</span><span class="arrow">▶</span></summary>
+  <div class="body">
+    {% if s['인원별'] %}
+    <div class="tblw">
+      <table>
+        <thead><tr><th>검사자</th><th class="num">건수</th><th class="num">검사수량</th>
+                   <th class="num">불량</th><th class="num">총 시간</th><th class="num">건당 평균</th></tr></thead>
+        <tbody>
+        {% for p in s['인원별'] %}
+        <tr>
+          <td><b>{{ p['검사자'] }}</b></td>
+          <td class="num">{{ p['건수'] }}</td>
+          <td class="num">{{ "{:,}".format(p['수량']) }}</td>
+          <td class="num" style="color:{{ '#dc2626' if p['불량'] else '#9ca3af' }};">{{ p['불량'] }}</td>
+          <td class="num">{{ (p['총초'] // 60) }}분</td>
+          <td class="num">{{ '%.1f'|format(p['평균초'] / 60) }}분</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="none">오늘 검사 기록이 아직 없어.</div>
+    {% endif %}
+  </div>
+</details>
+
+{# ───────── 오늘 검사한 성적서 ───────── #}
+<details class="sec" data-sec="today-list">
+  <summary>📋 오늘 검사한 성적서 <span class="cnt gray">{{ s['검사']['목록']|length }}</span><span class="arrow">▶</span></summary>
+  <div class="body">
+    {% if s['검사']['목록'] %}
+    <div class="tblw">
+      <table>
+        <thead><tr><th>자재번호</th><th>제품명</th><th>업체</th><th class="num">수량</th><th>판정</th><th>상태</th></tr></thead>
+        <tbody>
+        {% for r in s['검사']['목록'] %}
+        <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r['id']) }}'">
+          <td>{{ r['material_no'] }}</td>
+          <td>{{ r['material_name'] or '-' }}</td>
+          <td>{{ r['supplier'] or '-' }}</td>
+          <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
+          <td style="color:{{ '#dc2626' if (r['overall_result'] or '') not in ('합격','') else '#16a34a' }};">
+            {{ r['overall_result'] or '-' }}</td>
+          <td>{{ status_display(r)[0] }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="none">오늘 검사한 성적서가 없어.</div>
+    {% endif %}
+  </div>
+</details>
+
+{# ───────── 오늘 입고 ───────── #}
+<details class="sec" data-sec="today-intake">
+  <summary>📦 오늘 입고 목록 <span class="cnt gray">{{ s['입고']['목록']|length }}</span><span class="arrow">▶</span></summary>
+  <div class="body">
+    {% if s['입고']['목록'] %}
+    <div class="tblw">
+      <table>
+        <thead><tr><th>자재번호</th><th>제품명</th><th>업체</th><th>발주번호</th><th class="num">수량</th><th>상태</th></tr></thead>
+        <tbody>
+        {% for r in s['입고']['목록'] %}
+        <tr>
+          <td>{{ r['material_no'] }}</td>
+          <td>{{ r['product_name'] or '-' }}</td>
+          <td>{{ r['supplier'] or '-' }}</td>
+          <td>{{ r['po_number'] or '-' }}</td>
+          <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
+          <td>{{ r['status'] }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="none">오늘 등록된 입고가 없어.</div>
+    {% endif %}
+  </div>
+</details>
+{% endblock %}

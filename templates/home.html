@@ -1,36 +1,271 @@
 {% extends "base.html" %}
-{% block title %}홈{% endblock %}
+{% block title %}대시보드 — Chardon QMS{% endblock %}
 {% block content %}
-<h2>최근 검사 현황</h2>
 
-{% if pending_count > 0 %}
-<div class="card" style="border-left: 4px solid var(--pending);">
-  <b>미검사 {{ pending_count }}건</b> 대기 중이야.
-  <a href="{{ url_for('inspect_select') }}" class="btn" style="margin-top:10px;">지금 검사하기</a>
+<style>
+/* 대시보드 전용 스타일 */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (min-width: 600px) {
+  .dash-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.action-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 18px 14px 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  text-decoration: none;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid transparent;
+  transition: border-color .15s, box-shadow .15s;
+  position: relative;
+}
+.action-card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(37,99,235,.15); }
+.action-card .icon { font-size: 28px; }
+.action-card .label { font-size: 13px; font-weight: 700; color: #4b5563; }
+.action-card .count {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+.action-card .count.urgent { color: var(--fail); }
+.action-card .count.normal { color: var(--primary); }
+.action-card .count.muted  { color: var(--muted); }
+.action-card .badge-dot {
+  position: absolute;
+  top: 10px; right: 12px;
+  background: var(--fail);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 2px 7px;
+  line-height: 1.4;
+}
+
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (min-width: 500px) {
+  .today-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.today-stat {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 14px 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  text-align: center;
+}
+.today-stat .t-label { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+.today-stat .t-value { font-size: 22px; font-weight: 800; color: var(--text); }
+.today-stat .t-value.defect { color: var(--fail); }
+
+.section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4b5563;
+  margin: 20px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.time-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.time-row:last-child { border-bottom: none; }
+.gauge-warn {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+</style>
+
+<!-- ① 할 일 현황 -->
+<p class="section-title">📋 할 일 현황</p>
+<div class="dash-grid">
+
+  {% if 'inspect_input' in user_perms %}
+  <a href="{{ url_for('inspect_select') }}" class="action-card">
+    <span class="icon">🔍</span>
+    <span class="label">검사 대기</span>
+    <span class="count {% if pending_inspect %}urgent{% else %}muted{% endif %}">
+      {{ pending_inspect|length }}
+    </span>
+    {% if pending_inspect %}<span class="badge-dot">!</span>{% endif %}
+  </a>
+  {% endif %}
+
+  {% if 'approve' in user_perms %}
+  <a href="{{ url_for('approve_list') }}" class="action-card">
+    <span class="icon">✅</span>
+    <span class="label">승인 대기</span>
+    <span class="count {% if pending_approve %}urgent{% else %}muted{% endif %}">
+      {{ pending_approve|length }}
+    </span>
+    {% if pending_approve %}<span class="badge-dot">!</span>{% endif %}
+  </a>
+  {% endif %}
+
+  {% if 'output' in user_perms %}
+  <a href="{{ url_for('output_list') }}" class="action-card">
+    <span class="icon">🖨️</span>
+    <span class="label">출력 대기</span>
+    <span class="count {% if pending_output %}normal{% else %}muted{% endif %}">
+      {{ pending_output|length }}
+    </span>
+  </a>
+  {% endif %}
+
+  {% if 'intake' in user_perms %}
+  <a href="{{ url_for('intake') }}" class="action-card">
+    <span class="icon">📦</span>
+    <span class="label">입고 등록</span>
+    <span class="count muted">+</span>
+  </a>
+  {% endif %}
+
+</div>
+
+<!-- ② 금일 현황 -->
+<p class="section-title" style="display:flex; align-items:center; gap:9px;">📊 금일 현황<a href="{{ url_for('daily_status') }}" style="margin-left:auto; font-size:12.5px; font-weight:700; color:var(--primary); text-decoration:none;">자세히 보기 →</a></p>
+<div class="today-grid">
+  <div class="today-stat">
+    <div class="t-label">오늘 입고</div>
+    <div class="t-value">{{ today_stats.intake_count }}건</div>
+  </div>
+  <div class="today-stat">
+    <div class="t-label">검사 완료</div>
+    <div class="t-value">{{ today_stats.inspected }}건</div>
+  </div>
+  <div class="today-stat">
+    <div class="t-label">불량 발생</div>
+    <div class="t-value {% if today_stats.defects > 0 %}defect{% endif %}">
+      {{ today_stats.defects }}건
+    </div>
+  </div>
+  <div class="today-stat">
+    <div class="t-label">잔여 검사</div>
+    <div class="t-value {% if pending_inspect %}defect{% endif %}">
+      {{ pending_inspect|length }}건
+    </div>
+  </div>
+</div>
+
+<!-- 인원별 소요시간 -->
+{% if today_stats.time_by_user %}
+<div class="card" style="margin-bottom:16px; padding:14px 18px;">
+  <div style="font-size:13px; font-weight:700; color:#4b5563; margin-bottom:8px;">⏱️ 오늘 검사 소요시간 (인원별)</div>
+  {% for t in today_stats.time_by_user %}
+  <div class="time-row">
+    <span>{{ t.inspector or '(미지정)' }}</span>
+    <span style="font-weight:700;">
+      {% set h = (t.total_sec // 3600)|int %}
+      {% set m = ((t.total_sec % 3600) // 60)|int %}
+      {% set s = (t.total_sec % 60)|int %}
+      {% if h > 0 %}{{ h }}시간 {% endif %}{{ m }}분 {{ s }}초
+    </span>
+  </div>
+  {% endfor %}
 </div>
 {% endif %}
 
-{% if 'intake' in user_perms %}
-<a href="{{ url_for('intake') }}" class="btn secondary">+ 입고 리스트 등록</a>
+<!-- ③ 반복 불량 경고 -->
+{% if repeat_defects %}
+<p class="section-title">🔴 반복 불량 경고 (3회 이상)</p>
+{% for r in repeat_defects %}
+<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px;
+     padding:10px 14px; margin-bottom:6px; display:flex; justify-content:space-between;
+     align-items:center; font-size:13px;">
+  <div>
+    <span style="font-weight:700; color:#dc2626;">{{ r['supplier'] or '-' }}</span>
+    <span style="color:#6b7280; margin:0 6px;">·</span>
+    <span style="font-weight:600;">{{ r['material_no'] }}</span>
+    {% if r['material_name'] %}<span style="color:#6b7280; font-size:12px; margin-left:4px;">{{ r['material_name'] }}</span>{% endif %}
+  </div>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <span style="font-weight:800; color:#dc2626; font-size:16px;">{{ r['cnt'] }}회</span>
+    <a href="{{ url_for('defect_history', preset='custom', start='2000-01-01', end='2099-12-31') }}"
+       style="font-size:12px; color:var(--primary);">이력 →</a>
+  </div>
+</div>
+{% endfor %}
 {% endif %}
 
+<!-- ④ 계측기 만료 경고 (마스터 + 검사 기록) -->
+{% if gauge_master_warnings or gauge_warnings %}
+<p class="section-title">⚠️ 계측기 검교정 만료 임박</p>
+{% for g in gauge_master_warnings %}
+{% set dl = g['days_left']|int if g['days_left'] != none else -999 %}
+<div class="gauge-warn" style="{% if dl <= 0 %}border-color:#fca5a5; background:#fef2f2;{% elif dl <= 15 %}border-color:#fca5a5;{% endif %}">
+  <div>
+    <span style="font-weight:700;">{{ g['name'] }}</span>
+    {% if g['gauge_no'] %}<span style="font-size:12px; color:var(--muted); margin-left:6px;">#{{ g['gauge_no'] }}</span>{% endif %}
+    {% if g['location'] %}<span style="font-size:12px; color:var(--muted); margin-left:4px;">· {{ g['location'] }}</span>{% endif %}
+  </div>
+  <div style="text-align:right;">
+    <span style="font-weight:800; color:{% if dl <= 0 %}var(--fail){% elif dl <= 15 %}var(--fail){% else %}#f59e0b{% endif %};">
+      {{ g['expiry_date'] }}
+    </span>
+    <span style="display:block; font-size:11px; font-weight:700; color:{% if dl <= 0 %}var(--fail){% elif dl <= 15 %}var(--fail){% else %}#f59e0b{% endif %};">
+      {% if dl <= 0 %}만료됨{% else %}D-{{ dl }}{% endif %}
+    </span>
+  </div>
+</div>
+{% endfor %}
+{% if gauge_warnings %}
+<p style="font-size:12px; color:var(--muted); margin:8px 0 4px;">검사 기록 계측기 (D-15)</p>
+{% for g in gauge_warnings %}
+<div class="gauge-warn">
+  <span>{{ g.material_no }} — {{ g.item_name }}</span>
+  <span style="font-weight:700; color:#ea580c;">{{ g.gauge_expiry }}</span>
+</div>
+{% endfor %}
+{% endif %}
+{% endif %}
+
+<!-- ⑤ 최근 검사 이력 -->
+<p class="section-title">📄 최근 검사 이력</p>
 <table>
-  <tr><th>번호</th><th>자재번호</th><th>업체</th><th>검사일</th><th>결과</th><th>승인상태</th></tr>
-  {% for i in inspections %}
+  <tr><th>자재번호</th><th>업체</th><th>검사일</th><th>결과</th><th>상태</th></tr>
+  {% for i in recent %}
   <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=i['id']) }}'">
-    <td>{{ i['id'] }}</td>
     <td>{{ i['material_no'] }}</td>
     <td>{{ i['supplier'] or '-' }}</td>
-    <td>{{ i['inspect_date'] or '-' }}</td>
+    <td>{{ (i['inspect_date'] | date_korean) or '-' }}</td>
     <td>
       {% if i['overall_result'] == '합격' %}<span class="badge pass">합격</span>
       {% elif i['overall_result'] == '검토필요' %}<span class="badge review">검토필요</span>
-      {% else %}<span class="badge pending">{{ i['overall_result'] or '-' }}</span>{% endif %}
+      {% elif i['overall_result'] %}<span class="badge fail">{{ i['overall_result'] }}</span>
+      {% else %}<span class="badge muted">-</span>{% endif %}
     </td>
     <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
   </tr>
   {% else %}
-  <tr><td colspan="6">아직 등록된 검사가 없어.</td></tr>
+  <tr><td colspan="5" style="color:var(--muted);">아직 등록된 검사가 없어.</td></tr>
   {% endfor %}
 </table>
+
+<p style="text-align:center; margin-top:30px; font-size:11px; color:#d1d5db;">Chardon QMS &nbsp;·&nbsp; by JH</p>
+
 {% endblock %}

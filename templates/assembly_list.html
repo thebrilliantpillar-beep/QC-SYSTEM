@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}조립품 관리 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .asm-card { background:#fff; border-radius:12px; padding:14px 16px; margin-bottom:9px;
+              box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; }
+  .asm-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.10); }
+  .asm-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .asm-name { font-weight:700; font-size:15px; }
+  .asm-parts { color:var(--muted); font-size:12.5px; margin-top:6px; line-height:1.6; word-break:break-all; }
+  .pill { display:inline-block; background:#f0f4ff; color:#1d4ed8; border-radius:6px;
+          padding:2px 8px; font-size:12px; font-weight:600; }
+  .pill.warn { background:#fef3c7; color:#92400e; }
+</style>
+
+<h2>🧩 조립품 관리</h2>
+
+<div class="card" style="border-left:4px solid var(--primary);">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    조립품에 어떤 파츠가 들어가는지 등록해두는 곳이야. 여기 등록해두면
+    <b>입고 화면에서 파츠 번호 하나만 넣어도 그 조립품의 파츠 전체가 자동으로 펼쳐져</b>.<br>
+    파츠 하나만 스페어로 받을 땐 입고 화면에서 "파츠까지 펼치기" 체크를 끄면 돼.
+  </p>
+</div>
+
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+  <a href="{{ url_for('assembly_new') }}" class="btn" style="margin-top:0;">+ 조립품 등록</a>
+  {% if 'users' in perms %}
+  <a href="{{ url_for('import_assembly') }}" class="btn secondary" style="margin-top:0;">📄 MA 엑셀에서 가져오기</a>
+  {% endif %}
+</div>
+
+{% for a in assemblies %}
+<div class="asm-card" onclick="location.href='{{ url_for('assembly_detail', assembly_id=a['id']) }}'">
+  <div class="asm-head">
+    <span class="asm-name">{{ a['assembly_no'] }}</span>
+    <span>
+      <span class="pill">파츠 {{ a['part_count'] }}개</span>
+      {% if a['missing_count'] %}
+      <span class="pill warn">자재 미등록 {{ a['missing_count'] }}개</span>
+      {% endif %}
+    </span>
+  </div>
+</div>
+{% else %}
+<div style="text-align:center; padding:40px 0; color:var(--muted);">
+  등록된 조립품이 없어. 위 버튼으로 추가해줘.
+</div>
+{% endfor %}
+{% endblock %}

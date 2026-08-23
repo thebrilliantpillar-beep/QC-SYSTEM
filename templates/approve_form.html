@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_glossary.html" import term %}
 {% block title %}승인 — #{{ header['id'] }} {{ header['material_name'] or header['material_no'] }}{% endblock %}
 {% block content %}
 <style>
@@ -50,34 +51,19 @@
              border-radius:0 0 10px 10px; overflow:hidden; margin-bottom:20px; }
 .pass-body.open { display:block; }
 .pass-table { width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
-.pass-table th { background:#f3f4f6; color:#6b7280; padding:8px 10px; text-align:left;
-                 font-size:11.5px; font-weight:700; border-bottom:1px solid #e5e7eb; }
-.pass-table td { padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+.pass-table th { background:#f3f4f6; color:#6b7280; padding:8px 10px; text-align:center;
+                 font-size:11.5px; font-weight:700; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
+.pass-table th:first-child { text-align:left; }
+.pass-table td { padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:middle; text-align:center; }
+.pass-table td:first-child { text-align:left; }
 .pass-table tr:last-child td { border-bottom:none; }
+.val-box { display:inline-flex; align-items:center; justify-content:center;
+           min-width:34px; padding:2px 5px; border-radius:5px; font-size:12px; font-weight:600;
+           background:#f3f4f6; border:1px solid #e5e7eb; color:#1f2937; margin:2px; }
+.val-box.fail { background:#fee2e2; border-color:#fca5a5; color:#dc2626; }
+.method-tag { display:inline-block; font-size:11px; color:#6b7280; background:#f3f4f6;
+              border-radius:4px; padding:2px 6px; white-space:nowrap; }
 
-/* ── ④ 결정 카드 ── */
-.decision-cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:8px; }
-@media(max-width:560px){ .decision-cards{ grid-template-columns:1fr; } }
-.decision-card { border:2.5px solid #e5e7eb; border-radius:14px; padding:20px 14px;
-                 text-align:center; cursor:pointer; transition:all .15s;
-                 background:#fff; user-select:none; -webkit-tap-highlight-color:transparent; }
-.decision-card:hover { transform:translateY(-2px); box-shadow:0 4px 14px rgba(0,0,0,.1); }
-.decision-card.sel-pass    { border-color:#16a34a; background:#f0fdf4; box-shadow:0 0 0 3px rgba(22,163,74,.18); }
-.decision-card.sel-special { border-color:#ea580c; background:#fff7ed; box-shadow:0 0 0 3px rgba(234,88,12,.18); }
-.decision-card.sel-reject  { border-color:#dc2626; background:#fef2f2; box-shadow:0 0 0 3px rgba(220,38,38,.18); }
-.dc-icon  { font-size:38px; margin-bottom:8px; }
-.dc-title { font-size:17px; font-weight:800; margin-bottom:5px; }
-.dc-desc  { font-size:12.5px; color:#6b7280; line-height:1.5; }
-.rec-badge { display:inline-block; background:#ea580c; color:#fff; font-size:11px; font-weight:700;
-             padding:2px 8px; border-radius:999px; margin-bottom:6px; }
-
-/* ── ⑤ 하단 액션 영역 ── */
-.action-box { display:none; margin-top:16px; background:#fff; border-radius:14px;
-              padding:22px; box-shadow:0 2px 10px rgba(0,0,0,.09);
-              animation:fadeUp .2s ease; }
-.action-box.show { display:block; }
-@keyframes fadeUp { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
-.action-box h3 { margin:0 0 10px; font-size:17px; }
 
 .sig-method-row { display:flex; gap:16px; margin-bottom:10px; }
 .sig-radio { display:inline-flex; align-items:center; gap:6px; font-weight:400; font-size:14px; cursor:pointer; }
@@ -129,14 +115,75 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
     <div><div class="lbl">자재번호</div><div class="val">{{ header['material_no'] }}</div></div>
     <div><div class="lbl">자재명</div><div class="val">{{ header['material_name'] or '-' }}</div></div>
     <div><div class="lbl">업체</div><div class="val">{{ header['supplier'] or '-' }}</div></div>
-    <div><div class="lbl">입고일</div><div class="val">{{ header['receive_date'] or '-' }}</div></div>
-    <div><div class="lbl">검사일</div><div class="val">{{ header['inspect_date'] or '-' }}</div></div>
+    <div><div class="lbl">입고일</div><div class="val">{{ (header['receive_date'] | date_korean) or '-' }}</div></div>
+    <div><div class="lbl">검사일</div><div class="val">{{ (header['inspect_date'] | date_korean) or '-' }}</div></div>
     <div><div class="lbl">검사자</div><div class="val">{{ header['inspector'] or '-' }}</div></div>
     <div><div class="lbl">입고수량</div><div class="val">{{ header['quantity'] or '-' }}</div></div>
     <div><div class="lbl">발주번호</div><div class="val">{{ header['po_number'] or '-' }}</div></div>
     <div><div class="lbl">측정시간(개당)</div><div class="val">{{ per_cycle_label }}</div></div>
+    <div><div class="lbl">총 측정시간</div><div class="val" style="font-weight:800; color:#1d4ed8;">{{ total_time_label }}</div></div>
   </div>
 </div>
+
+{# ───────── 도면 확인 배너 ───────── #}
+<div id="drawingBanner" class="card"
+     style="padding:12px 18px; margin-bottom:14px; display:flex; align-items:center;
+            justify-content:space-between; flex-wrap:wrap; gap:10px;
+            border-left:4px solid #d1d5db;">
+  <div>
+    <b id="drawingBannerLabel" style="color:#9ca3af; font-size:14px;">📐 도면 확인 중...</b>
+    <p class="muted" style="margin:3px 0 0; font-size:12.5px;" id="drawingBannerDesc">도면 파일 유무를 확인하고 있어.</p>
+  </div>
+  <button type="button" onclick="openDrawing()" id="drawingBannerBtn"
+          style="display:none; background:#1d4ed8; color:#fff; border:none; padding:9px 20px;
+                 border-radius:8px; font-size:14px; font-weight:700; cursor:pointer;">
+    도면 열기 📐
+  </button>
+</div>
+
+{# ───────── AQL·샘플 요약 ───────── #}
+{% if aql_groups %}
+<div class="card" style="padding:12px 18px; margin-bottom:14px;">
+  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+    <span style="font-size:12px; color:#6b7280; font-weight:700;">AQL별 샘플수
+      <span class="info-anchor">
+        <button class="info-btn" data-pop="pop-aql-approve">i</button>
+        <div class="info-pop" id="pop-aql-approve">
+          <button class="info-pop-close">×</button>
+          <b style="font-size:12px;">총 측정시간 계산 기준</b>
+          <div style="margin-top:6px;">
+            스톱워치로 잰 <b>개당 측정시간</b>(샘플 1개 기준)을 기반으로 계산해.
+          </div>
+          <div style="margin-top:6px; color:#6b7280;">
+            <b style="color:#374151;">전수·퍼센티지 검사인 경우:</b><br>
+            샘플수 × 개당시간 (단순 곱셈)<br>
+            <b style="color:#374151; margin-top:4px; display:block;">수치 AQL 혼합인 경우:</b>
+            ① 가장 높은 AQL(샘플 가장 적음)을 기준: 샘플수 × 개당시간<br>
+            ② 나머지 AQL(샘플 더 많음): 기준 초과 수량 × 10초 추가<br>
+            <span style="font-size:11.5px;">기준 그룹에서 이미 측정한 수량은 중복 계산 안 해.</span>
+          </div>
+          <div style="margin-top:8px; border-top:1px solid #e5e7eb; padding-top:6px; font-size:12px; color:#374151;">
+            <b>AQL이란?</b> 허용 가능한 최대 불량률.<br>
+            숫자 낮을수록 더 엄격하고 샘플도 <b>많아.</b><br>
+            <b style="color:#dc2626;">0.65</b> 중요항목(*), 샘플 가장 많음 &nbsp;
+            <b>1.5</b> 엄격 &nbsp;
+            <b>4.0</b> 일반(기준, 샘플 가장 적음)<br>
+            <b>전수</b> 전체 수량 &nbsp; <b>퍼센트</b> 비율 검사
+          </div>
+        </div>
+      </span>
+    </span>
+    {% for aql_key, qty in aql_groups.items() %}
+    <span style="display:inline-flex; align-items:center; gap:4px; background:{{ '#fee2e2' if aql_key|string == '0.65' else '#f0f4ff' }}; border:1px solid {{ '#fca5a5' if aql_key|string == '0.65' else '#bfdbfe' }}; border-radius:6px; padding:3px 10px; font-size:12.5px; font-weight:700;">
+      <span style="color:#6b7280; font-weight:400; font-size:11px;">AQL</span>
+      <span style="color:{{ '#dc2626' if aql_key|string == '0.65' else '#1d4ed8' }};">{{ aql_key }}</span>
+      <span style="color:#9ca3af; font-weight:400; font-size:11px;">→</span>
+      <span>{{ qty }}개</span>
+    </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {# ───────── 계측기 경고 ───────── #}
 {% if gauge_alerts %}
@@ -235,18 +282,38 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
     <table class="pass-table">
       <thead>
         <tr>
-          <th>항목</th><th>규격</th><th>검사방법</th><th>측정값</th><th>판정</th>
+          <th style="min-width:130px;">항목</th>
+          <th style="min-width:160px;">규격</th>
+          <th style="min-width:90px;">계측방식</th>
+          <th style="min-width:180px;">측정값</th>
+          <th style="min-width:55px;">판정</th>
         </tr>
       </thead>
       <tbody>
       {% for it in pass_items %}
       <tr>
-        <td><b>{{ it['item_name'] }}</b></td>
-        <td style="font-size:12.5px;">{{ it['spec_display'] or '-' }}</td>
-        <td style="font-size:12.5px; color:#6b7280;">{{ it['inspect_method'] or '-' }}</td>
-        <td style="font-size:12.5px; color:#374151;">
+        <td>
+          <span style="color:#9ca3af; font-size:11px; font-weight:700;">{{ it['item_name'] }}</span>
+          <span style="font-size:13px; margin-left:4px;">{{ it['spec_display'] or it['item_name'] }}</span>
+        </td>
+        <td style="font-size:12px; color:#374151;">{{ it['spec_display'] or '-' }}</td>
+        <td>
+          {% if it['inspect_method'] %}<span class="method-tag">{{ it['inspect_method'] }}</span>{% else %}-{% endif %}
+        </td>
+        <td>
           {% if it['parsed_vals'] %}
-            {% for pv in it['parsed_vals'] %}{{ pv['display'] }}{% if not loop.last %}, {% endif %}{% endfor %}
+            {% for pv in it['parsed_vals'] %}
+            <span class="val-box">
+              <span style="color:#9ca3af; font-size:10px; margin-right:2px;">{{ loop.index }}</span>{{ pv['display'] }}
+            </span>
+            {% endfor %}
+          {% elif it['measured_value'] %}
+            {% set vals = it['measured_value'].split(',') %}
+            {% for v in vals %}
+            <span class="val-box">
+              <span style="color:#9ca3af; font-size:10px; margin-right:2px;">{{ loop.index }}</span>{{ v.strip() }}
+            </span>
+            {% endfor %}
           {% else %}-{% endif %}
         </td>
         <td><span class="badge {{ 'pass' if it['result']=='합격' else 'pending' }}">{{ it['result'] or '-' }}</span></td>
@@ -258,36 +325,23 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
 </div>
 {% endif %}
 
-{# ───────── ④ 결정 카드 ───────── #}
-<div>
-  <h3 style="font-size:18px; font-weight:800; margin:0 0 12px;">어떻게 결정할 거야?</h3>
-  <div class="decision-cards">
-
-    <div class="decision-card" id="card-pass" onclick="selectDecision('pass')">
-      <div class="dc-icon">✅</div>
-      <div class="dc-title" style="color:#15803d;">합격 승인</div>
-      <div class="dc-desc">규격 안에 있어.<br>정상 출하해도 돼.</div>
-    </div>
-
-    <div class="decision-card" id="card-special" onclick="selectDecision('special')">
-      {% if problem_count > 0 %}
-      <div class="rec-badge">검토필요 시 추천</div>
-      {% endif %}
-      <div class="dc-icon">⚠️</div>
-      <div class="dc-title" style="color:#c2410c;">특채 승인</div>
-      <div class="dc-desc">문제 있지만<br>사용하기로 결정.</div>
-    </div>
-
-    <div class="decision-card" id="card-reject" onclick="selectDecision('reject')">
-      <div class="dc-icon">❌</div>
-      <div class="dc-title" style="color:#b91c1c;">반려</div>
-      <div class="dc-desc">다시 검사해야 해.<br>검사자에게 전달.</div>
-    </div>
-
-  </div>
+{# ───────── ④ 최종결정권자 비고란 ───────── #}
+<div class="card" style="padding:16px 18px; margin-bottom:14px;">
+  <b style="font-size:13px; color:#4B0082; font-weight:700;">👑 최종결정권자 비고</b>
+  {% if header['remark_approver'] %}
+  <div style="color:#4B0082; font-size:13.5px; margin:6px 0 10px;">{{ header['remark_approver'] }}</div>
+  {% endif %}
+  <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:8px;">
+    <input type="hidden" name="target_role" value="approver">
+    <input type="hidden" name="return_to" value="approve">
+    <textarea name="remark_text" rows="2" style="font-size:14px;"
+              placeholder="승인 결정 이유, 특이사항 등을 기록해줘."
+    >{{ (header['remark_approver'].split(': ',1)[1] if ': ' in (header['remark_approver'] or '') else '') }}</textarea>
+    <button type="submit" style="margin-top:6px; padding:8px 18px; font-size:13.5px;">저장</button>
+  </form>
 </div>
 
-{# ───────── ⑤ 액션 폼 (결정 선택 후 슬라이드) ───────── #}
+{# ───────── ⑤ 서명 + 결정 버튼 ───────── #}
 <form method="POST" action="{{ url_for('approve', inspection_id=header['id']) }}"
       id="approveForm" enctype="multipart/form-data">
 
@@ -296,79 +350,114 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
   <input type="hidden" name="signature_method" id="hiddenSigMethod" value="draw">
   <input type="hidden" name="from_approve"     value="1">
 
-  {# 합격/특채 공통 서명 박스 #}
-  <div class="action-box" id="box-sign">
-    <h3 id="signBoxTitle" style="color:#15803d;">✅ 서명해줘</h3>
-    <p class="muted" style="margin:0 0 14px;" id="signBoxDesc">서명하면 합격으로 확정돼.</p>
+  {# 서명 패드 #}
+  <div class="card" style="padding:18px; margin-bottom:14px;">
+    <b style="font-size:14px; color:#374151;">✍️ 서명 (승인·특채·불합격 확정 시 필수)</b>
+    <p class="muted" style="margin:4px 0 12px; font-size:13px;">
+      최종 결정 세 가지(승인·특채·불합격 확정)는 <b>서명이 반드시 있어야</b> 처리돼.
+      반려(재검사 요청)만 서명 없이 가능해.
+    </p>
 
-    <div class="sig-method-row">
+    <div class="sig-method-row" style="margin-bottom:10px;">
       <label class="sig-radio">
         <input type="radio" name="ui_sig_method" value="draw" checked
                onchange="setSigMethod('draw')"> 직접 서명
       </label>
       <label class="sig-radio">
         <input type="radio" name="ui_sig_method" value="upload"
-               onchange="setSigMethod('upload')"> 이미지 업로드
+               onchange="setSigMethod('upload')"> PNG 파일 업로드
       </label>
     </div>
 
+    {# 직접 서명 영역 #}
     <div id="drawArea">
-      <canvas id="sigPad" width="340" height="120"></canvas>
-      <button type="button" onclick="clearSig()" class="btn secondary"
-              style="margin-top:6px; padding:6px 16px; font-size:13px;">지우기</button>
+      <canvas id="sigPad" width="340" height="120"
+              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+                     touch-action:none; display:block; max-width:100%;"></canvas>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <button type="button" onclick="clearSig()" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
+        <button type="button" onclick="saveDefaultSig()" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0;">💾 서명 저장</button>
+        <button type="button" onclick="loadDefaultSig()" id="loadSigBtn" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0; display:none;">📂 저장된 서명 불러오기</button>
+      </div>
+      {# 저장된 서명 미리보기 #}
+      <div id="savedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#f9fafb;
+           border:1px solid #e5e7eb; border-radius:6px; font-size:12.5px; color:#6b7280;">
+        저장된 서명: <img id="savedSigImg" style="height:36px; vertical-align:middle; margin-left:6px;">
+      </div>
     </div>
 
+    {# 파일 업로드 영역 #}
     <div id="uploadArea" style="display:none;">
-      <span class="muted" style="font-size:13px;">PNG / JPG 서명 이미지 선택</span>
-      <input type="file" name="signature_file" id="sigFileInput" accept=".png,.jpg,.jpeg"
+      <span class="muted" style="font-size:13px;">PNG 파일만 업로드 가능해.</span>
+      <input type="file" name="signature_file" id="sigFileInput" accept=".png"
              style="margin-top:6px;">
     </div>
-
-    <button type="button" class="submit-final s-pass" id="signSubmitBtn"
-            onclick="submitSign()">✅ 합격 승인 확정</button>
   </div>
 
-  {# 반려 박스 #}
-  <div class="action-box" id="box-reject">
-    <h3 style="color:#b91c1c; margin:0 0 10px;">❌ 반려 사유를 적어줘</h3>
-    <p class="muted" style="margin:0 0 10px;">검사자 화면에 그대로 보여.</p>
-    <textarea name="reject_reason" rows="4"
-              placeholder="예) D항목 측정값이 규격 상한을 초과했어. 재측정 후 다시 제출해줘."
-              style="font-size:15px;"></textarea>
-    <button type="submit" class="submit-final s-reject"
-            onclick="document.getElementById('hiddenAction').value='reject';">❌ 반려 확정</button>
+  {# 결정 버튼 그리드 #}
+  <div style="display:grid; gap:10px;">
+    {# 1행: 승인 + 특채 #}
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <button type="button" class="submit-final s-pass" onclick="submitWithSig('approve')"
+              {% if problem_count > 0 %}style="opacity:.5;" title="불합격 항목이 있어. 특채 또는 불합격 확정을 권장해."{% endif %}>
+        ✅ 합격 승인
+      </button>
+      <button type="button" class="submit-final s-special" onclick="submitWithSig('special')">
+        ⚠️ 특채 승인
+      </button>
+    </div>
+
+    {# 2행: 반려 #}
+    <button type="button" class="submit-final s-reject" onclick="toggleReason('reject')">
+      ❌ 반려 (재검사 요청)
+    </button>
+
+    {# 3행: 불합격 확정 #}
+    <button type="button" class="submit-final"
+            style="background:#7c3aed; color:#fff;"
+            onclick="toggleReason('failed')">
+      🚫 불합격 확정
+    </button>
+    <div style="font-size:12px; color:#6b7280; padding:0 4px; margin-top:-4px;">
+      ※ 이 버튼을 눌러 확정하면 검사자가 부적합 통보서(NCR)를 작성할 수 있어.
+    </div>
+  </div>
+
+  {# 반려·불합격 사유 영역 (토글) #}
+  <div id="reasonArea" style="display:none; margin-top:14px; background:#fff; border-radius:12px;
+       padding:18px; box-shadow:0 2px 8px rgba(0,0,0,.08);">
+    <h3 id="reasonTitle" style="margin:0 0 8px; font-size:16px;">❌ 반려 사유</h3>
+    <p class="muted" id="reasonDesc" style="margin:0 0 10px; font-size:13px;">검사자 화면에 그대로 표시돼.</p>
+    <textarea name="reject_reason" id="reasonText" rows="4" style="font-size:15px;"
+              placeholder="예) D항목 측정값이 규격 상한을 초과했어. 재측정 후 다시 제출해줘."></textarea>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button type="submit" id="reasonSubmitBtn" class="submit-final s-reject"
+              style="flex:1; padding:14px;">❌ 반려 확정</button>
+      <button type="button" onclick="toggleReason(null)"
+              class="btn secondary" style="margin-top:0; padding:14px;">취소</button>
+    </div>
   </div>
 
 </form>
 
 <div style="height:50px;"></div>
 
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
 <script>
-/* ── 서명 패드 ── */
+/* ── 서명 패드 — 구현은 static/signature_pad.js 공용 (승인·통보서·성적표가 같은 코드를 쓴다) ── */
+var sigPad = SignaturePad.attach('sigPad');
+
 (function () {
-  const canvas = document.getElementById('sigPad');
-  const ctx = canvas.getContext('2d');
-  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#111827';
-  let drawing = false;
-  window._hasSigned = false;
-
-  function pos(e) {
-    const r = canvas.getBoundingClientRect();
-    const p = e.touches ? e.touches[0] : e;
-    return { x: (p.clientX - r.left) * (canvas.width / r.width),
-             y: (p.clientY - r.top)  * (canvas.height / r.height) };
-  }
-  canvas.addEventListener('mousedown', e => { drawing=true; window._hasSigned=true; const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); });
-  canvas.addEventListener('mousemove', e => { if(!drawing) return; const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); });
-  window.addEventListener('mouseup', () => drawing=false);
-  canvas.addEventListener('touchstart', e => { drawing=true; window._hasSigned=true; const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); }, {passive:false});
-  canvas.addEventListener('touchmove',  e => { if(!drawing) return; const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); }, {passive:false});
-  canvas.addEventListener('touchend',   () => drawing=false);
-
-  window.clearSig = function() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    window._hasSigned = false;
-  };
+  /* 저장해둔 기본 서명이 있으면 '불러오기' 버튼과 미리보기를 켠다 */
+  fetch('/signature/default/check').then(r => r.json()).then(function (d) {
+    if (!d.exists) return;
+    document.getElementById('loadSigBtn').style.display = 'inline-flex';
+    document.getElementById('savedSigImg').src = d.url + '?t=' + Date.now();
+    document.getElementById('savedSigPreview').style.display = 'block';
+  }).catch(function () {});
 })();
 
 function setSigMethod(method) {
@@ -377,72 +466,73 @@ function setSigMethod(method) {
   document.getElementById('hiddenSigMethod').value = method;
 }
 
-function submitSign() {
+function clearSig() { sigPad.clear(); }
+
+/* 지금 그린 서명을 내 기본 서명으로 저장 */
+function saveDefaultSig() {
+  if (sigPad.isEmpty()) { alert('먼저 서명해줘.'); return; }
+  const fd = new FormData();
+  fd.append('signature_data', sigPad.toDataURL());
+  fetch('/signature/default/save', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(function (d) {
+      if (!d.ok) { alert('저장 실패: ' + (d.error || '')); return; }
+      alert('서명이 저장됐어. 다음 승인 시 불러올 수 있어.');
+      document.getElementById('loadSigBtn').style.display = 'inline-flex';
+      document.getElementById('savedSigImg').src = d.url + '?t=' + Date.now();
+      document.getElementById('savedSigPreview').style.display = 'block';
+    }).catch(function () { alert('서버 오류.'); });
+}
+
+function loadDefaultSig() {
+  sigPad.loadDefault(function (ok) { if (!ok) alert('저장된 서명이 없어.'); });
+}
+
+/* 승인·특채 제출 (서명 필요) */
+function submitWithSig(action) {
   const method = document.getElementById('hiddenSigMethod').value;
   if (method === 'draw') {
-    if (!window._hasSigned) { alert('서명을 먼저 해줘.'); return; }
-    document.getElementById('hiddenSigData').value =
-      document.getElementById('sigPad').toDataURL('image/png');
+    if (sigPad.isEmpty()) { alert('서명을 먼저 해줘.'); return; }
+    document.getElementById('hiddenSigData').value = sigPad.toDataURL();
   } else {
     const fi = document.getElementById('sigFileInput');
-    if (!fi.files || fi.files.length === 0) {
-      alert('서명 이미지 파일을 선택해줘.'); return;
+    if (!fi || !fi.files || fi.files.length === 0) {
+      alert('서명 PNG 파일을 선택해줘.'); return;
     }
   }
+  document.getElementById('hiddenAction').value = action;
   document.getElementById('approveForm').submit();
 }
 
-/* ── 결정 카드 선택 ── */
-let currentDecision = null;
-
-function selectDecision(type) {
-  if (currentDecision === type) {
-    // 같은 카드 다시 클릭 → 해제
-    document.getElementById('card-' + type).className = 'decision-card';
-    document.getElementById('box-sign').classList.remove('show');
-    document.getElementById('box-reject').classList.remove('show');
-    currentDecision = null;
+/* 반려·불합격 사유 토글 */
+var _reasonAction = null;
+function toggleReason(action) {
+  var area = document.getElementById('reasonArea');
+  if (action === null || _reasonAction === action) {
+    area.style.display = 'none';
+    _reasonAction = null;
     return;
   }
-  // 모두 초기화
-  ['pass','special','reject'].forEach(t => {
-    document.getElementById('card-' + t).className = 'decision-card';
-  });
-  document.getElementById('box-sign').classList.remove('show');
-  document.getElementById('box-reject').classList.remove('show');
-
-  // 선택 적용
-  document.getElementById('card-' + type).classList.add('sel-' + type);
-  currentDecision = type;
-
-  if (type === 'pass' || type === 'special') {
-    const btn   = document.getElementById('signSubmitBtn');
-    const title = document.getElementById('signBoxTitle');
-    const desc  = document.getElementById('signBoxDesc');
-    document.getElementById('hiddenAction').value = type === 'pass' ? 'approve' : 'special';
-
-    if (type === 'pass') {
-      title.textContent = '✅ 서명해줘';
-      title.style.color = '#15803d';
-      btn.textContent   = '✅ 합격 승인 확정';
-      btn.className     = 'submit-final s-pass';
-      desc.textContent  = '서명하면 이 검사가 합격으로 확정돼.';
-    } else {
-      title.textContent = '⚠️ 서명해줘';
-      title.style.color = '#c2410c';
-      btn.textContent   = '⚠️ 특채 승인 확정';
-      btn.className     = 'submit-final s-special';
-      desc.textContent  = '규격 초과를 인지하고 사용하기로 결정한 걸로 기록돼.';
-    }
-    document.getElementById('box-sign').classList.add('show');
+  _reasonAction = action;
+  var title = document.getElementById('reasonTitle');
+  var desc  = document.getElementById('reasonDesc');
+  var btn   = document.getElementById('reasonSubmitBtn');
+  if (action === 'reject') {
+    title.textContent = '❌ 반려 사유를 적어줘';
+    desc.textContent  = '검사자 화면에 그대로 표시돼.';
+    btn.textContent   = '❌ 반려 확정';
+    btn.className     = 'submit-final s-reject';
+    btn.onclick       = function(){ if(!document.getElementById('reasonText').value.trim()){alert('사유를 입력해줘.');return;} document.getElementById('hiddenAction').value='reject'; document.getElementById('approveForm').submit(); };
   } else {
-    document.getElementById('box-reject').classList.add('show');
+    title.textContent = '🚫 불합격 확정 확인';
+    desc.textContent  = '확정하면 검사자가 부적합 통보서(NCR)를 작성할 수 있어.';
+    btn.textContent   = '🚫 불합격 확정';
+    btn.className     = 'submit-final';
+    btn.style.background = '#7c3aed';
+    btn.onclick       = function(){ document.getElementById('hiddenAction').value='failed'; document.getElementById('approveForm').submit(); };
   }
-
-  setTimeout(() => {
-    const el = document.getElementById(type === 'reject' ? 'box-reject' : 'box-sign');
-    el.scrollIntoView({ behavior:'smooth', block:'start' });
-  }, 120);
+  area.style.display = 'block';
+  setTimeout(function(){ area.scrollIntoView({ behavior:'smooth', block:'start' }); }, 100);
 }
 
 /* ── 합격 항목 접기/펼치기 ── */
@@ -460,5 +550,73 @@ window.addEventListener('load', () => {
   document.getElementById('passBody').classList.add('open');
 });
 {% endif %}
+
+/* ── 도면 ── */
+(function(){
+  var loaded = false;
+  var drawingUrl = "{{ url_for('serve_drawing', material_no=header['material_no']) }}";
+  window.openDrawing = function(){
+    document.getElementById('drawingModal').style.display = 'flex';
+    if (!loaded) {
+      document.getElementById('drawingFrame').src = drawingUrl;
+      loaded = true;
+    }
+  };
+  window.closeDrawing = function(){
+    document.getElementById('drawingModal').style.display = 'none';
+  };
+  document.addEventListener('DOMContentLoaded', function(){
+    document.getElementById('drawingModal').addEventListener('click', function(e){
+      if (e.target === this) closeDrawing();
+    });
+    fetch(drawingUrl, {method:'HEAD'}).then(function(r){
+      var banner = document.getElementById('drawingBanner');
+      var label  = document.getElementById('drawingBannerLabel');
+      var desc   = document.getElementById('drawingBannerDesc');
+      var btn    = document.getElementById('drawingBannerBtn');
+      var fab    = document.getElementById('drawingFabApprove');
+      if (r.ok) {
+        label.textContent = '📐 도면 있음 — 승인 전 꼭 확인해줘';
+        label.style.color = '#1d4ed8';
+        banner.style.borderLeftColor = '#1d4ed8';
+        desc.textContent = '이 자재에 도면 파일이 등록되어 있어. 승인 전 확인을 권장해.';
+        btn.style.display = 'block';
+        if (fab) fab.style.display = 'flex';
+      } else {
+        label.textContent = '📐 도면 없음';
+        label.style.color = '#9ca3af';
+        desc.textContent = '이 자재에 등록된 도면 파일이 없어.';
+        banner.style.borderLeftColor = '#e5e7eb';
+        if (fab) fab.style.display = 'none';
+      }
+    }).catch(function(){
+      document.getElementById('drawingBanner').style.display = 'none';
+    });
+  });
+})();
 </script>
+
+{# 도면 팝업 모달 #}
+<div id="drawingModal" style="display:none; position:fixed; inset:0; z-index:9000;
+     background:rgba(0,0,0,.6); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; width:min(96vw,900px); height:min(90vh,680px);
+              display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.35);">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:12px 18px; border-bottom:1px solid #e5e7eb;">
+      <span style="font-weight:700; font-size:15px;">📐 도면 — {{ header['material_no'] }}</span>
+      <button onclick="closeDrawing()" style="font-size:20px; background:none; border:none;
+              cursor:pointer; color:#6b7280; padding:4px 8px; border-radius:6px;">✕</button>
+    </div>
+    <iframe id="drawingFrame" src="" style="flex:1; border:none;"></iframe>
+  </div>
+</div>
+
+<button onclick="openDrawing()" id="drawingFabApprove"
+  style="display:none; position:fixed; bottom:24px; right:24px; z-index:8000;
+         background:#1d4ed8; color:#fff; border:none; border-radius:50px;
+         padding:13px 20px; font-size:14px; font-weight:700; cursor:pointer;
+         box-shadow:0 4px 14px rgba(29,78,216,.45); align-items:center; gap:7px;">
+  📐 도면
+</button>
+
 {% endblock %}

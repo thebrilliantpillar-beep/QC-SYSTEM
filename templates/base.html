@@ -24,14 +24,25 @@
   header .logo { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
   header a { color: #d1d5db; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px; }
   header a:hover, header a.active { color: #fff; background: rgba(255,255,255,.1); }
+  /* 드롭다운 메뉴
+     화면이 좁으면 상단 메뉴가 두 줄로 접히는데, 이때 열린 목록이 아랫줄 버튼 뒤로 깔려서
+     글자가 겹쳐 보이던 문제가 있었다. 열린 드롭다운만 z-index로 확실히 위에 올린다. */
   .nav-dropdown { position: relative; }
+  .nav-dropdown.open { z-index: 1000; }
   .nav-dropdown > button { background: none; border: none; color: #d1d5db; font-size: 14px; padding: 6px 10px;
                             border-radius: 6px; cursor: pointer; font-family: inherit; }
   .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); }
   .nav-dropdown .menu { display: none; position: absolute; top: 100%; left: 0; background: #1f2937;
-                         border-radius: 8px; padding: 6px; min-width: 170px; box-shadow: 0 8px 20px rgba(0,0,0,.3); margin-top:4px; }
+                         border-radius: 8px; padding: 6px; min-width: 170px;
+                         box-shadow: 0 8px 20px rgba(0,0,0,.45); margin-top:4px;
+                         z-index: 1001; }
   .nav-dropdown.open .menu { display: block; }
   .nav-dropdown .menu a { display: block; padding: 8px 10px; white-space: nowrap; }
+  /* 화면 오른쪽 끝 메뉴는 목록이 화면 밖으로 나가지 않게 오른쪽 기준으로 편다 */
+  @media (max-width: 560px) {
+    .nav-dropdown .menu { min-width: 150px; }
+    .nav-dropdown:nth-last-child(-n+2) .menu { left: auto; right: 0; }
+  }
   main { padding: 20px 16px 60px; max-width: 780px; margin: 0 auto; }
   h2 { font-size: 20px; margin: 4px 0 16px; }
   h3 { font-size: 16px; color: #374151; }
@@ -65,49 +76,172 @@
   .flash { background: #fef3c7; border: 1px solid #fbbf24; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13.5px; }
   .muted { color: var(--muted); font-size: 13px; }
   .hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+  /* ── 엑셀 메모형 정보 팝오버 ── */
+  .info-anchor { position:relative; display:inline-block; }
+  .info-btn { background:none; border:1.5px solid #d1d5db; color:#9ca3af; border-radius:50%;
+              width:17px; height:17px; font-size:10px; font-weight:700; cursor:pointer; padding:0;
+              display:inline-flex; align-items:center; justify-content:center;
+              margin-left:5px; vertical-align:middle; line-height:1; transition:border-color .15s,color .15s; }
+  .info-btn:hover, .info-btn.pinned { border-color:#6b7280; color:#374151; }
+  .info-pop { display:none; position:absolute; z-index:500; left:22px; top:0;
+              background:#fafaf7; border:1px solid #d1d5db; border-radius:8px;
+              padding:10px 13px 10px 12px; font-size:12.5px; color:#374151;
+              max-width:300px; min-width:220px; box-shadow:0 4px 14px rgba(0,0,0,.10);
+              line-height:1.65; white-space:normal; }
+  .info-pop.show { display:block; }
+  .info-pop-close { float:right; background:none; border:none; cursor:pointer;
+                    color:#9ca3af; font-size:14px; padding:0 0 4px 8px; line-height:1; }
+  .info-pop-close:hover { color:#374151; }
 </style>
+<script>
+(function(){
+  document.addEventListener('DOMContentLoaded', function(){
+    var pinned = {};
+    document.querySelectorAll('.info-btn').forEach(function(btn){
+      var id = btn.dataset.pop;
+      btn.addEventListener('mouseenter', function(){
+        if (!pinned[id]) document.getElementById(id).classList.add('show');
+      });
+      btn.addEventListener('mouseleave', function(){
+        if (!pinned[id]) document.getElementById(id).classList.remove('show');
+      });
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        pinned[id] = !pinned[id];
+        btn.classList.toggle('pinned', pinned[id]);
+        document.getElementById(id).classList.toggle('show', pinned[id]);
+      });
+    });
+    document.querySelectorAll('.info-pop-close').forEach(function(x){
+      x.addEventListener('click', function(e){
+        e.stopPropagation();
+        var pop = x.closest('.info-pop');
+        pinned[pop.id] = false;
+        pop.classList.remove('show');
+        var b = document.querySelector('[data-pop="'+pop.id+'"]');
+        if (b) b.classList.remove('pinned');
+      });
+    });
+    document.addEventListener('click', function(){
+      document.querySelectorAll('.info-pop.show').forEach(function(pop){
+        if (!pinned[pop.id]) pop.classList.remove('show');
+      });
+    });
+  });
+})();
+</script>
 </head>
 <body>
 <header>
-  <span class="logo">🧪 IQC 성적서</span>
+  <span class="logo">🧪 Chardon QMS</span>
   {% if g.user %}
   {% set perms = user_perms %}
   <a href="{{ url_for('home') }}">홈</a>
+  <a href="{{ url_for('daily_status') }}">📅 금일 현황</a>
 
-  {% if 'inspect' in perms or 'inspect_all' in perms or 'approve' in perms or 'output' in perms %}
-  <div class="nav-dropdown">
-    <button type="button" onclick="this.parentElement.classList.toggle('open')">검사 ▾</button>
-    <div class="menu">
-      {% if 'inspect' in perms or 'inspect_all' in perms %}<a href="{{ url_for('inspect_select') }}">검사 입력</a>{% endif %}
-      {% if 'approve' in perms %}<a href="{{ url_for('approve_list') }}">승인 대기</a>{% endif %}
-      {% if 'output' in perms %}<a href="{{ url_for('output_list') }}">출력 대기</a>{% endif %}
-      <a href="{{ url_for('history') }}">검사 이력</a>
-    </div>
-  </div>
+  {# 📦 입고 #}
+  {% if 'intake' in perms %}
+  <a href="{{ url_for('intake') }}" style="position:relative;">
+    📦 입고
+    {% if nav_counts.get('inspect', 0) > 0 %}
+    <span style="position:absolute;top:-6px;right:-8px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['inspect'] }}</span>
+    {% endif %}
+  </a>
   {% endif %}
 
-  {% if 'spec' in perms or 'intake' in perms %}
+  {# 🔍 검사 #}
+  {% if 'inspect_input' in perms or 'inspect_history' in perms or 'defect_history' in perms or 'ncr' in perms or 'ncr_confirm' in perms or 'return' in perms %}
   <div class="nav-dropdown">
-    <button type="button" onclick="this.parentElement.classList.toggle('open')">규격/자재 ▾</button>
-    <div class="menu">
-      {% if 'intake' in perms %}<a href="{{ url_for('intake') }}">입고 리스트</a>{% endif %}
-      {% if 'spec' in perms %}
-      <a href="{{ url_for('spec_list') }}">규격 관리</a>
-      <a href="{{ url_for('spec_quick_add') }}">규격 개별 등록</a>
-      <a href="{{ url_for('spec_import') }}">규격 일괄 등록</a>
-      <a href="{{ url_for('spec_review') }}">확인 필요 자재</a>
-      <a href="{{ url_for('material_groups') }}">자재 그룹</a>
+    <button type="button" onclick="toggleNav(this)" style="position:relative;">
+      🔍 검사 ▾
+      {% if nav_counts.get('inspect', 0) > 0 %}
+      <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['inspect'] }}</span>
       {% endif %}
+    </button>
+    <div class="menu">
+      {% if 'inspect_input' in perms %}<a href="{{ url_for('inspect_select') }}">검사 입력</a>{% endif %}
+      {% if 'inspect_history' in perms %}<a href="{{ url_for('history') }}">검사 이력</a>{% endif %}
+      {% if 'defect_history' in perms %}<a href="{{ url_for('defect_history') }}">불량 이력</a>{% endif %}
+      {% if 'ncr' in perms or 'ncr_confirm' in perms %}<a href="{{ url_for('ncr_list') }}">부적합 통보서</a>{% endif %}
+      {% if 'return' in perms %}<a href="{{ url_for('return_list') }}">반품 처리</a>{% endif %}
     </div>
   </div>
   {% endif %}
 
-  {% if 'users' in perms or 'logs' in perms %}
+  {# ✅ 승인 #}
+  {% if 'approve' in perms %}
+  <a href="{{ url_for('approve_list') }}" style="position:relative;">
+    ✅ 승인
+    {% if nav_counts.get('approve', 0) > 0 %}
+    <span style="position:absolute;top:-6px;right:-8px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['approve'] }}</span>
+    {% endif %}
+  </a>
+  {% endif %}
+
+  {# 🖨️ 출력 #}
+  {% if 'output' in perms %}
   <div class="nav-dropdown">
-    <button type="button" onclick="this.parentElement.classList.toggle('open')">관리 ▾</button>
+    <button type="button" onclick="toggleNav(this)" style="position:relative;">
+      🖨️ 출력 ▾
+      {% if nav_counts.get('output', 0) > 0 %}
+      <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['output'] }}</span>
+      {% endif %}
+    </button>
     <div class="menu">
+      <a href="{{ url_for('output_list') }}">출력 대기</a>
+      <a href="{{ url_for('output_history') }}">출력 기록</a>
+      {% if 'custom_template' in perms %}<a href="{{ url_for('custom_template_list') }}">커스텀 성적서 양식</a>{% endif %}
+    </div>
+  </div>
+  {% elif 'custom_template' in perms %}
+  {# 출력 권한은 없지만 양식 제작 권한만 있는 경우 #}
+  <div class="nav-dropdown">
+    <button type="button" onclick="toggleNav(this)">🖨️ 출력 ▾</button>
+    <div class="menu">
+      <a href="{{ url_for('custom_template_list') }}">커스텀 성적서 양식</a>
+    </div>
+  </div>
+  {% endif %}
+
+  {# 📊 품질 현황 #}
+  {% if 'defect_history' in perms or 'inspect_history' in perms %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="toggleNav(this)">📊 품질 현황 ▾</button>
+    <div class="menu">
+      <a href="{{ url_for('quality_dashboard') }}">현황 대시보드</a>
+      <a href="{{ url_for('defect_history') }}">불량 이력</a>
+      {% if 'supplier' in perms %}<a href="{{ url_for('supplier_report_list') }}">업체 품질 성적표</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# 📋 자재 #}
+  {% if 'material_view' in perms or 'material_edit' in perms or 'material_import' in perms or 'supplier' in perms %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="toggleNav(this)">📋 자재 ▾</button>
+    <div class="menu">
+      {% if 'material_view' in perms %}<a href="{{ url_for('spec_list') }}">자재 관리</a>{% endif %}
+      {% if 'material_edit' in perms %}<a href="{{ url_for('spec_quick_add') }}">자재 개별 등록</a>{% endif %}
+      {% if 'material_import' in perms %}<a href="{{ url_for('spec_import') }}">자재 일괄 등록</a>{% endif %}
+      {% if 'material_view' in perms %}<a href="{{ url_for('assembly_list') }}">조립품 관리</a>{% endif %}
+      {% if 'supplier' in perms %}<a href="{{ url_for('supplier_list') }}">업체 관리</a>{% endif %}
+      {% if 'supplier' in perms or 'material_edit' in perms %}<a href="{{ url_for('change_point_list') }}">4M 변경점</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ⚙️ 설정 #}
+  {% if 'gauge' in perms or 'users' in perms or 'smtp' in perms or 'logs' in perms %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="toggleNav(this)">⚙️ 설정 ▾</button>
+    <div class="menu">
+      {% if 'gauge' in perms %}<a href="{{ url_for('gauge_list') }}">계측기 관리</a>{% endif %}
       {% if 'users' in perms %}<a href="{{ url_for('user_management') }}">계정 관리</a>{% endif %}
+      {% if 'users' in perms %}<a href="{{ url_for('import_assembly') }}">MA 조립 제품 임포트</a>{% endif %}
+      {% if 'smtp' in perms %}<a href="{{ url_for('smtp_settings') }}">이메일 설정</a>{% endif %}
       {% if 'logs' in perms %}<a href="{{ url_for('activity_logs') }}">활동 로그</a>{% endif %}
+      {% if 'users' in perms %}<a href="{{ url_for('data_health') }}">🩺 데이터 점검</a>{% endif %}
     </div>
   </div>
   {% endif %}
@@ -125,6 +259,15 @@ document.addEventListener('click', function (e) {
     if (!d.contains(e.target)) d.classList.remove('open');
   });
 });
+
+/* 메뉴 토글 — 하나를 열면 나머지는 닫는다.
+   화면이 좁아 메뉴가 두 줄로 접힐 때 여러 개가 동시에 펼쳐지면 서로 겹쳐 보인다. */
+function toggleNav(btn) {
+  var box = btn.parentElement;
+  var wasOpen = box.classList.contains('open');
+  document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+  if (!wasOpen) box.classList.add('open');
+}
 </script>
 <main>
   {% with messages = get_flashed_messages() %}

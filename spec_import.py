@@ -13,15 +13,29 @@
 import re
 import openpyxl
 
-# "108.5 ± 0.8" 같은 대칭 공차
-_RE_PLUS_MINUS = re.compile(r"([\d.]+)\s*±\s*([\d.]+)")
-# "63 - 0.2" 같은 한쪽(하한 방향) 공차 — 전체 문자열이 이 패턴 하나여야 함
-_RE_ONE_SIDED = re.compile(r"^\s*([\d.]+)\s*-\s*([\d.]+)\s*$")
+# 숫자 뒤에 붙는 단위(㎜, V, Ω, ㎋, ㎷, T ...) — 연산자·괄호가 아닌 아무 문자 1~3개로 본다.
+# (Ω만 해도 U+03A9 / U+2126 두 종류가 데이터에 섞여 있어서 문자를 일일이 나열하는 건 못 믿는다)
+_UNIT = r"(?:[^\d\s±~()%+\-]{1,3})?"
+# 표기 맨 앞에 붙는 지름 기호 — "Ø44.9 - 0.1", "⌀133 + 0.1" 처럼 숫자 앞에 오는 경우
+_DIA = r"(?:[Ø⌀ØΦφø∅]\s*)?"
+
+# "108.5 ± 0.8" 같은 대칭 공차 (뒤에 %가 붙으면 기준값의 몇 %인지로 해석)
+# 숫자와 ± 사이에 단위가 끼는 경우도 인식: "3T ± 0.15", "4Ω ±10%", "12mm ± 0.5"
+_RE_PLUS_MINUS = re.compile(rf"([\d.]+)\s*{_UNIT}\s*±\s*([\d.]+)\s*(%?)")
+# "63 - 0.2"(하한 방향) / "115 + 2"(상한 방향) 같은 한쪽 공차 — 전체 문자열이 이 패턴 하나여야 함
+_RE_ONE_SIDED = re.compile(rf"^\s*{_DIA}([\d.]+)\s*([+-])\s*([\d.]+)\s*$")
 # "(17.1~20.9)" 같은 괄호 안 명시적 범위 — 있으면 이걸 최우선으로 사용
-_RE_RANGE = re.compile(r"\(?\s*([\d.]+)\s*~\s*([\d.]+)\s*\)?")
-# "72 (-0.05~-0.1)" 같은 경우 — 앞의 숫자(72)가 기준값이고 괄호 안은 그 기준에서 뺄/더할
-# 공차 오프셋(둘 다 부호가 명시돼 있어야만 이 패턴으로 인식 — 위 절대범위와 구분됨)
-_RE_OFFSET_RANGE = re.compile(r"^\s*(-?[\d.]+)\s*\(\s*([+-][\d.]+)\s*~\s*([+-][\d.]+)\s*\)\s*$")
+# 숫자마다 단위가 붙는 "(3.00V~5.00V)", "(450㎷~650㎷)" 형태도 인식
+_RE_RANGE = re.compile(rf"\(?\s*([\d.]+)\s*{_UNIT}\s*~\s*([\d.]+)\s*{_UNIT}\s*\)?")
+# "72 (-0.05~-0.1)" / "109 (-0.2~0.1)" / "37 +0.1~0.05" 같은 경우 —
+# 앞의 숫자(72)가 기준값이고 뒤쪽 두 숫자는 그 기준에서 뺄/더할 공차 오프셋.
+# 괄호는 있어도 없어도 되고, 오프셋 중 "최소 하나"에 부호가 붙어 있으면 오프셋으로 본다
+# (부호가 하나도 없으면 "(17.1~20.9)" 같은 절대범위와 구분이 안 되므로 아래 _RE_RANGE로 넘김).
+#   ※ 예전엔 두 오프셋 "둘 다" 부호를 요구해서 "109 (-0.2~0.1)"이 이 패턴에 안 걸리고
+#      _RE_RANGE에 잡혀 [0.1, 0.2] 로 저장됐다 → 실제 측정값 109가 항상 불합격되던 버그.
+_RE_OFFSET_RANGE = re.compile(
+    rf"^\s*{_DIA}(-?[\d.]+)\s*\(?\s*([+-]?[\d.]+)\s*~\s*([+-]?[\d.]+)\s*\)?\s*$"
+)
 # "5㎛ 이상" / "10 이상" 같은 최소값만 있는 단측 표기 — 상한 없음
 _RE_AT_LEAST = re.compile(r"([\d.]+)\s*(?:[^\d\s]*)\s*이상")
 # "10 이하" 같은 최대값만 있는 단측 표기 — 하한 없음
@@ -107,6 +121,31 @@ def _map_columns(header_texts):
     return cols
 
 
+# 엑셀에서 넘어오는 유사 문자들 — 그대로 두면 숫자 패턴이 안 걸린다
+_DASH_LOOKALIKES = "‐‑‒–—―−－"   # ‐‑‒–—―−－
+_TILDE_LOOKALIKES = "～〜"                                        # ～〜
+_PLUSMINUS_LOOKALIKES = "＋"                                          # ＋
+
+
+def normalize_spec_text(text):
+    """규격 표기 텍스트를 파싱하기 좋은 형태로 정규화한다.
+
+    실제로 데이터에 섞여 있던 것들:
+      - "282 – 0.5"  : 하이픈이 아니라 EN DASH(–) → 숫자 패턴이 안 걸려 규격 미인식
+      - "_x000D_"    : 엑셀이 셀 안 줄바꿈을 저장할 때 남기는 잔재 문자열
+      - 전각 물결(～)/전각 플러스(＋), 줄바꿈, 연속 공백
+    """
+    s = str(text or "")
+    s = s.replace("_x000D_", " ").replace("_x000d_", " ")
+    for ch in _DASH_LOOKALIKES:
+        s = s.replace(ch, "-")
+    for ch in _TILDE_LOOKALIKES:
+        s = s.replace(ch, "~")
+    for ch in _PLUSMINUS_LOOKALIKES:
+        s = s.replace(ch, "+")
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _parse_tolerance(spec_display, is_visual):
     """
     규격 표기 텍스트에서 하한/상한을 뽑아낸다.
@@ -115,10 +154,11 @@ def _parse_tolerance(spec_display, is_visual):
     if is_visual:
         return None, None, False, None
 
-    text = spec_display or ""
+    text = normalize_spec_text(spec_display)
 
     m = _RE_OFFSET_RANGE.match(text)
-    if m:
+    # 오프셋 중 최소 하나에 부호가 있어야 "기준값 + 공차"로 인정 (아니면 절대범위로 넘김)
+    if m and (m.group(2).lstrip()[:1] in "+-" or m.group(3).lstrip()[:1] in "+-"):
         nominal, off1, off2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
         lo, hi = nominal + min(off1, off2), nominal + max(off1, off2)
         return lo, hi, False, None
@@ -131,12 +171,17 @@ def _parse_tolerance(spec_display, is_visual):
     m = _RE_PLUS_MINUS.search(text)
     if m:
         nominal, tol = float(m.group(1)), float(m.group(2))
+        if m.group(3) == "%":
+            # "265 ±5%" → 265의 5% = 13.25 가 공차 (예전엔 %를 무시하고 ±5로 읽었음)
+            tol = nominal * tol / 100.0
         return nominal - tol, nominal + tol, False, None
 
     m = _RE_ONE_SIDED.match(text)
     if m:
-        nominal, tol = float(m.group(1)), float(m.group(2))
-        return nominal - tol, nominal, False, None
+        nominal, sign, tol = float(m.group(1)), m.group(2), float(m.group(3))
+        if sign == "+":
+            return nominal, nominal + tol, False, None   # "115 + 2" → 115 ~ 117
+        return nominal - tol, nominal, False, None        # "63 - 0.2" → 62.8 ~ 63
 
     m = _RE_AT_LEAST.search(text)
     if m:

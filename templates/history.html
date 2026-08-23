@@ -19,10 +19,44 @@
   .hist-table td { border-bottom:1px solid #f0f0f0; padding:9px 8px; text-align:center; vertical-align:middle; }
   .hist-table tr:last-child td { border-bottom:none; }
   .hist-table tr.clickable:hover td { background:#f0f5ff; cursor:pointer; }
+
+  /* 수정 모드 */
+  .th-chk, .td-chk { display:none; width:36px; }
+  body.edit-mode .th-chk, body.edit-mode .td-chk { display:table-cell; }
+  body.edit-mode .hist-table tr.clickable:hover td { background:#fef9c3; }
+  body.edit-mode .hist-table tr.selected td { background:#fef3c7; }
+
+  .edit-toolbar {
+    display:none; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#fef9c3; border:1px solid #fde68a; border-radius:10px;
+    padding:10px 14px; margin-bottom:14px;
+  }
+  body.edit-mode .edit-toolbar { display:flex; }
+
+  #editModeBtn { margin-left:auto; }
+  #editModeBtn.active { background:#7c3aed; color:#fff; border-color:#7c3aed; }
 </style>
 
-<h2>검사 이력</h2>
-<p class="muted">입고일 기준으로 그룹화돼 있어. 날짜 헤더를 클릭하면 접거나 펼칠 수 있어.</p>
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+  <div>
+    <h2 style="margin:0;">검사 이력</h2>
+    <p class="muted" style="margin:4px 0 0;">입고일 기준으로 그룹화돼 있어. 날짜 헤더를 클릭하면 접거나 펼칠 수 있어.</p>
+  </div>
+  {% if 'history_delete' in user_perms %}
+  <button id="editModeBtn" class="btn secondary" onclick="toggleEditMode()">✏️ 수정 모드</button>
+  {% endif %}
+</div>
+
+{% if 'history_delete' in user_perms %}
+<form id="deleteForm" method="post" action="{{ url_for('history_delete_selected') }}">
+  <div class="edit-toolbar">
+    <span id="selectedCount" style="font-size:14px; font-weight:600; color:#92400e;">0건 선택됨</span>
+    <button type="button" class="btn secondary" onclick="selectAll()">전체 선택</button>
+    <button type="button" class="btn secondary" onclick="clearAll()">전체 해제</button>
+    <button type="submit" class="btn" style="background:#dc2626; color:#fff; border-color:#dc2626;"
+            onclick="return confirmDelete()">🗑️ 선택 삭제</button>
+  </div>
+{% endif %}
 
 {% if not sorted_dates %}
 <div class="card"><p class="muted" style="margin:0;">등록된 검사 이력이 없어.</p></div>
@@ -32,13 +66,14 @@
 {% set rows = by_date[date] %}
 <div class="date-group">
   <div class="date-header" onclick="toggleGroup(this)">
-    <span>📅 {{ date }} &nbsp;<span style="color:#9ca3af; font-size:13px; font-weight:400;">{{ rows|length }}건</span></span>
+    <span>📅 {{ date_labels[date] }} &nbsp;<span style="color:#9ca3af; font-size:13px; font-weight:400;">{{ rows|length }}건</span></span>
     <span class="toggle-icon">▼</span>
   </div>
   <div class="date-body">
     <table class="hist-table">
       <thead>
         <tr>
+          <th class="th-chk"><input type="checkbox" id="chkAll_{{ loop.index }}" onchange="toggleGroupAll(this, {{ loop.index }})" title="이 날짜 전체 선택"></th>
           <th>번호</th>
           <th>자재번호</th>
           <th>자재명</th>
@@ -51,12 +86,19 @@
       </thead>
       <tbody>
       {% for i in rows %}
-      <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=i['id']) }}'">
+      <tr class="clickable" data-id="{{ i['id'] }}" data-group="{{ loop.index0 }}"
+          onclick="rowClick(this, '{{ url_for('inspection_detail', inspection_id=i['id']) }}')">
+        <td class="td-chk" onclick="event.stopPropagation()">
+          {% if 'history_delete' in user_perms %}
+          <input type="checkbox" name="inspection_ids" value="{{ i['id'] }}"
+                 class="row-chk" onchange="updateCount()">
+          {% endif %}
+        </td>
         <td>{{ i['id'] }}</td>
         <td>{{ i['material_no'] }}</td>
         <td style="text-align:left;">{{ i['material_name'] or '-' }}</td>
         <td>{{ i['supplier'] or '-' }}</td>
-        <td>{{ i['inspect_date'] or '-' }}</td>
+        <td>{{ (i['inspect_date'] | date_korean) or '-' }}</td>
         <td>{{ i['inspector'] or '-' }}</td>
         <td>
           {% if i['overall_result'] == '합격' %}
@@ -76,10 +118,70 @@
 </div>
 {% endfor %}
 
+{% if 'history_delete' in user_perms %}
+</form>
+{% endif %}
+
 <script>
+var _editMode = false;
+
+function toggleEditMode() {
+  _editMode = !_editMode;
+  document.body.classList.toggle('edit-mode', _editMode);
+  var btn = document.getElementById('editModeBtn');
+  if (_editMode) {
+    btn.textContent = '✅ 수정 모드 종료';
+    btn.classList.add('active');
+  } else {
+    btn.textContent = '✏️ 수정 모드';
+    btn.classList.remove('active');
+    clearAll();
+  }
+}
+
+function rowClick(row, url) {
+  if (!_editMode) { location.href = url; return; }
+  var chk = row.querySelector('.row-chk');
+  if (!chk) return;
+  chk.checked = !chk.checked;
+  row.classList.toggle('selected', chk.checked);
+  updateCount();
+}
+
+function updateCount() {
+  var chks = document.querySelectorAll('.row-chk:checked');
+  document.getElementById('selectedCount').textContent = chks.length + '건 선택됨';
+  /* 행 선택 표시 동기화 */
+  document.querySelectorAll('.row-chk').forEach(function(c) {
+    c.closest('tr').classList.toggle('selected', c.checked);
+  });
+}
+
+function selectAll() {
+  document.querySelectorAll('.row-chk').forEach(function(c){ c.checked = true; });
+  updateCount();
+}
+
+function clearAll() {
+  document.querySelectorAll('.row-chk').forEach(function(c){ c.checked = false; });
+  updateCount();
+}
+
+function toggleGroupAll(masterChk, idx) {
+  var rows = document.querySelectorAll('tr[data-group="' + (idx - 1) + '"] .row-chk');
+  rows.forEach(function(c){ c.checked = masterChk.checked; });
+  updateCount();
+}
+
+function confirmDelete() {
+  var chks = document.querySelectorAll('.row-chk:checked');
+  if (chks.length === 0) { alert('삭제할 항목을 선택해줘.'); return false; }
+  return confirm(chks.length + '건을 삭제할게. 되돌릴 수 없어, 맞아?');
+}
+
 function toggleGroup(header) {
   header.classList.toggle('collapsed');
-  const body = header.nextElementSibling;
+  var body = header.nextElementSibling;
   body.classList.toggle('collapsed');
 }
 </script>

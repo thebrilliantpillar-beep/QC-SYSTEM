@@ -33,7 +33,7 @@ def _check_license():
 _check_license()
 # ──────────────────────────────────────────────
 
-import os, base64, io, time, shutil
+import os, base64, io, time, shutil, re
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
@@ -43,11 +43,81 @@ import report_builder
 import spec_import as spec_import_module
 
 app = Flask(__name__)
+
+# ──────────────────────────────────────────────
+# 유틸리티 함수
+# ──────────────────────────────────────────────
+# AQL 표기('퍼센트10' → '10%')는 성적서·기준서와 반드시 같아야 하므로 report_builder 것을 그대로 쓴다
+format_aql_display = report_builder.format_aql
+
+_WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+# (형식, 그 형식이 차지하는 글자 수) — 자릿수로 구분해야 오해석을 막을 수 있다
+_DATE_FORMATS = (
+    ("%Y-%m-%d", 10), ("%Y/%m/%d", 10), ("%Y.%m.%d", 10),
+    ("%y-%m-%d", 8),  ("%y/%m/%d", 8),  ("%y.%m.%d", 8),
+    ("%Y%m%d", 8),    ("%y%m%d", 6),
+)
+
+
+def _parse_any_date(text):
+    """어떤 형식으로 들어왔든 날짜 부분만 뽑아낸다. 못 읽으면 None.
+
+    구분자 없는 숫자 형식은 **길이가 정확히 맞을 때만** 인정한다.
+    안 그러면 '260821'(=2026-08-21)을 %Y%m%d로 읽어서 2608년 2월 1일이 돼버린다.
+    """
+    text = str(text or "").strip()
+    if not text:
+        return None
+    head = text.split()[0]          # '2026-08-23 14:30' 처럼 시각이 붙어 있으면 날짜만
+    for fmt, width in _DATE_FORMATS:
+        if len(head) < width:
+            continue
+        if fmt in ("%Y%m%d", "%y%m%d") and len(head) != width:
+            continue
+        try:
+            return _dt.strptime(head[:width], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def format_date_korean(date_str):
+    """검사자가 어떤 형식으로 넣었든 화면 표기는 '2026-08-23 (일)' 로 통일한다.
+    해석 못 하는 값은 원문 그대로 돌려준다(값을 잃지 않기 위해)."""
+    d = _parse_any_date(date_str)
+    if d is None:
+        return str(date_str or "").strip()
+    return f"{d:%Y-%m-%d} ({_WEEKDAYS_KO[d.weekday()]})"
+
+
+def format_datetime_korean(value):
+    """승인일시처럼 시각이 같이 있는 값 → '2026-08-23 (일) 14:30'.
+    시각이 없으면 날짜만 돌려준다."""
+    text = str(value or "").strip()
+    d = _parse_any_date(text)
+    if d is None:
+        return text
+    out = f"{d:%Y-%m-%d} ({_WEEKDAYS_KO[d.weekday()]})"
+    m = re.search(r"(\d{1,2}):(\d{2})", text)
+    if m:
+        out += f" {int(m.group(1)):02d}:{m.group(2)}"
+    return out
+
+
+# Jinja2 필터 등록
+app.jinja_env.filters['aql_display'] = format_aql_display
+app.jinja_env.filters['date_korean'] = format_date_korean
+app.jinja_env.filters['datetime_korean'] = format_datetime_korean
 app.secret_key = "dev-secret-change-later"  # 배포 전 반드시 교체
 app.permanent_session_lifetime = timedelta(hours=24)  # 하루 한 번 로그인하면 그 뒤로 계속 유지 (admin 제외)
 
 SIGNATURE_DIR = os.path.join(os.path.dirname(__file__), "static", "signatures")
 os.makedirs(SIGNATURE_DIR, exist_ok=True)
+
+# 도면 PDF 폴더 — 경로 변경 시 이 한 줄만 수정하면 됨
+DRAWING_DIR = os.path.join(os.path.dirname(__file__), "자동출력", "도면")
 
 BACKUP_DIR = os.path.join(os.path.dirname(__file__), "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -58,17 +128,74 @@ DEFAULT_ADMIN_PASSWORD = "admin1234"
 ADMIN_IDLE_TIMEOUT_SEC = 600  # "users" 권한 보유 계정만 10분 무동작 시 자동 로그아웃
 
 # 개별 권한 종류 — admin이 계정마다 하나하나 부여/회수
-PERM_LABELS = {
-    "intake": "입고 리스트",
-    "spec": "규격 관리",
-    "inspect": "검사 입력",
-    "inspect_all": "타인 성적서도 수정",
-    "approve": "승인·반려·특채",
-    "output": "출력",
-    "users": "계정 관리 (10분 자동로그아웃 대상)",
-    "logs": "활동 로그 열람",
-}
+# 권한을 기능별로 완전 세분화 — 계정 상세페이지에서 그룹 단위로 체크해서 부여한다.
+PERM_GROUPS = [
+    ("입고", [
+        ("intake", "입고 리스트 등록·관리"),
+    ]),
+    ("검사", [
+        ("inspect_input",    "검사 입력"),
+        ("inspect_edit_all", "타인이 입력한 성적서도 수정"),
+        ("inspect_history",  "검사 이력 열람"),
+        ("history_delete",   "검사 이력 삭제"),
+        ("defect_history",   "불량 이력 열람"),
+        ("ncr",              "부적합 통보서 작성"),
+        ("ncr_confirm",      "부적합 통보서 확인·발송"),
+        ("return",           "반품 처리"),
+    ]),
+    ("승인", [
+        ("approve",        "승인·반려·특채·불합격 확정"),
+        ("approve_revoke", "결정 회수"),
+    ]),
+    ("출력", [
+        ("output", "성적서 출력"),
+        ("custom_template", "커스텀 성적서 양식 제작·지정"),
+    ]),
+    ("자재", [
+        ("material_view",   "자재 열람"),
+        ("material_edit",   "자재 등록·수정·삭제(개별등록 포함)"),
+        ("material_import", "자재 일괄 등록"),
+    ]),
+    ("마스터", [
+        ("gauge",    "계측기 관리"),
+        ("supplier", "업체 관리"),
+    ]),
+    ("관리", [
+        ("users", "계정 관리 (10분 자동로그아웃 대상)"),
+        ("smtp",  "이메일(SMTP) 설정"),
+        ("logs",  "활동 로그 열람"),
+    ]),
+]
+PERM_LABELS = {code: label for _grp, items in PERM_GROUPS for code, label in items}
 ALL_PERMS = list(PERM_LABELS.keys())
+
+# 예전 8개 권한 → 세분화 권한 매핑 (최초 1회 자동 마이그레이션)
+PERM_MIGRATION = {
+    "intake":      ["intake"],
+    "spec":        ["material_view", "material_edit", "material_import", "gauge", "supplier"],
+    "inspect":     ["inspect_input", "inspect_history", "defect_history", "ncr"],
+    "inspect_all": ["inspect_edit_all"],
+    "approve":     ["approve", "approve_revoke", "ncr_confirm", "return"],
+    "output":      ["output"],
+    "users":       ["users", "smtp", "history_delete"],
+    "logs":        ["logs"],
+}
+
+
+def ensure_perm_migration():
+    """계정 권한을 옛 8개 체계에서 세분화 체계로 1회 변환한다(버전 플래그로 멱등 보장)."""
+    if db.get_setting("perm_schema_version", "1") == "2":
+        return
+    for u in db.list_users():
+        old_tokens = [p for p in (u["permissions"] or "").split(",") if p]
+        merged, seen = [], set()
+        for tok in old_tokens:
+            for np in PERM_MIGRATION.get(tok, [tok]):
+                if np in ALL_PERMS and np not in seen:
+                    seen.add(np)
+                    merged.append(np)
+        db.update_user_permissions(u["id"], ",".join(merged))
+    db.set_setting("perm_schema_version", "2")
 
 
 def record_change(action, target_type=None, target_id=None, detail=None):
@@ -103,12 +230,69 @@ def record_change(action, target_type=None, target_id=None, detail=None):
     except Exception:
         pass
 
+    prune_backups()
+
+
+# 백업 보관 정책 — 변경이 잦아서 그냥 두면 폴더가 무한정 커진다(수동 정리는 안 하게 됨).
+BACKUP_KEEP_RECENT = 30    # 최근 N개는 무조건 보관
+BACKUP_KEEP_DAILY_DAYS = 90  # 그보다 오래된 건 하루에 1개(그날 마지막 것)만 남기고, 이 기간이 지나면 삭제
+
+
+def prune_backups():
+    """백업 폴더 자동 정리:
+      - 최근 30개는 그대로 둔다
+      - 그 이전 것은 '하루 1개'만 남긴다 (그날 가장 마지막 백업)
+      - 90일보다 오래된 것은 지운다
+    파일명 규칙 iqc_YYYYMMDD_HHMMSS_{log_id}.db 를 전제로 한다.
+    """
+    try:
+        files = []
+        for name in os.listdir(BACKUP_DIR):
+            if not (name.startswith("iqc_") and name.endswith(".db")):
+                continue   # 사람이 손으로 만든 백업(iqc_before_... 등)은 규칙이 달라도 아래에서 걸러짐
+            parts = name[:-3].split("_")
+            if len(parts) < 3 or len(parts[1]) != 8 or not parts[1].isdigit():
+                continue   # 날짜 형식이 아니면 자동 정리 대상에서 제외 (수동 백업 보호)
+            files.append((parts[1], name))
+
+        if len(files) <= BACKUP_KEEP_RECENT:
+            return
+
+        files.sort(key=lambda x: x[1], reverse=True)   # 파일명이 곧 시간순
+        recent = files[:BACKUP_KEEP_RECENT]
+        older = files[BACKUP_KEEP_RECENT:]
+
+        cutoff = (_dt.now() - timedelta(days=BACKUP_KEEP_DAILY_DAYS)).strftime("%Y%m%d")
+        keep_per_day = {}
+        for day, name in older:
+            if day < cutoff:
+                continue                       # 너무 오래됨 → 보관 대상 아님
+            keep_per_day.setdefault(day, name)  # 정렬이 최신순이라 첫 번째가 그날 마지막 백업
+
+        keep = {n for _, n in recent} | set(keep_per_day.values())
+        for _, name in older:
+            if name in keep:
+                continue
+            try:
+                os.remove(os.path.join(BACKUP_DIR, name))
+            except OSError:
+                pass
+    except Exception:
+        pass   # 백업 정리 실패가 본 기능을 막으면 안 됨
+
 
 @app.context_processor
 def inject_perm_labels():
     user_perms = _user_perms(g.user) if hasattr(g, "user") else set()
+    # 네비게이션 배지 카운트
+    nav_counts = {}
+    if hasattr(g, "user") and g.user:
+        nav_counts["inspect"] = len(db.list_intake(status="대기"))
+        nav_counts["approve"] = len(db.list_inspections(status="pending"))
+        nav_counts["output"]  = len(db.list_pending_output_inspections())
     return {"perm_labels": PERM_LABELS, "user_perms": user_perms,
-            "status_display": status_display, "sample_size": sample_size}
+            "status_display": status_display, "sample_size": sample_size,
+            "nav_counts": nav_counts}
 
 
 def status_display(insp):
@@ -128,6 +312,8 @@ def status_display(insp):
     if status == "approved":
         if insp["approval_type"] == "special":
             return ("특채 승인", "special")
+        if insp["approval_type"] == "failed":
+            return ("불합격 확정", "fail")
         return ("합격 승인", "pass")
     return (status, "pending")
 
@@ -219,6 +405,19 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.route("/session/ping", methods=["POST"])
+def session_ping():
+    """디자이너처럼 서버 요청 없이 오래 머무는 화면이 세션을 유지·확인하는 용도.
+    로그인 화면(HTML)으로 리다이렉트하지 않고 항상 JSON을 돌려준다 →
+    화면이 '응답 해석 실패' 대신 만료를 정확히 알 수 있다.
+    before_request가 이미 last_seen을 갱신(또는 만료 시 session.clear)했으므로
+    여기서는 그 결과만 알려준다."""
+    from flask import jsonify
+    if g.user is None:
+        return jsonify({"ok": False, "expired": True}), 401
+    return jsonify({"ok": True})
+
+
 @app.route("/my-password", methods=["GET", "POST"])
 @login_required
 def my_password():
@@ -251,6 +450,57 @@ def download_db():
     return send_file(db_path, as_attachment=True, download_name=filename)
 
 
+# ---------- 도면 ----------
+
+def find_drawing_pdf(material_no):
+    """자재번호에 맞는 도면 PDF 경로 반환. 없으면 None.
+    우선순위: ① materials.drawing_file 수동 지정 → ② 자재번호.pdf 자동 매칭"""
+    material = db.get_material(material_no)
+    if material and material["drawing_file"]:
+        p = os.path.join(DRAWING_DIR, material["drawing_file"])
+        if os.path.exists(p):
+            return p
+
+    # 자동 매칭: 자재번호.pdf
+    auto = os.path.join(DRAWING_DIR, f"{material_no}.pdf")
+    if os.path.exists(auto):
+        return auto
+    return None
+
+
+@app.route("/drawing/<material_no>")
+@perm_required("inspect_input", "inspect_history", "approve", "output", "material_view")
+def serve_drawing(material_no):
+    """도면 PDF를 팝업 iframe에서 볼 수 있도록 서빙."""
+    path = find_drawing_pdf(material_no)
+    if path is None:
+        return "도면 파일을 찾을 수 없어.", 404
+    return send_file(path, mimetype="application/pdf")
+
+
+@app.route("/drawing-list")
+@perm_required("material_view")
+def drawing_list_json():
+    """도면 폴더 안의 PDF 파일 목록 반환 (도면 지정 드롭다운용)."""
+    import json
+    if not os.path.isdir(DRAWING_DIR):
+        return json.dumps([])
+    files = sorted(f for f in os.listdir(DRAWING_DIR) if f.lower().endswith(".pdf"))
+    return app.response_class(json.dumps(files), mimetype="application/json")
+
+
+@app.route("/spec/<material_no>/drawing", methods=["POST"])
+@perm_required("material_edit")
+def spec_drawing_assign(material_no):
+    """수동 도면 파일 지정."""
+    drawing_file = request.form.get("drawing_file", "").strip() or None
+    db.update_drawing_file(material_no, drawing_file)
+    record_change("도면 파일 지정", "material", material_no,
+                  f"drawing_file={drawing_file or '(해제)'}")
+    flash("도면 파일 지정이 저장됐어.")
+    return redirect(url_for("spec_detail", material_no=material_no))
+
+
 # ---------- 계정 관리 (관리자 전용) ----------
 
 @app.route("/users", methods=["GET", "POST"])
@@ -270,9 +520,12 @@ def user_management():
                 flash("이미 있는 아이디야.")
             else:
                 db.create_user(username, password, display_name, ",".join(perms))
-                flash(f"계정 '{username}' 만들어졌어. 임시 비밀번호를 알려주고, 첫 로그인 후 '내 비밀번호 변경'에서 바꾸라고 안내해줘.")
                 perm_names = ", ".join(PERM_LABELS.get(p, p) for p in perms) or "없음"
                 record_change("계정 생성", "user", username, f"권한: {perm_names}")
+                new_user = db.get_user_by_username(username)
+                flash(f"계정 '{username}' 만들어졌어. 아래에서 권한을 설정해줘. (임시 비밀번호는 첫 로그인 후 본인이 바꾸게 안내)")
+                if new_user:
+                    return redirect(url_for("user_detail", user_id=new_user["id"]))
 
         elif action == "delete":
             user_id = int(request.form.get("user_id"))
@@ -323,11 +576,51 @@ def user_management():
                 perm_names = ", ".join(PERM_LABELS.get(p, p) for p in perms) or "없음"
                 record_change("계정 권한 변경", "user", target_user["username"], f"권한: {perm_names}")
 
+                # 최종결정권자 체크 — 권한을 먼저 저장한 뒤에 처리해야 '승인 권한' 검사가 맞는다
+                want_final = request.form.get("is_final_approver") == "1"
+                was_final = bool(target_user["is_final_approver"])
+                if want_final != was_final:
+                    ok, err = db.set_final_approver(user_id, want_final)
+                    if not ok:
+                        flash(err)
+                    else:
+                        label = "지정" if want_final else "해제"
+                        flash(f"'{target_user['username']}' 최종결정권자 {label}됐어.")
+                        record_change(f"최종결정권자 {label}", "user", target_user["username"], "")
+                elif was_final and "approve" not in perms:
+                    # 승인 권한이 빠지면 최종결정권자 자격도 같이 내려간다
+                    db.set_final_approver(user_id, False)
+                    flash(f"'{target_user['username']}'의 승인 권한이 빠져서 최종결정권자 지정도 해제됐어.")
+                    record_change("최종결정권자 해제", "user", target_user["username"], "승인 권한 회수에 따른 자동 해제")
+
+        # 상세페이지에서 온 요청이면 그 페이지로 돌아간다
+        if request.form.get("return_to") == "detail" and request.form.get("user_id"):
+            try:
+                return redirect(url_for("user_detail", user_id=int(request.form.get("user_id"))))
+            except (ValueError, TypeError):
+                pass
         return redirect(url_for("user_management"))
 
     users = db.list_users()
     return render_template("users.html", users=users, current_user_id=g.user["id"],
                            perm_labels=PERM_LABELS, all_perms=ALL_PERMS)
+
+
+@app.route("/users/<int:user_id>")
+@perm_required("users")
+def user_detail(user_id):
+    """계정 하나의 상세·권한 설정 페이지."""
+    target = db.get_user(user_id)
+    if target is None:
+        flash("존재하지 않는 계정이야.")
+        return redirect(url_for("user_management"))
+    u_perms = set((target["permissions"] or "").split(","))
+    finals = db.list_final_approvers()
+    return render_template("user_detail.html", u=target, u_perms=u_perms,
+                           perm_groups=PERM_GROUPS, perm_labels=PERM_LABELS,
+                           current_user_id=g.user["id"],
+                           final_approvers=finals,
+                           max_final_approvers=db.MAX_FINAL_APPROVERS)
 
 
 @app.route("/logs")
@@ -411,8 +704,28 @@ def format_duration(total_sec):
     return " ".join(parts)
 
 
-BASE_AQL = 4          # 기준 AQL(항상 최소 샘플수) — 이 그룹 샘플은 스톱워치로 실측한 사이클 시간 사용
-EXTRA_SAMPLE_SEC = 10  # 기준 AQL 그룹에서 이미 측정한 수량을 넘는 추가 샘플 1개당 걸리는 시간(고정값)
+EXTRA_SAMPLE_SEC = 10  # 기준 AQL 초과 샘플 1개당 추가 시간(고정값, 단위: 초)
+
+
+def build_specs_with_sample(specs, quantity):
+    """규격 목록에 화면·계산용 파생값을 붙여서 돌려준다.
+
+    - sample_qty : 항목의 AQL과 입고수량으로 계산한 샘플수량
+    - no_limit   : 숫자 판정인데 하한·상한이 둘 다 비어 있는 항목
+                   (judge_numeric()이 이런 항목을 무조건 불합격 처리하므로 화면에서 경고해야 함)
+
+    검사 입력 / 성적서 상세 / 재검사 / 시간계산이 전부 같은 계산을 쓰도록 한 곳에 모아둔 헬퍼.
+    (예전엔 같은 리스트 컴프리헨션이 8군데에 복사돼 있어서 한 곳만 고치면 나머지가 어긋났다)
+    """
+    out = []
+    for s in specs:
+        d = dict(s)
+        d["sample_qty"] = sample_size(d.get("aql"), quantity)
+        d["no_limit"] = (d.get("judge_type") in ("numeric", "numeric_pair")
+                         and d.get("lower_limit") is None
+                         and d.get("upper_limit") is None)
+        out.append(d)
+    return out
 
 
 def _unique_aql_sample_qty(specs_with_sample):
@@ -441,15 +754,30 @@ def _unique_aql_sample_qty(specs_with_sample):
 def compute_total_time_sec(specs_with_sample, per_cycle_sec):
     """
     총 측정 시간 계산.
-    - 기준(AQL4) 샘플수 × 개당(1사이클) 시간
-    - 다른 AQL 그룹은 (그 그룹 샘플수 - 기준 샘플수)만큼만 추가로 측정하면 되므로
-      그 차이 × EXTRA_SAMPLE_SEC(10초)만 더함 (기준 그룹에서 이미 측정한 수량은 차감)
+    - 전수/퍼센티지 전용: 샘플수 × 개당시간 (단순 곱셈)
+    - 수치 AQL 혼합: 가장 높은 AQL(샘플 가장 적음)을 동적 기준으로 삼아,
+      나머지 그룹의 초과 샘플만 EXTRA_SAMPLE_SEC(10초)로 추가.
+      기준 AQL이 4 없어도 현재 스펙에서 가장 높은 수치를 자동으로 선택.
     """
+    if not per_cycle_sec:
+        return 0
     seen_aql = _unique_aql_sample_qty(specs_with_sample)
-    base_qty = seen_aql.get(BASE_AQL, 0)
+    if not seen_aql:
+        return 0
+
+    special = {k: v for k, v in seen_aql.items() if isinstance(k, str)}
+    numeric = {k: v for k, v in seen_aql.items() if not isinstance(k, str)}
+
+    # 전수/퍼센티지만 있는 경우 → 샘플수 × 개당시간 (단순 계산)
+    if not numeric:
+        return max(special.values()) * per_cycle_sec
+
+    # 수치 AQL이 있는 경우 → 가장 높은 AQL(샘플 가장 적음)을 기준으로
+    base_aql = max(numeric.keys())   # 4 > 1.5 > 0.65 — 숫자 클수록 샘플 적음
+    base_qty = numeric[base_aql]
     total = base_qty * per_cycle_sec
-    for aql_num, qty in seen_aql.items():
-        if aql_num == BASE_AQL:
+    for aql_key, qty in seen_aql.items():
+        if aql_key == base_aql:
             continue
         extra = max(0, qty - base_qty)
         total += extra * EXTRA_SAMPLE_SEC
@@ -459,9 +787,36 @@ def compute_total_time_sec(specs_with_sample, per_cycle_sec):
 @app.route("/")
 @login_required
 def home():
-    inspections = db.list_inspections()
-    pending_intake = db.list_intake(status="대기")
-    return render_template("home.html", inspections=inspections, pending_count=len(pending_intake))
+    pending_inspect = db.list_intake(status="대기")
+    pending_approve = db.list_inspections(status="pending")
+    pending_output  = db.list_pending_output_inspections()
+    recent          = db.list_inspections()[:10]
+    today_stats     = db.get_today_stats()
+    gauge_warnings        = db.get_gauge_expiry_warnings(days=15)
+    gauge_master_warnings = db.get_gauge_master_warnings(days=30)
+    repeat_defects        = db.get_repeat_defects(min_count=3)
+    return render_template("home.html",
+        pending_inspect=pending_inspect,
+        pending_approve=pending_approve,
+        pending_output=pending_output,
+        recent=recent,
+        today_stats=today_stats,
+        gauge_warnings=gauge_warnings,
+        gauge_master_warnings=gauge_master_warnings,
+        repeat_defects=repeat_defects,
+    )
+
+
+@app.route("/today")
+@perm_required("inspect_input", "inspect_history", "approve", "intake")
+def daily_status():
+    """금일 현황 — 홈 요약보다 자세한 하루치 상황판.
+    아침에 열어서 '오늘 뭐부터 해야 하나'를 바로 알 수 있게 만든 화면."""
+    day = request.args.get("date", "").strip()
+    d = _parse_any_date(day) if day else None
+    return render_template("daily_status.html",
+                           s=db.daily_status(d.isoformat() if d else None),
+                           today=_dt.now().strftime("%Y-%m-%d"))
 
 
 # ---------- 입고 리스트 (엑셀 붙여넣기 등록) ----------
@@ -477,6 +832,9 @@ def intake():
         except (ValueError, TypeError):
             grid_rows = []
 
+        # 조립품 파츠 자동 전개 여부 — 파츠 하나만 스페어로 받는 경우엔 꺼야 한다
+        expand_assembly = request.form.get("expand_assembly") == "1"
+
         rows = []
         errors = []
         # 스프레드시트 열 순서: 입고날짜, 납품업체, 발주번호, 제품명, 자재번호, 입고수량
@@ -490,14 +848,34 @@ def intake():
             if not material_no:
                 errors.append(f"{line_no}번째 행: 자재번호가 비어 있어 → 건너뜀")
                 continue
-            rows.append({
-                "material_no": material_no,
-                "quantity": quantity or None,
-                "supplier": supplier,
-                "receive_date": receive_date,
-                "po_number": po_number,
-                "product_name": product_name,
-            })
+
+            # 조립품 자동 전개: 파츠번호 입력 -> 그 파츠가 속한 조립품 찾기 -> 파츠 전체를 펼침
+            ma_info = db.get_ma_by_component(material_no) if expand_assembly else None
+            if ma_info:
+                # MA 입고: 파츠별로 입고 행 생성 (각 파츠의 제품명은 materials 테이블에서 자동 조회)
+                for component_no in ma_info["components"]:
+                    # 각 파츠의 제품명 조회
+                    component_material = db.get_material(component_no)
+                    component_name = component_material["material_name"] if component_material else product_name
+
+                    rows.append({
+                        "material_no": component_no,
+                        "quantity": quantity or None,
+                        "supplier": supplier,
+                        "receive_date": receive_date,
+                        "po_number": po_number,
+                        "product_name": component_name,
+                    })
+            else:
+                # 일반 자재
+                rows.append({
+                    "material_no": material_no,
+                    "quantity": quantity or None,
+                    "supplier": supplier,
+                    "receive_date": receive_date,
+                    "po_number": po_number,
+                    "product_name": product_name,
+                })
 
         if errors:
             for e in errors:
@@ -516,15 +894,14 @@ def intake():
     pending = db.list_intake(status="대기")
     done = db.list_intake(status="검사완료")
     registered = {m["material_no"] for m in db.get_materials()}
-    group_nos = {gr["group_no"] for gr in db.list_material_groups()}
     return render_template("intake.html", pending=pending, done=done,
-                           registered=registered, group_nos=group_nos)
+                           registered=registered, group_nos=set())
 
 
 # ---------- 규격 관리 ----------
 
 @app.route("/spec")
-@perm_required("spec")
+@perm_required("material_view")
 def spec_list():
     query = request.args.get("q", "").strip()
     search_by = request.args.get("by", "all")
@@ -533,7 +910,7 @@ def spec_list():
 
 
 @app.route("/spec/quick_add", methods=["GET", "POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_quick_add():
     """
     자재번호+제품명을 스프레드시트형으로 여러 줄 한번에 등록.
@@ -637,24 +1014,8 @@ def spec_quick_add():
     return render_template("spec_quick_add.html")
 
 
-@app.route("/spec/review")
-@perm_required("spec")
-def spec_review():
-    flags = db.list_unresolved_review_flags()
-    return render_template("spec_review.html", flags=flags)
-
-
-@app.route("/spec/review/<int:flag_id>/resolve", methods=["POST"])
-@perm_required("spec")
-def spec_review_resolve(flag_id):
-    db.resolve_review_flag(flag_id)
-    flash("해결됨으로 처리했어.")
-    record_change("확인필요 자재 해결", "spec_review", flag_id)
-    return redirect(url_for("spec_review"))
-
-
 @app.route("/spec/delete_bulk", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_delete_bulk():
     material_nos = request.form.getlist("material_nos")
     if not material_nos:
@@ -667,7 +1028,7 @@ def spec_delete_bulk():
 
 
 @app.route("/spec/<material_no>")
-@perm_required("spec")
+@perm_required("material_view")
 def spec_detail(material_no):
     specs = db.get_specs_by_material(material_no)
     material = db.get_material(material_no)
@@ -675,12 +1036,34 @@ def spec_detail(material_no):
     if material_name is None:
         material_name = material["material_name"] if material else None
     drawing_no = report_builder.compute_drawing_no(material_no)
+    drawing_pdf = find_drawing_pdf(material_no)
+    drawing_auto = os.path.join(DRAWING_DIR, f"{material_no}.pdf")
+    drawing_has_auto = os.path.exists(drawing_auto)
+    full_inspect_config = db.get_full_inspect_config(material_no)
     return render_template("spec_detail.html", material_no=material_no, specs=specs,
-                           material_name=material_name, material=material, drawing_no=drawing_no)
+                           material_name=material_name, material=material, drawing_no=drawing_no,
+                           drawing_pdf=drawing_pdf, drawing_has_auto=drawing_has_auto,
+                           full_inspect_config=full_inspect_config)
+
+
+@app.route("/spec/<material_no>/full-inspect-config", methods=["POST"])
+@perm_required("material_edit")
+def full_inspect_config_save(material_no):
+    """전수검사 활성화 토글 저장 (form POST). 열 구성은 specs 테이블에서 자동으로 가져옴."""
+    action = request.form.get("action", "")
+    if action == "disable":
+        db.set_full_inspect_config(material_no, None)
+        flash("전수검사 설정을 해제했어.")
+    else:
+        note = request.form.get("note", "").strip()
+        db.set_full_inspect_config(material_no, {"enabled": True, "note": note})
+        flash("전수검사 설정을 저장했어.")
+    record_change("전수검사 설정", "material", material_no, "")
+    return redirect(url_for("spec_detail", material_no=material_no))
 
 
 @app.route("/spec/<material_no>/standard_info", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_standard_info_update(material_no):
     drawing_version = request.form.get("drawing_version", "1").strip() or "1"
     revision_date = request.form.get("revision_date", "").strip()
@@ -699,7 +1082,7 @@ def spec_standard_info_update(material_no):
 
 
 @app.route("/spec/<material_no>/rename", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_material_rename(material_no):
     new_material_no = request.form.get("new_material_no", "").strip()
     new_material_name = request.form.get("new_material_name", "").strip()
@@ -776,7 +1159,7 @@ def _parse_spec_form(form):
 
 
 @app.route("/spec/<material_no>/item/<int:spec_id>/update", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_item_update(material_no, spec_id):
     item_name, spec_display, judge_type, lower_limit, upper_limit, inspect_method, aql, item_order = \
         _parse_spec_form(request.form)
@@ -788,7 +1171,7 @@ def spec_item_update(material_no, spec_id):
 
 
 @app.route("/spec/<material_no>/item/<int:spec_id>/delete", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_item_delete(material_no, spec_id):
     item = db.get_spec_item(spec_id)
     db.delete_spec_item(spec_id)
@@ -799,7 +1182,7 @@ def spec_item_delete(material_no, spec_id):
 
 
 @app.route("/spec/<material_no>/items/delete_bulk", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_item_delete_bulk(material_no):
     spec_ids = [int(v) for v in request.form.getlist("spec_ids")]
     if not spec_ids:
@@ -812,7 +1195,7 @@ def spec_item_delete_bulk(material_no):
 
 
 @app.route("/spec/<material_no>/item/add", methods=["POST"])
-@perm_required("spec")
+@perm_required("material_edit")
 def spec_item_add(material_no):
     item_name, spec_display, judge_type, lower_limit, upper_limit, inspect_method, aql, item_order = \
         _parse_spec_form(request.form)
@@ -832,85 +1215,8 @@ def spec_item_add(material_no):
     return redirect(url_for("spec_detail", material_no=material_no))
 
 
-# ---------- 자재 그룹(조립품) ----------
-
-@app.route("/groups")
-@perm_required("spec")
-def material_groups():
-    groups = db.list_material_groups()
-    groups_with_counts = []
-    for g_row in groups:
-        members = db.get_group_members(g_row["group_no"])
-        groups_with_counts.append({**dict(g_row), "member_count": len(members)})
-    return render_template("groups.html", groups=groups_with_counts)
-
-
-@app.route("/groups/create", methods=["POST"])
-@perm_required("spec")
-def material_group_create():
-    group_no = request.form.get("group_no", "").strip()
-    group_name = request.form.get("group_name", "").strip()
-    if not group_no:
-        flash("조립품 자재번호를 입력해줘.")
-        return redirect(url_for("material_groups"))
-    if group_no in {m["material_no"] for m in db.get_materials()}:
-        flash("이미 일반 자재로 규격이 등록된 번호야 — 그룹 번호는 겹치면 안 돼.")
-        return redirect(url_for("material_groups"))
-    db.create_material_group(group_no, group_name)
-    flash(f"조립품 그룹 '{group_no}' 만들어졌어. 이제 부품을 추가해줘.")
-    record_change("자재 그룹 생성", "material_group", group_no, group_name)
-    return redirect(url_for("material_group_detail", group_no=group_no))
-
-
-@app.route("/groups/<group_no>")
-@perm_required("spec")
-def material_group_detail(group_no):
-    group = db.get_material_group(group_no)
-    if group is None:
-        flash("존재하지 않는 그룹이야.")
-        return redirect(url_for("material_groups"))
-    members = db.get_group_members(group_no)
-    available_materials = [m for m in db.get_materials()
-                           if m["material_no"] not in {mem["material_no"] for mem in members}]
-    return render_template("group_detail.html", group=group, members=members,
-                           available_materials=available_materials)
-
-
-@app.route("/groups/<group_no>/delete", methods=["POST"])
-@perm_required("spec")
-def material_group_delete(group_no):
-    db.delete_material_group(group_no)
-    flash("그룹이 삭제됐어. (부품 개별 규격은 그대로 남아있어)")
-    record_change("자재 그룹 삭제", "material_group", group_no)
-    return redirect(url_for("material_groups"))
-
-
-@app.route("/groups/<group_no>/members/add", methods=["POST"])
-@perm_required("spec")
-def material_group_add_member(group_no):
-    material_no = request.form.get("material_no", "").strip()
-    if not material_no:
-        flash("추가할 부품 자재번호를 선택해줘.")
-        return redirect(url_for("material_group_detail", group_no=group_no))
-    existing = db.get_group_members(group_no)
-    next_order = (max((m["item_order"] or 0) for m in existing) + 1) if existing else 1
-    db.add_group_member(group_no, material_no, next_order)
-    flash(f"부품 '{material_no}' 추가됐어.")
-    record_change("자재 그룹 부품 추가", "material_group", group_no, material_no)
-    return redirect(url_for("material_group_detail", group_no=group_no))
-
-
-@app.route("/groups/<group_no>/members/<int:member_id>/remove", methods=["POST"])
-@perm_required("spec")
-def material_group_remove_member(group_no, member_id):
-    db.remove_group_member(member_id)
-    flash("부품이 그룹에서 제외됐어.")
-    record_change("자재 그룹 부품 제외", "material_group", group_no, str(member_id))
-    return redirect(url_for("material_group_detail", group_no=group_no))
-
-
 @app.route("/spec/import", methods=["GET", "POST"])
-@perm_required("spec")
+@perm_required("material_import")
 def spec_import():
     """빈 성적서 양식(자재별 규격만 채워진 파일) 여러 개를 한 번에 업로드해서 규격표에 등록."""
     if request.method == "POST":
@@ -920,13 +1226,6 @@ def spec_import():
             flash("업로드할 파일을 선택해줘.")
             return redirect(url_for("spec_import"))
 
-        is_group = request.form.get("is_group") == "1"
-        group_no = request.form.get("group_no", "").strip()
-        group_name = request.form.get("group_name", "").strip()
-        if is_group and not group_no:
-            flash("그룹으로 등록하려면 그룹번호를 입력해줘.")
-            return redirect(url_for("spec_import"))
-
         results = []   # 등록 성공: [{"material_no","material_name","item_count","filename"}]
         failures = []  # 등록 실패: [{"filename","reason"}]
         item_warnings = []  # 등록은 됐지만 항목별로 확인이 필요한 것들
@@ -934,7 +1233,6 @@ def spec_import():
         for f in files:
             if not f.filename.lower().endswith((".xlsx", ".xlsm")):
                 failures.append({"filename": f.filename, "reason": ".xlsx/.xlsm 파일이 아니야."})
-                db.add_review_flag(None, f.filename, ".xlsx/.xlsm 파일이 아니야.")
                 continue
             try:
                 sheet_results = spec_import_module.parse_spec_file(
@@ -942,18 +1240,14 @@ def spec_import():
                 )
             except Exception as e:
                 failures.append({"filename": f.filename, "reason": f"파일을 읽는 중 오류: {e}"})
-                db.add_review_flag(None, f.filename, f"파일을 읽는 중 오류: {e}")
                 continue
 
             for material_no, material_name, items, warnings, fail_reason in sheet_results:
                 if fail_reason:
                     failures.append({"filename": f.filename, "reason": fail_reason})
-                    db.add_review_flag(material_no or None, f.filename, fail_reason)
                     continue
 
                 item_warnings.extend(warnings)
-                for w in warnings:
-                    db.add_review_flag(material_no, f.filename, w)
                 db.replace_specs_for_material(material_no, material_name, items)
                 results.append({
                     "material_no": material_no,
@@ -966,15 +1260,7 @@ def spec_import():
             material_list = ", ".join(r["material_no"] for r in results[:10])
             if len(results) > 10:
                 material_list += " 외"
-            record_change("규격 일괄 등록", "spec", None, f"{len(results)}개 자재 ({material_list})")
-
-            if is_group:
-                db.create_material_group(group_no, group_name)
-                for order, r in enumerate(results, start=1):
-                    db.add_group_member(group_no, r["material_no"], order)
-                flash(f"'{group_no}' 그룹으로 {len(results)}개 부품이 묶여서 등록됐어.")
-                record_change("자재 그룹 생성(일괄등록 연동)", "material_group", group_no,
-                              f"{len(results)}개 부품")
+            record_change("자재 일괄 등록", "spec", None, f"{len(results)}개 자재 ({material_list})")
 
         return render_template("spec_import_result.html",
                                results=results, failures=failures, warnings=item_warnings)
@@ -985,19 +1271,21 @@ def spec_import():
 # ---------- 검사 입력 ----------
 
 @app.route("/inspect/new")
-@perm_required("inspect")
+@perm_required("inspect_input")
 def inspect_select():
     """입고 리스트 중 미검사(대기) 건만 표로 보여줌"""
     query = request.args.get("q", "").strip()
     pending = db.search_intake(query, status="대기") if query else db.list_intake(status="대기")
     registered = {m["material_no"] for m in db.get_materials()}
-    group_nos = {g["group_no"] for g in db.list_material_groups()}
+    intake_ids = [r["id"] for r in pending]
+    progress_map = db.get_progress_by_intake_ids(intake_ids)
     return render_template("inspect_select.html", pending=pending, query=query,
-                           registered=registered, group_nos=group_nos)
+                           registered=registered, group_nos=set(),
+                           progress_map=progress_map)
 
 
 @app.route("/inspect/delete_bulk", methods=["POST"])
-@perm_required("inspect", "intake")
+@perm_required("inspect_input", "intake")
 def inspect_delete_bulk():
     """검사 대기 목록에서 선택한 건들을 삭제(아직 검사 안 한 건만)."""
     intake_ids = [int(v) for v in request.form.getlist("intake_ids")]
@@ -1011,45 +1299,40 @@ def inspect_delete_bulk():
 
 
 def _get_specs_for_material(material_no):
+    """자재의 규격을 반환. (자재 그룹 기능은 제거됨 — 항상 단일 자재로 처리)
+    반환 형태는 기존 호출부 호환을 위해 (specs_list, is_group=False, group_name=None) 유지.
     """
-    material_no가 조립품 그룹번호면 그룹에 속한 부품들의 규격을 등록 순서대로 이어붙여서 반환,
-    일반 자재면 그 자재 규격 그대로 반환.
-    반환: (specs_list, is_group, group_name)
-    """
-    group = db.get_material_group(material_no)
-    if group is not None:
-        members = db.get_group_members(material_no)
-        specs = []
-        for m in members:
-            specs.extend(db.get_specs_by_material(m["material_no"]))
-        return specs, True, group["group_name"]
     return db.get_specs_by_material(material_no), False, None
 
 
 @app.route("/inspect/start/<int:intake_id>", methods=["GET", "POST"])
-@perm_required("inspect")
+@perm_required("inspect_input")
 def inspect_form(intake_id):
     intake_row = db.get_intake(intake_id)
     if intake_row is None:
         flash("존재하지 않는 입고 건이야.")
         return redirect(url_for("inspect_select"))
 
+    # 같은 입고 건에 성적서가 두 개 생기면 대시보드에서 같은 로트 수량이 중복 집계된다.
+    # (등록 버튼 연타·새로고침으로 1초 간격 3건이 생긴 사례가 있었음)
+    # 고치려면 성적서 상세의 '수정'이나 '재검사'를 써야 한다.
+    existing = db.active_inspection_for_intake(intake_id)
+    if existing is not None:
+        flash("이 입고 건은 이미 검사가 등록돼 있어. 내용을 고치려면 성적서에서 '수정'을 눌러줘.")
+        return redirect(url_for("inspection_detail", inspection_id=existing["id"]))
+
     material_no = intake_row["material_no"]
     specs, is_group, group_name = _get_specs_for_material(material_no)
     if not specs:
-        if is_group:
-            flash(f"조립품 그룹 '{material_no}'에 등록된 부품이 없거나, 부품 규격이 비어있어. 먼저 그룹 구성원/규격을 등록해줘.")
-            return redirect(url_for("material_groups"))
-        flash(f"{material_no}에 등록된 규격이 없어. 먼저 규격을 등록해줘.")
+        flash(f"{material_no}에 등록된 자재 규격이 없어. 먼저 자재를 등록해줘.")
         return redirect(url_for("spec_list"))
 
     # 항목별 샘플수량 미리 계산 (입고수량 기준) — 조립품이면 부품마다 자기 AQL로 각자 계산
-    specs_with_sample = []
-    for s in specs:
-        specs_with_sample.append({
-            **dict(s),
-            "sample_qty": sample_size(s["aql"], intake_row["quantity"]),
-        })
+    # no_limit: 숫자 판정인데 하한·상한이 둘 다 비어 있는 항목.
+    #   judge_numeric()이 이런 항목을 무조건 불합격으로 처리하므로, 측정 전에 검사자에게 알려준다.
+    specs_with_sample = build_specs_with_sample(specs, intake_row["quantity"])
+
+    full_inspect_config = db.get_full_inspect_config(material_no)
 
     if request.method == "POST":
         header = {
@@ -1065,59 +1348,220 @@ def inspect_form(intake_id):
 
         items_with_results = []
         overall_ok = True
+        fi_units_to_save = None   # 전수 모드일 때만 채움
 
-        for spec in specs:
-            if spec["judge_type"] == "numeric":
-                # 측정값 1~6 개별 입력 수집
-                vals = []
-                for i in range(1, 7):
-                    v = request.form.get(f"item_{spec['id']}_{i}", "").strip()
-                    if v:
-                        vals.append(v)
-                raw_value = ",".join(vals)
-                # JS에서 이미 계산한 결과를 hidden으로 받음 (서버에서도 재검증)
-                result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"])
-            else:
-                vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip() for i in range(1, 7)]
-                raw_value = ",".join(v for v in vals if v)
-                result, max_v, min_v = judge_visual(raw_value)
+        if full_inspect_config:
+            # ── 전수검사 모드 ── 유닛별 값에서 항목별 min/max/판정을 자동 산출
+            qty = int(intake_row["quantity"] or 0)
+            units_data = []
+            for u in range(1, qty + 1):
+                serial = request.form.get(f"unit_{u}_serial", "").strip()
+                remark = request.form.get(f"unit_{u}_remark", "").strip()
+                vals = {}
+                for spec in specs:
+                    v = request.form.get(f"unit_{u}_{spec['id']}", "").strip()
+                    vals[spec["item_name"]] = v
+                units_data.append({"unit_no": u, "serial_no": serial,
+                                   "remark": remark, "values": vals})
 
-            if result != "합격":
-                overall_ok = False
+            _bad_pf = {"NG", "X", "×", "△", "불합격", "FAIL"}
 
-            gauge_expiry = request.form.get(f"item_{spec['id']}_gauge_expiry", "").strip() or None
+            def _unit_result(unit_vals):
+                """유닛 단위 판정: 모든 항목 값 통과면 OK, 하나라도 이탈이면 NG."""
+                has_any = False
+                for sp in specs:
+                    v = unit_vals.get(sp["item_name"], "").strip()
+                    if not v:
+                        continue
+                    has_any = True
+                    if sp["judge_type"] == "numeric":
+                        try:
+                            n = float(v.replace(",", ""))
+                        except ValueError:
+                            return "NG"
+                        lo, hi = sp["lower_limit"], sp["upper_limit"]
+                        if lo is not None and n < lo: return "NG"
+                        if hi is not None and n > hi: return "NG"
+                    else:
+                        if v.upper() in _bad_pf: return "NG"
+                return "OK" if has_any else ""
 
-            items_with_results.append({
-                "item_name": spec["item_name"],
-                "measured_value": raw_value,
-                "max_value": max_v,
-                "min_value": min_v,
-                "result": result,
-                "gauge_expiry": gauge_expiry,
-                "part_material_no": spec["material_no"],
-            })
+            for spec in specs:
+                cell_vals = [u["values"].get(spec["item_name"], "").strip() for u in units_data]
+                non_empty = [v for v in cell_vals if v]
+
+                if spec["judge_type"] == "numeric":
+                    nums = []
+                    for v in non_empty:
+                        try: nums.append(float(v.replace(",", "")))
+                        except ValueError: pass
+                    lo, hi = spec["lower_limit"], spec["upper_limit"]
+                    if not non_empty:
+                        min_v = max_v = None; result = "미측정"
+                    elif lo is None and hi is None:
+                        min_v = min(nums) if nums else None
+                        max_v = max(nums) if nums else None
+                        result = "규격미입력"
+                    else:
+                        min_v = min(nums) if nums else None
+                        max_v = max(nums) if nums else None
+                        result = "합격"
+                        for n in nums:
+                            if lo is not None and n < lo: result = "불합격"; break
+                            if hi is not None and n > hi: result = "불합격"; break
+                        if len(nums) != len(non_empty):   # 숫자 파싱 실패한 값 있음
+                            result = "불합격"
+                else:
+                    min_v = max_v = None
+                    has_bad = any(v.upper() in _bad_pf for v in non_empty)
+                    result = "불합격" if has_bad else ("합격" if non_empty else "미측정")
+
+                if result != "합격":
+                    overall_ok = False
+
+                if len(non_empty) <= 6:
+                    raw_value = ",".join(non_empty)
+                elif min_v is not None and max_v is not None:
+                    raw_value = f"전수 {len(non_empty)}개 (범위 {min_v}~{max_v})"
+                else:
+                    raw_value = f"전수 {len(non_empty)}개 측정"
+
+                gauge_expiry = request.form.get(f"item_{spec['id']}_gauge_expiry", "").strip() or None
+                gauge_name = request.form.get(f"item_{spec['id']}_gauge_name", "").strip() or None
+
+                items_with_results.append({
+                    "item_name": spec["item_name"],
+                    "measured_value": raw_value,
+                    "max_value": max_v, "min_value": min_v, "result": result,
+                    "gauge_expiry": gauge_expiry, "gauge_name": gauge_name,
+                    "part_material_no": spec["material_no"],
+                })
+
+            fi_units_to_save = [{
+                "unit_no": u["unit_no"], "serial_no": u["serial_no"],
+                "values": u["values"], "result": _unit_result(u["values"]),
+                "remark": u["remark"],
+            } for u in units_data]
+
+        else:
+            # ── 일반 검사 모드 ── (기존 로직)
+            for spec in specs:
+                if spec["judge_type"] == "numeric":
+                    vals = []
+                    for i in range(1, 7):
+                        v = request.form.get(f"item_{spec['id']}_{i}", "").strip()
+                        if v:
+                            vals.append(v)
+                    raw_value = ",".join(vals)
+                    result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"])
+                else:
+                    vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip() for i in range(1, 7)]
+                    raw_value = ",".join(v for v in vals if v)
+                    result, max_v, min_v = judge_visual(raw_value)
+
+                if result != "합격":
+                    overall_ok = False
+
+                gauge_expiry = request.form.get(f"item_{spec['id']}_gauge_expiry", "").strip() or None
+                gauge_name = request.form.get(f"item_{spec['id']}_gauge_name", "").strip() or None
+
+                items_with_results.append({
+                    "item_name": spec["item_name"],
+                    "measured_value": raw_value,
+                    "max_value": max_v, "min_value": min_v, "result": result,
+                    "gauge_expiry": gauge_expiry, "gauge_name": gauge_name,
+                    "part_material_no": spec["material_no"],
+                })
 
         overall_result = "합격" if overall_ok else "검토필요"
         actual_time_sec = request.form.get("actual_time_sec", "").strip()
         actual_time_sec = int(actual_time_sec) if actual_time_sec.isdigit() else 0
         est_time_label = format_duration(actual_time_sec)
+        total_time_sec = compute_total_time_sec(specs_with_sample, actual_time_sec) if actual_time_sec else 0
         inspection_id = db.create_inspection(header, items_with_results, overall_result,
                                               intake_id=intake_id, est_time_label=est_time_label,
                                               actual_time_sec=actual_time_sec,
+                                              total_time_sec=total_time_sec,
                                               created_by_user_id=g.user["id"])
         record_change("성적서 등록", "inspection", inspection_id,
                       f"자재 {material_no}, 업체 {intake_row['supplier']}, 판정 {overall_result}")
+
+        # 전수 데이터도 같이 저장 (전수 모드일 때)
+        if fi_units_to_save is not None:
+            db.get_or_create_full_inspection(inspection_id)
+            db.update_full_inspection(inspection_id,
+                                      inspect_date=request.form.get("inspect_date") or None)
+            db.save_full_inspection_units(inspection_id, fi_units_to_save)
+
+        db.clear_inspection_progress(intake_id)
+        db.delete_inspection_draft(intake_id)
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
+    prior_defect_count = db.get_defect_count_for(intake_row["supplier"], material_no)
+    inspector_name = g.user["display_name"] or g.user["username"]
+    db.register_inspector(intake_id, inspector_name)
+    gauges = db.list_gauges()
+
+    # 서버에 저장된 임시저장(다른 기기에서 입력하던 것 포함)
+    draft_row = db.get_inspection_draft(intake_id)
+    server_draft = draft_row["payload"] if draft_row else None
+    draft_info = None
+    if draft_row:
+        draft_info = {"username": draft_row["username"], "updated_at": draft_row["updated_at"]}
+
+    # 이 업체·자재에 최근 4M 변경이 있었으면 검사 전에 알려준다
+    change_points = db.recent_change_points_for(intake_row["supplier"], material_no)
+
+    full_inspect_config = db.get_full_inspect_config(material_no)
     return render_template("inspect_form.html", intake=intake_row, specs=specs_with_sample,
-                           is_group=is_group, group_name=group_name)
+                           is_group=is_group, group_name=group_name,
+                           prior_defect_count=prior_defect_count, gauges=gauges,
+                           server_draft=server_draft, draft_info=draft_info,
+                           change_points=change_points,
+                           full_inspect_config=full_inspect_config,
+                           gauge_master_empty=(len(gauges) == 0))
+
+
+@app.route("/inspect/draft/<int:intake_id>", methods=["POST"])
+@perm_required("inspect_input")
+def inspect_draft_save(intake_id):
+    """검사 입력 중간값을 서버에 저장 (검사 화면에서 입력할 때마다 자동 호출).
+    브라우저 localStorage만 쓰면 태블릿이 꺼지거나 기기를 바꿀 때 날아가서 서버에도 남긴다."""
+    import json as _json
+    payload = request.get_data(as_text=True) or ""
+    if len(payload) > 200_000:          # 비정상적으로 큰 요청 차단
+        return {"ok": False, "error": "too_large"}, 413
+    try:
+        _json.loads(payload)            # JSON 형식인지만 확인 (내용은 화면이 만든 그대로 보관)
+    except ValueError:
+        return {"ok": False, "error": "bad_json"}, 400
+
+    db.save_inspection_draft(intake_id, payload,
+                             user_id=g.user["id"],
+                             username=g.user["display_name"] or g.user["username"])
+    return {"ok": True}
+
+
+@app.route("/inspect/draft/<int:intake_id>/delete", methods=["POST"])
+@perm_required("inspect_input")
+def inspect_draft_delete(intake_id):
+    db.delete_inspection_draft(intake_id)
+    return {"ok": True}
+
+
+NO_SPEC_RESULT = "규격미입력"   # 판정 기준 자체가 없어서 합격/불합격을 말할 수 없는 상태
 
 
 def judge_numeric(raw_value, lower, upper):
     """
     raw_value: 콤마로 구분된 여러 측정값 가능 (예: "12.1,12.3,12.0")
-    lower/upper 둘 다 있으면 범위 판정, 하나만 있으면("OO 이상"/"OO 이하") 그쪽만 판정,
-    둘 다 없으면(규격 미확정) 안전하게 불합격 처리.
+    lower/upper 둘 다 있으면 범위 판정, 하나만 있으면("OO 이상"/"OO 이하") 그쪽만 판정.
+
+    둘 다 없으면(규격 미확정) '규격미입력'을 돌려준다 — 불합격이 아니다.
+    규격이 안 채워진 건 제품 문제가 아니라 우리 데이터 문제인데, 불합격으로 처리하면
+    부적합 통보서가 협력사로 나가버린다. 합격도 아니므로 성적서 전체는 '검토필요'가 되고
+    승인 단계에서 사람이 먼저 규격을 채우도록 막는다.
+
     반환: (판정, 최대값, 최소값)
     """
     if not raw_value:
@@ -1132,9 +1576,53 @@ def judge_numeric(raw_value, lower, upper):
 
     max_v, min_v = max(values), min(values)
 
+    if lower is None and upper is None:
+        return NO_SPEC_RESULT, max_v, min_v
+
     def _within(v):
-        if lower is None and upper is None:
+        # 하한·상한 중 하나만 있는 단측 표기("5 이상")도 그쪽만 본다
+        if lower is not None and v < lower:
             return False
+        if upper is not None and v > upper:
+            return False
+        return True
+
+    ok = all(_within(v) for v in values)
+    return ("합격" if ok else "불합격"), max_v, min_v
+
+
+def judge_numeric_pair(raw_value, lower, upper):
+    """2채널 숫자 항목(예: 하우징 고저항 CT/ROD).
+
+    저장 형식: "a/b,c/d,e/f" — 각 샘플이 채널1/채널2 두 값.
+    양쪽 채널 모든 값이 lower~upper 범위 안이어야 합격(Ac=0).
+    max/min은 두 채널 통틀어 계산해서 성적서 max/min 칸에 그대로 쓴다.
+    """
+    if not raw_value:
+        return "미측정", None, None
+    try:
+        values = []
+        for chunk in raw_value.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            parts = [p.strip() for p in chunk.split("/") if p.strip() != ""]
+            if not parts:
+                continue
+            for p in parts:
+                values.append(float(p))
+    except ValueError:
+        return "입력오류", None, None
+
+    if not values:
+        return "미측정", None, None
+
+    max_v, min_v = max(values), min(values)
+
+    if lower is None and upper is None:
+        return NO_SPEC_RESULT, max_v, min_v
+
+    def _within(v):
         if lower is not None and v < lower:
             return False
         if upper is not None and v > upper:
@@ -1173,10 +1661,7 @@ def inspection_detail(inspection_id):
     total_time_label = "-"
     specs, _, _ = _get_specs_for_material(header["material_no"])
     if specs and per_cycle_sec:
-        specs_with_sample = [
-            {**dict(s), "sample_qty": sample_size(s["aql"], header["quantity"])}
-            for s in specs
-        ]
+        specs_with_sample = build_specs_with_sample(specs, header["quantity"])
         total_time_label = format_duration(compute_total_time_sec(specs_with_sample, per_cycle_sec))
 
     # 계측기 유효기간이 한 달(30일) 이내로 남았거나 이미 지난 항목들을 항목별로 나열
@@ -1194,17 +1679,43 @@ def inspection_detail(inspection_id):
         if days_left <= 30:
             gauge_alerts.append({
                 "item_name": it["item_name"],
-                "spec_display": it["spec_display"],
+                "gauge_name": it["gauge_name"],
                 "days_left": days_left,
             })
 
+    # AQL·샘플수량 매핑 (specs → item_name 기준)
+    specs_all = []
+    for s in specs:
+        specs_all.append({**dict(s), "sample_qty": sample_size(s["aql"], header["quantity"])})
+    specs_map = {s["item_name"]: s for s in specs_all}
+
+    # AQL 그룹별 샘플수 요약 (대시보드·설명용)
+    aql_groups = _unique_aql_sample_qty(specs_all) if specs_all else {}
+
+    existing_ncr_list = db.list_ncr(inspection_id=inspection_id)
+    return_requests = db.get_return_requests_by_inspection(inspection_id)
+    prior_defect_count = db.get_defect_count_for(header["supplier"], header["material_no"])
+    is_failed = header["overall_result"] not in ("합격", "", None)
+    # 전수검사 — 자재에 설정이 있으면 현황 같이 넘긴다
+    full_inspect_config = db.get_full_inspect_config(header["material_no"])
+    full_inspect = db.get_full_inspection(inspection_id) if full_inspect_config else None
+    if full_inspect:
+        fi_units = db.list_full_inspection_units(inspection_id)
+        full_inspect["ok_cnt"] = sum(1 for u in fi_units if u.get("result") == "OK")
+        full_inspect["ng_cnt"] = sum(1 for u in fi_units if u.get("result") == "NG")
     return render_template("inspection_detail.html", header=header, items=items,
                            total_time_label=total_time_label, per_cycle_label=per_cycle_label,
-                           gauge_alerts=gauge_alerts)
+                           aql_groups=aql_groups,
+                           gauge_alerts=gauge_alerts, existing_ncr_list=existing_ncr_list,
+                           return_requests=return_requests,
+                           prior_defect_count=prior_defect_count,
+                           specs_map=specs_map, is_failed=is_failed,
+                           full_inspect_config=full_inspect_config,
+                           full_inspect=full_inspect)
 
 
 @app.route("/inspection/<int:inspection_id>/remark", methods=["POST"])
-@perm_required("inspect", "inspect_all", "approve")
+@perm_required("inspect_input", "inspect_edit_all", "approve")
 def inspection_remark(inspection_id):
     """비고란 저장 — 화면에서 어느 칸(검사자/중간관리자/최종결정권자)인지 넘겨받고, 해당 권한이 있는지 확인."""
     header, _ = db.get_inspection(inspection_id)
@@ -1212,8 +1723,8 @@ def inspection_remark(inspection_id):
         flash("존재하지 않는 성적서야.")
         return redirect(url_for("home"))
 
-    # 검사자란=inspect 권한, 중간관리자란=inspect_all 권한, 최종결정권자란=approve 권한 보유자만 그 칸에 쓸 수 있음
-    REMARK_PERM_MAP = {"inspector": "inspect", "manager": "inspect_all", "approver": "approve"}
+    # 검사자란=inspect_input, 중간관리자란=inspect_edit_all, 최종결정권자란=approve 권한 보유자만 그 칸에 쓸 수 있음
+    REMARK_PERM_MAP = {"inspector": "inspect_input", "manager": "inspect_edit_all", "approver": "approve"}
     role_key = request.form.get("target_role", "")
     needed_perm = REMARK_PERM_MAP.get(role_key)
     user_perms = _user_perms(g.user)
@@ -1227,23 +1738,26 @@ def inspection_remark(inspection_id):
     db.update_inspection_remark(inspection_id, role_key, combined)
     flash("비고가 저장됐어.")
     record_change("비고 작성", "inspection", inspection_id, f"{role_key} 비고: {text[:50]}")
+    return_to = request.form.get("return_to", "")
+    if return_to == "approve":
+        return redirect(url_for("approve_view", inspection_id=inspection_id))
     return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
 
 # ---------- 측정값 수정 (pending 상태만) ----------
 
 def _can_edit_inspection(header):
-    """inspect_all 권한이 있으면 전체 수정 가능, 없으면(inspect만) 본인이 만든 성적서만."""
+    """inspect_edit_all 권한이 있으면 전체 수정 가능, 없으면(inspect_input만) 본인이 만든 성적서만."""
     user_perms = _user_perms(g.user)
-    if "inspect_all" in user_perms:
+    if "inspect_edit_all" in user_perms:
         return True
-    if "inspect" in user_perms:
+    if "inspect_input" in user_perms:
         return header["created_by_user_id"] == g.user["id"]
     return False
 
 
 @app.route("/inspection/<int:inspection_id>/edit")
-@perm_required("inspect")
+@perm_required("inspect_input")
 def edit_inspection(inspection_id):
     header, items = db.get_inspection(inspection_id)
     if header is None or header["status"] != "pending":
@@ -1256,10 +1770,7 @@ def edit_inspection(inspection_id):
     intake_row = db.get_intake(header["intake_id"]) if header["intake_id"] else None
     material_no = header["material_no"]
     specs, is_group, group_name = _get_specs_for_material(material_no)
-    specs_with_sample = [
-        {**dict(s), "sample_qty": sample_size(s["aql"], header["quantity"])}
-        for s in specs
-    ]
+    specs_with_sample = build_specs_with_sample(specs, header["quantity"])
 
     # 기존 측정값 prefill — 그룹 검사는 item_name만으로는 부품 간 중복될 수 있어 spec.id(전역 고유)로 맞춤
     prefill = {
@@ -1275,6 +1786,7 @@ def edit_inspection(inspection_id):
         for i, v in enumerate(vals, start=1):
             prefill[f"item_{s['id']}_{i}"] = v.strip()
         prefill[f"item_{s['id']}_gauge_expiry"] = it["gauge_expiry"] or ""
+        prefill[f"item_{s['id']}_gauge_name"] = it["gauge_name"] or ""
 
     # intake_row가 없으면 header 정보로 임시 구성
     if intake_row is None:
@@ -1291,14 +1803,16 @@ def edit_inspection(inspection_id):
             "quantity": header["quantity"],
         }
 
+    prior_defect_count = db.get_defect_count_for(intake_row["supplier"], header["material_no"])
     return render_template("inspect_form.html",
                            intake=intake_row, specs=specs_with_sample,
                            prefill=prefill, edit_mode=inspection_id,
-                           is_group=is_group, group_name=group_name)
+                           is_group=is_group, group_name=group_name,
+                           prior_defect_count=prior_defect_count)
 
 
 @app.route("/inspection/<int:inspection_id>/edit", methods=["POST"])
-@perm_required("inspect")
+@perm_required("inspect_input")
 def edit_inspection_submit(inspection_id):
     header, _ = db.get_inspection(inspection_id)
     if header is None or header["status"] != "pending":
@@ -1327,6 +1841,7 @@ def edit_inspection_submit(inspection_id):
         if result != "합격":
             overall_ok = False
         gauge_expiry = request.form.get(f"item_{spec['id']}_gauge_expiry", "").strip() or None
+        gauge_name = request.form.get(f"item_{spec['id']}_gauge_name", "").strip() or None
         items_with_results.append({
             "item_name": spec["item_name"],
             "measured_value": raw_value,
@@ -1334,6 +1849,7 @@ def edit_inspection_submit(inspection_id):
             "min_value": min_v,
             "result": result,
             "gauge_expiry": gauge_expiry,
+            "gauge_name": gauge_name,
             "part_material_no": spec["material_no"],
         })
 
@@ -1341,6 +1857,9 @@ def edit_inspection_submit(inspection_id):
     actual_time_sec = request.form.get("actual_time_sec", "").strip()
     actual_time_sec = int(actual_time_sec) if actual_time_sec.isdigit() else None
     est_time_label = format_duration(actual_time_sec) if actual_time_sec is not None else None
+    qty = header["quantity"]
+    specs_with_sample = build_specs_with_sample(specs, qty)
+    total_time_sec = compute_total_time_sec(specs_with_sample, actual_time_sec) if actual_time_sec else None
     db.update_inspection_items(
         inspection_id,
         request.form.get("inspect_date"),
@@ -1349,6 +1868,7 @@ def edit_inspection_submit(inspection_id):
         overall_result,
         est_time_label=est_time_label,
         actual_time_sec=actual_time_sec,
+        total_time_sec=total_time_sec,
     )
     flash("측정값이 수정됐어.")
     record_change("성적서 수정", "inspection", inspection_id,
@@ -1401,10 +1921,38 @@ def _save_signature_upload(inspection_id, file_storage):
 def _generate_report_files(inspection_id, approver, signature_path):
     """DB에 저장된 성적서 데이터를 report_builder 입력 형식으로 변환해 xlsx/PDF 생성.
     조립품 그룹 검사면 부품별로 시트를 나눈 통합 워크북을 만든다.
-    반환: (xlsx_path, pdf_path, error_message) — error_message는 성공 시 None"""
+    자재에 커스텀(자유양식) 성적서가 지정돼 있으면 reportlab로 PDF만 직접 그린다.
+    반환: (xlsx_path, pdf_path, error_message, is_custom) — error_message는 성공 시 None,
+          is_custom=True면 기준서 페이지가 없는 커스텀 PDF이므로 호출부에서 병합 방식을 달리해야 함"""
     header, items = db.get_inspection(inspection_id)
     if header is None:
-        return None, None, "성적서 정보를 찾을 수 없어."
+        return None, None, "성적서 정보를 찾을 수 없어.", False
+
+    # ── 커스텀(자유양식) 성적서가 지정된 자재면 reportlab 경로로 분기 ──
+    template_id = db.get_material_template_id(header["material_no"])
+    if template_id:
+        tmpl = db.get_custom_template(template_id)
+        if tmpl is None:
+            return None, None, "지정된 커스텀 양식을 찾을 수 없어(양식이 삭제됐을 수 있어).", False
+        import custom_report
+        data = {
+            "fields": _custom_fields_from_header(header),
+            "items": _custom_items_from_inspection(items),
+            "signature_path": signature_path or header["signature_path"],
+            "logo_path": report_builder.LOGO_PATH,
+        }
+        fname = report_builder.build_report_filename(
+            header["supplier"], header["material_no"], header["material_name"] or "")
+        out_pdf = report_builder._dedupe_path(
+            os.path.join(report_builder.report_output_dir(), fname + ".pdf"))
+        try:
+            path, err = custom_report.build_custom_report(tmpl, data, out_pdf)
+        except Exception:
+            import traceback
+            return None, None, f"커스텀 성적서 생성 중 오류:\n{traceback.format_exc(limit=3)}", True
+        if err or not path:
+            return None, None, err or "커스텀 성적서 생성 실패", True
+        return None, path, None, True   # xlsx 없음 · 커스텀 표시
 
     rb_header = {
         "vendor": header["supplier"],
@@ -1415,24 +1963,14 @@ def _generate_report_files(inspection_id, approver, signature_path):
         "qty": header["quantity"],
     }
 
-    group = db.get_material_group(header["material_no"])
-    if group is not None:
-        members = db.get_group_members(header["material_no"])
-        combined_specs = []
-        for m in members:
-            combined_specs.extend(db.get_specs_by_material(m["material_no"]))
-    else:
-        combined_specs = db.get_specs_by_material(header["material_no"])
+    combined_specs = db.get_specs_by_material(header["material_no"])
 
     # 개당 측정시간 = 스톱워치로 잰 "샘플 1개(1사이클)" 시간 그대로
     per_cycle_sec = header["actual_time_sec"] or 0
     per_cycle_label = format_duration(per_cycle_sec)
 
     # 총 측정시간 = 기준(AQL4) 샘플수×개당시간 + 다른 AQL 그룹의 초과분×10초
-    specs_with_sample = [
-        {**dict(s), "sample_qty": sample_size(s["aql"], header["quantity"])}
-        for s in combined_specs
-    ]
+    specs_with_sample = build_specs_with_sample(combined_specs, header["quantity"])
     total_time_label = format_duration(compute_total_time_sec(specs_with_sample, per_cycle_sec))
 
     def _build_result(it):
@@ -1481,43 +2019,18 @@ def _generate_report_files(inspection_id, approver, signature_path):
         }
 
     try:
-        if group is not None:
-            # 부품별로 결과를 나눠서(등록 순서 유지) 시트별로 채울 부품 리스트 구성
-            parts_map = {}
-            for it in items:
-                part_no = it["part_material_no"] or header["material_no"]
-                if part_no not in parts_map:
-                    parts_map[part_no] = {
-                        "material_no": part_no,
-                        "product_name": it["part_material_name"] or "",
-                        "results": [],
-                    }
-                parts_map[part_no]["results"].append(_build_result(it))
-            parts = list(parts_map.values())
-            standard_info_map = {p["material_no"]: _standard_info_for(p["material_no"]) for p in parts}
-            standard_info_map = {k: v for k, v in standard_info_map.items() if v is not None}
-
-            xlsx_path, pdf_path, pdf_error, signature_error = report_builder.build_group_report(
-                header["material_no"], header["material_name"] or (group["group_name"] or ""),
-                rb_header, parts, header["overall_result"],
-                approver=approver, signature_path=signature_path,
-                per_cycle_label=per_cycle_label, total_time_label=total_time_label,
-                remarks=remarks, approval_type=header["approval_type"],
-                standard_info_map=standard_info_map,
-            )
-        else:
-            results = [_build_result(it) for it in items]
-            xlsx_path, pdf_path, pdf_error, signature_error = report_builder.build_report(
-                header["material_no"], header["material_name"] or "",
-                rb_header, results, header["overall_result"],
-                approver=approver, signature_path=signature_path,
-                per_cycle_label=per_cycle_label, total_time_label=total_time_label,
-                remarks=remarks, approval_type=header["approval_type"],
-                standard_info=_standard_info_for(header["material_no"]),
-            )
+        results = [_build_result(it) for it in items]
+        xlsx_path, pdf_path, pdf_error, signature_error = report_builder.build_report(
+            header["material_no"], header["material_name"] or "",
+            rb_header, results, header["overall_result"],
+            approver=approver, signature_path=signature_path,
+            per_cycle_label=per_cycle_label, total_time_label=total_time_label,
+            remarks=remarks, approval_type=header["approval_type"],
+            standard_info=_standard_info_for(header["material_no"]),
+        )
     except Exception:
         import traceback
-        return None, None, f"성적서 파일 생성 중 오류:\n{traceback.format_exc(limit=3)}"
+        return None, None, f"성적서 파일 생성 중 오류:\n{traceback.format_exc(limit=3)}", False
 
     error_msg = None
     if signature_error and pdf_error:
@@ -1527,7 +2040,139 @@ def _generate_report_files(inspection_id, approver, signature_path):
     elif pdf_error:
         error_msg = pdf_error
 
-    return xlsx_path, pdf_path, error_msg
+    return xlsx_path, pdf_path, error_msg, False
+
+
+def compute_content_hash(inspection_id):
+    """성적서 내용(헤더 + 항목별 측정값·판정)을 SHA-256으로 굳힌다.
+
+    승인 시점에 저장해두면 나중에 DB 값이 바뀌었는지 검증할 수 있다.
+    - 항목은 이름순으로 정렬해서 담는다 → 조회 순서가 달라져도 해시가 흔들리지 않게
+    - PDF가 아니라 '판정 내용' 자체를 해시하므로, 성적서를 다시 출력해도 값은 그대로다
+    """
+    import hashlib, json as _json
+    header, items = db.get_inspection(inspection_id)
+    if header is None:
+        return None
+    payload = {
+        "material_no":  header["material_no"],
+        "material_name": header["material_name"],
+        "supplier":     header["supplier"],
+        "po_number":    header["po_number"],
+        "receive_date": header["receive_date"],
+        "inspect_date": header["inspect_date"],
+        "inspector":    header["inspector"],
+        "quantity":     header["quantity"],
+        "overall_result": header["overall_result"],
+        "items": sorted(
+            [{"item": it["item_name"], "value": it["measured_value"], "result": it["result"]}
+             for it in (items or [])],
+            key=lambda d: str(d["item"]),
+        ),
+    }
+    blob = _json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def compute_file_hash(path):
+    """파일 내용의 SHA-256. 파일이 없으면 None."""
+    import hashlib
+    if not path or not os.path.exists(path):
+        return None
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def verify_inspection_integrity(inspection_id):
+    """성적서가 승인 당시 그대로인지 검증.
+    반환: {"checked": bool, "content_ok": bool|None, "pdf_ok": bool|None, "message": str}
+    """
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        return {"checked": False, "content_ok": None, "pdf_ok": None, "message": "성적서를 찾을 수 없어."}
+
+    stored_content = header["content_hash"] if "content_hash" in header.keys() else None
+    stored_pdf = header["pdf_hash"] if "pdf_hash" in header.keys() else None
+
+    if not stored_content:
+        return {"checked": False, "content_ok": None, "pdf_ok": None,
+                "message": "위변조 검증 기능이 생기기 전에 승인된 성적서라 검증 기준값이 없어."}
+
+    content_ok = (compute_content_hash(inspection_id) == stored_content)
+    pdf_ok = None
+    if stored_pdf:
+        actual = compute_file_hash(header["pdf_path"])
+        pdf_ok = (actual == stored_pdf) if actual else False
+
+    if content_ok and pdf_ok is not False:
+        msg = "승인 당시 내용과 일치해."
+    elif not content_ok:
+        msg = "⚠️ 승인 이후 성적서 내용이 바뀌었어. 원인을 확인해줘."
+    else:
+        msg = "⚠️ 발행된 PDF 파일이 승인 당시와 달라. 파일이 교체됐을 수 있어."
+    return {"checked": True, "content_ok": content_ok, "pdf_ok": pdf_ok, "message": msg}
+
+
+def _final_decision_block_reason(inspection_id, action, reject_reason=None):
+    """승인·특채·불합격 확정을 막아야 하는 이유가 있으면 그 문구를, 없으면 None을 돌려준다.
+
+    단건 승인과 일괄 승인이 같은 규칙을 쓰도록 한 곳에 모아둔 검증.
+    """
+    if action not in ("approve", "special", "failed"):
+        return None
+
+    header, items = db.get_inspection(inspection_id)
+    if header is None:
+        return "성적서를 찾을 수 없어."
+    items = items or []
+
+    # 1) 판정 근거가 없는 항목이 있으면 어떤 결정도 내릴 수 없다.
+    #    승인뿐 아니라 불합격도 막는다 — 규격이 비어서 못 잰 걸 불합격으로 확정하면
+    #    우리 데이터 누락이 협력사 부적합 통보서로 나가버린다.
+    no_spec = [it["item_name"] for it in items if it["result"] == NO_SPEC_RESULT]
+    if no_spec:
+        return (f"규격(하한·상한)이 비어 있는 항목이 있어서 결정할 수 없어: {', '.join(no_spec)} — "
+                f"자재 규격을 먼저 채우고 재검사해줘.")
+
+    # 2) 아직 측정 안 한 항목이 남아 있으면 결정 불가
+    not_measured = [it["item_name"] for it in items if it["result"] in ("미측정", "입력오류")]
+    if not_measured:
+        return f"측정값이 비어 있거나 잘못된 항목이 있어: {', '.join(not_measured)} — 검사를 먼저 마무리해줘."
+
+    # 3) 특채는 '규격을 벗어났지만 예외적으로 쓴다'는 결정이다.
+    #    전 항목 합격인 성적서를 특채로 올리는 건 성립하지 않는다(그냥 합격 승인해야 함).
+    if action == "special" and header["overall_result"] == "합격":
+        return "전 항목 합격인 성적서는 특채 대상이 아니야. 그냥 '합격 승인'으로 처리해줘."
+
+    # 4) 불합격 확정은 협력사로 나가는 결정이라 사유가 반드시 남아야 한다.
+    #    (반려는 사유가 필수인데 더 중대한 불합격이 선택이던 건 앞뒤가 안 맞았다)
+    if action == "failed" and not (reject_reason or "").strip():
+        return "불합격 사유를 입력해줘. 부적합 통보서와 협력사 통보의 근거가 돼."
+
+    return None
+
+
+def _can_make_final_decision(user, what="승인·특채·불합격 확정"):
+    """최종 결정을 내릴 수 있는 사람인지.
+
+    최종결정권자가 아직 아무도 지정 안 됐으면(초기 상태) '승인' 권한만으로 통과시킨다 —
+    지정하기 전에 시스템이 잠겨버리면 안 되기 때문. 한 명이라도 지정되는 순간부터는
+    최종결정권자만 결정할 수 있다.
+
+    what: 안내 문구에 넣을 행위 이름 (성적서 승인 / 부적합 통보서 확인 / 성적표 승인 …)
+    반환: (가능여부, 안 되는 이유)
+    """
+    approvers = db.list_final_approvers()
+    if not approvers or (user and user["is_final_approver"]):
+        return True, None
+    names = ", ".join((a["display_name"] or a["username"]) for a in approvers)
+    return False, f"{what}은(는) 최종결정권자만 할 수 있어. (현재 최종결정권자: {names})"
 
 
 @app.route("/inspection/<int:inspection_id>/approve", methods=["POST"])
@@ -1549,7 +2194,21 @@ def approve(inspection_id):
         flash("결정권자 이름을 입력해줘.")
         return _back(on_error=True)
 
-    if action in ("approve", "special"):
+    # 최종 결정(승인·특채·불합격 확정)은 최종결정권자만 할 수 있다
+    if action in ("approve", "special", "failed"):
+        allowed, why = _can_make_final_decision(g.user)
+        if not allowed:
+            flash(why)
+            return _back(on_error=True)
+
+    # 승인·특채·불합격 확정은 전부 최종 결정이므로 서명을 똑같이 요구한다
+    blocked = _final_decision_block_reason(inspection_id, action, reject_reason)
+    if blocked:
+        flash(blocked)
+        return _back(on_error=True)
+
+    signature_path = None
+    if action in ("approve", "special", "failed"):
         signature_method = request.form.get("signature_method", "draw")
         if signature_method == "upload":
             signature_file = request.files.get("signature_file")
@@ -1565,10 +2224,13 @@ def approve(inspection_id):
             flash(f"서명 저장 실패: {sig_save_error}")
             return _back(on_error=True)
 
+    if action in ("approve", "special"):
         approval_type = "special" if action == "special" else "normal"
         db.update_inspection_status(inspection_id, "approved", approver=approver, approval_type=approval_type)
         # PDF는 여기서 바로 만들지 않음 — "출력 대기" 화면에서 선택/전체 출력할 때 생성됨
         db.set_report_files(inspection_id, signature_path=signature_path, pdf_path=None, xlsx_path=None)
+        # 승인 시점의 판정 내용을 해시로 굳혀둔다 (이후 변조 여부 검증용)
+        db.set_inspection_hashes(inspection_id, content_hash=compute_content_hash(inspection_id))
 
         if action == "special":
             flash(f"특채 승인 완료 ({approver}) — 성적서 파일은 '출력 대기' 화면에서 선택 출력하면 돼.")
@@ -1585,10 +2247,135 @@ def approve(inspection_id):
                                     approver=approver, reject_reason=reject_reason)
         flash("반려 처리됐어. 검사자가 재입력할 수 있어.")
         record_change("성적서 반려", "inspection", inspection_id, f"반려자 {approver}, 사유: {reject_reason}")
+    elif action == "failed":
+        db.update_inspection_status(inspection_id, "approved", approver=approver,
+                                    approval_type="failed",
+                                    reject_reason=reject_reason)
+        # 불합격도 서명이 남아야 한다 — 부적합 통보서로 협력사에 나가는 결정이라 근거가 필요함
+        db.set_report_files(inspection_id, signature_path=signature_path, pdf_path=None, xlsx_path=None)
+        db.set_inspection_hashes(inspection_id, content_hash=compute_content_hash(inspection_id))
+        flash(f"불합격 확정됐어 ({approver}). 검사자가 부적합 통보서를 작성할 수 있어.")
+        record_change("성적서 불합격 확정", "inspection", inspection_id, f"확정자 {approver}")
     else:
         flash("알 수 없는 액션이야.")
 
     return _back()
+
+
+# ---------- 사용자 기본 서명 저장/확인 ----------
+
+@app.route("/signature/default/save", methods=["POST"])
+@perm_required("approve")
+def signature_default_save():
+    """현재 사용자의 기본(default) 서명 PNG를 저장."""
+    sig_data = request.form.get("signature_data", "").strip()
+    if not sig_data or "," not in sig_data:
+        return {"error": "서명 데이터가 없어."}, 400
+    try:
+        _, b64 = sig_data.split(",", 1)
+        png_bytes = base64.b64decode(b64)
+    except Exception as e:
+        return {"error": f"서명 디코딩 실패: {e}"}, 400
+    user_id = g.user["id"]
+    os.makedirs(SIGNATURE_DIR, exist_ok=True)
+    path = os.path.join(SIGNATURE_DIR, f"user_{user_id}_default.png")
+    try:
+        with open(path, "wb") as f:
+            f.write(png_bytes)
+    except Exception as e:
+        return {"error": f"저장 실패: {e}"}, 500
+    return {"ok": True, "url": f"/static/signatures/user_{user_id}_default.png"}
+
+
+@app.route("/signature/default/check")
+@perm_required("approve")
+def signature_default_check():
+    """현재 사용자의 기본 서명 존재 여부 반환."""
+    user_id = g.user["id"]
+    path = os.path.join(SIGNATURE_DIR, f"user_{user_id}_default.png")
+    if os.path.exists(path):
+        return {"exists": True, "url": f"/static/signatures/user_{user_id}_default.png"}
+    return {"exists": False}
+
+
+# ---------- 일괄 합격 승인 ----------
+
+@app.route("/approve/batch", methods=["POST"])
+@perm_required("approve")
+def approve_batch():
+    """선택된 성적서들을 일괄 합격 승인 (서명 하나로 전부 처리)."""
+    id_strs = request.form.getlist("inspection_ids")
+    if not id_strs:
+        flash("선택된 성적서가 없어.")
+        return redirect(url_for("approve_list", tab="pending"))
+
+    allowed, why = _can_make_final_decision(g.user)
+    if not allowed:
+        flash(why)
+        return redirect(url_for("approve_list", tab="pending"))
+
+    signature_data = request.form.get("signature_data", "").strip()
+    if not signature_data:
+        flash("서명을 먼저 해줘.")
+        return redirect(url_for("approve_list", tab="pending"))
+
+    approver = g.user["display_name"] or g.user["username"]
+    success_ids = []
+    errors = []
+
+    for id_str in id_strs:
+        try:
+            inspection_id = int(id_str)
+        except ValueError:
+            continue
+        header, _items = db.get_inspection(inspection_id)
+        if header is None or header["status"] != "pending":
+            errors.append(f"#{inspection_id}")
+            continue
+        # 단건 승인과 똑같은 규칙을 적용한다 (규격 미입력·미측정 등)
+        if _final_decision_block_reason(inspection_id, "approve"):
+            errors.append(f"#{inspection_id}(판정 근거 미비)")
+            continue
+
+        sig_path, sig_err = _save_signature(inspection_id, signature_data)
+        if sig_err:
+            errors.append(f"#{inspection_id}(서명오류)")
+            continue
+
+        db.update_inspection_status(inspection_id, "approved", approver=approver, approval_type="normal")
+        db.set_report_files(inspection_id, signature_path=sig_path, pdf_path=None, xlsx_path=None)
+        db.set_inspection_hashes(inspection_id, content_hash=compute_content_hash(inspection_id))
+        record_change("성적서 승인(일괄)", "inspection", inspection_id, f"승인자 {approver}")
+        success_ids.append(inspection_id)
+
+    if errors:
+        flash(f"{len(success_ids)}건 합격 승인 완료, {len(errors)}건 건너뜀 ({', '.join(errors)}) — 이미 처리됐거나 대기 상태가 아닌 항목이야.")
+    else:
+        flash(f"{len(success_ids)}건 합격 승인 완료 — 성적서 파일은 '출력 대기'에서 출력해줘.")
+    return redirect(url_for("approve_list", tab="pass"))
+
+
+# ---------- 검사 이력 삭제 ----------
+
+@app.route("/history/delete-selected", methods=["POST"])
+@perm_required("history_delete")
+def history_delete_selected():
+    """선택된 성적서 일괄 삭제 (approve 권한 필요)."""
+    ids_raw = request.form.getlist("inspection_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 성적서를 선택해줘.")
+        return redirect(url_for("history"))
+    for iid in ids:
+        record_change("성적서 삭제", "inspection", iid, f"삭제자: {g.user['display_name'] or g.user['username']}")
+    db.delete_inspections(ids)
+    flash(f"{len(ids)}건 삭제됐어. 입고 항목 상태도 확인해봐.")
+    return redirect(url_for("history"))
 
 
 # ---------- 승인 목록 / 승인 전용 화면 ----------
@@ -1596,9 +2383,78 @@ def approve(inspection_id):
 @app.route("/approve")
 @perm_required("approve")
 def approve_list():
-    """승인 대기 중인 성적서 목록 (pending 상태만)."""
-    pending = db.list_inspections(status="pending")
-    return render_template("approve_list.html", pending=pending)
+    """승인 목록 — 필터/검색 지원."""
+    tab = request.args.get("tab", "pending")
+    q   = request.args.get("q", "").strip()
+
+    if tab == "pending":
+        rows = db.list_inspections(status="pending")
+    elif tab == "pass":
+        rows = [r for r in db.list_inspections(status="approved") if r["approval_type"] == "normal"]
+    elif tab == "failed":
+        rows = [r for r in db.list_inspections(status="approved") if r["approval_type"] == "failed"]
+    elif tab == "special":
+        rows = [r for r in db.list_inspections(status="approved") if r["approval_type"] == "special"]
+    elif tab == "rejected":
+        rows = db.list_inspections(status="rejected")
+    else:
+        rows = db.list_inspections(status="pending")
+
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r["material_no"] or "").lower()
+                or ql in (r["material_name"] or "").lower()
+                or ql in (r["supplier"] or "").lower()
+                or ql in (r["inspector"] or "").lower()]
+
+    counts = {
+        "pending":  len(db.list_inspections(status="pending")),
+        "pass":     sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "normal"),
+        "failed":   sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "failed"),
+        "special":  sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "special"),
+        "rejected": len(db.list_inspections(status="rejected")),
+    }
+    return render_template("approve_list.html", rows=rows, tab=tab, q=q, counts=counts)
+
+
+@app.route("/approve/<int:inspection_id>/revoke", methods=["POST"])
+@perm_required("approve_revoke")
+def approve_revoke(inspection_id):
+    """승인/반려/불합격 결정을 취소하고 대기 상태로 되돌림."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("approve_list"))
+    if header["status"] not in ("approved", "rejected"):
+        flash("대기 중인 성적서는 회수할 수 없어.")
+        return redirect(url_for("approve_list"))
+    # 연결된 부적합 통보서/반품 기록이 있으면 회수 금지 (고아 레코드 방지)
+    linked_ncr = db.list_ncr(inspection_id=inspection_id)
+    linked_return = db.get_return_requests_by_inspection(inspection_id)
+    if linked_ncr or linked_return:
+        parts = []
+        if linked_ncr:
+            parts.append(f"부적합 통보서 {len(linked_ncr)}건")
+        if linked_return:
+            parts.append(f"반품 {len(linked_return)}건")
+        flash(f"이 성적서에 연결된 {', '.join(parts)}이(가) 있어서 회수할 수 없어. 먼저 그 기록들을 처리·삭제해줘.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    conn = db.get_conn()
+    # 서명·무결성 해시도 같이 지운다.
+    #   - 승인이 취소됐는데 승인자 서명이 남아 있으면 안 된다
+    #   - 해시는 '승인 시점의 내용'을 굳힌 값이라, 회수 후 값을 고치면 변조로 오인된다
+    #     (재승인하면 그 시점 기준으로 다시 굳혀진다)
+    conn.execute("""UPDATE inspections
+                       SET status='pending', approval_type='normal', approver=NULL,
+                           approved_at=NULL, reject_reason=NULL,
+                           signature_path=NULL, content_hash=NULL, pdf_hash=NULL
+                     WHERE id=?""", (inspection_id,))
+    conn.commit()
+    conn.close()
+    actor = g.user["display_name"] or g.user["username"]
+    record_change("결정 회수 (대기로 복원)", "inspection", inspection_id, f"회수자: {actor}")
+    flash(f"성적서 #{inspection_id} 결정이 회수됐어. 다시 승인 대기 상태야.")
+    return redirect(url_for("approve_list"))
 
 
 @app.route("/approve/<int:inspection_id>")
@@ -1615,6 +2471,15 @@ def approve_view(inspection_id):
 
     per_cycle_sec = header["actual_time_sec"] or 0
     per_cycle_label = format_duration(per_cycle_sec)
+
+    # 총 측정시간 + AQL 그룹
+    specs_raw, _, _ = _get_specs_for_material(header["material_no"])
+    total_time_label = "-"
+    specs_with_sample_a = build_specs_with_sample(specs_raw, header["quantity"])
+    if specs_with_sample_a and per_cycle_sec:
+        total_time_label = format_duration(compute_total_time_sec(specs_with_sample_a, per_cycle_sec))
+    specs_map_a = {s["item_name"]: s for s in specs_with_sample_a}
+    aql_groups_a = _unique_aql_sample_qty(specs_with_sample_a) if specs_with_sample_a else {}
 
     today = _dt.now().date()
     gauge_alerts = []
@@ -1662,33 +2527,262 @@ def approve_view(inspection_id):
     problem_items = [it for it in all_items if it["result"] == "불합격"]
     pass_items    = [it for it in all_items if it["result"] != "불합격"]
 
+    problem_count = len(problem_items)
+    pass_count    = len(pass_items)
     return render_template("approve_form.html",
                            header=header,
                            problem_items=problem_items,
                            pass_items=pass_items,
                            all_items=all_items,
+                           problem_count=problem_count,
+                           pass_count=pass_count,
                            per_cycle_label=per_cycle_label,
+                           total_time_label=total_time_label,
+                           aql_groups=aql_groups_a,
+                           specs_map=specs_map_a,
                            gauge_alerts=gauge_alerts)
 
 
 # ---------- 검사 이력 ----------
 
 @app.route("/history")
-@login_required
+@perm_required("inspect_history")
 def history():
-    """전체 성적서를 입고일 기준으로 날짜별 그룹화해서 보여줌."""
-    from collections import defaultdict, OrderedDict
+    """전체 성적서를 입고일 기준으로 날짜별 그룹화해서 보여줌.
+
+    입고일이 '260821'처럼 다른 형식으로 들어온 값이 섞여 있어서, 원본 문자열을 그대로
+    그룹 키로 쓰면 같은 날인데 그룹이 갈라진다. 날짜로 해석해서 YYYY-MM-DD 로 묶는다.
+    """
+    from collections import defaultdict
+    NO_DATE = "날짜 없음"
     inspections = db.list_inspections()
+
     by_date = defaultdict(list)
     for insp in inspections:
-        date_key = insp["receive_date"] or "날짜 없음"
-        by_date[date_key].append(insp)
-    sorted_dates = sorted(
-        by_date.keys(),
-        key=lambda d: d if d != "날짜 없음" else "0000",
-        reverse=True,
+        d = _parse_any_date(insp["receive_date"])
+        by_date[d.isoformat() if d else NO_DATE].append(insp)
+
+    sorted_dates = sorted(by_date.keys(),
+                          key=lambda d: d if d != NO_DATE else "0000",
+                          reverse=True)
+    # 헤더에 그대로 쓸 수 있게 '2026-08-21 (금)' 형태의 표시용 라벨도 같이 넘긴다
+    date_labels = {d: (format_date_korean(d) if d != NO_DATE else NO_DATE) for d in sorted_dates}
+    return render_template("history.html", by_date=by_date,
+                           sorted_dates=sorted_dates, date_labels=date_labels)
+
+
+# ---------- 불량 이력 ----------
+
+@app.route("/defects")
+@perm_required("defect_history")
+def defect_history():
+    from datetime import date, timedelta
+    # 완료 archive 기간 필터 (active 항목은 전체 표시)
+    preset = request.args.get("preset", "3m")
+    start  = request.args.get("start", "")
+    end    = request.args.get("end", "")
+    today  = date.today()
+
+    if preset == "1m":
+        start = today.replace(day=1).isoformat()
+        end   = today.isoformat()
+    elif preset == "3m":
+        start = (today - timedelta(days=90)).isoformat()
+        end   = today.isoformat()
+    elif preset == "6m":
+        start = (today - timedelta(days=180)).isoformat()
+        end   = today.isoformat()
+
+    data = db.get_defect_followup(
+        completed_start=start or None,
+        completed_end=end or None,
     )
-    return render_template("history.html", by_date=by_date, sorted_dates=sorted_dates)
+    return render_template("defect_history.html",
+                           data=data,
+                           preset=preset, start=start, end=end)
+
+
+# ---------- 전수검사 기록지 ----------
+
+def _fi_columns_from_specs(material_no):
+    """specs 테이블 → 전수검사 열 정의 (key/header/type/lo/hi) 변환."""
+    specs = db.get_specs_by_material(material_no)
+    cols = []
+    for sp in specs:
+        jtype = sp["judge_type"] if sp["judge_type"] else "ok_ng"
+        if jtype == "numeric":
+            t = "num"
+        elif jtype == "numeric_pair":
+            t = "num_pair"
+        else:
+            t = "pf"
+        cols.append({
+            "key": sp["item_name"],
+            "header": sp["spec_display"] or sp["item_name"],
+            "type": t,
+            "lo": sp["lower_limit"] if t in ("num", "num_pair") else None,
+            "hi": sp["upper_limit"] if t in ("num", "num_pair") else None,
+        })
+    return cols
+
+
+@app.route("/inspection/<int:inspection_id>/full-inspect", methods=["GET"])
+@perm_required("inspect_input")
+def full_inspect_form(inspection_id):
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("home"))
+    config = db.get_full_inspect_config(header["material_no"])
+    if not config:
+        flash("이 자재는 전수검사 설정이 없어. 자재 상세에서 먼저 활성화해줘.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    columns = _fi_columns_from_specs(header["material_no"])
+    fi = db.get_or_create_full_inspection(inspection_id)
+    units = db.list_full_inspection_units(inspection_id)
+    qty = int(header["quantity"] or 0)
+    unit_map = {u["unit_no"]: u for u in units}
+    rows = []
+    for i in range(1, qty + 1):
+        rows.append(unit_map.get(i, {
+            "unit_no": i, "serial_no": "", "values": {}, "result": "", "remark": "", "gauge_name": ""}))
+    tmpl = "full_inspect_housing.html" if config.get("template") == "housing" \
+        else "full_inspect_form.html"
+    return render_template(tmpl,
+                           header=dict(header), fi=fi, rows=rows,
+                           columns=columns, config=config, qty=qty)
+
+
+@app.route("/inspection/<int:inspection_id>/full-inspect/save", methods=["POST"])
+@perm_required("inspect_input")
+def full_inspect_save(inspection_id):
+    """자동저장 + 수동저장 공용. JSON으로 units 배열을 받는다."""
+    from flask import jsonify
+    if g.user is None:
+        return jsonify({"ok": False, "expired": True}), 401
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        return jsonify({"ok": False, "error": "성적서 없음"}), 404
+    config = db.get_full_inspect_config(header["material_no"])
+    if not config:
+        return jsonify({"ok": False, "error": "전수검사 설정 없음"}), 400
+
+    columns = _fi_columns_from_specs(header["material_no"])
+    col_keys = [c["key"] for c in columns]
+
+    payload = request.get_json(silent=True) or {}
+    inspect_date = payload.get("inspect_date", "")
+    units_raw = payload.get("units", [])
+
+    def _auto_result(unit_vals):
+        has_any = any(str(v).strip() for v in unit_vals.values())
+        if not has_any:
+            return ""
+        for col in columns:
+            key = col["key"]
+            val = str(unit_vals.get(key, "")).strip()
+            if not val:
+                continue
+            if col["type"] == "pf":
+                if val.upper() in ("NG", "X", "×", "△", "불합격", "FAIL"):
+                    return "NG"
+            elif col["type"] == "num":
+                try:
+                    v = float(val.replace(",", ""))
+                    if col.get("lo") is not None and v < float(col["lo"]):
+                        return "NG"
+                    if col.get("hi") is not None and v > float(col["hi"]):
+                        return "NG"
+                except (ValueError, TypeError):
+                    pass
+            elif col["type"] == "num_pair":
+                # "ct/rod" 또는 "ct/rod,..." — 두 채널 모두 범위 안이어야 OK
+                for part in val.replace(",", "/").split("/"):
+                    p = part.strip()
+                    if not p:
+                        continue
+                    try:
+                        v = float(p)
+                        if col.get("lo") is not None and v < float(col["lo"]):
+                            return "NG"
+                        if col.get("hi") is not None and v > float(col["hi"]):
+                            return "NG"
+                    except (ValueError, TypeError):
+                        pass
+        return "OK"
+
+    units_to_save = []
+    for u in units_raw:
+        vals = {k: str(u.get(k, "")).strip() for k in col_keys}
+        result = _auto_result(vals)
+        units_to_save.append({
+            "unit_no": int(u.get("unit_no", 0)),
+            "serial_no": str(u.get("serial_no", "")).strip(),
+            "values": vals,
+            "result": result,
+            "remark": str(u.get("remark", "")).strip(),
+        })
+
+    db.get_or_create_full_inspection(inspection_id)
+    db.update_full_inspection(inspection_id, inspect_date=inspect_date or None)
+    db.save_full_inspection_units(inspection_id, units_to_save)
+    ok_cnt = sum(1 for u in units_to_save if u["result"] == "OK")
+    ng_cnt = sum(1 for u in units_to_save if u["result"] == "NG")
+    return jsonify({"ok": True, "ok_cnt": ok_cnt, "ng_cnt": ng_cnt})
+
+
+@app.route("/inspection/<int:inspection_id>/full-inspect/complete", methods=["POST"])
+@perm_required("inspect_input")
+def full_inspect_complete(inspection_id):
+    """완료 버튼 — 현재 시각을 완료날짜로 저장."""
+    from datetime import datetime as _dt2
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("home"))
+    db.get_or_create_full_inspection(inspection_id)
+    db.update_full_inspection(inspection_id,
+                              complete_date=_dt2.now().strftime("%Y-%m-%d"),
+                              status="complete")
+    record_change("전수검사 완료", "full_inspection", inspection_id, header["material_no"])
+    flash("전수검사 기록이 완료 처리됐어.")
+    return redirect(url_for("full_inspect_form", inspection_id=inspection_id))
+
+
+@app.route("/inspection/<int:inspection_id>/full-inspect/pdf")
+@perm_required("output")
+def full_inspect_pdf(inspection_id):
+    """전수검사 기록지 PDF 미리보기/다운로드."""
+    import tempfile
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("home"))
+    config = db.get_full_inspect_config(header["material_no"])
+    if not config:
+        flash("전수검사 설정이 없어.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    fi = db.get_full_inspection(inspection_id)
+    if fi is None:
+        flash("전수검사 기록이 없어. 먼저 입력해줘.")
+        return redirect(url_for("full_inspect_form", inspection_id=inspection_id))
+    columns = _fi_columns_from_specs(header["material_no"])
+    units = db.list_full_inspection_units(inspection_id)
+    fi_header_data = dict(fi)
+    hd = dict(header)
+    insp_hdr = {
+        "material_name": hd.get("material_name", ""),
+        "quantity": hd.get("quantity", 0),
+        "intake_date": hd.get("intake_date", ""),
+        "inspector": hd.get("inspector", ""),
+    }
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp.close()
+    from custom_report import build_full_inspection_sheet
+    build_full_inspection_sheet(fi_header_data, units, columns, config, insp_hdr, tmp.name)
+    fname = f"전수검사_{hd.get('material_no','')}_{hd.get('intake_date','')}.pdf"
+    return send_file(tmp.name, as_attachment=False,
+                     download_name=fname, mimetype="application/pdf")
 
 
 # ---------- 성적서 출력 (승인된 것 중 선택/전체) ----------
@@ -1712,6 +2806,13 @@ def output_generate():
         flash("출력할 성적서를 선택해줘.")
         return redirect(url_for("output_list"))
 
+    incl_drawing  = request.form.get("incl_drawing")  == "1"
+    incl_standard = request.form.get("incl_standard") == "1"
+    incl_report   = request.form.get("incl_report")   == "1"
+    # 전체 출력 버튼은 form에 체크박스 값을 포함하지 않으므로 기본값 True 처리
+    if request.form.get("select_all") == "1":
+        incl_drawing = incl_standard = incl_report = True
+
     results = []  # {"id","material_no","pdf_path","error"}
     for insp_id in target_ids:
         header, _ = db.get_inspection(insp_id)
@@ -1720,11 +2821,89 @@ def output_generate():
                             "error": "승인된 성적서가 아니야(다시 확인해줘)."})
             continue
 
-        xlsx_path, pdf_path, error_msg = _generate_report_files(
+        xlsx_path, pdf_path, error_msg, is_custom = _generate_report_files(
             insp_id, header["approver"], header["signature_path"]
         )
+
+        # 도면 포함 여부에 따라 PDF 병합
+        if pdf_path and not error_msg:
+            drawing_pdf = find_drawing_pdf(header["material_no"])
+
+            def _do_merge(src, drw, incl_d, incl_s, incl_r):
+                """병합 후 결과를 src(원본 PDF)에 덮어씌워 잔재 파일 없애기. 반환: (최종 경로, 에러)"""
+                tmp = os.path.splitext(src)[0] + "_merged.pdf"
+                result, err = report_builder.merge_report_with_drawing(
+                    src, drw, tmp,
+                    incl_drawing=incl_d, incl_standard=incl_s, incl_report=incl_r,
+                )
+                if err:
+                    return src, err
+                try:
+                    os.replace(result, src)   # tmp → src 덮어쓰기, tmp 자동 삭제
+                except Exception:
+                    return result, None       # 덮어쓰기 실패 시 _merged.pdf 그대로
+                return src, None
+
+            if is_custom:
+                # 커스텀 성적서는 기준서 페이지가 없음 → 성적서/기준서 토글은 무시하고
+                # 도면만 옵션으로 앞에 붙인다.
+                if incl_drawing and drawing_pdf:
+                    pdf_path, merge_err = _do_merge(
+                        pdf_path, drawing_pdf, True, False, True)
+                    if merge_err:
+                        error_msg = merge_err
+            else:
+                needs_merge = (incl_drawing and drawing_pdf) or not incl_standard or not incl_report
+                all_included = incl_drawing and incl_standard and incl_report
+                if needs_merge and not all_included:
+                    pdf_path, merge_err = _do_merge(
+                        pdf_path, drawing_pdf, incl_drawing, incl_standard, incl_report)
+                    if merge_err:
+                        error_msg = merge_err
+                elif incl_drawing and drawing_pdf:
+                    pdf_path, merge_err = _do_merge(
+                        pdf_path, drawing_pdf, True, True, True)
+                    if merge_err:
+                        error_msg = merge_err
+
+        # 전수검사 기록지 — 완료된 전수검사가 있으면 성적서 뒤에 붙인다
+        if pdf_path and not error_msg:
+            fi_config = db.get_full_inspect_config(header["material_no"])
+            fi = db.get_full_inspection(insp_id) if fi_config else None
+            if fi and fi.get("status") == "complete":
+                try:
+                    import tempfile as _tf
+                    from custom_report import build_full_inspection_sheet
+                    fi_units = db.list_full_inspection_units(insp_id)
+                    hd2 = dict(header)
+                    insp_hdr_data = {
+                        "material_name": hd2.get("material_name", ""),
+                        "quantity": hd2.get("quantity", 0),
+                        "intake_date": hd2.get("intake_date", ""),
+                        "inspector": hd2.get("inspector", ""),
+                    }
+                    fi_cols = _fi_columns_from_specs(header["material_no"])
+                    fi_tmp = _tf.NamedTemporaryFile(delete=False, suffix="_fi.pdf")
+                    fi_tmp.close()
+                    build_full_inspection_sheet(dict(fi), fi_units, fi_cols,
+                                                fi_config, insp_hdr_data, fi_tmp.name)
+                    # 성적서 PDF + 전수검사 PDF 병합
+                    merged_tmp = os.path.splitext(pdf_path)[0] + "_with_fi.pdf"
+                    _, merge_fi_err = report_builder.append_pdf(
+                        pdf_path, fi_tmp.name, merged_tmp)
+                    if not merge_fi_err and os.path.exists(merged_tmp):
+                        os.replace(merged_tmp, pdf_path)
+                    try:
+                        os.unlink(fi_tmp.name)
+                    except Exception:
+                        pass
+                except Exception as fi_ex:
+                    error_msg = (error_msg or "") + f" (전수검사 병합 실패: {fi_ex})"
+
         db.set_report_files(insp_id, signature_path=header["signature_path"],
                             pdf_path=pdf_path, xlsx_path=xlsx_path)
+        # 발행된 PDF 파일 자체의 해시 — 나중에 파일이 덮어써졌는지 확인용
+        db.set_inspection_hashes(insp_id, pdf_hash=compute_file_hash(pdf_path))
         results.append({
             "id": insp_id, "material_no": header["material_no"],
             "pdf_path": pdf_path, "error": error_msg,
@@ -1737,10 +2916,292 @@ def output_generate():
     return render_template("output_result.html", results=results)
 
 
+# ---------- 커스텀(자유양식) 성적서 템플릿 ----------
+
+# 디자이너에서 끌어다 쓰는 데이터 필드 → 성적서 헤더에서 값을 뽑는 규칙
+CUSTOM_FIELD_KEYS = ["자재번호", "제품명", "업체명", "검사일", "검사자",
+                     "발주번호", "도면번호", "입고수량", "종합판정"]
+
+
+def _custom_fields_from_header(header):
+    """성적서 헤더(dict/Row)에서 디자이너 데이터 필드 값들을 뽑는다."""
+    def g(k):
+        try:
+            return header[k]
+        except (KeyError, IndexError, TypeError):
+            return None
+    qty = g("quantity")
+    overall = db._lot_state(g("status"), g("approval_type"))
+    if overall in ("미결", "대체됨"):
+        overall = ""    # 발행 시점엔 판정이 확정돼 있어야 정상
+    return {
+        "자재번호": g("material_no") or "",
+        "제품명":   g("material_name") or "",
+        "업체명":   g("supplier") or "",
+        "검사일":   g("inspect_date") or "",
+        "검사자":   g("inspector") or "",
+        "발주번호": g("po_number") or "",
+        "도면번호": report_builder.compute_drawing_no(g("material_no") or ""),
+        "입고수량": f"{qty:,}" if isinstance(qty, int) else (str(qty) if qty is not None else ""),
+        "종합판정": overall,
+    }
+
+
+def _custom_items_from_inspection(items):
+    """검사 항목들을 커스텀 표에 넣을 행 형식으로 변환."""
+    rows = []
+    for it in (items or []):
+        rows.append({
+            "label":   report_builder.item_label(it["item_name"], it["aql"]),
+            "spec":    it["spec_display"] or "",
+            "method":  it["inspect_method"] or "",
+            "value":   it["measured_value"] or "",
+            "verdict": it["result"] or "",
+        })
+    return rows
+
+
+@app.route("/custom-templates")
+@perm_required("custom_template")
+def custom_template_list():
+    templates = db.list_custom_templates()
+    return render_template("custom_template_list.html", templates=templates)
+
+
+@app.route("/custom-templates/create", methods=["POST"])
+@perm_required("custom_template")
+def custom_template_create():
+    name = (request.form.get("name") or "새 성적서 양식").strip()
+    tid = db.create_custom_template(name=name, created_by=g.user["username"])
+    record_change("커스텀 양식 생성", "custom_template", tid, name)
+    return redirect(url_for("custom_template_edit", template_id=tid))
+
+
+@app.route("/custom-templates/<int:template_id>")
+@perm_required("custom_template")
+def custom_template_edit(template_id):
+    tmpl = db.get_custom_template(template_id)
+    if tmpl is None:
+        flash("양식을 찾을 수 없어.")
+        return redirect(url_for("custom_template_list"))
+    return render_template("custom_template_edit.html",
+                           tmpl=tmpl, field_keys=CUSTOM_FIELD_KEYS)
+
+
+@app.route("/custom-templates/<int:template_id>/save", methods=["POST"])
+@perm_required("custom_template")
+def custom_template_save(template_id):
+    from flask import jsonify
+    tmpl = db.get_custom_template(template_id)
+    if tmpl is None:
+        return jsonify({"ok": False, "error": "양식을 찾을 수 없어."}), 404
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or tmpl["name"]).strip() or "제목 없음"
+    layout = payload.get("layout")
+    import json as _json
+    layout_json = _json.dumps(layout, ensure_ascii=False) if layout is not None else None
+    db.update_custom_template(
+        template_id, name=name, layout_json=layout_json,
+        canvas_w=payload.get("canvas_w"), canvas_h=payload.get("canvas_h"),
+        orientation=payload.get("orientation"),
+    )
+    record_change("커스텀 양식 저장", "custom_template", template_id, name)
+    return jsonify({"ok": True})
+
+
+@app.route("/custom-templates/<int:template_id>/delete", methods=["POST"])
+@perm_required("custom_template")
+def custom_template_delete(template_id):
+    tmpl = db.get_custom_template(template_id)
+    if tmpl:
+        db.delete_custom_template(template_id)
+        record_change("커스텀 양식 삭제", "custom_template", template_id, tmpl["name"])
+        flash(f"'{tmpl['name']}' 양식을 삭제했어.")
+    return redirect(url_for("custom_template_list"))
+
+
+@app.route("/custom-templates/<int:template_id>/assign", methods=["GET", "POST"])
+@perm_required("custom_template")
+def custom_template_assign(template_id):
+    tmpl = db.get_custom_template(template_id)
+    if tmpl is None:
+        flash("양식을 찾을 수 없어.")
+        return redirect(url_for("custom_template_list"))
+
+    if request.method == "POST":
+        chosen = set(request.form.getlist("material_no"))
+        # 화면에 실제로 표시됐던 자재만 대상으로 처리(검색 필터로 안 보인 자재는 건드리지 않음)
+        shown = set(request.form.getlist("shown"))
+        current = {m["material_no"] for m in db.materials_for_template(template_id)}
+        # 이 화면에서 체크 해제된(=현재 이 양식이지만 이번에 안 고른) 자재 → 기본 양식
+        for mno in (current & shown) - chosen:
+            db.set_material_template(mno, None)
+        # 새로 고른 자재 → 이 양식(다른 양식에 물려 있었어도 이쪽으로 이동)
+        for mno in chosen - current:
+            db.set_material_template(mno, template_id)
+        record_change("커스텀 양식 지정", "custom_template", template_id,
+                      f"{len(chosen)}개 자재")
+        flash(f"'{tmpl['name']}' 양식 지정을 저장했어(선택 {len(chosen)}개).")
+        return redirect(url_for("custom_template_assign", template_id=template_id))
+
+    q = (request.args.get("q") or "").strip()
+    materials = db.get_materials()
+    if q:
+        materials = [m for m in materials
+                     if q.lower() in (m["material_no"] or "").lower()
+                     or q.lower() in (m["material_name"] or "").lower()]
+    # 다른 템플릿에 이미 물린 자재는 표시(중복 지정 방지 안내용)
+    other_names = {t["id"]: t["name"] for t in db.list_custom_templates()}
+    return render_template("custom_template_assign.html",
+                           tmpl=tmpl, materials=materials, q=q,
+                           other_names=other_names, this_id=template_id)
+
+
+@app.route("/custom-templates/<int:template_id>/preview.pdf")
+@perm_required("custom_template")
+def custom_template_preview(template_id):
+    import custom_report
+    tmpl = db.get_custom_template(template_id)
+    if tmpl is None:
+        flash("양식을 찾을 수 없어.")
+        return redirect(url_for("custom_template_list"))
+
+    # 미리보기 데이터: 이 양식이 지정된 자재의 최신 승인 성적서가 있으면 그걸로, 없으면 샘플값
+    data = _custom_preview_data(template_id)
+    # 미리보기는 실제 발행폴더가 아니라 임시폴더에 만든다(성적서 발행 폴더 오염 방지)
+    import tempfile
+    tmp_pdf = os.path.join(tempfile.gettempdir(), f"iqc_preview_custom_{template_id}.pdf")
+    path, err = custom_report.build_custom_report(tmpl, data, tmp_pdf)
+    if err or not path:
+        flash(f"미리보기 생성 실패: {err or '알 수 없는 오류'}")
+        return redirect(url_for("custom_template_edit", template_id=template_id))
+    return send_file(path, mimetype="application/pdf")
+
+
+def _custom_preview_data(template_id):
+    """미리보기용 데이터 — 지정 자재의 최신 승인건이 있으면 실제값, 없으면 샘플."""
+    from datetime import date
+    for m in db.materials_for_template(template_id):
+        insp = db.latest_inspection_for_material(m["material_no"]) \
+            if hasattr(db, "latest_inspection_for_material") else None
+        if insp:
+            header, items = db.get_inspection(insp["id"])
+            if header:
+                return {
+                    "fields": _custom_fields_from_header(header),
+                    "items": _custom_items_from_inspection(items),
+                    "signature_path": header["signature_path"],
+                    "logo_path": report_builder.LOGO_PATH,
+                }
+    # 샘플 데이터
+    return {
+        "fields": {
+            "자재번호": "600005P086", "제품명": "둥근머리 볼트(M416L,STS304)",
+            "업체명": "ACE", "검사일": date.today().isoformat(), "검사자": "홍길동",
+            "발주번호": "PO-260823-01", "도면번호": "A600005-086", "입고수량": "2,000",
+        },
+        "items": [
+            {"label": "*A", "spec": "Ø9.0 ±0.1", "method": "캘리퍼", "value": "9.02", "verdict": "합격"},
+            {"label": "B", "spec": "16 +0.2", "method": "캘리퍼", "value": "16.1", "verdict": "합격"},
+            {"label": "C", "spec": "백색 아연도금 5㎛ 이상", "method": "육안", "value": "양호", "verdict": "합격"},
+        ],
+        "signature_path": None,
+        "logo_path": report_builder.LOGO_PATH,
+    }
+
+
+# ---------- 출력 기록 ----------
+
+@app.route("/output/history")
+@perm_required("output")
+def output_history():
+    q = request.args.get("q", "").strip()
+    rows = db.list_output_history(q)
+    return render_template("output_history.html", rows=rows, q=q)
+
+
+@app.route("/output/history/<int:inspection_id>")
+@perm_required("output")
+def output_history_detail(inspection_id):
+    header, items = db.get_inspection(inspection_id)
+    if header is None or header["pdf_path"] is None:
+        flash("출력된 적 없는 성적서야.")
+        return redirect(url_for("output_history"))
+    drawing_pdf = find_drawing_pdf(header["material_no"])
+    return render_template("output_history_detail.html",
+                           header=header, items=items,
+                           has_drawing=bool(drawing_pdf))
+
+
+@app.route("/output/regenerate/<int:inspection_id>", methods=["POST"])
+@perm_required("output")
+def output_regenerate(inspection_id):
+    """출력 기록에서 특정 성적서를 다시 생성."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None or header["status"] != "approved":
+        flash("승인된 성적서가 아니야.")
+        return redirect(url_for("output_history"))
+
+    incl_drawing  = request.form.get("incl_drawing")  == "1"
+    incl_standard = request.form.get("incl_standard") == "1"
+    incl_report   = request.form.get("incl_report")   == "1"
+
+    xlsx_path, pdf_path, error_msg, is_custom = _generate_report_files(
+        inspection_id, header["approver"], header["signature_path"]
+    )
+
+    if pdf_path and not error_msg:
+        drawing_pdf = find_drawing_pdf(header["material_no"])
+
+        def _do_merge_r(src, drw, incl_d, incl_s, incl_r):
+            tmp = os.path.splitext(src)[0] + "_merged.pdf"
+            result, err = report_builder.merge_report_with_drawing(
+                src, drw, tmp, incl_drawing=incl_d, incl_standard=incl_s, incl_report=incl_r)
+            if err:
+                return src, err
+            try:
+                os.replace(result, src)
+            except Exception:
+                return result, None
+            return src, None
+
+        if is_custom:
+            # 커스텀 성적서는 기준서 페이지가 없음 → 도면만 옵션으로 앞에 붙인다.
+            if incl_drawing and drawing_pdf:
+                pdf_path, merge_err = _do_merge_r(pdf_path, drawing_pdf, True, False, True)
+                if merge_err:
+                    error_msg = merge_err
+        else:
+            needs_merge = (incl_drawing and drawing_pdf) or not incl_standard or not incl_report
+            all_included = incl_drawing and incl_standard and incl_report
+            if needs_merge and not all_included:
+                pdf_path, merge_err = _do_merge_r(
+                    pdf_path, drawing_pdf, incl_drawing, incl_standard, incl_report)
+                if merge_err:
+                    error_msg = merge_err
+            elif incl_drawing and drawing_pdf:
+                pdf_path, merge_err = _do_merge_r(pdf_path, drawing_pdf, True, True, True)
+                if merge_err:
+                    error_msg = merge_err
+
+    db.set_report_files(inspection_id, signature_path=header["signature_path"],
+                        pdf_path=pdf_path, xlsx_path=None)
+    # 재출력해도 판정 내용은 안 바뀌므로 content_hash는 그대로 두고 pdf_hash만 갱신
+    db.set_inspection_hashes(inspection_id, pdf_hash=compute_file_hash(pdf_path))
+
+    if error_msg:
+        flash(f"재출력 중 오류: {error_msg}")
+    else:
+        flash(f"재출력 완료 — {pdf_path}")
+    record_change("성적서 재출력", "inspection", inspection_id,
+                  f"승인자 {header['approver'] or '-'}")
+    return redirect(url_for("output_history_detail", inspection_id=inspection_id))
+
+
 # ---------- 반려 후 재검사 입력 ----------
 
 @app.route("/inspection/<int:inspection_id>/reinspect")
-@perm_required("inspect")
+@perm_required("inspect_input")
 def reinspect(inspection_id):
     """반려된 성적서를 기반으로 재검사 폼을 열어줌 — 이전 측정값 prefill"""
     header, items = db.get_inspection(inspection_id)
@@ -1758,10 +3219,7 @@ def reinspect(inspection_id):
 
     material_no = header["material_no"]
     specs, is_group, group_name = _get_specs_for_material(material_no)
-    specs_with_sample = [
-        {**dict(s), "sample_qty": sample_size(s["aql"], intake_row["quantity"])}
-        for s in specs
-    ]
+    specs_with_sample = build_specs_with_sample(specs, intake_row["quantity"])
 
     # 이전 측정값을 prefill dict에 담기 — 그룹 검사는 (부품자재, 항목명)으로 정확히 매칭
     prefill = {
@@ -1778,15 +3236,18 @@ def reinspect(inspection_id):
         for i, v in enumerate(vals, start=1):
             prefill[f"item_{s['id']}_{i}"] = v.strip()
         prefill[f"item_{s['id']}_gauge_expiry"] = it["gauge_expiry"] or ""
+        prefill[f"item_{s['id']}_gauge_name"] = it["gauge_name"] or ""
 
+    prior_defect_count = db.get_defect_count_for(intake_row["supplier"], header["material_no"])
     return render_template("inspect_form.html",
                            intake=intake_row, specs=specs_with_sample,
                            prefill=prefill, reinspect_from=inspection_id,
-                           is_group=is_group, group_name=group_name)
+                           is_group=is_group, group_name=group_name,
+                           prior_defect_count=prior_defect_count)
 
 
 @app.route("/inspection/<int:inspection_id>/reinspect", methods=["POST"])
-@perm_required("inspect")
+@perm_required("inspect_input")
 def reinspect_submit(inspection_id):
     """재검사 결과 저장 — 기존 반려 건은 superseded 처리"""
     old_header, _ = db.get_inspection(inspection_id)
@@ -1836,6 +3297,7 @@ def reinspect_submit(inspection_id):
         if result != "합격":
             overall_ok = False
         gauge_expiry = request.form.get(f"item_{spec['id']}_gauge_expiry", "").strip() or None
+        gauge_name = request.form.get(f"item_{spec['id']}_gauge_name", "").strip() or None
         items_with_results.append({
             "item_name": spec["item_name"],
             "measured_value": raw_value,
@@ -1843,6 +3305,7 @@ def reinspect_submit(inspection_id):
             "min_value": min_v,
             "result": result,
             "gauge_expiry": gauge_expiry,
+            "gauge_name": gauge_name,
             "part_material_no": spec["material_no"],
         })
 
@@ -1850,12 +3313,15 @@ def reinspect_submit(inspection_id):
     actual_time_sec = request.form.get("actual_time_sec", "").strip()
     actual_time_sec = int(actual_time_sec) if actual_time_sec.isdigit() else 0
     est_time_label = format_duration(actual_time_sec)
+    specs_with_sample_r = build_specs_with_sample(specs, intake_row["quantity"])
+    total_time_sec = compute_total_time_sec(specs_with_sample_r, actual_time_sec) if actual_time_sec else 0
     # 반려된 이전 건을 superseded로 표시하고 intake를 다시 대기로 돌림
     db.update_inspection_status(inspection_id, "superseded")
     db.set_intake_status(intake_id, "대기")
     new_id = db.create_inspection(header, items_with_results, overall_result,
                                    intake_id=intake_id, est_time_label=est_time_label,
                                    actual_time_sec=actual_time_sec,
+                                   total_time_sec=total_time_sec,
                                    created_by_user_id=g.user["id"])
     flash("재검사 성적서가 생성됐어. 다시 승인을 요청해줘.")
     record_change("재검사 성적서 등록", "inspection", new_id,
@@ -1863,7 +3329,928 @@ def reinspect_submit(inspection_id):
     return redirect(url_for("inspection_detail", inspection_id=new_id))
 
 
+# =========================================================================
+# 자재별 검사 이력 추적
+# =========================================================================
+
+@app.route("/material/<material_no>/history")
+@perm_required("inspect_history")
+def material_history(material_no):
+    inspections, items_by_inspection = db.get_material_inspection_history(material_no)
+    if not inspections:
+        flash(f"{material_no}의 검사 이력이 없어.")
+        return redirect(url_for("spec_detail", material_no=material_no))
+
+    # 항목명 목록 (순서 유지, 중복 제거)
+    item_names = []
+    seen = set()
+    for insp in inspections:
+        for it in items_by_inspection.get(insp["id"], []):
+            if it["item_name"] not in seen:
+                item_names.append(it["item_name"])
+                seen.add(it["item_name"])
+
+    # 인스펙션별 항목 딕셔너리로 변환 {item_name: row}
+    items_dict = {}
+    for insp_id, rows in items_by_inspection.items():
+        items_dict[insp_id] = {r["item_name"]: r for r in rows}
+
+    material = db.get_material(material_no)
+    return render_template("material_history.html",
+                           material_no=material_no,
+                           material=material,
+                           inspections=inspections,
+                           item_names=item_names,
+                           items_dict=items_dict)
+
+
+# =========================================================================
+# 계측기 마스터 관리
+# =========================================================================
+
+@app.route("/gauges")
+@perm_required("gauge")
+def gauge_list():
+    from datetime import date, timedelta
+    import math
+    today_dt = date.today()
+    today = today_dt.isoformat()
+    d15 = (today_dt + timedelta(days=15)).isoformat()
+    d30 = (today_dt + timedelta(days=30)).isoformat()
+    raw = db.list_gauges()
+    gauges = []
+    for row in raw:
+        g = dict(row)
+        if g.get("expiry_date"):
+            try:
+                exp = date.fromisoformat(g["expiry_date"])
+                g["days_left"] = (exp - today_dt).days
+            except ValueError:
+                g["days_left"] = None
+        else:
+            g["days_left"] = None
+        gauges.append(g)
+    return render_template("gauge_master.html", gauges=gauges, today=today, d15=d15, d30=d30)
+
+@app.route("/gauges/save", methods=["POST"])
+@perm_required("gauge")
+def gauge_save():
+    gauge_id = request.form.get("gauge_id") or None
+    if gauge_id:
+        gauge_id = int(gauge_id)
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("계측기명을 입력해줘.")
+        return redirect(url_for("gauge_list"))
+    db.upsert_gauge(
+        gauge_id=gauge_id,
+        gauge_no=request.form.get("gauge_no", "").strip(),
+        name=name,
+        model=request.form.get("model", "").strip(),
+        location=request.form.get("location", "").strip(),
+        last_calibrated=request.form.get("last_calibrated", "").strip() or None,
+        expiry_date=request.form.get("expiry_date", "").strip() or None,
+        notes=request.form.get("notes", "").strip(),
+    )
+    action = "수정" if gauge_id else "등록"
+    record_change(f"계측기 {action}", "gauge", gauge_id, name)
+    flash(f"계측기 '{name}' {action}됐어.")
+    return redirect(url_for("gauge_list"))
+
+@app.route("/gauges/<int:gauge_id>/delete", methods=["POST"])
+@perm_required("gauge")
+def gauge_delete(gauge_id):
+    g_row = db.get_gauge(gauge_id)
+    db.delete_gauge(gauge_id)
+    record_change("계측기 삭제", "gauge", gauge_id, g_row["name"] if g_row else "")
+    flash("계측기가 삭제됐어.")
+    return redirect(url_for("gauge_list"))
+
+
+# =========================================================================
+# 업체 정보 관리
+# =========================================================================
+
+@app.route("/suppliers", methods=["GET", "POST"])
+@perm_required("supplier")
+def supplier_list():
+    if request.method == "POST":
+        action = request.form.get("action")
+        name = request.form.get("name", "").strip()
+        if action == "delete" and name:
+            db.delete_supplier(name)
+            record_change("업체 삭제", "supplier", name, name)
+            flash(f"업체 '{name}' 삭제됐어.")
+        elif name:
+            db.upsert_supplier(name,
+                request.form.get("email", "").strip(),
+                request.form.get("contact", "").strip(),
+                request.form.get("notes", "").strip())
+            record_change("업체 등록/수정", "supplier", name, name)
+            flash(f"업체 '{name}' 저장됐어.")
+        return redirect(url_for("supplier_list"))
+    suppliers = db.list_suppliers()
+    return render_template("suppliers.html", suppliers=suppliers)
+
+
+# =========================================================================
+# 부적합 통보서 (NCR)
+# =========================================================================
+
+NCR_PHOTO_DIR = os.path.join(os.path.dirname(__file__), "static", "ncr_photos")
+os.makedirs(NCR_PHOTO_DIR, exist_ok=True)
+
+
+@app.route("/ncr/new/<int:inspection_id>", methods=["GET", "POST"])
+@perm_required("ncr", "approve")
+def ncr_new(inspection_id):
+    header, items = db.get_inspection(inspection_id)
+    if header is None:
+        flash("성적서를 찾을 수 없어.")
+        return redirect(url_for("home"))
+
+    # 관리자가 '불합격 확정'을 누른 성적서에서만 부적합 통보서를 작성할 수 있어
+    if not (header["status"] == "approved" and header["approval_type"] == "failed"):
+        flash("불합격 확정된 성적서만 부적합 통보서를 작성할 수 있어. 먼저 관리자가 '불합격 확정'을 눌러야 해.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    if request.method == "POST":
+        ncr_id, ncr_no = db.create_ncr(
+            inspection_id=inspection_id,
+            material_no=header["material_no"],
+            material_name=header["material_name"],
+            supplier=header["supplier"],
+            defect_description=request.form.get("defect_description", "").strip(),
+            action_required=request.form.get("action_required", "").strip(),
+            due_date=request.form.get("due_date", "").strip(),
+            issued_by=g.user["display_name"] or g.user["username"],
+            issued_date=request.form.get("issued_date", "").strip(),
+        )
+        record_change("부적합 통보서 발행", "ncr", ncr_id,
+                      f"{ncr_no} — {header['material_no']} / {header['supplier']}")
+        flash(f"부적합 통보서 {ncr_no} 발행됐어.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    from datetime import date
+    # 부적합 통보서에는 '협력사 귀책'인 항목만 올린다.
+    # 규격미입력은 우리 쪽 데이터 누락이므로 업체에 보내는 통보서에 넣으면 안 됨.
+    defect_items = [it for it in items
+                    if it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT)]
+    supplier_info = db.get_supplier(header["supplier"] or "")
+    return render_template("ncr_form.html", header=header, items=defect_items,
+                           today=date.today().isoformat(), supplier_info=supplier_info)
+
+
+@app.route("/ncr")
+@perm_required("ncr", "ncr_confirm")
+def ncr_list():
+    from datetime import date
+    status_filter = request.args.get("status", "")
+    ncrs = db.list_ncr()
+    if status_filter:
+        ncrs = [n for n in ncrs if n["status"] == status_filter]
+    return render_template("ncr_list.html", ncrs=ncrs, status_filter=status_filter,
+                           today=date.today().isoformat())
+
+
+@app.route("/ncr/<int:ncr_id>")
+@perm_required("ncr", "ncr_confirm")
+def ncr_detail(ncr_id):
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("home"))
+    import json
+    photos = json.loads(ncr["photos"] or "[]")
+    supplier_info = db.get_supplier(ncr["supplier"] or "")
+
+    # 확인·발송은 최종결정권자만 — 화면에서도 미리 알려준다
+    can_confirm, block_reason = _can_make_final_decision(g.user, "부적합 통보서 확인")
+
+    # 저장된 승인 서명을 문서에 띄우기 위한 URL (static/ 하위 상대경로로 변환)
+    confirm_signature_url = None
+    sig_path = ncr["confirm_signature"] if "confirm_signature" in ncr.keys() else None
+    if sig_path and os.path.exists(sig_path):
+        confirm_signature_url = "/static/signatures/" + os.path.basename(sig_path)
+
+    return render_template("ncr_detail.html", ncr=ncr, photos=photos,
+                           supplier_info=supplier_info,
+                           can_confirm=can_confirm,
+                           confirm_block_reason=block_reason or "",
+                           confirm_signature_url=confirm_signature_url)
+
+
+@app.route("/ncr/<int:ncr_id>/confirm", methods=["POST"])
+@perm_required("ncr_confirm")
+def ncr_confirm(ncr_id):
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("ncr_list"))
+    if ncr["status"] != "draft":
+        flash("이미 확인 완료된 통보서야.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    # 협력사로 나가는 문서이므로 최종결정권자의 승인 서명이 반드시 있어야 한다
+    allowed, why = _can_make_final_decision(g.user, "부적합 통보서 확인")
+    if not allowed:
+        flash(why)
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    signature_path, sig_err = _save_signature(f"ncr{ncr_id}",
+                                              request.form.get("signature_data", "").strip())
+    if sig_err:
+        flash(f"승인 서명이 필요해: {sig_err}")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    confirmed_by = g.user["display_name"] or g.user["username"]
+    db.confirm_ncr(ncr_id, confirmed_by, signature_path=signature_path)
+    # 성적서는 이미 '불합격 확정' 상태이므로 여기서 상태를 바꾸지 않는다.
+    record_change("NCR 확인 완료", "ncr", ncr_id,
+                  f"{ncr['ncr_no']} — 확인자: {confirmed_by} (서명 첨부)")
+    flash(f"{ncr['ncr_no']} 확인 완료됐어. 이제 이메일 발송이 가능해.")
+    return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+
+@app.route("/ncr/<int:ncr_id>/photo", methods=["POST"])
+@perm_required("ncr_confirm")
+def ncr_add_photo(ncr_id):
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        return "not found", 404
+    file = request.files.get("photo")
+    if not file or file.filename == "":
+        flash("사진 파일을 선택해줘.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+    import uuid
+    ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+        flash("이미지 파일만 첨부할 수 있어.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+    fname = f"{ncr['ncr_no']}_{uuid.uuid4().hex[:8]}{ext}"
+    file.save(os.path.join(NCR_PHOTO_DIR, fname))
+    db.add_ncr_photo(ncr_id, fname)
+    record_change("NCR 사진 첨부", "ncr", ncr_id, fname)
+    return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+
+@app.route("/ncr/<int:ncr_id>/email", methods=["POST"])
+@perm_required("ncr_confirm")
+def ncr_send_email(ncr_id):
+    import smtplib, json
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.image import MIMEImage
+
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("home"))
+
+    if ncr["status"] == "draft":
+        flash("확인 완료 후에 발송할 수 있어. 먼저 '확인 완료' 버튼을 눌러줘.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    to_email = request.form.get("to_email", "").strip()
+    if not to_email:
+        flash("받는 사람 이메일 주소를 입력해줘.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    smtp_host = db.get_setting("smtp_host", "")
+    smtp_port = int(db.get_setting("smtp_port", "587") or 587)
+    smtp_user = db.get_setting("smtp_user", "")
+    smtp_pass = db.get_setting("smtp_pass", "")
+    from_name = db.get_setting("smtp_from_name", "Chardon QMS")
+
+    if not smtp_host or not smtp_user:
+        flash("SMTP 설정이 없어. 설정 → 이메일 설정에서 먼저 입력해줘.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    photos = json.loads(ncr["photos"] or "[]")
+    body_html = render_template("ncr_email_body.html", ncr=ncr)
+
+    msg = MIMEMultipart("related")
+    msg["Subject"] = f"[부적합 통보서] {ncr['ncr_no']} — {ncr['material_no']} ({ncr['supplier']})"
+    msg["From"] = f"{from_name} <{smtp_user}>"
+    msg["To"] = to_email
+
+    alt = MIMEMultipart("alternative")
+    msg.attach(alt)
+    alt.attach(MIMEText(body_html, "html", "utf-8"))
+
+    for fname in photos:
+        fpath = os.path.join(NCR_PHOTO_DIR, fname)
+        if os.path.exists(fpath):
+            with open(fpath, "rb") as f:
+                img = MIMEImage(f.read())
+                img.add_header("Content-Disposition", "attachment", filename=fname)
+                msg.attach(img)
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+            s.ehlo()
+            s.starttls()
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [to_email], msg.as_string())
+        db.mark_ncr_email_sent(ncr_id, to_email)
+        record_change("NCR 이메일 발송", "ncr", ncr_id, f"→ {to_email}")
+        flash(f"{to_email} 으로 발송됐어.")
+    except Exception as e:
+        flash(f"이메일 발송 실패: {e}")
+
+    return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+
+@app.route("/settings/email", methods=["GET", "POST"])
+@perm_required("smtp")
+def smtp_settings():
+    if request.method == "POST":
+        for key in ("smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_name"):
+            db.set_setting(key, request.form.get(key, "").strip())
+        flash("이메일 설정 저장됐어.")
+        return redirect(url_for("smtp_settings"))
+    settings = {k: db.get_setting(k, "") for k in
+                ("smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_name")}
+    return render_template("smtp_settings.html", s=settings)
+
+
+# ---------- 검사원 제외 ----------
+
+@app.route("/inspect/withdraw/<int:intake_id>", methods=["POST"])
+@perm_required("inspect_input")
+def withdraw_inspector(intake_id):
+    name = g.user["display_name"] or g.user["username"]
+    progress = db.get_progress_by_intake_ids([intake_id])
+    inspectors = progress.get(intake_id, [])
+    if len(inspectors) <= 1:
+        flash("검사원이 최소 1명은 있어야 해서 제외할 수 없어.")
+        return redirect(url_for("inspect_select"))
+    remaining = db.withdraw_inspector(intake_id, name)
+    record_change("검사원 제외", "intake", intake_id, f"{name} 제외, 남은 검사원: {remaining}")
+    flash(f"{name}이(가) 검사에서 제외됐어.")
+    return redirect(url_for("inspect_select"))
+
+
+# ---------- 반품 처리 ----------
+
+@app.route("/returns")
+@login_required
+def return_list():
+    from datetime import date
+    status_filter = request.args.get("status", "")
+    returns = db.list_return_requests(status=status_filter or None)
+    statuses = ["반품요청", "반품완료", "재납품대기", "재검사완료"]
+    return render_template("return_list.html", returns=returns,
+                           status_filter=status_filter, statuses=statuses,
+                           today=date.today().isoformat())
+
+
+@app.route("/return/new/<int:inspection_id>", methods=["GET", "POST"])
+@perm_required("return")
+def return_new(inspection_id):
+    from datetime import date
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("성적서를 찾을 수 없어.")
+        return redirect(url_for("home"))
+    if request.method == "POST":
+        rid = db.create_return_request(
+            inspection_id=inspection_id,
+            material_no=header["material_no"],
+            material_name=header["material_name"],
+            supplier=header["supplier"],
+            return_date=request.form.get("return_date", "").strip(),
+            reason=request.form.get("reason", "").strip(),
+            quantity=request.form.get("quantity", "").strip() or None,
+            created_by=g.user["display_name"] or g.user["username"],
+        )
+        record_change("반품 처리 등록", "return", rid,
+                      f"{header['material_no']} / {header['supplier']}")
+        flash("반품 처리가 등록됐어.")
+        return redirect(url_for("return_detail", return_id=rid))
+    return render_template("return_form.html", header=header,
+                           today=date.today().isoformat())
+
+
+@app.route("/return/<int:return_id>")
+@login_required
+def return_detail(return_id):
+    rr = db.get_return_request(return_id)
+    if rr is None:
+        flash("반품 건을 찾을 수 없어.")
+        return redirect(url_for("return_list"))
+    return render_template("return_detail.html", rr=rr)
+
+
+@app.route("/return/<int:return_id>/status", methods=["POST"])
+@perm_required("return")
+def return_update_status(return_id):
+    rr = db.get_return_request(return_id)
+    if rr is None:
+        flash("반품 건을 찾을 수 없어.")
+        return redirect(url_for("return_list"))
+    new_status = request.form.get("status", "").strip()
+    allowed = ["반품요청", "반품완료", "재납품대기", "재검사완료"]
+    if new_status not in allowed:
+        flash("잘못된 상태야.")
+        return redirect(url_for("return_detail", return_id=return_id))
+    db.update_return_status(return_id, new_status)
+    record_change("반품 상태 변경", "return", return_id, f"→ {new_status}")
+    flash(f"상태가 '{new_status}'(으)로 변경됐어.")
+    return redirect(url_for("return_detail", return_id=return_id))
+
+
+# ---------- MA 자동출력 데이터 임포트 ----------
+
+@app.route("/admin/import-assembly", methods=["GET", "POST"])
+@perm_required("users")
+def import_assembly():
+    """MA 자동출력.xlsm의 DATABASE 시트에서 조립 제품 파츠 분해를 임포트."""
+    if request.method == "GET":
+        return render_template("import_assembly.html")
+
+    file = request.files.get("assembly_file")
+    if not file:
+        flash("엑셀 파일을 선택해줘.")
+        return redirect(url_for("import_assembly"))
+
+    try:
+        import tempfile
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
+                tmp_path = tmp.name
+                file.save(tmp.name)
+                imported, err = db.import_assembly_from_excel(tmp.name)
+
+            if err:
+                flash(f"임포트 실패: {err}")
+            else:
+                flash(f"{imported}개 MA 조립 제품을 임포트했어.")
+                record_change("MA 조립 제품 임포트", "assembly", None, f"{imported}건")
+        finally:
+            # 임시 파일 정리 시도 (실패해도 무시)
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except:
+                    pass
+    except Exception as e:
+        flash(f"임포트 중 오류: {e}")
+
+    return redirect(url_for("import_assembly"))
+
+
+# ---------- 조립품 관리 (MA 외 다른 조립품도 직접 등록) ----------
+
+@app.route("/assemblies")
+@perm_required("material_view")
+def assembly_list():
+    """조립품 목록. 입고 때 파츠 하나만 넣어도 전체가 펼쳐지는 기준이 되는 표."""
+    return render_template("assembly_list.html", assemblies=db.list_all_assemblies())
+
+
+@app.route("/assemblies/new", methods=["GET", "POST"])
+@app.route("/assemblies/<int:assembly_id>", methods=["GET", "POST"])
+@perm_required("material_edit")
+def assembly_detail(assembly_id=None):
+    if request.method == "POST":
+        assembly_no = request.form.get("assembly_no", "").strip()
+        # 파츠는 줄바꿈 또는 쉼표로 구분해서 한 번에 붙여넣을 수 있게 받는다
+        raw = request.form.get("component_nos", "")
+        component_nos = [p.strip() for p in raw.replace(",", "\n").splitlines()]
+
+        new_id, err = db.save_assembly(assembly_no, component_nos, assembly_id=assembly_id)
+        if err:
+            flash(err)
+            return redirect(url_for("assembly_detail", assembly_id=assembly_id) if assembly_id
+                            else url_for("assembly_new"))
+        action = "조립품 수정" if assembly_id else "조립품 등록"
+        record_change(action, "assembly", new_id, f"{assembly_no} ({len([p for p in component_nos if p])}개 파츠)")
+        flash(f"'{assembly_no}' 저장 완료.")
+        return redirect(url_for("assembly_detail", assembly_id=new_id))
+
+    if assembly_id is None:
+        return render_template("assembly_detail.html", master=None, parts=[])
+
+    master, parts = db.get_assembly(assembly_id)
+    if master is None:
+        flash("존재하지 않는 조립품이야.")
+        return redirect(url_for("assembly_list"))
+    return render_template("assembly_detail.html", master=master, parts=parts)
+
+
+# url_for('assembly_new') 로도 부를 수 있게 별칭 엔드포인트를 하나 둔다
+app.add_url_rule("/assemblies/new", endpoint="assembly_new",
+                 view_func=assembly_detail, methods=["GET", "POST"])
+
+
+# ---------- 품질 현황 대시보드 ----------
+
+def _resolve_period(period_type, start, end, preset=None):
+    """기간 유형/프리셋을 실제 시작·종료일로 바꾼다. 직접 입력한 값이 있으면 그걸 우선."""
+    from datetime import date, timedelta
+    today = date.today()
+    if start and end:
+        return start, end
+
+    if preset == "this_month" or period_type == "monthly":
+        s = today.replace(day=1)
+    elif preset == "today" or period_type == "daily":
+        s = today
+    elif period_type == "weekly":
+        s = today - timedelta(days=today.weekday())
+    elif period_type == "quarterly":
+        s = date(today.year, ((today.month - 1) // 3) * 3 + 1, 1)
+    elif period_type == "half":
+        s = date(today.year, 1 if today.month <= 6 else 7, 1)
+    else:                       # yearly
+        s = date(today.year, 1, 1)
+
+    # 기간 유형별로 "충분히 뒤가 보이도록" 시작점을 조금 넉넉히 잡는다
+    lookback = {"daily": 30, "weekly": 84, "monthly": 365,
+                "quarterly": 365 * 2, "half": 365 * 3, "yearly": 365 * 5}
+    s = min(s, today - timedelta(days=lookback.get(period_type, 365)))
+    return s.isoformat(), today.isoformat()
+
+
+ROW_LIMIT_CHOICES = [20, 50, 100, 300, 0]   # 0 = 전체
+
+
+def _dashboard_params():
+    """대시보드 필터를 URL 쿼리에서 읽어온다.
+    업체·발주번호는 화면에서 여러 개 고를 수 있어서 getlist로 받는다(선택 칩 방식)."""
+    period_type = request.args.get("period", "monthly")
+    if period_type not in [p for p, _ in db.PERIOD_TYPES]:
+        period_type = "monthly"
+    start, end = _resolve_period(period_type,
+                                 request.args.get("start", "").strip(),
+                                 request.args.get("end", "").strip())
+
+    def multi(name):
+        # 같은 이름이 여러 번 올 수도 있고, 한 번에 콤마로 올 수도 있게 둘 다 받는다
+        out = []
+        for raw in request.args.getlist(name):
+            out += [v.strip() for v in raw.split(",") if v.strip()]
+        return list(dict.fromkeys(out))      # 순서 유지하며 중복 제거
+
+    try:
+        row_limit = int(request.args.get("rows", 50))
+    except ValueError:
+        row_limit = 50
+    if row_limit not in ROW_LIMIT_CHOICES:
+        row_limit = 50
+
+    return {
+        "period_type": period_type,
+        "start": start,
+        "end": end,
+        "suppliers": multi("supplier"),
+        "po_numbers": multi("po_number"),
+        "material": request.args.get("material", "").strip(),
+        "states": [s for s in multi("state") if s in db.LOT_STATES],
+        "row_limit": row_limit,
+    }
+
+
+def _build_quality_report(p):
+    return db.quality_report(
+        start_date=p["start"], end_date=p["end"], period_type=p["period_type"],
+        supplier=p["suppliers"], po_number=p["po_numbers"],
+        material=p["material"] or None, states=p["states"],
+    )
+
+
+def _dashboard_query(p, **override):
+    """현재 필터를 URL 쿼리 문자열로 다시 만든다(내보내기 링크·업체 드릴다운에 사용)."""
+    from urllib.parse import urlencode
+    data = {"period": p["period_type"], "start": p["start"], "end": p["end"],
+            "material": p["material"], "rows": p["row_limit"]}
+    data.update({k: v for k, v in override.items() if k not in ("supplier", "po_number", "state")})
+    pairs = [(k, v) for k, v in data.items() if v not in ("", None)]
+    for key, values in (("supplier", override.get("supplier", p["suppliers"])),
+                        ("po_number", override.get("po_number", p["po_numbers"])),
+                        ("state", override.get("state", p["states"]))):
+        pairs += [(key, v) for v in values]
+    return urlencode(pairs)
+
+
+@app.route("/dashboard")
+@perm_required("defect_history", "inspect_history")
+def quality_dashboard():
+    """품질 현황 대시보드 — 기간·업체·발주번호·자재로 걸러서 보고, 팝업으로 근거 문서까지 본다."""
+    p = _dashboard_params()
+    report = _build_quality_report(p)
+    # 발주번호 후보 — 지금 조회 범위 안에 실제로 있는 것만 골라준다
+    po_options = sorted({r["po_number"] for r in report["성적서목록"] if r["po_number"]})
+    return render_template("dashboard.html",
+                           p=p, report=report,
+                           period_types=db.PERIOD_TYPES,
+                           suppliers=db.list_suppliers(),
+                           po_options=po_options,
+                           lot_states=db.LOT_STATES,
+                           row_choices=ROW_LIMIT_CHOICES,
+                           qs=_dashboard_query(p))
+
+
+@app.route("/dashboard/export.json")
+@perm_required("defect_history", "inspect_history")
+def dashboard_export_json():
+    """발표자료·보고서 작성용 원본 데이터. 화면(HTML)을 긁는 것보다 이게 훨씬 정확하다.
+    파일만 봐도 무슨 데이터인지 알 수 있게 기간·필터·불량률 기준을 같이 담는다."""
+    import json
+    p = _dashboard_params()
+    report = _build_quality_report(p)
+    report.pop("성적서목록", None)      # 원본 행은 너무 길어서 요약 내보내기에선 뺀다
+    body = json.dumps(report, ensure_ascii=False, indent=2, default=str)
+    fname = f"품질현황_{p['start']}_{p['end']}.json"
+    return send_file(io.BytesIO(body.encode("utf-8")), mimetype="application/json",
+                     as_attachment=True, download_name=fname)
+
+
+@app.route("/dashboard/export.xlsx")
+@perm_required("defect_history", "inspect_history")
+def dashboard_export_xlsx():
+    """엑셀 내보내기 — 시트별로 요약/기간별/업체별/자재별/불량항목/성적서목록."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font as XFont
+
+    p = _dashboard_params()
+    report = _build_quality_report(p)
+    wb = Workbook()
+    head_font = XFont(bold=True)
+
+    def sheet(title, columns, rows):
+        ws = wb.create_sheet(title[:31])
+        ws.append(columns)
+        for c in ws[1]:
+            c.font = head_font
+        for r in rows:
+            ws.append([r.get(k) for k in columns])
+        for idx, col in enumerate(columns, start=1):
+            width = max(len(str(col)), *(len(str(r.get(col, ""))) for r in rows)) if rows else len(str(col))
+            ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = min(40, width + 3)
+        return ws
+
+    ws0 = wb.active
+    ws0.title = "요약"
+    s = report["요약"]
+    ws0.append(["항목", "값"])
+    ws0["A1"].font = head_font; ws0["B1"].font = head_font
+    for k, v in [("보고기간", f"{p['start']} ~ {p['end']}"),
+                 ("기간유형", dict(db.PERIOD_TYPES)[p["period_type"]]),
+                 ("업체", report["필터"]["업체"]),
+                 ("발주번호", report["필터"]["발주번호"]),
+                 ("자재/제품명", report["필터"]["자재/제품명"]),
+                 ("불량률기준", report["불량률기준"]),
+                 ("검사 로트", s["로트"]), ("검사 수량", s["수량"]),
+                 ("합격 수량", s["합격수량"]), ("특채 수량", s["특채수량"]),
+                 ("불합격 수량", s["불합격수량"]), ("미결 수량", s["미결수량"]),
+                 ("불량률(%)", s["불량률"]), ("PPM", s["PPM"]),
+                 ("규격이탈률(%)", s["규격이탈률"])]:
+        ws0.append([k, v])
+    ws0.column_dimensions["A"].width = 18
+    ws0.column_dimensions["B"].width = 46
+
+    sheet("기간별", ["구간", "로트", "수량", "합격수량", "특채수량", "불합격수량", "불량률", "PPM"],
+          report["기간별"])
+    sheet("업체별", ["업체", "로트", "수량", "합격수량", "특채수량", "불합격수량", "불량률", "PPM"],
+          report["업체별"])
+    sheet("자재별", ["자재번호", "자재명", "로트", "수량", "불합격수량", "불량률", "PPM"],
+          report["자재별"])
+    sheet("불량항목", ["자재번호", "자재명", "항목", "규격", "발생건수", "업체"],
+          report["불량항목순위"])
+    sheet("성적서목록", ["id", "inspect_date", "material_no", "material_name", "supplier",
+                        "po_number", "quantity", "overall_result", "status", "approval_type"],
+          report["성적서목록"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"품질현황_{p['start']}_{p['end']}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/dashboard/capability")
+@perm_required("defect_history", "inspect_history")
+def dashboard_capability():
+    """자재 하나의 공정능력(Cp/Cpk) — 대시보드 팝업에서 호출."""
+    material_no = request.args.get("material_no", "").strip()
+    if not material_no:
+        return {"error": "자재번호가 필요해."}, 400
+    return {"material_no": material_no, "items": db.process_capability(material_no)}
+
+
+# ---------- 업체 월간 품질 성적표 (3단계) ----------
+
+@app.route("/supplier-reports")
+@perm_required("defect_history", "supplier")
+def supplier_report_list():
+    can_approve, block_reason = _can_make_final_decision(g.user, "업체 성적표 승인")
+    return render_template("supplier_reports.html",
+                           reports=db.list_supplier_reports(),
+                           suppliers=db.list_suppliers(),
+                           default_period=_dt.now().strftime("%Y-%m"),
+                           can_approve=can_approve,
+                           approve_block_reason=block_reason or "")
+
+
+@app.route("/supplier-reports/generate", methods=["POST"])
+@perm_required("defect_history", "supplier")
+def supplier_report_generate():
+    """업체 하나의 월간 성적표를 만든다 — 대시보드 집계를 그대로 재사용."""
+    import json, calendar
+    supplier = request.form.get("supplier", "").strip()
+    period = request.form.get("period", "").strip()          # YYYY-MM
+    if not supplier or len(period) != 7:
+        flash("업체와 기간(YYYY-MM)을 정확히 골라줘.")
+        return redirect(url_for("supplier_report_list"))
+    try:
+        y, m = int(period[:4]), int(period[5:7])
+        start = f"{y:04d}-{m:02d}-01"
+        end = f"{y:04d}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}"
+    except ValueError:
+        flash("기간 형식이 잘못됐어 (YYYY-MM).")
+        return redirect(url_for("supplier_report_list"))
+
+    report = db.quality_report(start, end, period_type="monthly", supplier=supplier)
+    report.pop("성적서목록", None)
+    rid, err = db.upsert_supplier_report(
+        supplier, period, start, end,
+        json.dumps(report, ensure_ascii=False, default=str),
+        created_by=g.user["display_name"] or g.user["username"])
+    if err:
+        flash(err)
+    else:
+        flash(f"{supplier} {period} 성적표를 만들었어. 최종결정권자 승인 후 발송할 수 있어.")
+        record_change("업체 성적표 생성", "supplier_report", rid, f"{supplier} {period}")
+    return redirect(url_for("supplier_report_detail", report_id=rid))
+
+
+@app.route("/supplier-reports/<int:report_id>")
+@perm_required("defect_history", "supplier")
+def supplier_report_detail(report_id):
+    import json
+    row = db.get_supplier_report(report_id)
+    if row is None:
+        flash("성적표를 찾을 수 없어.")
+        return redirect(url_for("supplier_report_list"))
+    try:
+        payload = json.loads(row["payload"])
+    except ValueError:
+        payload = None
+    can_approve, block_reason = _can_make_final_decision(g.user, "업체 성적표 승인")
+    sig_url = None
+    if row["approve_signature"] and os.path.exists(row["approve_signature"]):
+        sig_url = "/static/signatures/" + os.path.basename(row["approve_signature"])
+    return render_template("supplier_report_detail.html",
+                           r=row, payload=payload,
+                           supplier_info=db.get_supplier(row["supplier"] or ""),
+                           can_approve=can_approve,
+                           approve_block_reason=block_reason or "",
+                           signature_url=sig_url)
+
+
+@app.route("/supplier-reports/<int:report_id>/approve", methods=["POST"])
+@perm_required("approve")
+def supplier_report_approve(report_id):
+    """협력사로 나가는 문서라 최종결정권자 승인 + 서명이 있어야 발송할 수 있다."""
+    row = db.get_supplier_report(report_id)
+    if row is None or row["status"] != "draft":
+        flash("승인할 수 있는 상태가 아니야.")
+        return redirect(url_for("supplier_report_list"))
+
+    allowed, why = _can_make_final_decision(g.user, "업체 성적표 승인")
+    if not allowed:
+        flash(why)
+        return redirect(url_for("supplier_report_detail", report_id=report_id))
+
+    sig_path, sig_err = _save_signature(f"sr{report_id}",
+                                        request.form.get("signature_data", "").strip())
+    if sig_err:
+        flash(f"승인 서명이 필요해: {sig_err}")
+        return redirect(url_for("supplier_report_detail", report_id=report_id))
+
+    approver = g.user["display_name"] or g.user["username"]
+    db.approve_supplier_report(report_id, approver, sig_path)
+    record_change("업체 성적표 승인", "supplier_report", report_id,
+                  f"{row['supplier']} {row['period']} — 승인자 {approver}")
+    flash("승인 완료. 이제 발송할 수 있어.")
+    return redirect(url_for("supplier_report_detail", report_id=report_id))
+
+
+@app.route("/supplier-reports/<int:report_id>/send", methods=["POST"])
+@perm_required("approve", "smtp")
+def supplier_report_send(report_id):
+    row = db.get_supplier_report(report_id)
+    if row is None or row["status"] != "approved":
+        flash("승인된 성적표만 발송할 수 있어.")
+        return redirect(url_for("supplier_report_list"))
+    to_email = request.form.get("to_email", "").strip()
+    if not to_email:
+        flash("받는 사람 이메일을 입력해줘.")
+        return redirect(url_for("supplier_report_detail", report_id=report_id))
+
+    db.mark_supplier_report_sent(report_id, to_email)
+    record_change("업체 성적표 발송", "supplier_report", report_id,
+                  f"{row['supplier']} {row['period']} → {to_email}")
+    flash(f"{to_email} 로 발송 처리했어.")
+    return redirect(url_for("supplier_report_detail", report_id=report_id))
+
+
+@app.route("/supplier-reports/<int:report_id>/delete", methods=["POST"])
+@perm_required("defect_history", "supplier")
+def supplier_report_delete(report_id):
+    db.delete_supplier_report(report_id)
+    flash("초안 성적표를 삭제했어.")
+    return redirect(url_for("supplier_report_list"))
+
+
+# ---------- 4M 변경점 관리 ----------
+
+@app.route("/change-points", methods=["GET", "POST"])
+@perm_required("supplier", "material_edit")
+def change_point_list():
+    """협력사의 4M(사람·설비·자재·방법) 변경 시점을 기록한다.
+    변경 전후 불량률을 비교하려면 '언제 바뀌었는지'가 남아 있어야 한다."""
+    if request.method == "POST":
+        supplier = request.form.get("supplier", "").strip()
+        change_type = request.form.get("change_type", "").strip()
+        change_date = request.form.get("change_date", "").strip()
+        if not (supplier and change_type and change_date):
+            flash("업체 · 변경 구분 · 변경일은 필수야.")
+            return redirect(url_for("change_point_list"))
+        if change_type not in [c for c, _ in db.CHANGE_TYPES]:
+            flash("알 수 없는 변경 구분이야.")
+            return redirect(url_for("change_point_list"))
+
+        cp_id = db.add_change_point(
+            supplier=supplier,
+            material_no=request.form.get("material_no", "").strip(),
+            change_type=change_type,
+            change_date=change_date,
+            description=request.form.get("description", "").strip(),
+            reported_by=g.user["display_name"] or g.user["username"],
+        )
+        record_change("4M 변경점 등록", "change_point", cp_id,
+                      f"{supplier} / {change_type} / {change_date}")
+        flash("변경점이 등록됐어. 이후 검사에서 이 업체 자재를 열면 경고로 표시돼.")
+        return redirect(url_for("change_point_list"))
+
+    supplier_filter = request.args.get("supplier", "").strip()
+    rows = db.list_change_points(supplier=supplier_filter or None)
+    return render_template("change_points.html",
+                           rows=rows,
+                           suppliers=db.list_suppliers(),
+                           change_types=db.CHANGE_TYPES,
+                           supplier_filter=supplier_filter,
+                           today=_dt.now().strftime("%Y-%m-%d"))
+
+
+@app.route("/change-points/<int:cp_id>/delete", methods=["POST"])
+@perm_required("supplier", "material_edit")
+def change_point_delete(cp_id):
+    db.delete_change_point(cp_id)
+    record_change("4M 변경점 삭제", "change_point", cp_id, "")
+    flash("변경점이 삭제됐어.")
+    return redirect(url_for("change_point_list"))
+
+
+# ---------- 성적서 위변조 검증 ----------
+
+@app.route("/inspection/<int:inspection_id>/verify")
+@perm_required("inspect_history", "approve")
+def inspection_verify(inspection_id):
+    """성적서가 승인 당시 그대로인지 검증한 결과를 JSON으로 돌려준다."""
+    return verify_inspection_integrity(inspection_id)
+
+
+# ---------- 데이터 점검 (관리자 전용) ----------
+
+@app.route("/admin/data-health")
+@perm_required("users")
+def data_health():
+    """자재·규격 데이터에서 검사/성적서를 망가뜨릴 수 있는 것들을 한 화면에 모아서 보여준다.
+    관리자('users' 권한)만 접근 가능."""
+    return render_template("data_health.html", checks=db.data_health_report())
+
+
+@app.route("/assemblies/<int:assembly_id>/delete", methods=["POST"])
+@perm_required("material_edit")
+def assembly_delete(assembly_id):
+    master, _ = db.get_assembly(assembly_id)
+    if master is None:
+        flash("존재하지 않는 조립품이야.")
+        return redirect(url_for("assembly_list"))
+    db.delete_assembly(assembly_id)
+    record_change("조립품 삭제", "assembly", assembly_id, master["assembly_no"])
+    flash(f"'{master['assembly_no']}' 삭제됐어.")
+    return redirect(url_for("assembly_list"))
+
+
 if __name__ == "__main__":
     db.init_db()
     ensure_default_admin()
+    ensure_perm_migration()
     app.run(host="0.0.0.0", port=5000, debug=True)

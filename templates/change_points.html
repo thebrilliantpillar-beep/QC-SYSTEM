@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_glossary.html" import term %}
+{% block title %}4M 변경점 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .cp-card { background:#fff; border-radius:12px; padding:13px 15px; margin-bottom:9px;
+             box-shadow:0 1px 3px rgba(0,0,0,.06); border-left:4px solid var(--border); }
+  .cp-card.t-Man      { border-left-color:#3b82f6; }
+  .cp-card.t-Machine  { border-left-color:#8b5cf6; }
+  .cp-card.t-Material { border-left-color:#f59e0b; }
+  .cp-card.t-Method   { border-left-color:#10b981; }
+  .cp-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .cp-sup { font-weight:700; font-size:14.5px; }
+  .cp-tag { display:inline-block; border-radius:6px; padding:2px 9px; font-size:11.5px; font-weight:700; }
+  .tag-Man      { background:#dbeafe; color:#1e40af; }
+  .tag-Machine  { background:#ede9fe; color:#5b21b6; }
+  .tag-Material { background:#fef3c7; color:#92400e; }
+  .tag-Method   { background:#d1fae5; color:#065f46; }
+  .cp-meta { color:var(--muted); font-size:12.5px; margin-top:5px; }
+  .cp-desc { font-size:13px; color:#374151; margin-top:6px; line-height:1.55; }
+</style>
+
+<h2>🔀 4M 변경점 {{ term('4m') }}</h2>
+
+<div class="card" style="border-left:4px solid var(--primary);">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    협력사가 <b>사람 · 설비 · 자재 · 방법</b>을 바꾼 시점을 기록해두는 곳이야.<br>
+    여기 남겨두면 <b>변경 전후 불량률을 비교</b>할 수 있고, 해당 업체 자재를 검사할 때
+    <b>최근 90일 내 변경이 있으면 검사 화면에 경고</b>가 떠. (IATF 변경점 관리 대응)
+  </p>
+</div>
+
+{# ── 등록 ── #}
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">변경점 등록</h3>
+  <form method="POST">
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:170px;">
+        <label>업체 <span style="color:var(--fail);">*</span></label>
+        <input list="supplierList" name="supplier" required placeholder="업체명">
+        <datalist id="supplierList">
+          {% for s in suppliers %}<option value="{{ s['name'] }}">{% endfor %}
+        </datalist>
+      </div>
+      <div style="flex:1; min-width:150px;">
+        <label>변경 구분 <span style="color:var(--fail);">*</span></label>
+        <select name="change_type" required>
+          <option value="">선택</option>
+          {% for code, label in change_types %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="flex:1; min-width:140px;">
+        <label>변경일 <span style="color:var(--fail);">*</span></label>
+        <input type="date" name="change_date" value="{{ today }}" required>
+      </div>
+      <div style="flex:1; min-width:150px;">
+        <label>자재번호 <span class="muted" style="font-weight:400;">(비우면 업체 전체)</span></label>
+        <input type="text" name="material_no" placeholder="예: 602106P248">
+      </div>
+    </div>
+    <label style="margin-top:10px;">변경 내용</label>
+    <input type="text" name="description" placeholder="예: 생산 라인을 국내 → 중국(안후이) 지사로 이전">
+    <button type="submit" style="margin-top:12px;">등록</button>
+  </form>
+</div>
+
+{# ── 목록 ── #}
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+    <div style="flex:1; min-width:170px;">
+      <label>업체로 거르기</label>
+      <input list="supplierList" name="supplier" value="{{ supplier_filter }}" placeholder="전체">
+    </div>
+    <button type="submit" style="margin-top:0;">조회</button>
+    {% if supplier_filter %}
+    <a href="{{ url_for('change_point_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>
+    {% endif %}
+  </form>
+</div>
+
+{% for r in rows %}
+<div class="cp-card t-{{ r['change_type'] }}">
+  <div class="cp-head">
+    <span>
+      <span class="cp-sup">{{ r['supplier'] }}</span>
+      {% if r['material_no'] %}
+        <span class="muted" style="font-size:12.5px;"> · {{ r['material_no'] }}</span>
+      {% else %}
+        <span class="muted" style="font-size:12.5px;"> · 업체 전체</span>
+      {% endif %}
+    </span>
+    <span>
+      <span class="cp-tag tag-{{ r['change_type'] }}">{{ r['change_type'] }}</span>
+      <form method="POST" action="{{ url_for('change_point_delete', cp_id=r['id']) }}"
+            style="display:inline;" onsubmit="return confirm('이 변경점 기록을 지울까?');">
+        <button type="submit" style="background:none; border:none; color:#dc2626;
+                cursor:pointer; font-size:13px; padding:2px 6px; margin:0;">✕</button>
+      </form>
+    </span>
+  </div>
+  <div class="cp-meta">변경일 {{ r['change_date'] | date_korean }} · 기록 {{ r['reported_by'] or '-' }}</div>
+  {% if r['description'] %}<div class="cp-desc">{{ r['description'] }}</div>{% endif %}
+</div>
+{% else %}
+<div style="text-align:center; padding:40px 0; color:var(--muted);">
+  등록된 변경점이 없어. 위에서 추가해줘.
+</div>
+{% endfor %}
+{% endblock %}

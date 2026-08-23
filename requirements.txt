@@ -1,0 +1,5 @@
+flask
+openpyxl
+reportlab
+Pillow
+gunicorn

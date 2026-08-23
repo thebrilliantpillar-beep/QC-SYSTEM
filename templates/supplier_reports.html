@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}업체 품질 성적표 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .sr-row { background:#fff; border-radius:11px; padding:13px 15px; margin-bottom:9px;
+            box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; justify-content:space-between;
+            align-items:center; gap:10px; flex-wrap:wrap; cursor:pointer; }
+  .sr-row:hover { box-shadow:0 2px 8px rgba(0,0,0,.10); }
+  .st { display:inline-block; border-radius:6px; padding:2px 9px; font-size:11.5px; font-weight:700; }
+  .st-draft    { background:#f3f4f6; color:#4b5563; }
+  .st-approved { background:#dbeafe; color:#1e40af; }
+  .st-sent     { background:#dcfce7; color:#166534; }
+</style>
+
+<h2>📮 업체 품질 성적표</h2>
+
+<div class="card" style="border-left:4px solid var(--primary);">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    업체별 월간 품질 성적을 자동으로 뽑아서 협력사에 보내는 기능이야.
+    부적합 통보서가 <b>사고 난 뒤</b> 나가는 거라면, 이건 <b>매달 정기적으로</b> 나가서
+    업체가 스스로 관리하게 만드는 용도야.<br>
+    <b>협력사로 나가는 문서라 최종결정권자 승인 없이는 발송할 수 없어.</b>
+  </p>
+</div>
+
+{% if not can_approve %}
+<div class="card" style="border-left:4px solid #f59e0b; background:#fffbeb;">
+  <p style="margin:0; font-size:13px; color:#92400e;">
+    🔒 성적표 <b>생성</b>은 할 수 있지만 <b>승인·발송</b>은 최종결정권자만 가능해.
+    {% if approve_block_reason %}<br><span style="font-size:12.5px;">{{ approve_block_reason }}</span>{% endif %}
+  </p>
+</div>
+{% endif %}
+
+{# ── 생성 ── #}
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">성적표 만들기</h3>
+  <form method="POST" action="{{ url_for('supplier_report_generate') }}"
+        style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:2; min-width:180px;">
+      <label>업체 <span style="color:var(--fail);">*</span></label>
+      <input list="supList" name="supplier" required placeholder="업체명">
+      <datalist id="supList">{% for s in suppliers %}<option value="{{ s['name'] }}">{% endfor %}</datalist>
+    </div>
+    <div style="flex:1; min-width:140px;">
+      <label>대상 월 <span style="color:var(--fail);">*</span></label>
+      <input type="month" name="period" value="{{ default_period }}" required>
+    </div>
+    <button type="submit" style="margin:0;">생성</button>
+  </form>
+  <p class="muted" style="font-size:12.5px; margin:9px 0 0;">
+    같은 업체·같은 달을 다시 만들면 초안 상태일 때만 새 데이터로 갱신돼.
+    이미 승인·발송된 건은 기록 보존을 위해 덮어쓰지 않아.
+  </p>
+</div>
+
+{# ── 목록 ── #}
+{% for r in reports %}
+<div class="sr-row" onclick="location.href='{{ url_for('supplier_report_detail', report_id=r['id']) }}'">
+  <span>
+    <b style="font-size:14.5px;">{{ r['supplier'] }}</b>
+    <span class="muted" style="font-size:12.5px;"> · {{ r['period'] }}</span>
+    <div class="muted" style="font-size:12px; margin-top:4px;">
+      생성 {{ r['created_by'] or '-' }} · {{ r['created_at'] | datetime_korean }}
+      {% if r['approved_by'] %}<br>승인 {{ r['approved_by'] }} · {{ r['approved_at'] | datetime_korean }}{% endif %}
+      {% if r['sent_to'] %}<br>발송 {{ r['sent_to'] }} · {{ r['sent_at'] | datetime_korean }}{% endif %}
+    </div>
+  </span>
+  <span>
+    {% if r['status'] == 'draft' %}<span class="st st-draft">초안 (승인 대기)</span>
+    {% elif r['status'] == 'approved' %}<span class="st st-approved">승인됨 (발송 대기)</span>
+    {% else %}<span class="st st-sent">발송 완료</span>{% endif %}
+  </span>
+</div>
+{% else %}
+<div style="text-align:center; padding:40px 0; color:var(--muted);">
+  아직 만든 성적표가 없어. 위에서 업체와 월을 골라 만들어줘.
+</div>
+{% endfor %}
+{% endblock %}

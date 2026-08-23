@@ -9,7 +9,7 @@
     <tr><th>시각</th><th>사용자</th><th>권한(당시)</th><th>액션</th><th>대상</th><th>상세</th></tr>
     {% for log in logs %}
     <tr>
-      <td style="white-space:nowrap; font-size:12px;">{{ log['created_at'] }}</td>
+      <td style="white-space:nowrap; font-size:12px;">{{ log['created_at'] | datetime_korean }}</td>
       <td>{{ log['username'] or '-' }}</td>
       <td style="font-size:11.5px; color:#6b7280;">
         {% for p in (log['role'] or '').split(',') if p %}{{ perm_labels.get(p, p) }}{% if not loop.last %}, {% endif %}{% else %}-{% endfor %}

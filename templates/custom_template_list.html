@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}커스텀 성적서 양식{% endblock %}
+{% block content %}
+<h2>커스텀 성적서 양식</h2>
+<p class="hint">
+  기본(본사) 양식 대신 <b>직접 디자인한 성적서 양식</b>을 만들어 자재별로 지정할 수 있어.
+  드래그앤드롭으로 제목·회사로고·데이터필드·검사항목표를 배치하면, 출력할 때 그 자재의 실제
+  검사값이 채워진 PDF가 나와. (지정 안 한 자재는 기존 기본 양식 그대로야.)
+</p>
+
+<form method="POST" action="{{ url_for('custom_template_create') }}" style="margin:14px 0;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input type="text" name="name" placeholder="새 양식 이름 (예: ACE 볼트 전용)"
+           style="flex:1; min-width:220px;">
+    <button type="submit" class="btn-primary">+ 새 양식 만들기</button>
+  </div>
+</form>
+
+<table>
+  <tr>
+    <th>이름</th>
+    <th style="width:110px;">용지</th>
+    <th style="width:120px;">지정된 자재</th>
+    <th style="width:150px;">마지막 수정</th>
+    <th style="width:230px;">작업</th>
+  </tr>
+  {% for t in templates %}
+  <tr>
+    <td><b>{{ t['name'] }}</b></td>
+    <td style="font-size:13px; color:#6b7280;">
+      {{ t['page_size'] or 'A4' }} · {{ '세로' if (t['orientation'] or 'portrait') == 'portrait' else '가로' }}
+    </td>
+    <td>
+      {% if t['material_count'] %}
+        <span class="badge" style="background:#dbeafe; color:#1e40af;">{{ t['material_count'] }}개 자재</span>
+      {% else %}
+        <span style="color:#9ca3af; font-size:13px;">미지정</span>
+      {% endif %}
+    </td>
+    <td style="font-size:12px; color:#6b7280;">{{ (t['updated_at'] | datetime_korean) or '-' }}</td>
+    <td>
+      <a href="{{ url_for('custom_template_edit', template_id=t['id']) }}" class="btn-small">편집</a>
+      <a href="{{ url_for('custom_template_assign', template_id=t['id']) }}" class="btn-small">자재 지정</a>
+      <a href="{{ url_for('custom_template_preview', template_id=t['id']) }}" target="_blank" class="btn-small">미리보기 PDF</a>
+      <button type="button" class="btn-small btn-danger"
+              onclick="if(confirm('\'{{ t['name'] }}\' 양식을 삭제할까? 이 양식을 쓰던 자재는 기본 양식으로 돌아가.')){document.getElementById('del-{{ t['id'] }}').submit();}">삭제</button>
+      <form id="del-{{ t['id'] }}" method="POST" action="{{ url_for('custom_template_delete', template_id=t['id']) }}" style="display:none;"></form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" style="text-align:center; color:#9ca3af; padding:24px;">
+    아직 만든 양식이 없어. 위에서 새 양식을 만들어봐.
+  </td></tr>
+  {% endfor %}
+</table>
+
+<style>
+  .btn-small { display:inline-block; padding:4px 9px; font-size:12px; border-radius:6px;
+               background:#f1f5f9; border:1px solid #cbd5e1; color:#334155; margin:1px 0;
+               text-decoration:none; cursor:pointer; }
+  .btn-small:hover { background:#e2e8f0; }
+  .btn-danger { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
+  .btn-danger:hover { background:#fee2e2; }
+</style>
+{% endblock %}

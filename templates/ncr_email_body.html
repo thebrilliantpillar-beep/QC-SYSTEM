@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head><meta charset="UTF-8"><title>부적합 통보서</title></head>
+<body style="font-family: 'Malgun Gothic', sans-serif; color: #1f2937; max-width: 600px; margin: 0 auto; padding: 20px;">
+<div style="border: 2px solid #1f2937; border-radius: 10px; padding: 24px;">
+  <h2 style="text-align:center; border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; margin-top:0;">
+    부적합 통보서<br>
+    <span style="font-size:13px; color:#6b7280; font-weight:400;">NON-CONFORMANCE REPORT</span>
+  </h2>
+  <p style="font-size:13px; color:#6b7280; text-align:right; margin-top:-8px;">{{ ncr['ncr_no'] }}</p>
+
+  <table style="width:100%; border-collapse:collapse; font-size:14px; margin-bottom:20px;">
+    <tr>
+      <td style="padding:8px; background:#f3f4f6; font-weight:700; width:28%; border:1px solid #e5e7eb;">발행일</td>
+      <td style="padding:8px; border:1px solid #e5e7eb;">{{ ncr['issued_date'] }}</td>
+      <td style="padding:8px; background:#f3f4f6; font-weight:700; width:28%; border:1px solid #e5e7eb;">발행자</td>
+      <td style="padding:8px; border:1px solid #e5e7eb;">{{ ncr['issued_by'] }}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px; background:#f3f4f6; font-weight:700; border:1px solid #e5e7eb;">자재번호</td>
+      <td style="padding:8px; border:1px solid #e5e7eb;">{{ ncr['material_no'] }}</td>
+      <td style="padding:8px; background:#f3f4f6; font-weight:700; border:1px solid #e5e7eb;">제품명</td>
+      <td style="padding:8px; border:1px solid #e5e7eb;">{{ ncr['material_name'] or '-' }}</td>
+    </tr>
+    {% if ncr['due_date'] %}
+    <tr>
+      <td style="padding:8px; background:#f3f4f6; font-weight:700; border:1px solid #e5e7eb;">조치 기한</td>
+      <td colspan="3" style="padding:8px; border:1px solid #e5e7eb; font-weight:700; color:#dc2626;">{{ ncr['due_date'] }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  <p style="font-weight:700; margin-bottom:6px;">📌 불량 내용</p>
+  <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px; white-space:pre-wrap; font-size:14px; margin-bottom:16px;">{{ ncr['defect_description'] }}</div>
+
+  <p style="font-weight:700; margin-bottom:6px;">🔧 요구 조치사항</p>
+  <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:12px; white-space:pre-wrap; font-size:14px; margin-bottom:20px;">{{ ncr['action_required'] }}</div>
+
+  <p style="font-size:12px; color:#6b7280; border-top:1px solid #e5e7eb; padding-top:12px; margin-bottom:0;">
+    본 통보서는 Chardon QMS에서 자동 발행됐습니다. · Chardon Korea
+  </p>
+</div>
+</body>
+</html>

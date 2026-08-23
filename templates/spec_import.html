@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}규격 일괄 등록{% endblock %}
+{% block title %}자재 일괄 등록{% endblock %}
 {% block content %}
-<h2>규격 일괄 등록</h2>
+<h2>자재 일괄 등록</h2>
 <div class="card">
   <p class="muted" style="margin-top:0;">
     자재별로 항목/규격만 채워진 빈 성적서 양식(.xlsx) 파일들을 한 번에 올리면
@@ -19,18 +19,6 @@
   <form method="POST" enctype="multipart/form-data">
     <label>성적서 양식 파일 (여러 개 선택 가능)</label>
     <input type="file" name="spec_files" accept=".xlsx,.xlsm" multiple required>
-
-    <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:16px;">
-      <input type="checkbox" name="is_group" value="1" id="isGroupCheck" style="width:auto;"
-             onchange="document.getElementById('groupFields').style.display = this.checked ? 'block' : 'none'">
-      이 파일(들)은 조립품 그룹이다 — 업로드되는 시트/자재들을 하나의 그룹으로 묶어줘
-    </label>
-    <div id="groupFields" style="display:none; margin-top:10px;">
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:160px;"><label>그룹(조립품) 자재번호</label><input type="text" name="group_no" placeholder="예: ASM-001"></div>
-        <div style="flex:1; min-width:160px;"><label>그룹 이름</label><input type="text" name="group_name" placeholder="예: 모터 어셈블리"></div>
-      </div>
-    </div>
 
     <button type="submit">업로드 &amp; 등록</button>
   </form>

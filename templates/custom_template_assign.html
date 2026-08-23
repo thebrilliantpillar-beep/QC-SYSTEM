@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}자재 지정 · {{ tmpl['name'] }}{% endblock %}
+{% block content %}
+<h2>자재 지정 — <span style="color:#2563eb;">{{ tmpl['name'] }}</span></h2>
+<p class="hint">
+  이 양식으로 성적서를 출력할 자재를 골라. 체크한 자재는 앞으로 이 양식으로 나가고,
+  체크를 풀면 기본 양식으로 돌아가. <b>다른 양식에 이미 물린 자재</b>를 체크하면 이 양식으로 옮겨져.
+</p>
+
+<div style="margin:12px 0;">
+  <a href="{{ url_for('custom_template_list') }}" class="btn-small">← 양식 목록</a>
+  <a href="{{ url_for('custom_template_edit', template_id=tmpl['id']) }}" class="btn-small">이 양식 편집</a>
+</div>
+
+<form method="GET" action="{{ url_for('custom_template_assign', template_id=tmpl['id']) }}" style="margin:12px 0;">
+  <div style="display:flex; gap:8px;">
+    <input type="text" name="q" value="{{ q }}" placeholder="자재번호 또는 제품명 검색"
+           style="flex:1; min-width:200px;">
+    <button type="submit">검색</button>
+    {% if q %}<a href="{{ url_for('custom_template_assign', template_id=tmpl['id']) }}" class="btn-small">전체보기</a>{% endif %}
+  </div>
+</form>
+
+<form method="POST" action="{{ url_for('custom_template_assign', template_id=tmpl['id']) }}">
+  <table>
+    <tr>
+      <th style="width:36px;">
+        <input type="checkbox" onclick="document.querySelectorAll('.mat-check').forEach(c=>c.checked=this.checked)">
+      </th>
+      <th style="width:150px;">자재번호</th>
+      <th>제품명</th>
+      <th style="width:180px;">현재 양식</th>
+    </tr>
+    {% for m in materials %}
+    {% set tid = m['custom_template_id'] %}
+    <tr>
+      <td>
+        <input type="checkbox" class="mat-check" name="material_no" value="{{ m['material_no'] }}"
+               {% if tid == this_id %}checked{% endif %}>
+        <input type="hidden" name="shown" value="{{ m['material_no'] }}">
+      </td>
+      <td>{{ m['material_no'] }}</td>
+      <td>{{ m['material_name'] or '-' }}</td>
+      <td style="font-size:13px;">
+        {% if tid == this_id %}
+          <span class="badge" style="background:#dcfce7; color:#166534;">이 양식</span>
+        {% elif tid %}
+          <span class="badge" style="background:#fef3c7; color:#92400e;">{{ other_names.get(tid, '다른 양식') }}</span>
+        {% else %}
+          <span style="color:#9ca3af;">기본 양식</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" style="text-align:center; color:#9ca3af; padding:20px;">
+      {% if q %}"{{ q }}" 검색 결과가 없어.{% else %}등록된 자재가 없어.{% endif %}
+    </td></tr>
+    {% endfor %}
+  </table>
+
+  <div style="margin-top:16px; padding:12px 16px; background:#f8fafc; border:1px solid #e2e8f0;
+              border-radius:10px; font-size:13px; color:#64748b;">
+    ✅ 저장하면 <b>화면에 보이는 자재의 체크 상태만</b> 반영돼. 검색으로 지금 안 보이는 자재의
+    지정은 그대로 유지되니, 검색한 채 저장해도 다른 자재가 풀리지 않아.
+  </div>
+  <div style="margin-top:12px;">
+    <button type="submit" class="btn-primary">저장</button>
+  </div>
+</form>
+
+<style>
+  .btn-small { display:inline-block; padding:4px 9px; font-size:12px; border-radius:6px;
+               background:#f1f5f9; border:1px solid #cbd5e1; color:#334155;
+               text-decoration:none; cursor:pointer; }
+  .btn-small:hover { background:#e2e8f0; }
+</style>
+{% endblock %}

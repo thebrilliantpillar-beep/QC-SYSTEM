@@ -109,9 +109,14 @@ def _safe_filename_part(s):
     """
     파일명에 못 쓰는 문자(\\ / : * ? " < > | 및 제어문자)는 치환하지 않고 그냥 제거.
     나머지는 그대로 둔다(한글·공백·괄호·쉼표 등은 파일명에 문제없음).
+
+    엑셀에서 가져온 값에는 전각 콜론(：)이나 줄바꿈이 섞여 들어오는 경우가 있어서
+    같은 규칙(제거)을 전각 문자에도 적용하고, 줄바꿈·연속 공백은 공백 하나로 줄인다.
     """
     s = (s or "").strip()
     s = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", s)
+    s = re.sub(r"[：＊？＂＜＞｜／＼]", "", s)   # 전각 형태도 같은 규칙으로 제거
+    s = re.sub(r"\s+", " ", s)
     return s.strip()
 
 
@@ -173,9 +178,37 @@ def is_critical_aql(aql):
 
 
 def item_label(item_name, aql):
-    """AQL 0.65인 항목은 '*A' 형태로, 아니면 그냥 'A'로."""
-    name = item_name or ""
-    return f"*{name}" if is_critical_aql(aql) else name
+    """중요항목은 '*A' 형태로, 아니면 그냥 'A'로.
+
+    중요항목 판단 기준 두 가지:
+      1) AQL이 0.65 (원칙 — 시스템이 자동으로 붙여준다)
+      2) 원본 성적서에 이미 '*'가 찍혀 있어 item_name에 그대로 들어온 경우
+
+    ※ 이 함수는 반드시 멱등이어야 한다. 예전엔 item_name이 '*H'인 채로 들어오면
+      앞에 '*'를 한 번 더 붙여서 성적서에 '**H'로 찍히는 버그가 있었다(364건).
+    """
+    raw = item_name or ""
+    name = raw.strip().lstrip("*").strip()
+    critical = is_critical_aql(aql) or raw.strip().startswith("*")
+    return f"*{name}" if critical else name
+
+
+def format_aql(aql):
+    """AQL을 사람이 보는 표기로 바꾼다. DB에는 '퍼센트10'으로 저장되지만 화면·성적서에는 '10%'로 나가야 함.
+    '퍼센트10' -> '10%',  '퍼센트10.0' -> '10%',  '전수' -> '전수',  4 -> '4'
+    (성적서·기준서·웹화면이 전부 이 함수 하나를 쓰도록 모아둠 — 예전엔 세 군데에 복사돼 있었다)
+    """
+    if aql is None:
+        return ""
+    text = str(aql).strip()
+    if text.startswith("퍼센트"):
+        num = text[3:]
+        try:
+            num = f"{float(num):g}"   # "10.0" -> "10", "10.5"는 그대로
+        except ValueError:
+            pass
+        return f"{num}%"
+    return text
 
 
 def _format_gauge_expiry(iso_date_str):
@@ -269,20 +302,20 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
         ws[f"A{row}"].alignment = center  # 번호(항목기호)
         if r.get("spec_display") is not None:
             ws[f"B{row}"] = r["spec_display"]
+        # AQL 칸은 두 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
+        #   AQL 4.0
+        #   샘플 13개/무결점
+        # 이 시스템은 샘플 중 하나라도 벗어나면 불합격(Ac=0)이라, AQL 표기만 있으면
+        # "AQL 4.0인데 왜 1개 불량으로 로트 불합격이냐"는 물음에 답할 근거가 없다.
         if r.get("aql") is not None:
-            aql_val = r["aql"]
-            aql_str = str(aql_val)
-            if aql_str.startswith("퍼센트"):
-                num = aql_str[3:]
-                # "10.0" -> "10", "10.5" -> "10.5" 처럼 불필요한 소수점 제거
-                try:
-                    num = f"{float(num):g}"
-                except ValueError:
-                    pass
-                ws[f"C{row}"] = f"{num}%"
-            else:
-                ws[f"C{row}"] = aql_val
-        ws[f"C{row}"].alignment = center  # AQL 기준
+            aql_text = format_aql(r["aql"])
+            sample_qty = r.get("sample_qty")
+            if sample_qty:
+                aql_text = f"{aql_text}\n샘플 {sample_qty}개/무결점"
+            ws[f"C{row}"] = aql_text
+        # ※ wrap_text 없으면 LibreOffice가 PDF 변환할 때 줄바꿈을 무시하고 한 줄로 뭉갠다
+        ws[f"C{row}"].alignment = Alignment(horizontal="center", vertical="center",
+                                            wrap_text=True, shrink_to_fit=True)
         if r.get("sample_qty") is not None:
             ws[f"D{row}"] = r["sample_qty"]
         ws[f"D{row}"].alignment = center  # 샘플 수량
@@ -402,16 +435,7 @@ def _fill_standard_sheet(ws, material_no, product_name, drawing_version, revisio
         method_cell.alignment = center
 
         aql_cell = ws[f"G{row}"]
-        aql_str = str(aql) if aql is not None else ""
-        if aql_str.startswith("퍼센트"):
-            num = aql_str[3:]
-            try:
-                num = f"{float(num):g}"
-            except ValueError:
-                pass
-            aql_cell.value = f"{num}%"
-        else:
-            aql_cell.value = aql
+        aql_cell.value = format_aql(aql)
         aql_cell.alignment = center
 
 
@@ -587,3 +611,69 @@ def _to_pdf(xlsx_path, out_dir):
     stdout_msg = (proc.stdout or b"").decode("utf-8", errors="ignore").strip()
     detail = stderr_msg or stdout_msg or f"returncode={proc.returncode}"
     return None, f"PDF 변환 실패: {detail}"
+
+
+def merge_report_with_drawing(report_pdf, drawing_pdf, output_path,
+                               incl_drawing=True, incl_standard=True, incl_report=True):
+    """도면→기준서→성적서 순으로 PDF 병합.
+
+    report_pdf 구조: 성적서(첫 번째 페이지) + 기준서(나머지 페이지).
+    - incl_drawing: 도면 PDF 앞에 붙임
+    - incl_standard: report_pdf의 기준서 페이지(2페이지 이후) 포함
+    - incl_report: report_pdf의 성적서 페이지(첫 페이지) 포함
+
+    반환: (최종 PDF 경로, 에러메시지 or None)
+    """
+    try:
+        from pypdf import PdfWriter, PdfReader
+    except ImportError:
+        return None, "pypdf 미설치 — 'pip install pypdf' 실행 필요"
+
+    writer = PdfWriter()
+
+    # ① 도면
+    if incl_drawing and drawing_pdf and os.path.exists(drawing_pdf):
+        try:
+            for page in PdfReader(drawing_pdf).pages:
+                writer.add_page(page)
+        except Exception as e:
+            return None, f"도면 PDF 읽기 실패: {e}"
+
+    # ② 기준서 (report_pdf 2페이지 이후)
+    report_pages = []
+    if report_pdf and os.path.exists(report_pdf):
+        try:
+            report_pages = list(PdfReader(report_pdf).pages)
+        except Exception as e:
+            return None, f"성적서 PDF 읽기 실패: {e}"
+
+    if incl_standard and len(report_pages) > 1:
+        for page in report_pages[1:]:
+            writer.add_page(page)
+
+    # ③ 성적서 (report_pdf 첫 페이지)
+    if incl_report and report_pages:
+        writer.add_page(report_pages[0])
+
+    if len(writer.pages) == 0:
+        return None, "선택된 항목이 없어 PDF를 생성할 수 없어."
+
+    with open(output_path, "wb") as f:
+        writer.write(f)
+    return output_path, None
+
+
+def append_pdf(base_pdf, extra_pdf, output_path):
+    """base_pdf 뒤에 extra_pdf를 붙여 output_path에 저장. 반환: (경로, 에러)"""
+    try:
+        from pypdf import PdfWriter, PdfReader
+    except ImportError:
+        return None, "pypdf 미설치"
+    writer = PdfWriter()
+    for p in PdfReader(base_pdf).pages:
+        writer.add_page(p)
+    for p in PdfReader(extra_pdf).pages:
+        writer.add_page(p)
+    with open(output_path, "wb") as f:
+        writer.write(f)
+    return output_path, None

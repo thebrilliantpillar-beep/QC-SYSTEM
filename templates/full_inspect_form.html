@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}전수검사 기록 — {{ header.material_no }}{% endblock %}
+{% block content %}
+<style>
+.fi-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fi-tbl { border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+.fi-tbl th { background: #1f2937; color: #fff; padding: 7px 10px;
+             border: 1px solid #374151; font-size: 12px; text-align: center; }
+.fi-tbl td { border: 1px solid #d1d5db; padding: 2px 4px; }
+.fi-tbl .no-cell { text-align: center; color: #9ca3af; width: 34px;
+                   font-size: 12px; background: #f9fafb; }
+.fi-tbl input[type=text] {
+  width: 100%; min-width: 60px; border: none; background: transparent;
+  font-size: 13px; padding: 4px 5px; box-sizing: border-box; font-family: inherit;
+}
+.fi-tbl input[type=text]:focus {
+  background: #fffbeb; outline: 2px solid #f59e0b; border-radius: 2px;
+}
+.fi-tbl .serial-cell input { min-width: 90px; }
+.fi-tbl .remark-cell input { min-width: 80px; }
+.res-ok  { text-align: center; color: #16a34a; font-weight: 700; background: #f0fdf4; }
+.res-ng  { text-align: center; color: #dc2626; font-weight: 700; background: #fef2f2; }
+.res-nil { text-align: center; color: #9ca3af; }
+.fi-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+          background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.fi-bar label { font-size: 13px; color: #374151; }
+.fi-bar input[type=date] { font-size: 13px; border: 1px solid #d1d5db;
+                            border-radius: 5px; padding: 4px 8px; }
+#save-state { font-size: 12px; color: #6b7280; margin-left: auto; }
+.btn-complete { background: #1d4ed8; color: #fff; border: none; border-radius: 6px;
+                padding: 8px 20px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.btn-complete:hover { background: #1e40af; }
+.btn-save { background: #059669; color: #fff; border: none; border-radius: 6px;
+            padding: 8px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.btn-save:hover { background: #047857; }
+.badge-done { display:inline-block; background: #16a34a; color: #fff;
+              border-radius: 10px; padding: 2px 12px; font-size: 12px; font-weight: 700; }
+.badge-open { display:inline-block; background: #d97706; color: #fff;
+              border-radius: 10px; padding: 2px 12px; font-size: 12px; }
+#summary-bar { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+#summary-bar .ok { color: #16a34a; }
+#summary-bar .ng { color: #dc2626; }
+</style>
+
+<div style="max-width:1300px;margin:0 auto;padding:10px 8px;">
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+    <a href="{{ url_for('inspection_detail', inspection_id=header.id) }}"
+       style="font-size:13px;color:#2563eb;text-decoration:none;">← 성적서로</a>
+    <h2 style="margin:0;font-size:18px;">전수검사 기록지</h2>
+    <span style="font-size:13px;color:#6b7280;">
+      {{ header.material_no }} · {{ header.material_name }}
+    </span>
+    {% if fi.status == 'complete' %}
+      <span class="badge-done">✓ 완료 {{ fi.complete_date or '' }}</span>
+    {% else %}
+      <span class="badge-open">입력 중</span>
+    {% endif %}
+  </div>
+
+  <div class="fi-bar">
+    <label>검사날짜
+      <input type="date" id="inspect-date"
+             value="{{ fi.inspect_date or '' }}"
+             {% if fi.status == 'complete' %}disabled{% endif %}>
+    </label>
+    <span style="font-size:13px;color:#6b7280;">
+      담당: <b>{{ header.inspector or '—' }}</b>
+    </span>
+    {% if fi.status == 'complete' %}
+    <span style="font-size:13px;color:#6b7280;">
+      완료날짜: <b>{{ fi.complete_date or '—' }}</b>
+    </span>
+    {% endif %}
+    <span id="save-state">—</span>
+  </div>
+
+  {% if fi.status == 'complete' %}
+  <div style="background:#dcfce7;border:1px solid #86efac;border-radius:6px;
+              padding:9px 14px;font-size:13px;margin-bottom:10px;">
+    ✓ 전수검사 완료. 출력 시 성적서 뒤에 자동으로 붙어 나가.
+    수정은 아래 표에서 바로 편집 후 <b>저장</b> 버튼 눌러줘.
+  </div>
+  {% endif %}
+
+  {% if config.note %}
+  <div style="font-size:12px;background:#f0f4ff;border-radius:5px;
+              padding:5px 12px;margin-bottom:8px;color:#374151;">
+    📋 시험 조건: {{ config.note }}
+  </div>
+  {% endif %}
+
+  <div id="summary-bar">
+    합계:
+    <span class="ok" id="ok-cnt">0</span>개 합격 /
+    <span class="ng" id="ng-cnt">0</span>개 불합격
+    / 전체 {{ qty }}개
+  </div>
+
+  {% if columns %}
+  <div class="fi-wrap">
+  <table class="fi-tbl" id="fi-table">
+    <thead>
+      <tr>
+        <th style="width:34px;">번호</th>
+        <th style="min-width:90px;">제품번호</th>
+        {% for col in columns %}
+        <th style="min-width:80px;">
+          {{ col.header }}
+          {% if col.type == 'num' %}
+            {% if col.lo is not none and col.hi is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.lo }}~{{ col.hi }}</div>
+            {% elif col.lo is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.lo }} 이상</div>
+            {% elif col.hi is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.hi }} 이하</div>
+            {% endif %}
+          {% elif col.type == 'pf' %}
+            <div style="font-size:10px;font-weight:400;opacity:.8;">○/×</div>
+          {% endif %}
+        </th>
+        {% endfor %}
+        <th style="min-width:50px;">판정</th>
+        <th style="min-width:70px;">비고</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+    {% set vals = row['values'] if row['values'] else {} %}
+    <tr data-unit="{{ row.unit_no }}">
+      <td class="no-cell">{{ row.unit_no }}</td>
+      <td class="serial-cell">
+        <input type="text" class="cell-input c-serial"
+               data-unit="{{ row.unit_no }}"
+               value="{{ row.serial_no or '' }}"
+               placeholder="제품번호">
+      </td>
+      {% for col in columns %}
+      <td>
+        <input type="text" class="cell-input c-val"
+               data-unit="{{ row.unit_no }}"
+               data-key="{{ col.key }}"
+               data-type="{{ col.type }}"
+               data-lo="{{ col.lo if col.lo is not none else '' }}"
+               data-hi="{{ col.hi if col.hi is not none else '' }}"
+               value="{{ vals.get(col.key, '') }}"
+               placeholder="{{ '○/×' if col.type == 'pf' else '' }}">
+      </td>
+      {% endfor %}
+      {% set res = row.result or '' %}
+      <td class="{{ 'res-ok' if res == 'OK' else ('res-ng' if res == 'NG' else 'res-nil') }}"
+          id="res-{{ row.unit_no }}">{{ res or '—' }}</td>
+      <td class="remark-cell">
+        <input type="text" class="cell-input c-remark"
+               data-unit="{{ row.unit_no }}"
+               value="{{ row.remark or '' }}">
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <button class="btn-save" onclick="manualSave()">💾 저장</button>
+    {% if fi.status != 'complete' %}
+    <button class="btn-complete" onclick="doComplete()">✓ 전수검사 완료</button>
+    {% endif %}
+    <a href="{{ url_for('full_inspect_pdf', inspection_id=header.id) }}"
+       target="_blank"
+       style="color:#2563eb;font-size:13px;text-decoration:none;padding:8px 14px;
+              border:1px solid #2563eb;border-radius:6px;">📄 PDF 미리보기</a>
+    <span id="save-state2" style="font-size:12px;color:#6b7280;"></span>
+  </div>
+
+  {% else %}
+  <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;
+              padding:14px;font-size:14px;">
+    ⚠ 검사항목이 등록되지 않았어.
+    <a href="{{ url_for('spec_detail', material_no=header.material_no) }}"
+       style="color:#b45309;font-weight:600;">자재 상세</a>에서 검사항목을 먼저 등록해줘.
+    등록된 항목이 자동으로 전수검사 기록지의 열이 돼.
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+const SAVE_URL = {{ url_for('full_inspect_save', inspection_id=header.id) | tojson }};
+const COMP_URL = {{ url_for('full_inspect_complete', inspection_id=header.id) | tojson }};
+
+function collectRows() {
+  const map = {};
+  document.querySelectorAll('#fi-table tbody tr').forEach(tr => {
+    const u = +tr.dataset.unit;
+    map[u] = {unit_no: u, serial_no: '', values: {}, remark: ''};
+  });
+  document.querySelectorAll('.c-serial').forEach(inp => {
+    const u = +inp.dataset.unit;
+    if (map[u]) map[u].serial_no = inp.value;
+  });
+  document.querySelectorAll('.c-remark').forEach(inp => {
+    const u = +inp.dataset.unit;
+    if (map[u]) map[u].remark = inp.value;
+  });
+  document.querySelectorAll('.c-val').forEach(inp => {
+    const u = +inp.dataset.unit;
+    if (map[u]) map[u].values[inp.dataset.key] = inp.value;
+  });
+  return Object.values(map).sort((a, b) => a.unit_no - b.unit_no);
+}
+
+function calcResult(unit) {
+  const inputs = document.querySelectorAll(`.c-val[data-unit="${unit}"]`);
+  let hasAny = false;
+  for (const inp of inputs) {
+    const v = inp.value.trim();
+    if (!v) continue;
+    hasAny = true;
+    const t = inp.dataset.type;
+    if (t === 'pf') {
+      if (['ng','x','×','△','불합격','fail'].includes(v.toLowerCase())) return 'NG';
+    } else if (t === 'num') {
+      const n = parseFloat(v.replace(/,/g, ''));
+      if (!isNaN(n)) {
+        const lo = inp.dataset.lo;
+        const hi = inp.dataset.hi;
+        if (lo !== '' && n < parseFloat(lo)) return 'NG';
+        if (hi !== '' && n > parseFloat(hi)) return 'NG';
+      }
+    }
+  }
+  return hasAny ? 'OK' : '';
+}
+
+function updateRowResult(unit) {
+  const cell = document.getElementById('res-' + unit);
+  if (!cell) return;
+  const res = calcResult(unit);
+  cell.textContent = res || '—';
+  cell.className = res === 'OK' ? 'res-ok' : res === 'NG' ? 'res-ng' : 'res-nil';
+  updateSummary();
+}
+
+function updateSummary() {
+  let ok = 0, ng = 0;
+  document.querySelectorAll('[id^="res-"]').forEach(el => {
+    if (el.textContent === 'OK') ok++;
+    else if (el.textContent === 'NG') ng++;
+  });
+  document.getElementById('ok-cnt').textContent = ok;
+  document.getElementById('ng-cnt').textContent = ng;
+}
+
+let _dirty = false, _timer = null;
+
+function setState(msg) {
+  ['save-state', 'save-state2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = msg;
+  });
+}
+
+async function doSave() {
+  const rows = collectRows();
+  /* 서버 save 라우트는 values를 flat하게 col_keys로 꺼냄 */
+  const units = rows.map(r => {
+    const flat = {unit_no: r.unit_no, serial_no: r.serial_no, remark: r.remark};
+    Object.assign(flat, r.values);
+    return flat;
+  });
+  const payload = {
+    inspect_date: document.getElementById('inspect-date')?.value || '',
+    units: units,
+  };
+  setState('저장 중…');
+  try {
+    const resp = await fetch(SAVE_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('json')) {
+      setState('⚠ 세션 만료 — 새 탭에서 다시 로그인 후 저장');
+      return false;
+    }
+    const j = await resp.json();
+    if (j.ok) {
+      _dirty = false;
+      setState('✓ 저장됨  합격 ' + j.ok_cnt + '개 / 불합격 ' + j.ng_cnt + '개');
+      return true;
+    }
+    setState('⚠ 저장 실패: ' + (j.error || '알 수 없음'));
+    return false;
+  } catch (e) {
+    setState('⚠ 서버 오류');
+    return false;
+  }
+}
+
+function scheduleSave() {
+  _dirty = true;
+  clearTimeout(_timer);
+  _timer = setTimeout(doSave, 1000);
+}
+
+function manualSave() {
+  clearTimeout(_timer);
+  doSave();
+}
+
+async function doComplete() {
+  if (!confirm('전수검사를 완료 처리할까요?\n완료하면 출력 시 성적서 뒤에 자동으로 붙어 나가요.')) return;
+  const saved = await doSave();
+  if (!saved) { alert('저장에 실패했어. 저장 먼저 해줘.'); return; }
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = COMP_URL;
+  document.body.appendChild(form);
+  form.submit();
+}
+
+/* 이벤트 */
+document.querySelectorAll('.c-val').forEach(inp => {
+  inp.addEventListener('input', () => {
+    updateRowResult(+inp.dataset.unit);
+    scheduleSave();
+  });
+  if (inp.dataset.type === 'pf') {
+    inp.addEventListener('change', () => {
+      const map = {o:'○',O:'○','0':'○',ok:'○',OK:'○',
+                   x:'×',X:'×',ng:'×',NG:'×','불합격':'×'};
+      const v = inp.value.trim();
+      if (map[v] !== undefined) inp.value = map[v];
+      updateRowResult(+inp.dataset.unit);
+      scheduleSave();
+    });
+  }
+});
+document.querySelectorAll('.c-serial,.c-remark').forEach(inp => {
+  inp.addEventListener('input', scheduleSave);
+});
+const dateInp = document.getElementById('inspect-date');
+if (dateInp) dateInp.addEventListener('change', scheduleSave);
+
+/* Enter → 같은 열 다음 행 */
+document.querySelectorAll('#fi-table input').forEach(inp => {
+  inp.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    let sel;
+    if (inp.classList.contains('c-val')) {
+      sel = `.c-val[data-key="${inp.dataset.key}"]`;
+    } else if (inp.classList.contains('c-serial')) {
+      sel = '.c-serial';
+    } else {
+      sel = '.c-remark';
+    }
+    const all = [...document.querySelectorAll(sel)];
+    const ci = all.indexOf(inp);
+    if (ci >= 0 && ci + 1 < all.length) all[ci + 1].focus();
+  });
+});
+
+/* 초기 집계 */
+document.querySelectorAll('#fi-table tbody tr').forEach(tr => {
+  updateRowResult(+tr.dataset.unit);
+});
+
+/* 세션 유지 하트비트 */
+let _lastAct = Date.now();
+['pointerdown','keydown'].forEach(ev =>
+  document.addEventListener(ev, () => { _lastAct = Date.now(); }, {passive: true})
+);
+setInterval(() => {
+  if (Date.now() - _lastAct > 5 * 60 * 1000) return;
+  fetch('/session/ping', {method: 'POST'}).catch(() => {});
+}, 3 * 60 * 1000);
+</script>
+{% endblock %}

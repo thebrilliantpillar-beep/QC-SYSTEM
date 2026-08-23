@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}출력 기록{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+  <h2 style="margin:0;">출력 기록</h2>
+  <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:0; padding:8px 16px; font-size:13px;">
+    🖨️ 출력 대기
+  </a>
+</div>
+
+<div class="card" style="padding:12px 16px; margin-bottom:14px;">
+  <form method="get" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:1; min-width:200px;">
+      <label style="margin:0 0 5px;">검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="자재번호 / 자재명 / 업체 / 승인자">
+    </div>
+    <button type="submit" style="margin-top:0; padding:11px 18px;">🔍 검색</button>
+    {% if q %}<a href="{{ url_for('output_history') }}" class="btn secondary" style="margin-top:0; padding:11px 14px;">✕ 초기화</a>{% endif %}
+  </form>
+</div>
+
+{% if not rows %}
+<div class="card">
+  <p class="muted" style="margin:0;">
+    {% if q %}검색 결과가 없어.{% else %}아직 출력된 성적서가 없어.{% endif %}
+  </p>
+</div>
+{% else %}
+<div class="card" style="padding:8px 14px; margin-bottom:10px; font-size:13px; color:#6b7280;">
+  총 <b>{{ rows|length }}건</b>의 출력 기록이 있어. 행을 클릭하면 상세 정보와 재출력 옵션이 나와.
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>번호</th>
+      <th>자재번호</th>
+      <th>자재명</th>
+      <th>업체</th>
+      <th>결정</th>
+      <th>승인자</th>
+      <th>승인일시</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+  <tr class="clickable" onclick="location.href='{{ url_for('output_history_detail', inspection_id=r['id']) }}'">
+    <td>{{ r['id'] }}</td>
+    <td>{{ r['material_no'] }}</td>
+    <td style="text-align:left;">{{ r['material_name'] or '-' }}</td>
+    <td>{{ r['supplier'] or '-' }}</td>
+    <td>
+      {% if r['approval_type'] == 'normal' %}<span class="badge pass">합격</span>
+      {% elif r['approval_type'] == 'special' %}<span class="badge special">특채</span>
+      {% elif r['approval_type'] == 'failed' %}<span class="badge fail">불합격</span>
+      {% else %}<span class="badge muted">-</span>{% endif %}
+    </td>
+    <td>{{ r['approver'] or '-' }}</td>
+    <td style="font-size:12px; color:#6b7280;">{{ (r['approved_at'] | datetime_korean) or '-' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

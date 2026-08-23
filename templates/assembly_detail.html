@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ master['assembly_no'] if master else '조립품 등록' }} — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .part-row { display:flex; align-items:center; gap:10px; padding:9px 12px;
+              border-bottom:1px solid var(--border); font-size:13.5px; }
+  .part-row:last-child { border-bottom:none; }
+  .part-no { font-weight:600; min-width:190px; word-break:break-all; }
+  .part-name { color:#475569; flex:1; }
+  .tag-ok   { background:#dcfce7; color:#166534; border-radius:6px; padding:2px 8px; font-size:11.5px; font-weight:700; }
+  .tag-warn { background:#fee2e2; color:#991b1b; border-radius:6px; padding:2px 8px; font-size:11.5px; font-weight:700; }
+  textarea.parts-input { width:100%; min-height:190px; font-family:ui-monospace,Consolas,monospace;
+                         font-size:13.5px; line-height:1.7; padding:11px; border:1.5px solid var(--border);
+                         border-radius:9px; }
+</style>
+
+<h2>🧩 {{ master['assembly_no'] if master else '조립품 등록' }}</h2>
+<a href="{{ url_for('assembly_list') }}" class="btn secondary" style="margin-top:0;">← 조립품 목록</a>
+
+{% if master and parts %}
+<div class="card" style="margin-top:14px;">
+  <h3 style="margin:0 0 4px; font-size:15px;">현재 파츠 구성 ({{ parts|length }}개)</h3>
+  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">
+    입고 때 아래 번호 중 하나만 넣으면 전체가 펼쳐져.
+  </p>
+  {% for p in parts %}
+  <div class="part-row">
+    <span style="color:var(--muted); width:22px;">{{ p['component_order'] }}</span>
+    <span class="part-no">{{ p['component_no'] }}</span>
+    <span class="part-name">{{ p['material_name'] or '—' }}</span>
+    {% if not p['material_name'] %}
+      <span class="tag-warn">자재 미등록</span>
+    {% elif not p['spec_count'] %}
+      <span class="tag-warn">규격 없음</span>
+    {% else %}
+      <span class="tag-ok">규격 {{ p['spec_count'] }}개</span>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% set broken = parts | rejectattr('spec_count') | list %}
+  {% if broken %}
+  <div style="margin-top:11px; background:#fef2f2; border:1px solid #fecaca; border-radius:9px;
+              padding:10px 13px; font-size:13px; color:#991b1b;">
+    ⚠️ 규격이 없는 파츠가 {{ broken|length }}개 있어 — 이 파츠는 입고돼도 <b>검사를 시작할 수 없어</b>.
+    <a href="{{ url_for('spec_list') }}" style="color:#dc2626; font-weight:700;">자재 관리</a>에서 규격을 먼저 등록해줘.
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin:0 0 10px; font-size:15px;">{{ '수정' if master else '새로 등록' }}</h3>
+  <form method="POST">
+    <label>조립품 이름 (또는 대표 자재번호)</label>
+    <input type="text" name="assembly_no" required
+           value="{{ master['assembly_no'] if master else '' }}"
+           placeholder="예: MA ASSY(CKMR5310)">
+
+    <label style="margin-top:12px;">파츠 자재번호 — 한 줄에 하나씩 (쉼표로 구분해도 돼)</label>
+    <textarea class="parts-input" name="component_nos" required
+      placeholder="602103P042&#10;602106P247-CKMR5310&#10;602106P103-CKMR5310">{% for p in parts %}{{ p['component_no'] }}
+{% endfor %}</textarea>
+    <p class="muted" style="font-size:12.5px; margin:6px 0 0;">
+      엑셀에서 자재번호 열을 복사해서 그대로 붙여넣어도 돼. 저장하면 파츠 구성이 <b>여기 적힌 내용으로 전부 교체</b>돼.
+    </p>
+
+    <button type="submit" style="margin-top:14px;">저장</button>
+  </form>
+</div>
+
+{% if master %}
+<form method="POST" action="{{ url_for('assembly_delete', assembly_id=master['id']) }}"
+      onsubmit="return confirm('{{ master['assembly_no'] }} 조립품 등록을 삭제할까? 파츠 자재 자체는 안 지워지고, 입고 때 자동으로 펼쳐지지만 않게 돼.');">
+  <button type="submit"
+          style="background:#fff; color:#dc2626; border:1px solid #dc2626; padding:9px 18px;">
+    이 조립품 삭제
+  </button>
+</form>
+{% endif %}
+{% endblock %}

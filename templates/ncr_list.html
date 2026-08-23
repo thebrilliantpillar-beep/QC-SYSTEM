@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}부적합 통보서 목록 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+.ncr-badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:700; }
+.ncr-badge.draft     { background:#fef9c3; color:#854d0e; }
+.ncr-badge.confirmed { background:#dbeafe; color:#1e40af; }
+.ncr-badge.sent      { background:#dcfce7; color:#15803d; }
+.ncr-badge.issued    { background:#f3f4f6; color:#374151; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+  <h2 style="margin:0;">📋 부적합 통보서 목록</h2>
+</div>
+
+<!-- 상태 필터 -->
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+  {% for label, val in [('전체',''), ('초안','draft'), ('확인완료','confirmed'), ('발송됨','sent')] %}
+  <a href="{{ url_for('ncr_list', status=val) }}"
+     style="padding:6px 14px; border-radius:999px; font-size:13px; font-weight:700; text-decoration:none;
+            {% if status_filter == val %}background:var(--primary); color:#fff;
+            {% else %}background:#f3f4f6; color:#374151;{% endif %}">
+    {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+{% if ncrs %}
+<div style="overflow-x:auto;">
+<table>
+  <thead>
+    <tr>
+      <th>번호</th>
+      <th style="text-align:left; padding-left:12px;">자재번호 / 제품명</th>
+      <th>업체</th>
+      <th>발행일</th>
+      <th>발행자</th>
+      <th>조치 기한</th>
+      <th>상태</th>
+      <th style="width:60px;"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for n in ncrs %}
+  {% set status = n['status'] or 'draft' %}
+  <tr class="clickable" onclick="location.href='{{ url_for('ncr_detail', ncr_id=n['id']) }}'">
+    <td style="font-size:12px; color:var(--muted); white-space:nowrap;">{{ n['ncr_no'] }}</td>
+    <td style="text-align:left; padding-left:12px;">
+      <div style="font-weight:700;">{{ n['material_no'] }}</div>
+      {% if n['material_name'] %}<div style="font-size:12px; color:var(--muted);">{{ n['material_name'] }}</div>{% endif %}
+    </td>
+    <td>{{ n['supplier'] or '-' }}</td>
+    <td style="font-size:13px;">{{ n['issued_date'] or '-' }}</td>
+    <td style="font-size:13px;">{{ n['issued_by'] or '-' }}</td>
+    <td style="font-size:13px; {% if n['due_date'] and n['due_date'] < today %}color:var(--fail); font-weight:700;{% endif %}">
+      {{ n['due_date'] or '-' }}
+    </td>
+    <td>
+      <span class="ncr-badge {{ status }}">
+        {% if status == 'draft' %}초안
+        {% elif status == 'confirmed' %}확인완료
+        {% elif status == 'sent' %}발송됨
+        {% else %}발행됨{% endif %}
+      </span>
+    </td>
+    <td>
+      <a href="{{ url_for('ncr_detail', ncr_id=n['id']) }}"
+         onclick="event.stopPropagation()"
+         style="color:var(--primary); font-size:13px; white-space:nowrap;">보기 →</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; padding:40px; color:var(--muted);">
+  {% if status_filter %}해당 상태의 통보서가 없어.{% else %}아직 발행된 부적합 통보서가 없어.{% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

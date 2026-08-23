@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_glossary.html" import term %}
 {% block title %}{{ intake['material_no'] }} 검사 입력{% endblock %}
 {% block content %}
 <style>
@@ -20,7 +21,13 @@
                  border-radius: 6px; text-align: center; }
   .gauge-input:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
   .gauge-input.gauge-expiring { color: #dc2626; font-style: italic; border-color: #dc2626; font-weight: 700; }
+  .gauge-input.gauge-invalid { color: #991b1b; background: #fee2e2; border-color: #fca5a5; font-weight: 700; }
   .disabled-cell { color: #d1d5db; background: #f3f4f6; }
+  .inactive-slot { background: #f3f4f6 !important; color: #d1d5db !important; }
+  .aql-select { width: 76px; padding: 4px 2px; font-size: 11.5px; border-radius: 5px;
+                border: 1px solid #d1d5db; font-family: inherit; }
+  .aql-select:focus { border-color: #2563eb; outline: none; }
+  .aql-select.changed { border-color: #f59e0b; background: #fffbeb; }
 </style>
 
 <h2>{{ intake['material_no'] }} 검사 입력{% if is_group %} <span style="font-size:14px; color:#7c3aed; font-weight:600;">(조립품 그룹{% if group_name %} · {{ group_name }}{% endif %})</span>{% endif %}</h2>
@@ -36,10 +43,107 @@
     <div><span>업체</span><br><b>{{ intake['supplier'] or '-' }}</b></div>
     <div><span>발주번호</span><br><b>{{ intake['po_number'] or '-' }}</b></div>
     <div><span>제품명</span><br><b>{{ intake['product_name'] or '-' }}</b></div>
-    <div><span>입고일</span><br><b>{{ intake['receive_date'] or '-' }}</b></div>
+    <div><span>입고일</span><br><b>{{ (intake['receive_date'] | date_korean) or '-' }}</b></div>
     <div><span>입고수량</span><br><b>{{ intake['quantity'] or '-' }}</b></div>
   </div>
 </div>
+
+{% set no_limit_items = specs | selectattr('no_limit') | list %}
+{% if no_limit_items %}
+<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px;
+     padding:10px 14px; margin-bottom:10px; font-size:13.5px; display:flex; align-items:flex-start; gap:10px;">
+  <span style="font-size:20px; line-height:1.2;">🚫</span>
+  <span>
+    <b style="color:#dc2626;">규격(하한·상한) 미입력 항목이 있어</b> —
+    {% for s in no_limit_items %}<b>{{ s['item_name'] }}</b>{% if not loop.last %}, {% endif %}{% endfor %}
+    <div style="margin-top:4px; color:#7f1d1d;">
+      이 항목은 판정 기준이 없어서 <b>측정값을 뭘 넣든 불합격</b>으로 처리돼.
+      먼저 <a href="{{ url_for('spec_detail', material_no=intake['material_no']) }}"
+             style="color:#dc2626; font-weight:700;">자재 규격</a>에서 하한/상한을 채워줘.
+    </div>
+  </span>
+</div>
+{% endif %}
+
+{% if prior_defect_count is defined and prior_defect_count > 0 %}
+<div style="background:{% if prior_defect_count >= 3 %}#fef2f2; border:1px solid #fecaca;{% else %}#fffbeb; border:1px solid #fde68a;{% endif %}
+     border-radius:10px; padding:10px 14px; margin-bottom:10px; font-size:13.5px;
+     display:flex; align-items:center; gap:10px;">
+  {% if prior_defect_count >= 3 %}
+  <span style="font-size:20px;">🔴</span>
+  <span><b style="color:#dc2626;">반복 불량 경고</b> — 이 자재+업체 조합이 과거에
+    <b style="color:#dc2626;">{{ prior_defect_count }}회</b> 불합격/검토필요 이력이 있어. 주의해서 검사해줘.</span>
+  {% else %}
+  <span style="font-size:20px;">⚠️</span>
+  <span><b style="color:#92400e;">불량 이력 있음</b> — 이 자재+업체 조합이 과거에
+    <b>{{ prior_defect_count }}회</b> 불합격/검토필요 이력이 있어.</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not prefill %}
+<div id="draft-notice" style="display:none; background:#eff6ff; border:1px solid #bfdbfe;
+     border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:13.5px;
+     align-items:center; justify-content:space-between; gap:10px;">
+  <span>
+    💾 이전에 입력하던 내용을 불러왔어.
+    {% if draft_info %}
+    <span class="muted" style="font-size:12.5px;">
+      ({{ draft_info.username or '?' }} · {{ draft_info.updated_at | datetime_korean }} 저장)
+    </span>
+    {% endif %}
+  </span>
+  <button type="button" onclick="discardServerDraft()"
+          style="background:none; border:1px solid #93c5fd; border-radius:6px; padding:4px 10px;
+                 font-size:12px; color:#1d4ed8; cursor:pointer; margin-top:0; font-weight:600;">
+    지우고 새로 시작
+  </button>
+</div>
+{% endif %}
+
+{% if gauge_master_empty %}
+<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px;
+     padding:10px 14px; margin-bottom:10px; font-size:13.5px; display:flex; align-items:flex-start; gap:10px;">
+  <span style="font-size:20px; line-height:1.2;">📏</span>
+  <span>
+    <b style="color:#92400e;">계측기 마스터가 비어 있어</b> —
+    등록된 계측기가 없어서 <b>교정 유효기간 경고가 절대 뜨지 않아.</b>
+    <div style="margin-top:3px; color:#78350f; font-size:12.5px;">
+      "경고가 없다 = 문제가 없다"로 오해하기 쉬우니, 설정 → 계측기 관리에서 먼저 등록해줘.
+    </div>
+  </span>
+</div>
+{% endif %}
+
+{% if full_inspect_config %}
+<div style="background:#ecfeff; border:2px solid #06b6d4; border-radius:10px;
+     padding:12px 16px; margin-bottom:10px; font-size:13.5px; display:flex; align-items:flex-start; gap:10px;">
+  <span style="font-size:22px; line-height:1.2;">📋</span>
+  <span>
+    <b style="color:#0e7490;">이 자재는 전수검사(100%) 대상이야.</b>
+    아래 <b>전수 표에 유닛별로 값을 직접 입력</b>해줘. 성적서의 min/max/판정은 서버가 자동 산출해.
+    {% if full_inspect_config.note %}
+    <div style="margin-top:4px; color:#155e75; font-size:12.5px;">시험 조건: {{ full_inspect_config.note }}</div>
+    {% endif %}
+  </span>
+</div>
+{% endif %}
+
+{% if change_points %}
+<div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:10px;
+     padding:10px 14px; margin-bottom:10px; font-size:13.5px; display:flex; align-items:flex-start; gap:10px;">
+  <span style="font-size:20px; line-height:1.2;">🔀</span>
+  <span>
+    <b style="color:#5b21b6;">최근 4M 변경이 있었어</b> — 평소보다 주의해서 검사해줘.
+    {% for cp in change_points %}
+    <div style="margin-top:4px; color:#4c1d95; font-size:12.5px;">
+      · [{{ cp['change_type'] }}] {{ cp['change_date'] | date_korean }}
+      {% if cp['description'] %} — {{ cp['description'] }}{% endif %}
+    </div>
+    {% endfor %}
+  </span>
+</div>
+{% endif %}
 
 <form method="POST" id="inspectForm"
       action="{% if edit_mode %}{{ url_for('edit_inspection_submit', inspection_id=edit_mode) }}{% endif %}">
@@ -67,6 +171,8 @@
                style="background:#f3f4f6; color:#374151;">
       </div>
     </div>
+    <div style="margin-top:8px; font-size:12px; color:#9ca3af; text-align:right;"
+         id="draft-state" title="입력하면 자동으로 서버에 저장돼. 다른 기기에서 이어서 해도 돼."></div>
     {% if prefill and prefill.reject_reason %}
     <div style="margin-top:12px; padding:10px 14px; background:#fee2e2; border-radius:8px; font-size:13.5px; color:#dc2626;">
       <b>반려 사유:</b> {{ prefill.reject_reason }}
@@ -74,13 +180,146 @@
     {% endif %}
   </div>
 
+  {% if full_inspect_config %}
+  {# ── 전수검사 모드 ── 유닛별 전수표. 성적서 값(min/max/판정)은 서버가 자동 산출 #}
+  <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;color:#0e7490;">
+    <b>전수검사({{ intake.quantity }}개)</b> — 시리얼번호와 항목별 값을 입력해줘. 성적서의 min/max/판정은 아래 값들에서 자동 산출돼.
+    {% if full_inspect_config.note %}<br><span style="font-size:12px;">시험 조건: {{ full_inspect_config.note }}</span>{% endif %}
+    <div style="margin-top:6px;font-size:12px;">
+      <b id="fi-ok">0</b> OK / <b id="fi-ng" style="color:#dc2626;">0</b> NG / 미입력 <b id="fi-empty">{{ intake.quantity }}</b>
+    </div>
+  </div>
+
+  <div style="overflow-x:auto; max-height:70vh; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px;">
+    <table class="inspect-table" id="fiTable" style="table-layout:fixed;">
+      <thead style="position:sticky; top:0; z-index:2;">
+        <tr>
+          <th style="width:48px;">번호</th>
+          <th style="width:120px;">시리얼번호</th>
+          {% for s in specs %}
+          <th style="min-width:90px;">
+            <div>{{ s['item_name'] }}</div>
+            <div style="font-weight:400; font-size:11px; color:#9ca3af;">{{ s['spec_display'] or '-' }}</div>
+          </th>
+          {% endfor %}
+          <th style="width:64px;">판정</th>
+          <th style="width:120px;">비고</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in range(1, (intake.quantity or 0) + 1) %}
+        <tr data-unit="{{ u }}" style="content-visibility:auto; contain-intrinsic-size:auto 40px;">
+          <td><b>{{ u }}</b></td>
+          <td><input type="text" class="fi-serial" name="unit_{{ u }}_serial"
+                     data-unit="{{ u }}" style="width:100%;font-size:12.5px;padding:4px;"></td>
+          {% for s in specs %}
+          <td>
+            {% if s['judge_type'] == 'numeric' %}
+            <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*"
+                   class="fi-val" name="unit_{{ u }}_{{ s['id'] }}"
+                   data-unit="{{ u }}" data-item="{{ s['item_name'] }}" data-type="num"
+                   data-lo="{{ s['lower_limit'] if s['lower_limit'] is not none else '' }}"
+                   data-hi="{{ s['upper_limit'] if s['upper_limit'] is not none else '' }}"
+                   oninput="fiRecalc({{ u }})"
+                   style="width:100%;font-size:12.5px;padding:4px;text-align:right;">
+            {% else %}
+            <select class="fi-val" name="unit_{{ u }}_{{ s['id'] }}"
+                    data-unit="{{ u }}" data-item="{{ s['item_name'] }}" data-type="pf"
+                    onchange="fiRecalc({{ u }})"
+                    style="width:100%;font-size:12.5px;padding:4px;">
+              <option value="">-</option>
+              <option value="O">O</option>
+              <option value="X">X</option>
+            </select>
+            {% endif %}
+          </td>
+          {% endfor %}
+          <td id="fi-res-{{ u }}" style="color:#9ca3af;">—</td>
+          <td><input type="text" name="unit_{{ u }}_remark"
+                     style="width:100%;font-size:12.5px;padding:4px;"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# 계측기 유효기간은 항목별로 한 번만 (전수 유닛별로 반복 X) — 표 아래에 컴팩트 카드 #}
+  <div style="margin-top:12px; padding:10px 12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">
+    <div style="font-size:12px; color:#6b7280; margin-bottom:6px;"><b>계측기 유효기간</b> (항목별로 한 번)</div>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      {% for s in specs %}
+        {% if s['judge_type'] == 'numeric' and not (s['inspect_method'] and '육안' in s['inspect_method']) %}
+        <div style="display:flex;align-items:center;gap:5px;font-size:12px;">
+          <span style="color:#374151;">{{ s['item_name'] }}:</span>
+          {% if gauges %}
+          <select name="item_{{ s['id'] }}_gauge_expiry"
+                  onchange="var n=this.options[this.selectedIndex].dataset.name||''; document.getElementById('gname_{{ s['id'] }}').value=n;"
+                  style="font-size:12px;">
+            <option value="" data-name="">직접 입력</option>
+            {% for gm in gauges %}
+            <option value="{{ gm['calibration_due'] or '' }}" data-name="{{ gm['name'] }}">
+              {{ gm['name'] }}{% if gm['calibration_due'] %} ({{ gm['calibration_due'] }}){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}">
+          {% else %}
+          <input type="text" name="item_{{ s['id'] }}_gauge_expiry" placeholder="YYYY-MM-DD" style="font-size:12px;width:110px;">
+          {% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    const FI_SPEC_ITEMS = {{ specs | map(attribute='item_name') | list | tojson }};
+    const FI_SPEC_TYPES = {{ specs | map(attribute='judge_type') | list | tojson }};
+    function fiRecalc(u) {
+      const inputs = document.querySelectorAll(`.fi-val[data-unit="${u}"]`);
+      let hasAny = false, isNg = false;
+      inputs.forEach(inp => {
+        const v = (inp.value || '').trim();
+        if (!v) return;
+        hasAny = true;
+        const t = inp.dataset.type;
+        if (t === 'num') {
+          const n = parseFloat(v.replace(/,/g, ''));
+          if (isNaN(n)) { isNg = true; return; }
+          const lo = inp.dataset.lo, hi = inp.dataset.hi;
+          if (lo !== '' && n < parseFloat(lo)) isNg = true;
+          if (hi !== '' && n > parseFloat(hi)) isNg = true;
+        } else {
+          if (['X','NG','×','불합격'].includes(v.toUpperCase())) isNg = true;
+        }
+      });
+      const cell = document.getElementById('fi-res-' + u);
+      if (!hasAny) { cell.textContent = '—'; cell.style.color = '#9ca3af'; cell.style.background = ''; }
+      else if (isNg) { cell.textContent = 'NG'; cell.style.color = '#fff'; cell.style.background = '#dc2626'; }
+      else { cell.textContent = 'OK'; cell.style.color = '#fff'; cell.style.background = '#16a34a'; }
+      fiUpdateSummary();
+    }
+    function fiUpdateSummary() {
+      let ok = 0, ng = 0, empty = 0;
+      document.querySelectorAll('[id^="fi-res-"]').forEach(el => {
+        if (el.textContent === 'OK') ok++;
+        else if (el.textContent === 'NG') ng++;
+        else empty++;
+      });
+      document.getElementById('fi-ok').textContent = ok;
+      document.getElementById('fi-ng').textContent = ng;
+      document.getElementById('fi-empty').textContent = empty;
+    }
+  </script>
+
+  {% else %}
   <div style="overflow-x:auto; margin-top:4px;">
     <table class="inspect-table">
       <thead>
         <tr>
           <th style="width:36px;">번호</th>
           <th style="min-width:130px;">검사항목 / 규격</th>
-          <th style="width:46px;">AQL</th>
+          <th style="width:82px;">AQL {{ term('aql') }}</th>
           <th style="width:48px;">샘플<br>수량</th>
           <th style="width:72px;">측정1</th>
           <th style="width:72px;">측정2</th>
@@ -111,28 +350,35 @@
             {{ s['spec_display'] or '-' }}<br>
             <span style="color:#9ca3af;font-size:11.5px;">{{ s['inspect_method'] or '-' }}</span>
           </td>
-          <td>{{ s['aql'] }}</td>
-          <td><b>{{ s['sample_qty'] or '?' }}</b></td>
+          <td style="padding:3px 2px;">
+            <select class="aql-select" id="aql_{{ s['id'] }}" name="item_{{ s['id'] }}_aql_override"
+                    data-spec-id="{{ s['id'] }}"
+                    onchange="changeAQL({{ s['id'] }}); this.classList.toggle('changed', this.value !== '');">
+              <option value="" data-qty="{{ s['sample_qty'] or '' }}">{{ s['aql'] | aql_display }} ★</option>
+              <option value="전수" data-qty="{{ intake.quantity or '' }}">전수</option>
+              <option value="0.65" data-qty="{{ sample_size(0.65, intake.quantity) or '?' }}">0.65</option>
+              <option value="1.5" data-qty="{{ sample_size(1.5, intake.quantity) or '?' }}">1.5</option>
+              <option value="4" data-qty="{{ sample_size(4, intake.quantity) or '?' }}">4</option>
+            </select>
+          </td>
+          <td id="sqty_{{ s['id'] }}"><b>{{ s['sample_qty'] or '?' }}</b></td>
 
           {% if s['judge_type'] == 'numeric' %}
             {% set active_n = s['sample_qty'] if (s['sample_qty'] and s['sample_qty'] < 6) else 6 %}
             {% for i in range(1, 7) %}
-              {% if i <= active_n %}
-            <td><input class="sample-input"
+            <td><input class="sample-input{% if i > active_n %} inactive-slot{% endif %}"
                        name="item_{{ s['id'] }}_{{ i }}"
                        data-id="{{ s['id'] }}"
+                       data-slot="{{ i }}"
                        data-lo="{{ s['lower_limit'] }}"
                        data-hi="{{ s['upper_limit'] }}"
                        type="text"
                        inputmode="decimal"
                        pattern="[0-9]*\.?[0-9]*"
                        oninput="restrictNumeric(this); recalc({{ s['id'] }}); checkAutoStop();"
-                       placeholder="-"
+                       placeholder="{{ '-' if i <= active_n else '' }}"
                        disabled
                        value="{{ prefill['item_' ~ s['id'] ~ '_' ~ i] if prefill else '' }}"></td>
-              {% else %}
-            <td class="disabled-cell">－</td>
-              {% endif %}
             {% endfor %}
             <td class="result-cell" id="max_{{ s['id'] }}">-</td>
             <td class="result-cell" id="min_{{ s['id'] }}">-</td>
@@ -143,20 +389,40 @@
             {% if s['inspect_method'] and '육안' in s['inspect_method'] %}
             <td style="color:#9ca3af;">해당없음</td>
             {% else %}
-            <td><input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
-                       name="item_{{ s['id'] }}_gauge_expiry"
-                       oninput="checkGaugeExpiry(this)"
-                       value="{{ prefill['item_' ~ s['id'] ~ '_gauge_expiry'] if prefill else '' }}"></td>
+            <td>
+              {% if gauges %}
+              <select class="gauge-input" style="width:130px; font-size:12px;"
+                      name="item_{{ s['id'] }}_gauge_expiry"
+                      onchange="syncGaugeExpiry(this)"
+                      data-spec="{{ s['id'] }}"
+                      data-nametarget="gname_{{ s['id'] }}">
+                <option value="" data-name="">직접 입력</option>
+                {% for gm in gauges %}
+                <option value="{{ gm['calibration_due'] or '' }}" data-name="{{ gm['name'] }}"
+                  {% if prefill and prefill.get('item_' ~ s['id'] ~ '_gauge_expiry') == (gm['calibration_due'] or '') %}selected{% endif %}>
+                  {{ gm['name'] }}{% if gm['calibration_due'] %} ({{ gm['calibration_due'] }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
+                     value="{{ prefill['item_' ~ s['id'] ~ '_gauge_name'] if prefill else '' }}">
+              {% else %}
+              <input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
+                     name="item_{{ s['id'] }}_gauge_expiry"
+                     oninput="checkGaugeExpiry(this)"
+                     value="{{ prefill['item_' ~ s['id'] ~ '_gauge_expiry'] if prefill else '' }}">
+              {% endif %}
+            </td>
             {% endif %}
 
           {% else %}{# 육안 항목 — 샘플수량이 6 미만이면 그만큼만 활성화 #}
             {% set active_v = s['sample_qty'] if (s['sample_qty'] and s['sample_qty'] < 6) else 6 %}
             {% for i in range(1, 7) %}
-              {% if i <= active_v %}
             <td>
-              <select class="visual-select"
+              <select class="visual-select{% if i > active_v %} inactive-slot{% endif %}"
                       name="item_{{ s['id'] }}_{{ i }}"
                       data-id="{{ s['id'] }}"
+                      data-slot="{{ i }}"
                       disabled
                       onchange="recalcVisual({{ s['id'] }}); checkAutoStop();">
                 <option value="">-</option>
@@ -164,9 +430,6 @@
                 <option value="X" {% if prefill and prefill['item_' ~ s['id'] ~ '_' ~ i] == 'X' %}selected{% endif %}>X</option>
               </select>
             </td>
-              {% else %}
-            <td class="disabled-cell">－</td>
-              {% endif %}
             {% endfor %}
             <td>-</td><td>-</td>
             <td class="result-cell" id="res_{{ s['id'] }}">-</td>
@@ -178,31 +441,34 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 
   <button type="submit" style="margin-top:20px; width:100%; font-size:16px; padding:15px;">
     판정 실행 &amp; 성적서 제출
   </button>
 </form>
 
-{# ===== 태블릿용 방향 이동 D패드 — 측정값 입력칸 사이를 화면 버튼으로 이동 ===== #}
+{# ===== 태블릿용 방향 이동 D패드 ===== #}
 <div id="navPad" style="position:fixed; right:14px; bottom:14px; z-index:200;
-     background:rgba(31,41,55,.92); border-radius:14px; padding:8px;
-     box-shadow:0 4px 14px rgba(0,0,0,.3); display:grid;
-     grid-template-columns:40px 40px 40px; grid-template-rows:40px 40px 40px; gap:4px;">
+     background:rgba(31,41,55,.92); border-radius:16px; padding:10px;
+     box-shadow:0 4px 18px rgba(0,0,0,.35); display:grid;
+     grid-template-columns:52px 52px 52px; grid-template-rows:52px 52px 52px; gap:6px;">
   <div></div>
   <button type="button" class="nav-btn" data-dir="up">▲</button>
   <div></div>
   <button type="button" class="nav-btn" data-dir="left">◀</button>
-  <div style="display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:10px;">이동</div>
+  <button type="button" id="navConfirm" class="nav-btn nav-confirm">확인</button>
   <button type="button" class="nav-btn" data-dir="right">▶</button>
   <div></div>
   <button type="button" class="nav-btn" data-dir="down">▼</button>
   <div></div>
 </div>
 <style>
-  .nav-btn { background:#374151; color:#fff; border:none; border-radius:8px; font-size:16px;
-             font-weight:700; cursor:pointer; margin:0; padding:0; }
+  .nav-btn { background:#374151; color:#fff; border:none; border-radius:10px; font-size:17px;
+             font-weight:700; cursor:pointer; margin:0; padding:0; touch-action:manipulation; }
   .nav-btn:active { background:#2563eb; }
+  .nav-confirm { font-size:13px; background:#1d4ed8; }
+  .nav-confirm:active { background:#1e40af; }
 </style>
 
 <script>
@@ -257,14 +523,35 @@ function restrictNumeric(input) {
   input.value = v;
 }
 
+// 계측기 마스터 드롭다운에서 선택 시 유효기간 강조 + 계측기 이름 hidden 필드에 반영
+function syncGaugeExpiry(sel) {
+  // sel.value가 유효기간 문자열 (YYYY-MM-DD 또는 빈 문자열)
+  checkGaugeExpiry(sel);
+  var opt = sel.options[sel.selectedIndex];
+  var tgt = sel.getAttribute('data-nametarget');
+  if (tgt) {
+    var h = document.getElementById(tgt);
+    if (h) h.value = opt ? (opt.getAttribute('data-name') || '') : '';
+  }
+}
+
 // 계측기 유효기간이 D-15 이내(이미 지났어도 포함)면 빨간 기울임꼴로 강조
 function checkGaugeExpiry(input) {
   const val = input.value.trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(val);
-  if (!m) { input.classList.remove('gauge-expiring'); return; }
+  if (!m) {
+    if (val) {
+      input.classList.add('gauge-invalid');
+      input.title = "날짜 형식: YYYY-MM-DD (예: 2026-08-23)";
+    } else {
+      input.classList.remove('gauge-expiring', 'gauge-invalid');
+    }
+    return;
+  }
   const target = new Date(+m[1], +m[2] - 1, +m[3]);
   const today = new Date(); today.setHours(0,0,0,0);
   const diffDays = Math.round((target - today) / 86400000);
+  input.classList.remove('gauge-invalid');
   if (diffDays <= 15) {
     input.classList.add('gauge-expiring');
   } else {
@@ -272,7 +559,9 @@ function checkGaugeExpiry(input) {
   }
 }
 window.addEventListener('load', () => {
-  document.querySelectorAll('.gauge-input').forEach(checkGaugeExpiry);
+  document.querySelectorAll('.gauge-input').forEach(el => {
+    if (el.value) checkGaugeExpiry(el);
+  });
 });
 
 // 개당 측정 시간 스톱워치 (수동 시작/정지) — 정지된 시간이 실제 제출값(actual_time_sec)이 됨
@@ -282,13 +571,58 @@ let swEverStarted = {{ 'true' if (prefill and prefill.actual_time_sec) else 'fal
 
 function setInputsLocked(locked) {
   document.querySelectorAll('.sample-input, .visual-select').forEach(el => {
-    el.disabled = locked;
+    el.disabled = locked || el.classList.contains('inactive-slot');
   });
+}
+
+function changeAQL(id) {
+  var selEl = document.getElementById('aql_' + id);
+  var opt = selEl.options[selEl.selectedIndex];
+  var rawQty = opt.dataset.qty;
+  var newQty = parseInt(rawQty, 10);
+  var activeN = (isNaN(newQty) || newQty >= 6) ? 6 : Math.max(newQty, 1);
+
+  // 샘플 수량 표시 갱신
+  document.getElementById('sqty_' + id).innerHTML = '<b>' + (isNaN(newQty) ? '?' : newQty) + '</b>';
+
+  // numeric 입력칸 활성/비활성 갱신
+  document.querySelectorAll('.sample-input[data-id="' + id + '"]').forEach(function (inp) {
+    var slot = parseInt(inp.dataset.slot, 10);
+    var active = slot <= activeN;
+    if (active) {
+      inp.classList.remove('inactive-slot');
+      inp.placeholder = '-';
+      inp.disabled = !swEverStarted;
+    } else {
+      inp.classList.add('inactive-slot');
+      inp.placeholder = '';
+      inp.value = '';
+      inp.disabled = true;
+    }
+  });
+
+  // 육안 select 활성/비활성 갱신
+  document.querySelectorAll('.visual-select[data-id="' + id + '"]').forEach(function (sel) {
+    var slot = parseInt(sel.dataset.slot, 10);
+    var active = slot <= activeN;
+    if (active) {
+      sel.classList.remove('inactive-slot');
+      sel.disabled = !swEverStarted;
+    } else {
+      sel.classList.add('inactive-slot');
+      sel.value = '';
+      sel.disabled = true;
+    }
+  });
+
+  recalc(id);
+  recalcVisual(id);
 }
 
 function checkAutoStop() {
   if (!swRunning) return;
-  const firstCycleEls = Array.from(document.querySelectorAll('.sample-input[name$="_1"], .visual-select[name$="_1"]'));
+  const firstCycleEls = Array.from(document.querySelectorAll('.sample-input[name$="_1"], .visual-select[name$="_1"]'))
+    .filter(el => !el.classList.contains('inactive-slot'));
   if (firstCycleEls.length === 0) return;
   const allFilled = firstCycleEls.every(el => el.value !== '');
   if (allFilled) {
@@ -397,10 +731,249 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     }
   }
 
-  document.querySelectorAll('.nav-btn').forEach(btn => {
+  document.querySelectorAll('.nav-btn[data-dir]').forEach(btn => {
     btn.addEventListener('mousedown', e => e.preventDefault()); // 포커스 이탈 방지
     btn.addEventListener('click', () => move(btn.dataset.dir));
   });
+
+  // 확인 버튼: select이면 옵션 순환, 그 외엔 아무것도 안 함 (이동은 방향키로)
+  var confirmBtn = document.getElementById('navConfirm');
+  confirmBtn.addEventListener('mousedown', e => e.preventDefault());
+  confirmBtn.addEventListener('click', function () {
+    if (!lastFocused || lastFocused.tagName !== 'SELECT') return;
+    var sel = lastFocused;
+    sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+})();
+
+// ===== 키보드 올라오면: D패드 → 우하단(키보드 위), 도면 버튼 → 좌상단 =====
+(function () {
+  var navPad = document.getElementById('navPad');
+  var fab    = document.getElementById('drawingFab');
+
+  function place(vv) {
+    // visual viewport 하단 = offsetTop + height (레이아웃 좌표 기준)
+    var visBottom = vv.offsetTop + vv.height;
+    var GAP = 14;
+
+    // D패드: 우하단 (visual viewport 하단 GAP 위)
+    navPad.style.top    = (visBottom - navPad.offsetHeight - GAP) + 'px';
+    navPad.style.bottom = 'auto';
+    navPad.style.right  = GAP + 'px';
+    navPad.style.left   = 'auto';
+
+    // 도면 버튼: 좌하단 (같은 높이)
+    if (fab) {
+      fab.style.top    = (visBottom - fab.offsetHeight - GAP) + 'px';
+      fab.style.bottom = 'auto';
+      fab.style.left   = GAP + 'px';
+    }
+  }
+
+  function reset() {
+    navPad.style.top    = 'auto';
+    navPad.style.bottom = '14px';
+    navPad.style.right  = '14px';
+    navPad.style.left   = 'auto';
+    if (fab) {
+      fab.style.top    = 'auto';
+      fab.style.bottom = '24px';
+      fab.style.left   = '14px';
+    }
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      var vv = window.visualViewport;
+      if ((window.innerHeight - vv.height) > 150) place(vv);
+      else reset();
+    });
+    window.visualViewport.addEventListener('scroll', function () {
+      var vv = window.visualViewport;
+      if ((window.innerHeight - vv.height) > 150) place(vv);
+    });
+  }
+})();
+
+// ===== 자동저장 (서버 DB + localStorage 백업) =====
+// 예전엔 localStorage만 썼는데, 태블릿이 꺼지거나 다른 기기로 넘어가면 입력하던 게 날아갔다.
+// 이제 서버에도 같이 저장하고, 복구는 "서버 우선 → 없으면 localStorage" 순서로 한다.
+(function () {
+  var DRAFT_KEY = 'draft_inspect_{{ intake.id }}';
+  var SAVE_URL  = '{{ url_for("inspect_draft_save", intake_id=intake.id) }}';
+  var DEL_URL   = '{{ url_for("inspect_draft_delete", intake_id=intake.id) }}';
+  var saveTimer = null;
+  var lastSent  = null;
+
+  function collectFormData() {
+    var data = {};
+    var dateEl = document.querySelector('input[name="inspect_date"]');
+    if (dateEl) data['inspect_date'] = dateEl.value;
+    var timerEl = document.getElementById('actualTimeSec');
+    if (timerEl) data['actual_time_sec'] = timerEl.value;
+    document.querySelectorAll('.sample-input, .visual-select, .gauge-input, .aql-select').forEach(function (el) {
+      if (el.name) data[el.name] = el.value;
+    });
+    return data;
+  }
+
+  function setSaveState(text, color) {
+    var el = document.getElementById('draft-state');
+    if (el) { el.textContent = text; el.style.color = color || '#9ca3af'; }
+  }
+
+  function saveDraft() {
+    var body = JSON.stringify(collectFormData());
+    // localStorage는 오프라인/서버장애 대비 백업으로 계속 유지
+    try { localStorage.setItem(DRAFT_KEY, body); } catch (e) {}
+
+    if (body === lastSent) return;      // 바뀐 게 없으면 서버에 안 보냄
+    setSaveState('저장 중…', '#9ca3af');
+    fetch(SAVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body
+    }).then(function (r) {
+      if (!r.ok) throw new Error('save failed');
+      lastSent = body;
+      setSaveState('✓ 자동 저장됨', '#16a34a');
+    }).catch(function () {
+      // 서버 저장 실패해도 localStorage에는 남아 있으므로 입력은 계속 가능
+      setSaveState('⚠ 서버 저장 실패 (이 기기에는 보관됨)', '#d97706');
+    });
+  }
+
+  function restoreDraft() {
+    {% if not prefill %}  // 기존 데이터(반려 재입력 등)가 없을 때만 복구
+    var raw = null;
+    {% if server_draft %}
+    raw = {{ server_draft | tojson }};      // 서버에 저장된 게 있으면 그걸 우선
+    {% endif %}
+    if (!raw) {
+      try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) {}
+    }
+    if (!raw) return;
+    var data;
+    try { data = JSON.parse(raw); } catch (e) { return; }
+
+    var dateEl = document.querySelector('input[name="inspect_date"]');
+    if (dateEl && data['inspect_date']) dateEl.value = data['inspect_date'];
+
+    document.querySelectorAll('.aql-select').forEach(function (el) {
+      if (el.name && data[el.name] !== undefined) {
+        el.value = data[el.name];
+        el.classList.toggle('changed', el.value !== '');
+        changeAQL(parseInt(el.dataset.specId, 10));
+      }
+    });
+    document.querySelectorAll('.sample-input, .visual-select, .gauge-input').forEach(function (el) {
+      if (el.name && data[el.name] !== undefined) {
+        el.value = data[el.name];
+        if (el.classList.contains('gauge-input')) checkGaugeExpiry(el);
+      }
+    });
+
+    // 복구 후 판정 재계산
+    document.querySelectorAll('input.sample-input[data-id]').forEach(function (inp) { recalc(inp.dataset.id); });
+    document.querySelectorAll('select[data-id]').forEach(function (sel) { recalcVisual(sel.dataset.id); });
+
+    // 복구된 임시저장이 있으면 안내 표시
+    var notice = document.getElementById('draft-notice');
+    if (notice) notice.style.display = 'flex';
+    {% endif %}
+  }
+
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+  }
+
+  window.discardServerDraft = function () {
+    clearDraft();
+    fetch(DEL_URL, { method: 'POST' }).catch(function () {});
+    var notice = document.getElementById('draft-notice');
+    if (notice) notice.style.display = 'none';
+    document.getElementById('inspectForm').reset();
+    document.querySelectorAll('input.sample-input[data-id]').forEach(function (i) { recalc(i.dataset.id); });
+    lastSent = null;
+    setSaveState('', '');
+  };
+
+  // 입력 시 0.8초 후 자동저장 (디바운스)
+  document.getElementById('inspectForm').addEventListener('input', function () {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveDraft, 800);
+  });
+  document.getElementById('inspectForm').addEventListener('change', function () {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveDraft, 800);
+  });
+
+  // 페이지를 벗어날 때 마지막 상태를 한 번 더 밀어넣는다 (디바운스 대기 중 이탈 대비)
+  window.addEventListener('pagehide', function () {
+    try {
+      var body = JSON.stringify(collectFormData());
+      if (body !== lastSent && navigator.sendBeacon) {
+        navigator.sendBeacon(SAVE_URL, new Blob([body], { type: 'application/json' }));
+      }
+    } catch (e) {}
+  });
+
+  // 제출 성공 시 임시저장 삭제 (서버 쪽은 라우트에서 지움)
+  document.getElementById('inspectForm').addEventListener('submit', function () {
+    clearTimeout(saveTimer);
+    clearDraft();
+  });
+
+  // 페이지 로드 시 복구
+  window.addEventListener('load', restoreDraft);
+})();
+</script>
+
+{# 도면 팝업 모달 #}
+<div id="drawingModal" style="display:none; position:fixed; inset:0; z-index:9000;
+     background:rgba(0,0,0,.6); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; width:min(96vw,900px); height:min(90vh,680px);
+              display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.35);">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:12px 18px; border-bottom:1px solid #e5e7eb;">
+      <span style="font-weight:700; font-size:15px;">📐 도면 — {{ intake['material_no'] }}</span>
+      <button onclick="closeDrawing()" style="font-size:20px; background:none; border:none;
+              cursor:pointer; color:#6b7280; padding:4px 8px; border-radius:6px;">✕</button>
+    </div>
+    <iframe id="drawingFrame" src="" style="flex:1; border:none;"></iframe>
+  </div>
+</div>
+
+<button onclick="openDrawing()" id="drawingFab"
+  style="position:fixed; bottom:24px; left:14px; z-index:8000; background:#1d4ed8; color:#fff;
+         border:none; border-radius:50px; padding:14px 22px; font-size:15px; font-weight:700;
+         cursor:pointer; box-shadow:0 4px 14px rgba(29,78,216,.45); display:flex;
+         align-items:center; gap:7px; touch-action:manipulation;">
+  📐 도면
+</button>
+<script>
+(function(){
+  var loaded = false;
+  var url = "{{ url_for('serve_drawing', material_no=intake['material_no']) }}";
+  window.openDrawing = function(){
+    var m = document.getElementById('drawingModal');
+    m.style.display = 'flex';
+    if (!loaded) {
+      document.getElementById('drawingFrame').src = url;
+      loaded = true;
+    }
+  };
+  window.closeDrawing = function(){
+    document.getElementById('drawingModal').style.display = 'none';
+  };
+  document.getElementById('drawingModal').addEventListener('click', function(e){
+    if (e.target === this) closeDrawing();
+  });
+  // 도면 없으면 FAB 숨김
+  fetch(url, {method:'HEAD'}).then(function(r){
+    if (!r.ok) document.getElementById('drawingFab').style.display = 'none';
+  }).catch(function(){ document.getElementById('drawingFab').style.display = 'none'; });
 })();
 </script>
 {% endblock %}

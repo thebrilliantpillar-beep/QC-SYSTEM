@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}이메일 설정 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>✉️ 이메일 (SMTP) 설정</h2>
+
+<div class="card">
+  <form method="POST">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 20px;">
+      <div style="grid-column:1/-1;">
+        <label>발신자 이름</label>
+        <input name="smtp_from_name" value="{{ s.smtp_from_name }}" placeholder="Chardon QMS">
+      </div>
+      <div>
+        <label>SMTP 서버 주소</label>
+        <input name="smtp_host" value="{{ s.smtp_host }}" placeholder="smtp.gmail.com">
+      </div>
+      <div>
+        <label>포트</label>
+        <input name="smtp_port" value="{{ s.smtp_port or '587' }}" placeholder="587">
+      </div>
+      <div>
+        <label>계정 (이메일)</label>
+        <input name="smtp_user" type="email" value="{{ s.smtp_user }}" placeholder="your@gmail.com">
+      </div>
+      <div>
+        <label>앱 비밀번호</label>
+        <input name="smtp_pass" type="password" value="{{ s.smtp_pass }}"
+               placeholder="Gmail 앱 비밀번호 16자리">
+      </div>
+    </div>
+    <div class="hint" style="margin-top:10px;">
+      Gmail 사용 시: Google 계정 → 보안 → 2단계 인증 활성화 후 "앱 비밀번호" 16자리 생성해서 입력.
+    </div>
+    <button type="submit" style="margin-top:16px; padding:12px 28px;">저장</button>
+  </form>
+</div>
+{% endblock %}

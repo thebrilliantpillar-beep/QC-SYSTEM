@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}반품 상세 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+.ret-badge { display:inline-block; padding:4px 12px; border-radius:999px; font-size:13px; font-weight:700; }
+.ret-badge.반품요청  { background:#fee2e2; color:#991b1b; }
+.ret-badge.반품완료  { background:#fef3c7; color:#92400e; }
+.ret-badge.재납품대기 { background:#dbeafe; color:#1e40af; }
+.ret-badge.재검사완료 { background:#dcfce7; color:#15803d; }
+</style>
+
+<a href="{{ url_for('return_list') }}" style="font-size:13px; color:var(--muted); text-decoration:none;">← 반품 목록</a>
+
+<div style="display:flex; align-items:center; gap:12px; margin:12px 0 18px;">
+  <h2 style="margin:0;">🔄 반품 처리 #{{ rr['id'] }}</h2>
+  <span class="ret-badge {{ rr['status'] }}">{{ rr['status'] }}</span>
+</div>
+
+<div class="card">
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:14px;">
+    <div><span style="color:var(--muted); font-size:12px;">자재번호</span><br><strong>{{ rr['material_no'] }}</strong></div>
+    <div><span style="color:var(--muted); font-size:12px;">제품명</span><br>{{ rr['material_name'] or '-' }}</div>
+    <div><span style="color:var(--muted); font-size:12px;">업체</span><br>{{ rr['supplier'] or '-' }}</div>
+    <div><span style="color:var(--muted); font-size:12px;">반품 날짜</span><br>{{ rr['return_date'] or '-' }}</div>
+    <div><span style="color:var(--muted); font-size:12px;">수량</span><br>{{ rr['quantity'] or '-' }}</div>
+    <div><span style="color:var(--muted); font-size:12px;">등록자</span><br>{{ rr['created_by'] or '-' }}</div>
+  </div>
+  {% if rr['reason'] %}
+  <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border);">
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">반품 사유</div>
+    <div style="font-size:14px; white-space:pre-wrap;">{{ rr['reason'] }}</div>
+  </div>
+  {% endif %}
+  {% if rr['inspection_id'] %}
+  <div style="margin-top:10px;">
+    <a href="{{ url_for('inspection_detail', inspection_id=rr['inspection_id']) }}" class="btn secondary" style="font-size:13px; padding:8px 16px; margin-top:8px;">
+      관련 성적서 보기
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% if g.user and 'return' in user_perms %}
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">상태 변경</h3>
+  <form method="post" action="{{ url_for('return_update_status', return_id=rr['id']) }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:0;">
+    <select name="status" style="width:auto; flex:1; min-width:160px;">
+      {% for s in ['반품요청', '반품완료', '재납품대기', '재검사완료'] %}
+      <option value="{{ s }}" {% if rr['status'] == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" style="margin-top:0; padding:11px 20px;">변경</button>
+  </form>
+</div>
+{% endif %}
+
+{% endblock %}

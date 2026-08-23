@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}규격 관리{% endblock %}
+{% block title %}자재 관리{% endblock %}
 {% block content %}
-<h2>규격 등록 자재 목록</h2>
+<h2>자재 관리</h2>
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
   <a href="{{ url_for('spec_import') }}" class="btn" style="margin-top:0;">📄 성적서 양식 일괄 등록</a>
   <a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 개별 등록</a>

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}업체 관리 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>🏭 업체 관리</h2>
+
+<div class="card" style="margin-bottom:16px;">
+  <form method="POST" id="addForm">
+    <input type="hidden" name="action" value="add">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
+      <div>
+        <label>업체명 <span style="color:var(--fail);">*</span></label>
+        <input name="name" required placeholder="예: ACE 코리아">
+      </div>
+      <div>
+        <label>이메일</label>
+        <input name="email" type="email" placeholder="example@supplier.com">
+      </div>
+      <div>
+        <label>연락처</label>
+        <input name="contact" placeholder="010-0000-0000">
+      </div>
+      <div>
+        <label>메모</label>
+        <input name="notes" placeholder="담당자명 등">
+      </div>
+    </div>
+    <button type="submit" style="margin-top:14px; padding:10px 24px; font-size:14px;">업체 추가 / 수정</button>
+  </form>
+</div>
+
+{% if suppliers %}
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:left; padding-left:14px;">업체명</th>
+      <th>이메일</th>
+      <th>연락처</th>
+      <th>메모</th>
+      <th style="width:60px;"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in suppliers %}
+  <tr>
+    <td style="text-align:left; font-weight:700; padding-left:14px;">{{ s['name'] }}</td>
+    <td style="font-size:13px;">{{ s['email'] or '-' }}</td>
+    <td style="font-size:13px;">{{ s['contact'] or '-' }}</td>
+    <td style="font-size:12.5px; color:var(--muted);">{{ s['notes'] or '-' }}</td>
+    <td>
+      <form method="POST" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="name" value="{{ s['name'] }}">
+        <button type="submit" style="background:none; border:none; color:var(--fail);
+                font-size:13px; cursor:pointer; padding:4px 8px; margin-top:0;">삭제</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="text-align:center; padding:40px 0; color:var(--muted);">
+  등록된 업체가 없어. 위에서 추가해줘.
+</div>
+{% endif %}
+{% endblock %}

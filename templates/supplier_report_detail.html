@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% from "_glossary.html" import term %}
+{% block title %}{{ r['supplier'] }} {{ r['period'] }} 성적표{% endblock %}
+{% block content %}
+<style>
+  @media print { .no-print { display:none !important; } }
+  .doc { background:#fff; border-radius:12px; padding:26px; max-width:840px; margin:0 auto;
+         box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .doc h1 { font-size:21px; text-align:center; margin:0 0 4px; letter-spacing:1px; }
+  .doc .sub { text-align:center; color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .kpi4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-bottom:18px; }
+  @media (max-width:640px){ .kpi4{ grid-template-columns:repeat(2,1fr); } }
+  .kbox { border:1px solid var(--border); border-radius:10px; padding:11px; text-align:center; }
+  .kbox .l { font-size:11px; color:var(--muted); font-weight:700; }
+  .kbox .v { font-size:21px; font-weight:800; margin-top:4px; }
+  .v.bad { color:var(--fail); } .v.ok { color:#16a34a; } .v.warn { color:#d97706; }
+  .doc table { width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:16px; }
+  .doc th { background:#f8fafc; text-align:left; padding:8px 10px; border:1px solid var(--border); font-weight:700; }
+  .doc td { padding:7px 10px; border:1px solid var(--border); }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .sec { font-size:13.5px; font-weight:800; color:#374151; margin:18px 0 8px; }
+  .signrow { display:flex; justify-content:flex-end; margin-top:26px; }
+  .signbox { border:1px solid var(--border); border-radius:9px; padding:11px 18px; text-align:center; min-width:190px; }
+  .signbox .role { font-size:11.5px; color:var(--muted); font-weight:700; margin-bottom:6px; }
+</style>
+
+<div class="no-print">
+  <a href="{{ url_for('supplier_report_list') }}" class="btn secondary" style="margin-top:0;">← 성적표 목록</a>
+</div>
+
+{# ── 상태별 액션 ── #}
+{% if r['status'] == 'draft' %}
+<div class="card no-print" style="border-left:4px solid #f59e0b; background:#fffbeb;">
+  <b style="font-size:14px; color:#92400e;">초안 — 아직 발송할 수 없어</b>
+  {% if not can_approve %}
+  <p style="margin:7px 0 0; font-size:13px; color:#991b1b;">
+    🔒 승인은 최종결정권자만 할 수 있어. {{ approve_block_reason }}
+  </p>
+  {% else %}
+  <p style="margin:6px 0 10px; font-size:13px; color:#78350f;">
+    협력사로 나가는 문서라 <b>최종결정권자 승인 서명</b>이 있어야 발송할 수 있어.
+  </p>
+  <form method="POST" action="{{ url_for('supplier_report_approve', report_id=r['id']) }}"
+        onsubmit="return prepareSign()">
+    <input type="hidden" name="signature_data" id="sigData">
+    <div style="background:#fff; border:1px solid var(--border); border-radius:9px; padding:12px;">
+      <b style="font-size:13.5px; color:#374151;">✍️ 최종결정권자 승인 서명</b>
+      <canvas id="sigPad" width="340" height="120"
+              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+                     touch-action:none; display:block; max-width:100%; margin-top:8px;"></canvas>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <button type="button" onclick="clearSig()" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
+        <button type="button" onclick="loadDefaultSig()" class="btn secondary"
+                style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
+        <button type="submit" style="background:#1d4ed8; color:#fff; padding:8px 18px; font-size:13.5px;
+                border:none; border-radius:8px; cursor:pointer; font-weight:700; margin-top:0;">
+          ✅ 서명하고 승인
+        </button>
+      </div>
+    </div>
+  </form>
+  {% endif %}
+  <form method="POST" action="{{ url_for('supplier_report_delete', report_id=r['id']) }}"
+        style="margin-top:10px;" onsubmit="return confirm('이 초안을 삭제할까?');">
+    <button type="submit" style="background:#fff; color:#dc2626; border:1px solid #dc2626;
+            padding:6px 14px; font-size:12.5px; margin:0;">초안 삭제</button>
+  </form>
+</div>
+{% elif r['status'] == 'approved' %}
+<div class="card no-print" style="border-left:4px solid #2563eb; background:#eff6ff;">
+  <b style="font-size:14px; color:#1e40af;">승인 완료 — 발송할 수 있어</b>
+  <div class="muted" style="font-size:12.5px; margin-top:3px;">
+    승인 {{ r['approved_by'] }} · {{ r['approved_at'] | datetime_korean }}
+  </div>
+  <form method="POST" action="{{ url_for('supplier_report_send', report_id=r['id']) }}"
+        style="display:flex; gap:9px; align-items:flex-end; flex-wrap:wrap; margin-top:11px;"
+        onsubmit="return confirm('이 성적표를 협력사에 발송 처리할까?');">
+    <div style="flex:1; min-width:210px;">
+      <label>받는 사람 이메일</label>
+      <input type="email" name="to_email" required
+             value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else '' }}"
+             placeholder="supplier@example.com">
+    </div>
+    <button type="submit" style="margin:0;">발송</button>
+  </form>
+</div>
+{% else %}
+<div class="card no-print" style="border-left:4px solid #16a34a; background:#f0fdf4;">
+  <b style="font-size:14px; color:#166534;">발송 완료</b>
+  <div class="muted" style="font-size:12.5px; margin-top:3px;">
+    {{ r['sent_to'] }} · {{ r['sent_at'] | datetime_korean }}
+    &nbsp;|&nbsp; 승인 {{ r['approved_by'] }}
+  </div>
+</div>
+{% endif %}
+
+<div class="no-print" style="margin-bottom:12px;">
+  <button type="button" class="btn secondary" style="margin-top:0;" onclick="window.print()">🖨️ 인쇄 / PDF</button>
+</div>
+
+{# ── 문서 본문 ── #}
+<div class="doc">
+  <h1>월간 품질 성적표</h1>
+  <div class="sub">
+    <b>{{ r['supplier'] }}</b> · {{ r['period'] }}
+    ({{ r['start_date'] | date_korean }} ~ {{ r['end_date'] | date_korean }})
+  </div>
+
+  {% if not payload %}
+  <p style="text-align:center; color:var(--muted); padding:30px;">집계 데이터를 읽을 수 없어.</p>
+  {% else %}
+  {% set s = payload['요약'] %}
+  <div class="kpi4">
+    <div class="kbox"><div class="l">검사 수량</div><div class="v">{{ "{:,}".format(s['수량']) }}</div></div>
+    <div class="kbox"><div class="l">불합격 수량</div>
+      <div class="v {{ 'bad' if s['불합격수량'] else 'ok' }}">{{ "{:,}".format(s['불합격수량']) }}</div></div>
+    <div class="kbox"><div class="l">불량률 {{ term('defect_rate') }}</div>
+      <div class="v {{ 'bad' if s['불량률']>=3 else ('warn' if s['불량률']>=1 else 'ok') }}">{{ s['불량률'] }}%</div></div>
+    <div class="kbox"><div class="l">PPM {{ term('ppm') }}</div>
+      <div class="v {{ 'bad' if s['PPM']>=30000 else ('warn' if s['PPM']>=10000 else 'ok') }}">{{ "{:,}".format(s['PPM']) }}</div></div>
+  </div>
+  <p style="font-size:11.5px; color:var(--muted); margin:-8px 0 14px;">
+    ※ 불량률은 <b>수량 기준</b>입니다 (불합격 확정 수량 ÷ 판정 확정 수량 {{ "{:,}".format(s['확정수량']) }}).
+    특채 {{ "{:,}".format(s['특채수량']) }}개는 별도 집계되며, 규격이탈률은 {{ s['규격이탈률'] }}%입니다.
+  </p>
+
+  {% if payload['자재별'] %}
+  <div class="sec">자재별 실적</div>
+  <table>
+    <tr><th>자재번호</th><th>제품명</th><th class="num">로트</th><th class="num">검사수량</th>
+        <th class="num">불합격</th><th class="num">불량률</th></tr>
+    {% for m in payload['자재별'][:20] %}
+    <tr><td>{{ m['자재번호'] }}</td><td>{{ m['자재명'] or '-' }}</td>
+        <td class="num">{{ m['로트'] }}</td><td class="num">{{ "{:,}".format(m['수량']) }}</td>
+        <td class="num">{{ "{:,}".format(m['불합격수량']) }}</td>
+        <td class="num">{{ m['불량률'] }}%</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if payload['불량항목순위'] %}
+  <div class="sec">지적 사항 (불량 발생 항목)</div>
+  <table>
+    <tr><th>자재번호</th><th>검사항목</th><th>규격</th><th class="num">발생 건수</th></tr>
+    {% for it in payload['불량항목순위'][:15] %}
+    <tr><td>{{ it['자재번호'] }}</td><td>{{ it['항목'] }}</td>
+        <td>{{ it['규격'] or '-' }}</td>
+        <td class="num">{{ it['발생건수'] }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="sec">지적 사항</div>
+  <p style="font-size:13px; color:#166534; padding:9px 0;">해당 기간에 불량으로 지적된 항목이 없습니다.</p>
+  {% endif %}
+
+  {% if payload['변경점'] %}
+  <div class="sec">기간 내 4M 변경 사항</div>
+  <table>
+    <tr><th>변경일</th><th>구분</th><th>대상</th><th>내용</th></tr>
+    {% for c in payload['변경점'] %}
+    <tr><td>{{ c['change_date'] }}</td><td>{{ c['change_type'] }}</td>
+        <td>{{ c['material_no'] or '전체' }}</td><td>{{ c['description'] or '-' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% endif %}
+
+  <div class="signrow">
+    <div class="signbox">
+      <div class="role">최종결정권자 승인</div>
+      {% if signature_url %}
+        <img src="{{ signature_url }}" alt="승인 서명" style="height:42px; object-fit:contain;">
+      {% else %}
+        <div style="height:42px;"></div>
+      {% endif %}
+      <div style="font-size:11.5px; color:#6b7280;">{{ (r['approved_at'] or '')[:10] }}</div>
+      <div style="font-weight:700; font-size:13px;">{{ r['approved_by'] or '' }}</div>
+    </div>
+  </div>
+</div>
+
+{% if r['status'] == 'draft' and can_approve %}
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
+<script>
+/* 업체 성적표 최종결정권자 승인 서명 — 패드 구현은 static/signature_pad.js 공용 */
+(function () {
+  var pad = SignaturePad.attach('sigPad');
+  if (!pad) return;
+  window.clearSig = function () { pad.clear(); };
+  window.loadDefaultSig = function () {
+    pad.loadDefault(function (ok) {
+      if (!ok) alert('저장된 기본 서명이 없어. 승인 화면에서 먼저 저장해줘.');
+    });
+  };
+  window.prepareSign = function () {
+    return pad.fillAndConfirm('sigData',
+      '이 성적표를 승인할까?
+승인 후에는 협력사로 발송할 수 있어.');
+  };
+})();
+</script>
+{% endif %}
+{% endblock %}

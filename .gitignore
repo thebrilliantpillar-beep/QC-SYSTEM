@@ -14,8 +14,9 @@ iqc.db-wal
 backups/
 자동출력/
 
-# 서명 이미지
+# 서명 이미지 / 부적합(NCR) 첨부사진 — 실제 운영 데이터, 커밋 금지
 static/signatures/
+static/ncr_photos/
 
 # 환경 설정
 .env

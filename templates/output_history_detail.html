@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}출력 기록 — #{{ header['id'] }} {{ header['material_name'] or header['material_no'] }}{% endblock %}
+{% block content %}
+
+<a href="{{ url_for('output_history') }}" style="display:inline-flex; align-items:center; gap:6px; color:#6b7280;
+   font-size:13px; text-decoration:none; margin-bottom:14px;">← 출력 기록 목록</a>
+
+{# 기본 정보 카드 #}
+<div class="card" style="padding:16px 18px; margin-bottom:14px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+    <b style="font-size:16px;">📄 성적서 #{{ header['id'] }}</b>
+    {% if header['approval_type'] == 'normal' %}<span class="badge pass">합격</span>
+    {% elif header['approval_type'] == 'special' %}<span class="badge special">특채</span>
+    {% elif header['approval_type'] == 'failed' %}<span class="badge fail">불합격</span>
+    {% endif %}
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px 14px; font-size:13.5px;">
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">자재번호</div><div style="font-weight:700;">{{ header['material_no'] }}</div></div>
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">자재명</div><div style="font-weight:700;">{{ header['material_name'] or '-' }}</div></div>
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">업체</div><div style="font-weight:700;">{{ header['supplier'] or '-' }}</div></div>
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">입고일</div><div>{{ (header['receive_date'] | date_korean) or '-' }}</div></div>
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">검사자</div><div>{{ header['inspector'] or '-' }}</div></div>
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">승인자</div><div>{{ header['approver'] or '-' }}</div></div>
+    <div><div style="color:#9ca3af; font-size:11px; font-weight:700;">승인일시</div><div style="font-size:12px; color:#6b7280;">{{ (header['approved_at'] | datetime_korean) or '-' }}</div></div>
+  </div>
+</div>
+
+{# 현재 출력 파일 정보 #}
+<div class="card" style="padding:14px 18px; margin-bottom:14px;">
+  <b style="font-size:13px; color:#374151;">📂 저장된 파일 경로</b>
+  <div style="margin-top:8px; font-size:12.5px; word-break:break-all;">
+    {% if header['pdf_path'] %}
+    <div style="padding:8px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; margin-bottom:6px;">
+      📄 <b>PDF:</b> {{ header['pdf_path'] }}
+    </div>
+    {% else %}
+    <div style="color:#dc2626; font-size:13px;">PDF 파일이 없어. 아래에서 재출력해줘.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# 다시 출력 카드 #}
+<div class="card" style="padding:18px; margin-bottom:14px;">
+  <b style="font-size:14px; color:#374151;">🔄 다시 출력</b>
+  <p class="muted" style="margin:4px 0 14px; font-size:13px;">
+    포함할 문서를 선택하고 "다시 출력" 버튼을 눌러줘. 이전 파일은 덮어씌워져.
+  </p>
+  <form method="POST" action="{{ url_for('output_regenerate', inspection_id=header['id']) }}"
+        onsubmit="return confirm('성적서 #{{ header['id'] }}을(를) 다시 출력할게. 기존 파일이 덮어씌워져. 진행할까?')">
+    <div style="display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; margin-bottom:16px;">
+      {% if has_drawing %}
+      <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer; margin:0;">
+        <input type="checkbox" name="incl_drawing" value="1" checked style="width:auto; accent-color:#2563eb;">
+        📐 도면
+      </label>
+      {% else %}
+      <span style="font-size:13px; color:#9ca3af;">📐 도면 없음</span>
+      {% endif %}
+      <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer; margin:0;">
+        <input type="checkbox" name="incl_standard" value="1" checked style="width:auto; accent-color:#2563eb;">
+        📋 기준서
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer; margin:0;">
+        <input type="checkbox" name="incl_report" value="1" checked style="width:auto; accent-color:#2563eb;">
+        📄 성적서
+      </label>
+    </div>
+    <button type="submit" style="padding:13px 28px; font-size:15px; font-weight:700;
+            background:#2563eb; color:#fff; border:none; border-radius:10px; cursor:pointer;">
+      🔄 다시 출력
+    </button>
+    <a href="{{ url_for('inspection_detail', inspection_id=header['id']) }}"
+       class="btn secondary" style="margin-left:8px; padding:13px 20px; font-size:14px;">
+      성적서 상세 보기
+    </a>
+  </form>
+</div>
+
+{% endblock %}

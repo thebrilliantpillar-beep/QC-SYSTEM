@@ -41,6 +41,21 @@
         </tr>
       </table>
     </div>
+    <div style="margin-top:12px; background:#f0f4ff; border:1px solid #bfdbfe; border-radius:10px;
+                padding:11px 14px; font-size:13.5px;">
+      <label style="display:flex; align-items:flex-start; gap:9px; cursor:pointer; margin:0;">
+        <input type="checkbox" name="expand_assembly" value="1" id="expandAssembly" checked
+               style="width:17px; height:17px; margin-top:1px; flex-shrink:0;">
+        <span>
+          <b>조립품이면 구성 파츠까지 자동으로 펼치기</b>
+          <div style="color:#475569; margin-top:3px; font-size:12.5px;">
+            체크하면 조립품 파츠 번호 하나만 넣어도 그 조립품의 파츠 전체가 입고 리스트에 들어가.<br>
+            <b>파츠 하나만 스페어로 받은 경우엔 체크를 꺼줘</b> — 입력한 자재번호만 등록돼.
+          </div>
+        </span>
+      </label>
+    </div>
+
     <div style="margin-top:10px; display:flex; gap:8px;">
       <button type="button" id="addRowBtn" class="btn secondary" style="margin-top:0;">+ 행 추가</button>
       <button type="submit">등록</button>
@@ -114,7 +129,7 @@
   <tr><th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
   {% for r in pending %}
   <tr>
-    <td>{{ r['receive_date'] or '-' }}</td>
+    <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td>{{ r['supplier'] or '-' }}</td>
     <td>{{ r['po_number'] or '-' }}</td>
     <td>{{ r['product_name'] or '-' }}</td>
@@ -139,7 +154,7 @@
   <tr><th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
   {% for r in done %}
   <tr>
-    <td>{{ r['receive_date'] or '-' }}</td>
+    <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td>{{ r['supplier'] or '-' }}</td>
     <td>{{ r['po_number'] or '-' }}</td>
     <td>{{ r['product_name'] or '-' }}</td>

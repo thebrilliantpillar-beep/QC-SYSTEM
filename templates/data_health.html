@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}데이터 점검 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .hs-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px; }
+  @media (max-width:600px){ .hs-grid{ grid-template-columns:1fr 1fr; } }
+  .hs-box { background:#fff; border-radius:12px; padding:14px 12px; text-align:center;
+            box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .hs-box .v { font-size:26px; font-weight:800; }
+  .hs-box .l { font-size:12px; color:var(--muted); font-weight:600; margin-top:4px; }
+  .v.high{ color:#dc2626; } .v.mid{ color:#d97706; } .v.low{ color:#2563eb; } .v.none{ color:#16a34a; }
+
+  .chk { background:#fff; border-radius:12px; margin-bottom:11px;
+         box-shadow:0 1px 3px rgba(0,0,0,.06); overflow:hidden; }
+  .chk > summary { list-style:none; cursor:pointer; padding:14px 16px;
+                   display:flex; align-items:flex-start; gap:11px; }
+  .chk > summary::-webkit-details-marker { display:none; }
+  .chk-bar { width:4px; align-self:stretch; border-radius:3px; flex-shrink:0; }
+  .bar-high{ background:#dc2626; } .bar-mid{ background:#f59e0b; } .bar-low{ background:#3b82f6; }
+  .bar-ok{ background:#16a34a; }
+  .chk-title { font-weight:700; font-size:14.5px; }
+  .chk-desc { color:var(--muted); font-size:12.5px; margin-top:4px; line-height:1.55; }
+  .chk-count { margin-left:auto; font-weight:800; font-size:15px; white-space:nowrap; padding-left:10px; }
+  .chk-body { border-top:1px solid var(--border); padding:0; max-height:420px; overflow:auto; }
+  .chk-body table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .chk-body th { position:sticky; top:0; background:#f8fafc; text-align:left;
+                 padding:8px 12px; font-weight:700; border-bottom:1px solid var(--border); }
+  .chk-body td { padding:7px 12px; border-bottom:1px solid #f1f5f9; word-break:break-all; }
+  .chk-body tr:last-child td { border-bottom:none; }
+  .ok-note { padding:13px 16px; color:#166534; font-size:13px; }
+</style>
+
+<h2>🩺 데이터 점검</h2>
+<div class="card" style="border-left:4px solid var(--primary);">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    검사·성적서를 망가뜨릴 수 있는 데이터 문제를 모아둔 화면이야. <b>관리자만 볼 수 있어.</b><br>
+    빨강은 <b>검사가 막히거나 판정이 틀어지는</b> 것, 파랑은 급하지 않은 것.
+  </p>
+</div>
+
+{% set high = checks | selectattr('severity','equalto','high') | map(attribute='rows') | map('length') | sum %}
+{% set mid  = checks | selectattr('severity','equalto','mid')  | map(attribute='rows') | map('length') | sum %}
+{% set low  = checks | selectattr('severity','equalto','low')  | map(attribute='rows') | map('length') | sum %}
+
+<div class="hs-grid">
+  <div class="hs-box"><div class="v {{ 'high' if high else 'none' }}">{{ high }}</div><div class="l">🔴 시급 (검사 막힘)</div></div>
+  <div class="hs-box"><div class="v {{ 'mid'  if mid  else 'none' }}">{{ mid }}</div><div class="l">🟠 확인 필요</div></div>
+  <div class="hs-box"><div class="v {{ 'low'  if low  else 'none' }}">{{ low }}</div><div class="l">🔵 참고</div></div>
+</div>
+
+{% for c in checks %}
+{% set n = c['rows'] | length %}
+<details class="chk" {% if n and c['severity'] == 'high' %}open{% endif %}>
+  <summary>
+    <span class="chk-bar {{ 'bar-ok' if not n else ('bar-high' if c['severity']=='high' else ('bar-mid' if c['severity']=='mid' else 'bar-low')) }}"></span>
+    <span style="flex:1;">
+      <span class="chk-title">{{ c['title'] }}</span>
+      <div class="chk-desc">{{ c['desc'] }}</div>
+    </span>
+    <span class="chk-count" style="color:{{ '#16a34a' if not n else ('#dc2626' if c['severity']=='high' else ('#d97706' if c['severity']=='mid' else '#2563eb')) }};">
+      {{ '없음' if not n else n ~ '건' }}
+    </span>
+  </summary>
+  <div class="chk-body">
+    {% if not n %}
+      <div class="ok-note">✅ 문제 없어.</div>
+    {% else %}
+    <table>
+      <thead><tr>{% for col in c['columns'] %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for r in c['rows'] %}
+        <tr>{% for v in r.values() %}<td>{{ v if v is not none and v != '' else '—' }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</details>
+{% endfor %}
+{% endblock %}
