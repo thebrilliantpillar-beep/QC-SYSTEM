@@ -110,7 +110,7 @@ def format_datetime_korean(value):
 app.jinja_env.filters['aql_display'] = format_aql_display
 app.jinja_env.filters['date_korean'] = format_date_korean
 app.jinja_env.filters['datetime_korean'] = format_datetime_korean
-app.secret_key = "dev-secret-change-later"  # 배포 전 반드시 교체
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-later")
 app.permanent_session_lifetime = timedelta(hours=24)  # 하루 한 번 로그인하면 그 뒤로 계속 유지 (admin 제외)
 
 SIGNATURE_DIR = os.path.join(os.path.dirname(__file__), "static", "signatures")
