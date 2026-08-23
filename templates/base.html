@@ -242,6 +242,7 @@
       {% if 'smtp' in perms %}<a href="{{ url_for('smtp_settings') }}">이메일 설정</a>{% endif %}
       {% if 'logs' in perms %}<a href="{{ url_for('activity_logs') }}">활동 로그</a>{% endif %}
       {% if 'users' in perms %}<a href="{{ url_for('data_health') }}">🩺 데이터 점검</a>{% endif %}
+      {% if 'users' in perms %}<a href="{{ url_for('data_migrate') }}">📦 데이터 이전</a>{% endif %}
     </div>
   </div>
   {% endif %}

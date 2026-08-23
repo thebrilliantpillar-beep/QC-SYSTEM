@@ -5,6 +5,7 @@
    항목 순서(item_order)대로 9행부터 채움 — 양식이 통일돼 있으므로 자재가 몇 종이든 동일 로직."""
 import os, re, shutil, subprocess, sys, tempfile, time
 from datetime import date
+import database as db
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from openpyxl.drawing.image import Image as XLImage
@@ -18,7 +19,7 @@ BASE_DIR = os.path.dirname(__file__)
 TEMPLATE = os.path.join(BASE_DIR, "template_form.xlsx")
 STANDARD_TEMPLATE = os.path.join(BASE_DIR, "standard_template.xlsx")  # 기준서(SAM 양식)
 LOGO_PATH = os.path.join(BASE_DIR, "logo.png")  # 회사 로고 — 성적서·기준서 좌상단에 동일하게 삽입
-OUT_DIR = os.path.join(BASE_DIR, "성적서 발행")
+OUT_DIR = os.path.join(db.DATA_DIR, "성적서 발행")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # 로고 크기·위치 — 엑셀 이미지 크기 설정 기준

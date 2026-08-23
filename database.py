@@ -5,7 +5,9 @@
 import sqlite3, os
 from datetime import datetime as _dt
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "iqc.db")
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, "iqc.db")
 
 def get_ma_by_component(component_no):
     """파츠 자재번호 -> 그 파츠가 속한 MA와 그 MA의 파츠 전체를 반환.

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}데이터 이전 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .mg-card { background:#fff; border-radius:12px; padding:18px 16px; margin-bottom:16px;
+             box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .mg-card h3 { margin:0 0 8px; font-size:15px; }
+  .mg-card p, .mg-card li { color:var(--muted); font-size:13px; line-height:1.7; }
+  .mg-card code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  .mg-warn { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412;
+             border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:16px; line-height:1.6; }
+  input[type=file] { display:block; width:100%; margin:12px 0; }
+  .btn-mg { background:#111827; color:#fff; border:none; border-radius:8px;
+            padding:12px 18px; font-size:14px; font-weight:700; cursor:pointer; }
+</style>
+
+<h2 style="margin-bottom:14px;">데이터 이전 (로컬 → 이 서버)</h2>
+
+<div class="mg-warn">
+  ⚠️ 업로드하면 <b>이 서버의 데이터가 통째로 덮어써져.</b> 업로드 전에 자동으로 현재 DB를
+  백업해두긴 하지만, 정말 이전할 zip이 맞는지 한 번 더 확인하고 눌러줘.
+</div>
+
+<div class="mg-card">
+  <h3>zip 파일 만드는 법 (로컬 PC iqc-app 폴더 기준)</h3>
+  <p>아래 파일/폴더를 <b>압축 최상위</b>에 오도록 하나의 zip으로 묶어줘 (하위 폴더로 한 번 더
+  감싸지 말 것):</p>
+  <ul>
+    <li><code>iqc.db</code> (필수)</li>
+    <li><code>backups/</code> (선택)</li>
+    <li><code>성적서 발행/</code> (선택)</li>
+    <li><code>static/signatures/</code> → zip 안에서는 <code>signatures/</code> 이름으로</li>
+    <li><code>static/ncr_photos/</code> → zip 안에서는 <code>ncr_photos/</code> 이름으로</li>
+  </ul>
+</div>
+
+<div class="mg-card">
+  <h3>업로드</h3>
+  <form method="POST" enctype="multipart/form-data">
+    <input type="file" name="zipfile" accept=".zip" required>
+    <button type="submit" class="btn-mg" onclick="return confirm('이 서버 데이터를 업로드한 zip으로 덮어쓸까?');">업로드 및 이전 실행</button>
+  </form>
+</div>
+
+<div class="mg-card">
+  <h3>현재 서버 데이터 위치</h3>
+  <p><code>{{ data_dir }}</code></p>
+</div>
+{% endblock %}

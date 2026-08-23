@@ -33,11 +33,11 @@ def _check_license():
 _check_license()
 # ──────────────────────────────────────────────
 
-import os, base64, io, time, shutil, re
+import os, base64, io, time, shutil, re, zipfile, tempfile
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory
 import database as db
 import report_builder
 import spec_import as spec_import_module
@@ -113,15 +113,27 @@ app.jinja_env.filters['datetime_korean'] = format_datetime_korean
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-later")
 app.permanent_session_lifetime = timedelta(hours=24)  # 하루 한 번 로그인하면 그 뒤로 계속 유지 (admin 제외)
 
-SIGNATURE_DIR = os.path.join(os.path.dirname(__file__), "static", "signatures")
+SIGNATURE_DIR = os.path.join(db.DATA_DIR, "signatures")
 os.makedirs(SIGNATURE_DIR, exist_ok=True)
 
 # 도면 PDF 폴더 — 경로 변경 시 이 한 줄만 수정하면 됨
 DRAWING_DIR = os.path.join(os.path.dirname(__file__), "자동출력", "도면")
 
-BACKUP_DIR = os.path.join(os.path.dirname(__file__), "backups")
+BACKUP_DIR = os.path.join(db.DATA_DIR, "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 BACKUP_README = os.path.join(BACKUP_DIR, "README.txt")
+
+
+@app.route("/static/signatures/<path:filename>")
+def signature_file(filename):
+    # 서명 이미지는 static/ 안이 아니라 DATA_DIR(영구 디스크)에 저장되므로
+    # Flask 기본 static 라우트 대신 이 라우트가 대신 서빙한다 (URL은 그대로 유지)
+    return send_from_directory(SIGNATURE_DIR, filename)
+
+
+@app.route("/static/ncr_photos/<path:filename>")
+def ncr_photo_file(filename):
+    return send_from_directory(NCR_PHOTO_DIR, filename)
 
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin1234"
@@ -3457,7 +3469,7 @@ def supplier_list():
 # 부적합 통보서 (NCR)
 # =========================================================================
 
-NCR_PHOTO_DIR = os.path.join(os.path.dirname(__file__), "static", "ncr_photos")
+NCR_PHOTO_DIR = os.path.join(db.DATA_DIR, "ncr_photos")
 os.makedirs(NCR_PHOTO_DIR, exist_ok=True)
 
 
@@ -4234,6 +4246,74 @@ def data_health():
     """자재·규격 데이터에서 검사/성적서를 망가뜨릴 수 있는 것들을 한 화면에 모아서 보여준다.
     관리자('users' 권한)만 접근 가능."""
     return render_template("data_health.html", checks=db.data_health_report())
+
+
+# ---------- 데이터 이전 (로컬 -> 클라우드 서버, 관리자 전용) ----------
+
+@app.route("/admin/data-migrate", methods=["GET", "POST"])
+@perm_required("users")
+def data_migrate():
+    """로컬 PC에서 만든 iqc.db + 첨부파일 zip을 업로드해서 이 서버의 DATA_DIR에 통째로 덮어쓴다.
+    Render 등 클라우드로 운영 데이터를 처음 옮길 때 1회성으로 쓰는 화면."""
+    if request.method == "GET":
+        return render_template("data_migrate.html", data_dir=db.DATA_DIR)
+
+    zfile = request.files.get("zipfile")
+    if not zfile or not zfile.filename:
+        flash("zip 파일을 선택해줘.")
+        return redirect(url_for("data_migrate"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        zpath = os.path.join(tmp, "upload.zip")
+        zfile.save(zpath)
+
+        try:
+            zf = zipfile.ZipFile(zpath)
+            names = zf.namelist()
+        except zipfile.BadZipFile:
+            flash("zip 파일이 손상됐거나 zip 형식이 아니야.")
+            return redirect(url_for("data_migrate"))
+
+        if "iqc.db" not in names:
+            flash("zip 안에 iqc.db가 없어. 최상위에 iqc.db가 있어야 해.")
+            return redirect(url_for("data_migrate"))
+
+        # 안전장치: 덮어쓰기 전에 현재 DB를 먼저 백업해둔다
+        if os.path.exists(db.DB_PATH):
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            pre_backup = os.path.join(BACKUP_DIR, f"iqc_전이전백업_{ts}.db")
+            try:
+                shutil.copy(db.DB_PATH, pre_backup)
+            except Exception:
+                pass
+
+        # 경로 조작(zip slip) 방지 — 안전한 상대경로만 허용
+        safe_names = [n for n in names if not n.startswith("/") and ".." not in n.split("/")]
+        for n in safe_names:
+            zf.extract(n, tmp)
+
+        extracted_db = os.path.join(tmp, "iqc.db")
+        shutil.copy(extracted_db, db.DB_PATH)
+
+        moved = ["iqc.db"]
+        for folder, dest in (
+            ("signatures", SIGNATURE_DIR),
+            ("ncr_photos", NCR_PHOTO_DIR),
+            ("backups", BACKUP_DIR),
+            ("성적서 발행", report_builder.OUT_DIR),
+        ):
+            src = os.path.join(tmp, folder)
+            if os.path.isdir(src):
+                for name in os.listdir(src):
+                    s, d = os.path.join(src, name), os.path.join(dest, name)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    else:
+                        shutil.copy(s, d)
+                moved.append(folder)
+
+    flash(f"이전 완료: {', '.join(moved)}. 새로고침해서 데이터 확인해봐.")
+    return redirect(url_for("home"))
 
 
 @app.route("/assemblies/<int:assembly_id>/delete", methods=["POST"])
