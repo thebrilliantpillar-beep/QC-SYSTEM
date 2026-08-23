@@ -117,7 +117,10 @@ SIGNATURE_DIR = os.path.join(db.DATA_DIR, "signatures")
 os.makedirs(SIGNATURE_DIR, exist_ok=True)
 
 # 도면 PDF 폴더 — 경로 변경 시 이 한 줄만 수정하면 됨
-DRAWING_DIR = os.path.join(os.path.dirname(__file__), "자동출력", "도면")
+# 실 데이터(운영자가 채워넣는 파일)라 서명/NCR사진과 동일하게 DATA_DIR 기준으로 둔다.
+# 로컬에선 DATA_DIR이 기본적으로 앱 폴더라 기존 경로(자동출력/도면)와 동일하게 유지된다.
+DRAWING_DIR = os.path.join(db.DATA_DIR, "자동출력", "도면")
+os.makedirs(DRAWING_DIR, exist_ok=True)
 
 BACKUP_DIR = os.path.join(db.DATA_DIR, "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -4301,6 +4304,7 @@ def data_migrate():
             ("ncr_photos", NCR_PHOTO_DIR),
             ("backups", BACKUP_DIR),
             ("성적서 발행", report_builder.OUT_DIR),
+            ("도면", DRAWING_DIR),
         ):
             src = os.path.join(tmp, folder)
             if os.path.isdir(src):
