@@ -4249,8 +4249,9 @@ def assembly_delete(assembly_id):
     return redirect(url_for("assembly_list"))
 
 
+db.init_db()
+ensure_default_admin()
+ensure_perm_migration()
+
 if __name__ == "__main__":
-    db.init_db()
-    ensure_default_admin()
-    ensure_perm_migration()
     app.run(host="0.0.0.0", port=5000, debug=True)
