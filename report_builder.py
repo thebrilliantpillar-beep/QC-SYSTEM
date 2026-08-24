@@ -384,16 +384,22 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
         else:
             try:
                 img = XLImage(signature_path)
-                # 사이드카 파일(.stamp)이 있으면 도장으로 취급 → 5x5cm로 삽입
+                # 사이드카 파일(.stamp)이 있으면 도장으로 취급 → 2.5cm로 삽입, 위치 조정
                 is_stamp = os.path.exists(signature_path + ".stamp")
                 if is_stamp:
-                    stamp_px = round(5.0 * CM_TO_PX)  # 5cm × 5cm
+                    stamp_cm = 2.5
+                    stamp_px = round(stamp_cm * CM_TO_PX)
                     img.width = stamp_px
                     img.height = stamp_px
+                    # 도장 위치: C30에서 왼쪽·위쪽으로 -0.5cm 오프셋
+                    marker = AnchorMarker(col=2, colOff=cm_to_EMU(-0.5), row=29, rowOff=cm_to_EMU(-0.5))
+                    size = XDRPositiveSize2D(cm_to_EMU(stamp_cm), cm_to_EMU(stamp_cm))
+                    img.anchor = OneCellAnchor(_from=marker, ext=size)
+                    ws.add_image(img)
                 else:
                     img.width = SIGNATURE_WIDTH_PX
                     img.height = SIGNATURE_HEIGHT_PX
-                ws.add_image(img, "C30")
+                    ws.add_image(img, "C30")
             except Exception as e:
                 signature_error = f"서명 이미지 삽입 실패: {e}"
     return signature_error
