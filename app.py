@@ -2654,6 +2654,164 @@ def history():
                            sorted_dates=sorted_dates, date_labels=date_labels)
 
 
+# ---------- 승인 이력 (필터+엑셀 내보내기) ----------
+#
+# 검사 이력(/history)은 상태 무관 전체를 입고일 그룹으로 보여주는 화면이라
+# "판정이 확정된 것만 뽑아서 업체·발주번호로 필터링 + 엑셀로 내보내기"에는 안 맞았음.
+# 아래는 승인 완료(합격·특채·불합격 확정)된 것만 리스트로 정리해서 필터·엑셀 내보내기 전용
+# 인터페이스로 따로 뺀 것.
+
+def _multi_arg(name):
+    """?supplier=A&supplier=B  또는  ?supplier=A,B  둘 다 받는다.
+       대시보드 필터와 같은 방식."""
+    out = []
+    for v in request.args.getlist(name):
+        for part in (v or "").split(","):
+            p = part.strip()
+            if p:
+                out.append(p)
+    return out
+
+
+APPROVAL_HISTORY_STATES = ("합격", "특채", "불합격")
+
+
+def _collect_approval_history():
+    """승인 이력 화면·엑셀 내보내기가 공유하는 필터·조회 로직.
+       한 곳에 몰아둬야 화면과 파일이 어긋나지 않는다."""
+    start_s   = (request.args.get("start") or "").strip()
+    end_s     = (request.args.get("end") or "").strip()
+    suppliers = _multi_arg("supplier")
+    po_nums   = _multi_arg("po_number")
+    states    = [s for s in _multi_arg("state") if s in APPROVAL_HISTORY_STATES]
+
+    start_d = _parse_any_date(start_s) if start_s else None
+    end_d   = _parse_any_date(end_s)   if end_s   else None
+
+    all_rows = db.list_inspections()
+    approved_rows = []
+    all_suppliers = set()
+    all_pos = set()
+
+    for r in all_rows:
+        state = db._lot_state(r["status"], r["approval_type"])
+        if state not in APPROVAL_HISTORY_STATES:
+            continue
+        # 승인 이력 후보 전체에서 필터 선택지(업체·발주번호) 뽑아낸다 —
+        # 현재 필터 결과가 아니라 전체 목록에서 골라야 조건을 바꿔가며 조회할 수 있음.
+        if r["supplier"]:  all_suppliers.add(r["supplier"])
+        if r["po_number"]: all_pos.add(r["po_number"])
+
+        d = _parse_any_date(r["receive_date"])
+        if start_d and (not d or d < start_d): continue
+        if end_d   and (not d or d > end_d):   continue
+        if suppliers and (r["supplier"] or "") not in suppliers: continue
+        if po_nums   and (r["po_number"] or "") not in po_nums:  continue
+        if states    and state not in states:                    continue
+
+        approved_rows.append({
+            "id": r["id"],
+            "receive_date": r["receive_date"] or "",
+            "receive_date_label": format_date_korean(d.isoformat()) if d else (r["receive_date"] or ""),
+            "supplier": r["supplier"] or "",
+            "po_number": r["po_number"] or "",
+            "material_name": r["material_name"] or "",
+            "material_no": r["material_no"] or "",
+            "quantity": r["quantity"] or 0,
+            "inspector": r["inspector"] or "",
+            "total_time_sec": r["total_time_sec"] or 0,
+            "total_time_label": format_duration(r["total_time_sec"] or 0),
+            "state": state,
+        })
+
+    # 최신 입고일부터, 같은 날은 id 큰 것부터
+    approved_rows.sort(key=lambda x: (x["receive_date"], x["id"]), reverse=True)
+
+    filt = {
+        "start": start_s, "end": end_s,
+        "suppliers": suppliers, "po_nums": po_nums, "states": states,
+        "all_suppliers": sorted(all_suppliers),
+        "all_pos": sorted(all_pos, reverse=True),
+        "all_states": list(APPROVAL_HISTORY_STATES),
+    }
+    return approved_rows, filt
+
+
+@app.route("/history/approved")
+@perm_required("inspect_history")
+def approval_history():
+    rows, filt = _collect_approval_history()
+    return render_template("approval_history.html", rows=rows, filt=filt)
+
+
+@app.route("/history/approved/export")
+@perm_required("inspect_history")
+def approval_history_export():
+    """첨부 양식 그대로: B1 제목, 2행 헤더(B~J), 3행부터 데이터."""
+    import io
+    from datetime import date as _date
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+    rows, _ = _collect_approval_history()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "승인이력"
+
+    # 제목
+    ws["B1"] = "검사 결과 리스트"
+    ws["B1"].font = Font(name="맑은 고딕", size=16, bold=True)
+    ws["B1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.merge_cells("B1:J1")
+    ws.row_dimensions[1].height = 28
+
+    headers = ["입고일", "업체명", "발주번호", "자재명", "자재번호",
+               "입고수량", "검사자", "검사시간", "판정여부"]
+    thin = Side(style="thin", color="B7BEC9")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="E7EAF0")
+
+    for i, h in enumerate(headers):
+        c = ws.cell(row=2, column=2 + i, value=h)
+        c.font = Font(name="맑은 고딕", bold=True)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.fill = header_fill
+        c.border = border
+    ws.row_dimensions[2].height = 22
+
+    for row_i, r in enumerate(rows, start=3):
+        qty_disp = f"{r['quantity']}개" if r["quantity"] else ""
+        values = [
+            r["receive_date_label"],
+            r["supplier"],
+            r["po_number"],
+            r["material_name"],
+            r["material_no"],
+            qty_disp,
+            r["inspector"],
+            r["total_time_label"],
+            r["state"],
+        ]
+        for j, v in enumerate(values):
+            c = ws.cell(row=row_i, column=2 + j, value=v)
+            c.font = Font(name="맑은 고딕")
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = border
+
+    widths = [15, 14, 14, 34, 14, 10, 10, 12, 10]
+    for i, w in enumerate(widths):
+        ws.column_dimensions[chr(ord('B') + i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"승인이력_{_date.today().isoformat()}.xlsx"
+    return send_file(buf,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name=fname)
+
+
 # ---------- 불량 이력 ----------
 
 @app.route("/defects")

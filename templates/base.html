@@ -162,6 +162,7 @@
     <div class="menu">
       {% if 'inspect_input' in perms %}<a href="{{ url_for('inspect_select') }}">검사 입력</a>{% endif %}
       {% if 'inspect_history' in perms %}<a href="{{ url_for('history') }}">검사 이력</a>{% endif %}
+      {% if 'inspect_history' in perms %}<a href="{{ url_for('approval_history') }}">승인 이력</a>{% endif %}
       {% if 'defect_history' in perms %}<a href="{{ url_for('defect_history') }}">불량 이력</a>{% endif %}
       {% if 'ncr' in perms or 'ncr_confirm' in perms %}<a href="{{ url_for('ncr_list') }}">부적합 통보서</a>{% endif %}
       {% if 'return' in perms %}<a href="{{ url_for('return_list') }}">반품 처리</a>{% endif %}

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}승인 이력{% endblock %}
+{% block content %}
+<style>
+  .filter-card { background:#fff; border-radius:12px; padding:16px 18px; margin-bottom:14px;
+                 box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .filter-card label { display:block; font-size:12.5px; font-weight:600; color:#4b5563; margin:0 0 5px; }
+  .f-row { display:flex; gap:12px; flex-wrap:wrap; }
+  .f-row > div { flex:1; min-width:150px; }
+
+  .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
+          border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
+          font-size:12.5px; font-weight:700; }
+  .chip button { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px;
+                 line-height:1; padding:0 4px; margin:0; border-radius:50%; }
+  .chip-empty { color:#9ca3af; font-size:12px; padding:3px 0; }
+
+  .state-row { display:flex; gap:7px; flex-wrap:wrap; }
+  .state-chk { display:inline-flex; align-items:center; gap:6px; border:1.5px solid var(--border);
+               border-radius:8px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer;
+               background:#fff; margin:0; color:#4b5563; }
+  .state-chk input { width:auto; margin:0; }
+  .state-chk.on { border-color:var(--primary); background:#eff6ff; color:var(--primary-dark); }
+
+  .ah-table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px;
+              box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13px; overflow:hidden; }
+  .ah-table th { background:#f3f4f6; color:#4b5563; padding:9px 8px; text-align:center;
+                 border-bottom:1px solid #e5e7eb; }
+  .ah-table td { border-bottom:1px solid #f0f0f0; padding:9px 8px; text-align:center; vertical-align:middle; }
+  .ah-table tr:last-child td { border-bottom:none; }
+  .ah-table tr.clickable:hover td { background:#f0f5ff; cursor:pointer; }
+
+  .badge { display:inline-block; padding:2px 9px; border-radius:999px; font-weight:700; font-size:12px; }
+  .badge-pass { background:#dcfce7; color:#166534; }
+  .badge-special { background:#fef3c7; color:#92400e; }
+  .badge-fail { background:#fee2e2; color:#991b1b; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+  <div>
+    <h2 style="margin:0;">승인 이력</h2>
+    <p class="muted" style="margin:4px 0 0;">판정이 확정된 성적서(합격·특채·불합격)만 모아서 보여줘. 필터를 걸어서 원하는 범위만 엑셀로 뽑을 수 있어.</p>
+  </div>
+  <a class="btn" style="background:#059669; color:#fff; border-color:#059669;"
+     href="{{ url_for('approval_history_export') }}?{{ request.query_string.decode('utf-8') }}">📊 엑셀 다운로드</a>
+</div>
+
+<div class="filter-card">
+  <form id="filterForm" method="get" action="{{ url_for('approval_history') }}">
+    <div class="f-row">
+      <div style="max-width:170px;"><label>입고일 시작</label>
+        <input type="date" name="start" value="{{ filt.start }}"></div>
+      <div style="max-width:170px;"><label>입고일 종료</label>
+        <input type="date" name="end" value="{{ filt.end }}"></div>
+    </div>
+
+    <div style="margin-top:13px;">
+      <label>업체명 <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span></label>
+      <div style="display:flex; gap:7px; flex-wrap:wrap;">
+        <input list="supList" id="supPick" placeholder="업체명 검색 후 선택" style="flex:1; min-width:180px;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('supplier','supPick');}">
+        <datalist id="supList">{% for s in filt.all_suppliers %}<option value="{{ s }}">{% endfor %}</datalist>
+        <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                onclick="addChip('supplier','supPick')">추가</button>
+      </div>
+      <div class="chip-box" id="chips-supplier"></div>
+    </div>
+
+    <div style="margin-top:13px;">
+      <label>발주번호 <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span></label>
+      <div style="display:flex; gap:7px; flex-wrap:wrap;">
+        <input list="poList" id="poPick" placeholder="발주번호 검색 후 선택" style="flex:1; min-width:180px;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('po_number','poPick');}">
+        <datalist id="poList">{% for po in filt.all_pos %}<option value="{{ po }}">{% endfor %}</datalist>
+        <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                onclick="addChip('po_number','poPick')">추가</button>
+      </div>
+      <div class="chip-box" id="chips-po_number"></div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label>판정 여부 <span class="muted" style="font-weight:400;">(안 고르면 전체)</span></label>
+      <div class="state-row">
+        {% for st in filt.all_states %}
+        <label class="state-chk {% if st in filt.states %}on{% endif %}">
+          <input type="checkbox" name="state" value="{{ st }}" {% if st in filt.states %}checked{% endif %}
+                 onchange="this.closest('.state-chk').classList.toggle('on', this.checked)">
+          {{ st }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <button type="submit" style="margin:0;">조회</button>
+      <a href="{{ url_for('approval_history') }}" class="btn secondary" style="margin:0;">초기화</a>
+    </div>
+  </form>
+</div>
+
+<div style="margin-bottom:8px; color:#4b5563; font-size:13px;">
+  <b>{{ rows|length }}건</b> 조회됨
+</div>
+
+{% if not rows %}
+<div class="card"><p class="muted" style="margin:0;">조건에 맞는 승인 이력이 없어.</p></div>
+{% else %}
+<div style="overflow-x:auto;">
+<table class="ah-table">
+  <thead>
+    <tr>
+      <th>입고일</th>
+      <th>업체명</th>
+      <th>발주번호</th>
+      <th>자재명</th>
+      <th>자재번호</th>
+      <th>입고수량</th>
+      <th>검사자</th>
+      <th>검사시간</th>
+      <th>판정여부</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r.id) }}'">
+      <td>{{ r.receive_date_label }}</td>
+      <td>{{ r.supplier }}</td>
+      <td>{{ r.po_number }}</td>
+      <td style="text-align:left;">{{ r.material_name }}</td>
+      <td>{{ r.material_no }}</td>
+      <td>{{ '{:,}'.format(r.quantity) if r.quantity else '' }}</td>
+      <td>{{ r.inspector }}</td>
+      <td>{{ r.total_time_label }}</td>
+      <td>
+        {% if r.state == '합격' %}<span class="badge badge-pass">합격</span>
+        {% elif r.state == '특채' %}<span class="badge badge-special">특채</span>
+        {% elif r.state == '불합격' %}<span class="badge badge-fail">불합격</span>
+        {% else %}{{ r.state }}{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<script>
+var CHIPS = {
+  supplier:  {{ filt.suppliers | tojson }},
+  po_number: {{ filt.po_nums   | tojson }}
+};
+var CHIP_LABEL = { supplier: '업체명', po_number: '발주번호' };
+
+function renderChips(name) {
+  var box = document.getElementById('chips-' + name);
+  box.innerHTML = '';
+  if (!CHIPS[name].length) {
+    box.innerHTML = '<span class="chip-empty">선택 안 함 — 전체 ' + CHIP_LABEL[name] + '</span>';
+    return;
+  }
+  CHIPS[name].forEach(function (val, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(val));
+    var x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+    x.onclick = function () { CHIPS[name].splice(i, 1); renderChips(name); };
+    chip.appendChild(x);
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
+    chip.appendChild(hidden);
+    box.appendChild(chip);
+  });
+}
+function addChip(name, inputId) {
+  var el = document.getElementById(inputId);
+  var val = (el.value || '').trim();
+  if (!val) return;
+  if (CHIPS[name].indexOf(val) === -1) CHIPS[name].push(val);
+  el.value = '';
+  renderChips(name);
+}
+renderChips('supplier');
+renderChips('po_number');
+</script>
+{% endblock %}
