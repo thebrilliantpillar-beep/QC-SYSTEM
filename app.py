@@ -364,6 +364,11 @@ def ensure_default_admin():
 def _user_perms(user_row):
     if user_row is None:
         return set()
+    # admin 계정(username='admin')은 모든 권한을 자동 보유.
+    # 어느 리스트 페이지에서든 수정·삭제·회수·재발행 등을 할 수 있도록 하는 마스터 계정.
+    # 활동로그는 아예 삭제 라우트/UI가 없으므로(감사기록 보호) 여기서도 자동으로 지켜진다.
+    if (user_row["username"] or "").strip().lower() == "admin":
+        return set(ALL_PERMS)
     return set(p for p in (user_row["permissions"] or "").split(",") if p)
 
 
