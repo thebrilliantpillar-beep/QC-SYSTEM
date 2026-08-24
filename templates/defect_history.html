@@ -83,6 +83,13 @@
 </style>
 
 <h2>📋 불량 이력 (후속조치 추적)</h2>
+{% if is_admin %}
+<p class="muted" style="font-size:12.5px; margin:6px 0 12px;">
+  🛡️ 이 페이지는 성적서·통보서를 함께 보여줘서 여기서 바로 삭제하지 않아. 삭제가 필요하면
+  <a href="{{ url_for('history') }}">검사 이력</a>(성적서) 또는
+  <a href="{{ url_for('ncr_list') }}">부적합 통보서 목록</a>에서 해줘.
+</p>
+{% endif %}
 <p class="muted" style="margin: -8px 0 18px; font-size: 13px;">
   반려·불합격 건의 재검사·부적합 통보서 진행 현황을 추적하는 페이지야.
   통계 분석은 <a href="{{ url_for('quality_dashboard') }}">품질 대시보드</a>를 이용해줘.

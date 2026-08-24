@@ -325,9 +325,19 @@ def inject_perm_labels():
             nav_counts["return"] = len([r for r in db.list_returns() if (r["status"] or "") in ("draft", "pending")])
         except Exception:
             nav_counts["return"] = 0
+    # admin(마스터 계정) 여부 — 템플릿에서 관리자 전용 UI 노출 조건으로 사용
+    is_admin = bool(g.user) and (g.user["username"] or "").strip().lower() == "admin"
     return {"perm_labels": PERM_LABELS, "user_perms": user_perms,
             "status_display": status_display, "sample_size": sample_size,
-            "nav_counts": nav_counts}
+            "nav_counts": nav_counts, "is_admin": is_admin}
+
+
+def _admin_only():
+    """admin 계정 전용 라우트 가드. admin이 아니면 홈으로 되돌린다."""
+    if not g.user or (g.user["username"] or "").strip().lower() != "admin":
+        flash("이 작업은 admin 계정만 할 수 있어.")
+        return redirect(url_for("home"))
+    return None
 
 
 def status_display(insp):
@@ -2489,10 +2499,28 @@ def approve_batch():
 
 # ---------- 검사 이력 삭제 ----------
 
+# 관리자 삭제가 돌아올 수 있는 리스트 페이지 화이트리스트.
+# return_to로 임의 라우트를 못 부르게 여기서 통제한다.
+_ADMIN_DELETE_RETURNS = {
+    "history": "history",
+    "approve_list": "approve_list",
+    "approval_history": "approval_history",
+    "output_list": "output_list",
+    "output_history": "output_history",
+    "ncr_list": "ncr_list",
+    "supplier_report_list": "supplier_report_list",
+    "defect_history": "defect_history",
+}
+
+def _resolve_return_to(default="history"):
+    key = (request.form.get("return_to") or "").strip()
+    return _ADMIN_DELETE_RETURNS.get(key, default)
+
+
 @app.route("/history/delete-selected", methods=["POST"])
 @perm_required("history_delete")
 def history_delete_selected():
-    """선택된 성적서 일괄 삭제 (approve 권한 필요)."""
+    """선택된 성적서 일괄 삭제. return_to로 원래 페이지로 돌아간다."""
     ids_raw = request.form.getlist("inspection_ids")
     ids = []
     for x in ids_raw:
@@ -2500,14 +2528,61 @@ def history_delete_selected():
             ids.append(int(x))
         except ValueError:
             pass
+    back = _resolve_return_to("history")
     if not ids:
         flash("삭제할 성적서를 선택해줘.")
-        return redirect(url_for("history"))
+        return redirect(url_for(back))
     for iid in ids:
         record_change("성적서 삭제", "inspection", iid, f"삭제자: {g.user['display_name'] or g.user['username']}")
     db.delete_inspections(ids)
     flash(f"{len(ids)}건 삭제됐어. 입고 항목 상태도 확인해봐.")
-    return redirect(url_for("history"))
+    return redirect(url_for(back))
+
+
+@app.route("/ncr/delete-selected", methods=["POST"])
+def ncr_delete_selected():
+    """admin 전용 부적합 통보서 일괄 삭제."""
+    guard = _admin_only()
+    if guard: return guard
+    ids_raw = request.form.getlist("ncr_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 통보서를 선택해줘.")
+        return redirect(url_for("ncr_list"))
+    for nid in ids:
+        record_change("부적합 통보서 삭제(admin)", "ncr", nid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    db.delete_ncrs(ids)
+    flash(f"통보서 {len(ids)}건 삭제됐어.")
+    return redirect(url_for("ncr_list"))
+
+
+@app.route("/supplier-reports/delete-selected", methods=["POST"])
+def supplier_report_delete_selected():
+    """admin 전용 업체 성적표 일괄 삭제 (상태 불문)."""
+    guard = _admin_only()
+    if guard: return guard
+    ids_raw = request.form.getlist("report_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 성적표를 선택해줘.")
+        return redirect(url_for("supplier_report_list"))
+    for rid in ids:
+        record_change("업체 성적표 삭제(admin)", "supplier_report", rid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    db.delete_supplier_reports_admin(ids)
+    flash(f"성적표 {len(ids)}건 삭제됐어.")
+    return redirect(url_for("supplier_report_list"))
 
 
 # ---------- 승인 목록 / 승인 전용 화면 ----------

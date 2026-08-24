@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}성적서 출력 대기{% endblock %}
 {% block content %}
 <h2>성적서 출력 대기</h2>
+
+{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='output_list') }}
 <p class="hint">승인은 됐지만 아직 xlsx/PDF로 출력하지 않은 성적서들이야. 필요한 것만 골라서 출력하거나, 전체를 한 번에 출력할 수 있어.</p>
 
 <form method="POST" action="{{ url_for('output_generate') }}">
@@ -11,8 +14,9 @@
       <th>번호</th><th>자재번호</th><th>업체</th><th>승인여부</th><th>승인일</th><th>승인자</th>
     </tr>
     {% for i in pending %}
-    <tr>
-      <td><input type="checkbox" class="row-check" name="inspection_ids" value="{{ i['id'] }}"></td>
+    <tr data-admin-id="{{ i['id'] }}">
+      <td><input type="checkbox" class="row-check" name="inspection_ids" value="{{ i['id'] }}"
+             onclick="event.stopPropagation()"></td>
       <td>{{ i['id'] }}</td>
       <td>{{ i['material_no'] }}</td>
       <td>{{ i['supplier'] or '-' }}</td>

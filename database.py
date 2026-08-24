@@ -2877,6 +2877,28 @@ def delete_supplier_report(report_id):
     conn.close()
 
 
+def delete_supplier_reports_admin(report_ids):
+    """admin 전용: 상태와 무관하게 성적표 삭제."""
+    if not report_ids:
+        return
+    conn = get_conn()
+    placeholders = ",".join("?" * len(report_ids))
+    conn.execute(f"DELETE FROM supplier_reports WHERE id IN ({placeholders})", report_ids)
+    conn.commit()
+    conn.close()
+
+
+def delete_ncrs(ncr_ids):
+    """부적합 통보서 일괄 삭제 (photos는 JSON으로 인라인 저장돼 있어서 부수 테이블 없음)."""
+    if not ncr_ids:
+        return
+    conn = get_conn()
+    placeholders = ",".join("?" * len(ncr_ids))
+    conn.execute(f"DELETE FROM ncr WHERE id IN ({placeholders})", ncr_ids)
+    conn.commit()
+    conn.close()
+
+
 def process_capability(material_no, item_name=None, min_samples=5):
     """공정능력(Cp/Cpk) 계산 — 규격 하한·상한과 실제 측정값으로.
 

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}업체 품질 성적표 — Chardon QMS{% endblock %}
 {% block content %}
+
+{{ admin_delete_bar(url_for('supplier_report_delete_selected'), 'report_ids', '업체 성적표') }}
 <style>
   .sr-row { background:#fff; border-radius:11px; padding:13px 15px; margin-bottom:9px;
             box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; justify-content:space-between;
@@ -56,7 +59,8 @@
 
 {# ── 목록 ── #}
 {% for r in reports %}
-<div class="sr-row" onclick="location.href='{{ url_for('supplier_report_detail', report_id=r['id']) }}'">
+<div class="sr-row" data-admin-id="{{ r['id'] }}"
+     onclick="location.href='{{ url_for('supplier_report_detail', report_id=r['id']) }}'">
   <span>
     <b style="font-size:14.5px;">{{ r['supplier'] }}</b>
     <span class="muted" style="font-size:12.5px;"> · {{ r['period'] }}</span>

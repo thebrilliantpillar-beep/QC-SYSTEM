@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}승인 목록{% endblock %}
 {% block content %}
+
+{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='approve_list') }}
 <style>
 .tab-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
 .tab-btn {
@@ -138,7 +141,7 @@ canvas#batchSigPad {
   </thead>
   <tbody>
   {% for i in rows %}
-  <tr class="clickable"
+  <tr class="clickable" data-admin-id="{{ i['id'] }}"
       onclick="{% if tab == 'pending' %}rowClick(event,{{ i['id'] }}){% else %}location.href='{{ url_for('inspection_detail', inspection_id=i['id']) }}'{% endif %}">
     {% if tab == 'pending' %}
     <td onclick="event.stopPropagation()" style="text-align:center;">

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}출력 기록{% endblock %}
 {% block content %}
+
+{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='output_history') }}
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
   <h2 style="margin:0;">출력 기록</h2>
   <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:0; padding:8px 16px; font-size:13px;">
@@ -43,7 +46,8 @@
   </thead>
   <tbody>
   {% for r in rows %}
-  <tr class="clickable" onclick="location.href='{{ url_for('output_history_detail', inspection_id=r['id']) }}'">
+  <tr class="clickable" data-admin-id="{{ r['id'] }}"
+      onclick="location.href='{{ url_for('output_history_detail', inspection_id=r['id']) }}'">
     <td>{{ r['id'] }}</td>
     <td>{{ r['material_no'] }}</td>
     <td style="text-align:left;">{{ r['material_name'] or '-' }}</td>

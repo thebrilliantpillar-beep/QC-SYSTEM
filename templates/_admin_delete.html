@@ -1,0 +1,116 @@
+{# ─────────────────────────────────────────────
+   admin 전용 일괄 삭제 도구 매크로.
+
+     {% from "_admin_delete.html" import admin_delete_bar %}
+     {{ admin_delete_bar(url_for('...'), 'inspection_ids', '성적서', return_to='output_list') }}
+
+   그리고 리스트의 각 행에 data-admin-id="{{ item.id }}" 를 붙여둘 것.
+   토글을 켜면 그 행들을 클릭해서 선택하고, 상단 버튼으로 삭제한다.
+   admin 계정이 아니면 아무것도 렌더링하지 않는다.
+───────────────────────────────────────────── #}
+
+{% macro admin_delete_bar(action, id_field, label, return_to='') -%}
+{% if is_admin %}
+<style>
+  .admin-del-bar {
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#fff1f2; border:1.5px solid #fecaca; border-radius:10px;
+    padding:10px 14px; margin:0 0 14px;
+  }
+  .admin-del-bar .lbl { font-weight:800; color:#991b1b; font-size:13px; }
+  .admin-del-bar .cnt { background:#fee2e2; color:#991b1b; border-radius:999px;
+                        padding:2px 10px; font-size:12.5px; font-weight:700; }
+  .admin-del-toggle {
+    padding:6px 12px; border-radius:8px; border:1.5px solid #dc2626;
+    background:#fff; color:#991b1b; font-size:12.5px; font-weight:700; cursor:pointer;
+  }
+  .admin-del-toggle.on { background:#dc2626; color:#fff; }
+  .admin-del-btn {
+    margin-left:auto; padding:7px 16px; border-radius:8px; border:none;
+    background:#dc2626; color:#fff; font-size:13px; font-weight:800; cursor:pointer;
+  }
+  .admin-del-btn[disabled] { opacity:.45; cursor:not-allowed; }
+  body.admin-del-on [data-admin-id] { cursor:pointer !important; }
+  body.admin-del-on [data-admin-id]:hover { outline:2px dashed #fca5a5; outline-offset:-2px; }
+  body.admin-del-on [data-admin-id].admin-del-picked {
+    background:#fef2f2 !important; outline:2px solid #dc2626; outline-offset:-2px;
+  }
+</style>
+
+<div class="admin-del-bar" data-admin-bar>
+  <span class="lbl">🛡️ 관리자 일괄 삭제 ({{ label }})</span>
+  <button type="button" class="admin-del-toggle" data-admin-toggle>선택 모드 켜기</button>
+  <span class="cnt" data-admin-count>0건 선택</span>
+  <span style="font-size:12px; color:#7f1d1d;">
+    켠 뒤 행을 클릭해서 선택해줘. 삭제하면 되돌릴 수 없어.
+  </span>
+  <form method="post" action="{{ action }}" style="margin-left:auto; display:inline;"
+        onsubmit="return adminDelSubmit(this, '{{ label }}');" data-admin-form>
+    {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+    <div data-admin-inputs></div>
+    <button type="submit" class="admin-del-btn" disabled data-admin-submit>🗑️ 선택 삭제</button>
+  </form>
+</div>
+
+<script>
+(function(){
+  var bar   = document.querySelector('[data-admin-bar]');
+  if (!bar) return;
+  var toggle = bar.querySelector('[data-admin-toggle]');
+  var count  = bar.querySelector('[data-admin-count]');
+  var form   = bar.querySelector('[data-admin-form]');
+  var box    = bar.querySelector('[data-admin-inputs]');
+  var submit = bar.querySelector('[data-admin-submit]');
+  var picked = new Set();
+  var idField = {{ id_field | tojson }};
+  var enabled = false;
+
+  function refresh() {
+    count.textContent = picked.size + '건 선택';
+    submit.disabled = (picked.size === 0);
+    box.innerHTML = '';
+    picked.forEach(function(id){
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = idField; inp.value = id;
+      box.appendChild(inp);
+    });
+  }
+  function onRowClick(e) {
+    if (!enabled) return;
+    var row = e.currentTarget;
+    var id = row.getAttribute('data-admin-id');
+    if (!id) return;
+    // admin 모드일 땐 원래 링크·onclick(상세 이동)을 억제한다
+    e.preventDefault(); e.stopPropagation();
+    if (picked.has(id)) { picked.delete(id); row.classList.remove('admin-del-picked'); }
+    else                { picked.add(id);    row.classList.add('admin-del-picked'); }
+    refresh();
+  }
+  toggle.addEventListener('click', function(){
+    enabled = !enabled;
+    toggle.classList.toggle('on', enabled);
+    toggle.textContent = enabled ? '선택 모드 끄기' : '선택 모드 켜기';
+    document.body.classList.toggle('admin-del-on', enabled);
+    if (!enabled) {
+      picked.clear();
+      document.querySelectorAll('.admin-del-picked').forEach(function(el){
+        el.classList.remove('admin-del-picked');
+      });
+      refresh();
+    }
+  });
+  document.querySelectorAll('[data-admin-id]').forEach(function(row){
+    // 캡처 단계에서 잡아야 tr의 onclick(location.href) 보다 먼저 실행된다
+    row.addEventListener('click', onRowClick, true);
+  });
+  refresh();
+})();
+window.adminDelSubmit = window.adminDelSubmit || function(form, label) {
+  var box = form.querySelector('[data-admin-inputs]');
+  var n = box ? box.querySelectorAll('input[type=hidden]').length : 0;
+  if (!n) { alert('삭제할 항목을 먼저 골라줘.'); return false; }
+  return confirm(label + ' ' + n + '건을 삭제할게. 되돌릴 수 없어. 계속?');
+};
+</script>
+{% endif %}
+{%- endmacro %}
