@@ -704,6 +704,47 @@ def sample_size(aql, quantity):
     return quantity
 
 
+# KS Q ISO 2859-1(=ANSI/ASQ Z1.4) 1회 샘플링 방식, 보통검사(Normal), Ac(합격판정개수).
+# 세원플라텍 공식 AQL표(사용자 제공, aql_dump2.txt로 셀단위 검증)에서 추출.
+# 표에 화살표(↓/↑)로 비어있는 칸은 legend 규칙대로 캐스케이드 해서 이미 실수치로 풀어놓은 것 —
+# 화살표를 여기서 다시 계산하지 말 것.
+#
+# key = AQL_TABLES와 완전히 동일한 샘플수(n) 값(코드문자 J의 표준 n=80 대신 앱은 88을 쓰므로
+# 88 자리에 J행의 Ac를 그대로 넣어뒀다 — 88 > 80이라 더 엄격한 쪽으로 안전).
+# value = Ac(합격판정개수). Re는 이 표 전 구간에서 항상 Ac+1이라 별도로 안 둠.
+AQL_AC_TABLE = {
+    0.65: {2: 0, 3: 0, 5: 0, 8: 0, 13: 0, 20: 0, 32: 1, 50: 1, 88: 1,
+           125: 2, 200: 3, 315: 5, 500: 7, 800: 10, 1250: 14, 2000: 21},
+    1.5:  {2: 0, 3: 0, 5: 0, 8: 0, 13: 1, 20: 1, 32: 1, 50: 2, 88: 3,
+           125: 5, 200: 7, 315: 10, 500: 14, 800: 21, 1250: 21, 2000: 21},
+    4:    {2: 0, 3: 0, 5: 1, 8: 1, 13: 1, 20: 2, 32: 3, 50: 5, 88: 7,
+           125: 10, 200: 14, 315: 21, 500: 21, 800: 21, 1250: 21, 2000: 21},
+}
+
+
+def aql_ac_allowance(aql, sample_qty):
+    """AQL과 샘플수량으로 '합격 허용 불량개수'(Ac)를 돌려준다.
+
+    실측은 항상 최대 6개까지만 하지만(inspect_form.html 참고), 판정 기준(Ac)은
+    AQL로 계산된 진짜 표본수(sample_qty)에 해당하는 표준표 값을 그대로 쓴다 — 표본수 자체를
+    6개로 줄인 게 아니라 "6개 중 Ac개까지는 봐준다"는 참고용 적용이라는 뜻(사용자 확정).
+
+    sample_qty가 AQL_AC_TABLE에 없는 값이면(전수/퍼센트N AQL, 또는 입고수량이 표본수보다
+    작아서 sample_size()가 입고수량 그대로 돌려준 경우 등) 기존처럼 Ac=0(무결점)으로 안전하게
+    처리한다.
+    """
+    try:
+        aql_num = float(aql)
+        if aql_num == int(aql_num):
+            aql_num = int(aql_num)
+    except (TypeError, ValueError):
+        return 0
+    table = AQL_AC_TABLE.get(aql_num)
+    if not table or sample_qty is None:
+        return 0
+    return table.get(sample_qty, 0)
+
+
 def format_duration(total_sec):
     """N시간 N분 N초 형식. 시간/분이 0이면 생략, 다 0이면 '0초'."""
     total_sec = int(total_sec or 0)
@@ -1460,7 +1501,8 @@ def inspect_form(intake_id):
 
         else:
             # ── 일반 검사 모드 ── (기존 로직)
-            for spec in specs:
+            for spec in specs_with_sample:
+                allowed = aql_ac_allowance(spec["aql"], spec["sample_qty"])
                 if spec["judge_type"] == "numeric":
                     vals = []
                     for i in range(1, 7):
@@ -1468,11 +1510,14 @@ def inspect_form(intake_id):
                         if v:
                             vals.append(v)
                     raw_value = ",".join(vals)
-                    result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"])
+                    result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"], allowed)
                 else:
+                    # judge_type == 'ok_ng'/'visual'/'numeric_pair' — 화면(inspect_form.html)이
+                    # numeric_pair 전용 입력을 아직 지원하지 않아서(2채널 UI 미구현) 지금은
+                    # O/X 입력으로 받는다. numeric_pair UI를 따로 만들기 전까진 이 경로 유지.
                     vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip() for i in range(1, 7)]
                     raw_value = ",".join(v for v in vals if v)
-                    result, max_v, min_v = judge_visual(raw_value)
+                    result, max_v, min_v = judge_visual(raw_value, allowed)
 
                 if result != "합격":
                     overall_ok = False
@@ -1567,10 +1612,12 @@ def inspect_draft_delete(intake_id):
 NO_SPEC_RESULT = "규격미입력"   # 판정 기준 자체가 없어서 합격/불합격을 말할 수 없는 상태
 
 
-def judge_numeric(raw_value, lower, upper):
+def judge_numeric(raw_value, lower, upper, allowed_defects=0):
     """
     raw_value: 콤마로 구분된 여러 측정값 가능 (예: "12.1,12.3,12.0")
     lower/upper 둘 다 있으면 범위 판정, 하나만 있으면("OO 이상"/"OO 이하") 그쪽만 판정.
+    allowed_defects: 규격을 벗어난 값이 몇 개까지는 있어도 합격으로 보는지(Ac, aql_ac_allowance()
+        참고). 기본값 0 = 예전처럼 무결점.
 
     둘 다 없으면(규격 미확정) '규격미입력'을 돌려준다 — 불합격이 아니다.
     규격이 안 채워진 건 제품 문제가 아니라 우리 데이터 문제인데, 불합격으로 처리하면
@@ -1602,16 +1649,18 @@ def judge_numeric(raw_value, lower, upper):
             return False
         return True
 
-    ok = all(_within(v) for v in values)
+    defect_count = sum(1 for v in values if not _within(v))
+    ok = defect_count <= allowed_defects
     return ("합격" if ok else "불합격"), max_v, min_v
 
 
-def judge_numeric_pair(raw_value, lower, upper):
+def judge_numeric_pair(raw_value, lower, upper, allowed_defects=0):
     """2채널 숫자 항목(예: 하우징 고저항 CT/ROD).
 
     저장 형식: "a/b,c/d,e/f" — 각 샘플이 채널1/채널2 두 값.
-    양쪽 채널 모든 값이 lower~upper 범위 안이어야 합격(Ac=0).
-    max/min은 두 채널 통틀어 계산해서 성적서 max/min 칸에 그대로 쓴다.
+    양쪽 채널 모든 값이 lower~upper 범위 안이어야 합격 — allowed_defects(Ac)개까지는
+    벗어나도 합격으로 본다(기본값 0 = 무결점). max/min은 두 채널 통틀어 계산해서
+    성적서 max/min 칸에 그대로 쓴다.
     """
     if not raw_value:
         return "미측정", None, None
@@ -1644,18 +1693,21 @@ def judge_numeric_pair(raw_value, lower, upper):
             return False
         return True
 
-    ok = all(_within(v) for v in values)
+    defect_count = sum(1 for v in values if not _within(v))
+    ok = defect_count <= allowed_defects
     return ("합격" if ok else "불합격"), max_v, min_v
 
 
-def judge_visual(raw_value):
-    """육안 항목: O(합격)/X(불합격) 여러 칸 입력, 콤마로 구분. 하나라도 X면 불합격."""
+def judge_visual(raw_value, allowed_defects=0):
+    """육안 항목: O(합격)/X(불합격) 여러 칸 입력, 콤마로 구분.
+    allowed_defects(Ac)개까지는 X가 있어도 합격으로 본다(기본값 0 = 무결점)."""
     if not raw_value:
         return "미측정", None, None
     vals = [v.strip().upper() for v in raw_value.split(",") if v.strip()]
     if not vals:
         return "미측정", None, None
-    ok = all(v == "O" for v in vals)
+    defect_count = sum(1 for v in vals if v != "O")
+    ok = defect_count <= allowed_defects
     return ("합격" if ok else "불합격"), None, None
 
 
@@ -1838,20 +1890,20 @@ def edit_inspection_submit(inspection_id):
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
     specs, _, _ = _get_specs_for_material(header["material_no"])
+    specs_with_sample = build_specs_with_sample(specs, header["quantity"])
     items_with_results = []
     overall_ok = True
 
-    for spec in specs:
+    for spec in specs_with_sample:
+        allowed = aql_ac_allowance(spec["aql"], spec["sample_qty"])
         if spec["judge_type"] == "numeric":
             vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip() for i in range(1, 7)]
             raw_value = ",".join(v for v in vals if v)
-            result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"])
+            result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"], allowed)
         else:
             vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip() for i in range(1, 7)]
             raw_value = ",".join(v for v in vals if v)
-            ok = bool(raw_value) and all(v == "O" for v in raw_value.split(","))
-            result = "합격" if ok else ("불합격" if raw_value else "미측정")
-            max_v = min_v = None
+            result, max_v, min_v = judge_visual(raw_value, allowed)
 
         if result != "합격":
             overall_ok = False
@@ -2001,6 +2053,7 @@ def _generate_report_files(inspection_id, approver, signature_path):
         if not values and raw_tokens and all(t.upper() in ("O", "X") for t in raw_tokens):
             values = ["OK" if t.upper() == "O" else "NG" for t in raw_tokens]
         sample_qty = sample_size(it["aql"], header["quantity"]) if it["aql"] is not None else None
+        ac_allowance = aql_ac_allowance(it["aql"], sample_qty) if it["aql"] is not None else None
         return {
             "item_name": it["item_name"],
             "values": values,
@@ -2011,6 +2064,7 @@ def _generate_report_files(inspection_id, approver, signature_path):
             "spec_display": it["spec_display"],
             "aql": it["aql"],
             "sample_qty": sample_qty,
+            "ac_allowance": ac_allowance,
             "inspect_method": it["inspect_method"],
             "lower_limit": it["lower_limit"],
             "upper_limit": it["upper_limit"],
@@ -2164,6 +2218,13 @@ def _final_decision_block_reason(inspection_id, action, reject_reason=None):
     #    전 항목 합격인 성적서를 특채로 올리는 건 성립하지 않는다(그냥 합격 승인해야 함).
     if action == "special" and header["overall_result"] == "합격":
         return "전 항목 합격인 성적서는 특채 대상이 아니야. 그냥 '합격 승인'으로 처리해줘."
+
+    # 3-1) 반대 방향도 막아야 한다 — 규격을 벗어난 항목이 실제로 있는데 '합격 승인'을
+    #      누르면 불량이 정상 합격으로 둔갑해서 NCR·특채 절차 없이 그냥 통과해버린다.
+    #      (2번 검사에서 발견 — 서버가 이 방향은 막지 않고 있었음)
+    if action == "approve" and header["overall_result"] != "합격":
+        return ("규격을 벗어난 항목이 있어서 '합격 승인'으로 처리할 수 없어. "
+                "'특채' 또는 '불합격 확정'을 선택해줘.")
 
     # 4) 불합격 확정은 협력사로 나가는 결정이라 사유가 반드시 남아야 한다.
     #    (반려는 사유가 필수인데 더 중대한 불합격이 선택이던 건 앞뒤가 안 맞았다)
@@ -2538,18 +2599,25 @@ def approve_view(inspection_id):
             "gauge_days_left": days_left,
         }
 
+    NOT_READY_RESULTS = ("미측정", "입력오류", NO_SPEC_RESULT)
+
     all_items = [_parse_item(it) for it in items]
-    problem_items = [it for it in all_items if it["result"] == "불합격"]
-    pass_items    = [it for it in all_items if it["result"] != "불합격"]
+    problem_items  = [it for it in all_items if it["result"] == "불합격"]
+    pending_items  = [it for it in all_items if it["result"] in NOT_READY_RESULTS]
+    pass_items     = [it for it in all_items
+                       if it["result"] != "불합격" and it["result"] not in NOT_READY_RESULTS]
 
     problem_count = len(problem_items)
+    pending_count = len(pending_items)
     pass_count    = len(pass_items)
     return render_template("approve_form.html",
                            header=header,
                            problem_items=problem_items,
+                           pending_items=pending_items,
                            pass_items=pass_items,
                            all_items=all_items,
                            problem_count=problem_count,
+                           pending_count=pending_count,
                            pass_count=pass_count,
                            per_cycle_label=per_cycle_label,
                            total_time_label=total_time_label,
@@ -3335,21 +3403,21 @@ def reinspect_submit(inspection_id):
         "quantity": intake_row["quantity"],
     }
 
+    specs_with_sample = build_specs_with_sample(specs, intake_row["quantity"])
     items_with_results = []
     overall_ok = True
-    for spec in specs:
+    for spec in specs_with_sample:
+        allowed = aql_ac_allowance(spec["aql"], spec["sample_qty"])
         if spec["judge_type"] == "numeric":
             vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip()
                     for i in range(1, 7)]
             raw_value = ",".join(v for v in vals if v)
-            result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"])
+            result, max_v, min_v = judge_numeric(raw_value, spec["lower_limit"], spec["upper_limit"], allowed)
         else:
             vals = [request.form.get(f"item_{spec['id']}_{i}", "").strip()
                     for i in range(1, 7)]
             raw_value = ",".join(v for v in vals if v)
-            ok = bool(raw_value) and all(v == "O" for v in raw_value.split(","))
-            result = "합격" if ok else ("불합격" if raw_value else "미측정")
-            max_v = min_v = None
+            result, max_v, min_v = judge_visual(raw_value, allowed)
 
         if result != "합격":
             overall_ok = False

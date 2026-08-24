@@ -305,14 +305,20 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
             ws[f"B{row}"] = r["spec_display"]
         # AQL 칸은 두 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
         #   AQL 4.0
-        #   샘플 13개/무결점
-        # 이 시스템은 샘플 중 하나라도 벗어나면 불합격(Ac=0)이라, AQL 표기만 있으면
-        # "AQL 4.0인데 왜 1개 불량으로 로트 불합격이냐"는 물음에 답할 근거가 없다.
+        #   샘플 6개/Ac1 이내 합격   (또는 Ac=0이면 예전처럼 "무결점")
+        # 실제 계측은 항상 최대 6개까지만 하지만(inspect_form.html 참고), 합격 허용 불량개수(Ac)는
+        # AQL로 계산된 진짜 표본수(sample_qty)에 해당하는 KS Q ISO 2859-1 표준표 값을 쓴다
+        # (aql_ac_allowance(), 사용자 확정 — 6개는 참고 표본, Ac는 표준표 기준).
         if r.get("aql") is not None:
             aql_text = format_aql(r["aql"])
             sample_qty = r.get("sample_qty")
+            ac_allowance = r.get("ac_allowance")
             if sample_qty:
-                aql_text = f"{aql_text}\n샘플 {sample_qty}개/무결점"
+                measured_n = min(sample_qty, 6)
+                if ac_allowance:
+                    aql_text = f"{aql_text}\n샘플 {measured_n}개/Ac{ac_allowance} 이내 합격"
+                else:
+                    aql_text = f"{aql_text}\n샘플 {measured_n}개/무결점"
             ws[f"C{row}"] = aql_text
         # ※ wrap_text 없으면 LibreOffice가 PDF 변환할 때 줄바꿈을 무시하고 한 줄로 뭉갠다
         ws[f"C{row}"].alignment = Alignment(horizontal="center", vertical="center",
@@ -543,11 +549,18 @@ def build_group_report(group_no, group_name, header, parts, overall,
     signature_error = None
     template_print_area = template_ws.print_area
     template_area_range = template_print_area.split("!")[-1] if "!" in (template_print_area or "") else template_print_area
+
+    # 부품별 시트를 채우기 시작하기 "전에" 필요한 시트를 전부 미리 복제해둔다.
+    # copy_worksheet를 루프 도중(idx>=1 시점)에 하면, 그때는 이미 template_ws(=idx 0의 시트)가
+    # idx 0의 실제 값(항목기호 A열 등)으로 채워진 뒤라서 그 "오염된" 상태가 그대로 복제된다.
+    # A열은 ITEM_COLS 클리어 대상이 아니라 값이 없는 행에 남아있던 값이 지워지지 않으므로,
+    # 뒤 부품의 항목 수가 앞 부품보다 적으면 앞 부품의 항목기호가 뒤 부품 시트에 유령처럼 남는
+    # 버그가 있었다 — 항상 깨끗한 template_ws에서 복제하도록 순서를 바꿈.
+    sheets = [template_ws] + [wb.copy_worksheet(template_ws) for _ in range(len(parts) - 1)]
+
     for idx, part in enumerate(parts):
-        if idx == 0:
-            ws = template_ws
-        else:
-            ws = wb.copy_worksheet(template_ws)
+        ws = sheets[idx]
+        if idx > 0:
             # openpyxl의 copy_worksheet는 인쇄영역·페이지설정(배율 등)을 복사하지 않으므로 직접 지정
             ws.page_setup.scale = template_ws.page_setup.scale
             ws.page_setup.orientation = template_ws.page_setup.orientation

@@ -88,14 +88,18 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
 {# ───────── ① 신호등 배너 ───────── #}
 {% set total_count   = all_items|length %}
 {% set problem_count = problem_items|length %}
+{% set pending_count = pending_items|length %}
 {% set pass_count    = pass_items|length %}
 
-<div class="verdict-banner {{ 'has-issue' if problem_count > 0 else 'all-pass' }}">
-  <div class="verdict-icon">{{ '🔴' if problem_count > 0 else '🟢' }}</div>
+<div class="verdict-banner {{ 'has-issue' if problem_count > 0 else ('has-issue' if pending_count > 0 else 'all-pass') }}">
+  <div class="verdict-icon">{{ '🔴' if problem_count > 0 else ('🟡' if pending_count > 0 else '🟢') }}</div>
   <div class="verdict-text">
     {% if problem_count > 0 %}
       <h2>⚠ 주의가 필요해!</h2>
       <p>{{ problem_count }}개 항목이 규격을 벗어났어.<br>아래 내용 확인 후 결정해줘.</p>
+    {% elif pending_count > 0 %}
+      <h2>⏳ 아직 측정 안 된 항목이 있어!</h2>
+      <p>{{ pending_count }}개 항목이 미측정/규격미입력 상태야.<br>승인·특채·불합격 확정은 검사를 마무리해야 할 수 있어.</p>
     {% else %}
       <h2>✅ 전부 합격이야!</h2>
       <p>모든 항목이 규격 범위 안에 있어.</p>
@@ -105,6 +109,9 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
     <b>{{ total_count }}</b>전체 항목
     {% if problem_count > 0 %}
     <br><span style="color:#dc2626; font-weight:700;">{{ problem_count }}개 주의</span>
+    {% endif %}
+    {% if pending_count > 0 %}
+    <br><span style="color:#b45309; font-weight:700;">{{ pending_count }}개 미측정</span>
     {% endif %}
   </div>
 </div>
@@ -271,6 +278,39 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
 </div>
 {% endif %}
 
+{# ───────── ②-b 미측정/규격미입력 항목 카드 ───────── #}
+{% if pending_items %}
+<div style="margin-bottom:20px;">
+  <h3 style="font-size:16px; color:#b45309; margin:0 0 10px; display:flex; align-items:center; gap:6px;">
+    ⏳ 미측정 / 규격미입력 항목 ({{ pending_count }}개)
+  </h3>
+  {% for it in pending_items %}
+  <div class="problem-card" style="border-color:#fcd34d; background:#fffbeb;">
+    <div class="item-header">
+      <span class="item-name">{{ it['item_name'] }}</span>
+      <span class="item-spec">{{ it['spec_display'] or '' }}</span>
+      {% if it['inspect_method'] %}
+      <span class="item-method-badge">{{ it['inspect_method'] }}</span>
+      {% endif %}
+      <span style="margin-left:auto; font-size:12px; font-weight:700; color:#b45309;">{{ it['result'] }}</span>
+    </div>
+    <div>
+      <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">측정값</div>
+      <div class="mval-list">
+        {% if it['parsed_vals'] %}
+          {% for pv in it['parsed_vals'] %}
+          <span class="mval-chip">{{ pv['display'] }}</span>
+          {% endfor %}
+        {% else %}
+          <span style="color:#9ca3af; font-size:13px;">측정값 없음</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# ───────── ③ 합격 항목 접기/펼치기 ───────── #}
 {% if pass_items %}
 <div style="margin-bottom:24px;">
@@ -402,7 +442,8 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
     {# 1행: 승인 + 특채 #}
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
       <button type="button" class="submit-final s-pass" onclick="submitWithSig('approve')"
-              {% if problem_count > 0 %}style="opacity:.5;" title="불합격 항목이 있어. 특채 또는 불합격 확정을 권장해."{% endif %}>
+              {% if problem_count > 0 %}style="opacity:.5;" title="불합격 항목이 있어. 특채 또는 불합격 확정을 권장해."
+              {% elif pending_count > 0 %}style="opacity:.5;" title="미측정/규격미입력 항목이 있어. 검사를 먼저 마무리해야 해."{% endif %}>
         ✅ 합격 승인
       </button>
       <button type="button" class="submit-final s-special" onclick="submitWithSig('special')">
