@@ -192,7 +192,16 @@
       <td style="font-size:12px; color:{{ '#dc2626' if sm.get('aql')|string == '0.65' else '#374151' }}; font-weight:{{ '700' if sm.get('aql')|string == '0.65' else '400' }};">{{ sm.get('aql') or '-' }}</td>
       <td style="font-size:12.5px;">{{ sm.get('sample_qty') or '-' }}</td>
       <td><span class="badge {{ 'pass' if it['result']=='합격' else ('fail' if it['result']=='불합격' else 'pending') }}">{{ it['result'] }}</span></td>
-      <td style="font-size:12px; color:{{ '#dc2626' if it['gauge_expiry'] else '#9ca3af' }};">{{ it['gauge_expiry'] or '-' }}</td>
+      <td style="font-size:12px;">
+        {% if it['gauge_name'] %}<div style="color:#374151; font-weight:600;">{{ it['gauge_name'] }}</div>{% endif %}
+        {% if it['gauge_expiry'] %}
+          <div style="color:#dc2626;">{{ it['gauge_expiry'] }}</div>
+        {% elif it['gauge_name'] %}
+          <div style="color:#d97706; font-size:11px;">⚠ 만료일 미등록</div>
+        {% else %}
+          <span style="color:#9ca3af;">-</span>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
     </tbody>

@@ -253,16 +253,17 @@
           <span style="color:#374151;">{{ s['item_name'] }}:</span>
           {% if gauges %}
           <select name="item_{{ s['id'] }}_gauge_expiry"
-                  onchange="var n=this.options[this.selectedIndex].dataset.name||''; document.getElementById('gname_{{ s['id'] }}').value=n;"
+                  onchange="var o=this.options[this.selectedIndex]; document.getElementById('gname_{{ s['id'] }}').value=o.dataset.name||''; document.getElementById('gview_{{ s['id'] }}').textContent = this.value ? ('만료 '+this.value) : (o.dataset.name ? '⚠ 만료일 미등록' : '');"
                   style="font-size:12px;">
             <option value="" data-name="">직접 입력</option>
             {% for gm in gauges %}
             <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}">
-              {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% endif %}
+              {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
             </option>
             {% endfor %}
           </select>
           <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}">
+          <span id="gview_{{ s['id'] }}" style="font-size:11.5px; color:#dc2626; margin-left:4px;"></span>
           {% else %}
           <input type="text" name="item_{{ s['id'] }}_gauge_expiry" placeholder="YYYY-MM-DD" style="font-size:12px;width:110px;">
           {% endif %}
@@ -400,7 +401,7 @@
                 {% for gm in gauges %}
                 <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
                   {% if prefill and prefill.get('item_' ~ s['id'] ~ '_gauge_expiry') == (gm['expiry_date'] or '') %}selected{% endif %}>
-                  {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% endif %}
+                  {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
                 </option>
                 {% endfor %}
               </select>
