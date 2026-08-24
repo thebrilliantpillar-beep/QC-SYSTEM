@@ -1546,6 +1546,10 @@ def inspect_form(intake_id):
         record_change("성적서 등록", "inspection", inspection_id,
                       f"자재 {material_no}, 업체 {intake_row['supplier']}, 판정 {overall_result}")
 
+        remark_inspector = (request.form.get("remark_inspector") or "").strip()
+        if remark_inspector:
+            db.update_inspection_remark(inspection_id, "inspector", remark_inspector)
+
         # 전수 데이터도 같이 저장 (전수 모드일 때)
         if fi_units_to_save is not None:
             db.get_or_create_full_inspection(inspection_id)
@@ -1843,6 +1847,7 @@ def edit_inspection(inspection_id):
     prefill = {
         "inspect_date": header["inspect_date"] or "",
         "inspector": header["inspector"] or "",
+        "remark_inspector": header["remark_inspector"] or "",
     }
     items_by_key = {(it["part_material_no"], it["item_name"]): it for it in items}
     for s in specs:
@@ -1937,6 +1942,9 @@ def edit_inspection_submit(inspection_id):
         actual_time_sec=actual_time_sec,
         total_time_sec=total_time_sec,
     )
+    remark_inspector = (request.form.get("remark_inspector") or "").strip()
+    db.update_inspection_remark(inspection_id, "inspector", remark_inspector)
+
     flash("측정값이 수정됐어.")
     record_change("성적서 수정", "inspection", inspection_id,
                   f"자재 {header['material_no']}, 판정 {overall_result}")
@@ -2675,6 +2683,26 @@ def _multi_arg(name):
 
 APPROVAL_HISTORY_STATES = ("합격", "특채", "불합격")
 
+# 검사자 비고의 표준 불량 문구 "검사 수량 N개 중 M개 불량 P%" 를 파싱해서
+# 승인 이력에 불량 카운트 컬럼을 자동으로 채운다. 여러 줄이면 합산.
+_DEFECT_RE = re.compile(r"검사\s*수량\s*(\d+)\s*개\s*중\s*(\d+)\s*개\s*불량")
+
+
+def parse_defect_counts(remark_text):
+    """검사자 비고에서 불량 수량 합계를 뽑아낸다.
+       return (bad_total, matched_line_count) — 매칭 없으면 (0, 0)."""
+    if not remark_text:
+        return 0, 0
+    total_bad = 0
+    matches = 0
+    for m in _DEFECT_RE.finditer(remark_text):
+        try:
+            total_bad += int(m.group(2))
+            matches += 1
+        except ValueError:
+            pass
+    return total_bad, matches
+
 
 def _collect_approval_history():
     """승인 이력 화면·엑셀 내보내기가 공유하는 필터·조회 로직.
@@ -2713,13 +2741,21 @@ def _collect_approval_history():
         # 옛날 성적서는 total_time_sec 컬럼이 추가되기 전에 만들어져서 NULL임.
         # 사이클당 시간(actual_time_sec)에 샘플수를 곱해야 진짜 "총" 시간이 나온다.
         total_sec = r["total_time_sec"] or 0
-        if not total_sec and r["actual_time_sec"]:
-            try:
-                specs, _grp, _gid = _get_specs_for_material(r["material_no"] or "")
-                sws = build_specs_with_sample(specs, r["quantity"] or 0)
+        max_sample = 0
+        try:
+            specs, _grp, _gid = _get_specs_for_material(r["material_no"] or "")
+            sws = build_specs_with_sample(specs, r["quantity"] or 0)
+            max_sample = max((s.get("sample_qty", 0) or 0) for s in sws) if sws else 0
+            if not total_sec and r["actual_time_sec"]:
                 total_sec = compute_total_time_sec(sws, r["actual_time_sec"])
-            except Exception:
-                total_sec = r["actual_time_sec"]  # 최소한 사이클당 시간이라도
+        except Exception:
+            if not total_sec:
+                total_sec = r["actual_time_sec"] or 0
+
+        # 비고에 적힌 표준 불량 문구 → 불량수량 합계 (5번 표준 포맷)
+        bad_count, _bad_lines = parse_defect_counts(r["remark_inspector"] or "")
+        # 합격수량 = 최대 샘플 수 - 불량수량 (샘플기준으로 표시)
+        pass_count = max(0, (max_sample or 0) - bad_count) if max_sample else max(0, -bad_count)
 
         approved_rows.append({
             "id": r["id"],
@@ -2734,6 +2770,9 @@ def _collect_approval_history():
             "total_time_sec": total_sec,
             "total_time_label": format_duration(total_sec),
             "state": state,
+            "max_sample": max_sample,
+            "bad_count": bad_count,
+            "pass_count": pass_count,
         })
 
     # 최신 입고일부터, 같은 날은 id 큰 것부터
@@ -2775,11 +2814,12 @@ def approval_history_export():
     ws["B1"] = "검사 결과 리스트"
     ws["B1"].font = Font(name="맑은 고딕", size=16, bold=True)
     ws["B1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.merge_cells("B1:J1")
+    ws.merge_cells("B1:M1")
     ws.row_dimensions[1].height = 28
 
     headers = ["입고일", "업체명", "발주번호", "자재명", "자재번호",
-               "입고수량", "검사자", "검사시간", "판정여부"]
+               "입고수량", "검사자", "검사시간", "판정여부",
+               "합격 수량", "불량 수량", "AQL 최대 샘플"]
     thin = Side(style="thin", color="B7BEC9")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_fill = PatternFill("solid", fgColor="E7EAF0")
@@ -2804,6 +2844,9 @@ def approval_history_export():
             r["inspector"],
             r["total_time_label"],
             r["state"],
+            f"{r['pass_count']}개" if r["max_sample"] else "",
+            f"{r['bad_count']}개" if r["bad_count"] else ("0개" if r["max_sample"] else ""),
+            f"{r['max_sample']}개" if r["max_sample"] else "",
         ]
         for j, v in enumerate(values):
             c = ws.cell(row=row_i, column=2 + j, value=v)
@@ -2811,7 +2854,7 @@ def approval_history_export():
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             c.border = border
 
-    widths = [15, 14, 14, 34, 14, 10, 10, 12, 10]
+    widths = [15, 14, 14, 34, 14, 10, 10, 12, 10, 11, 11, 13]
     for i, w in enumerate(widths):
         ws.column_dimensions[chr(ord('B') + i)].width = w
 

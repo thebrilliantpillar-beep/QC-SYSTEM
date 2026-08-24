@@ -257,8 +257,8 @@
                   style="font-size:12px;">
             <option value="" data-name="">직접 입력</option>
             {% for gm in gauges %}
-            <option value="{{ gm['calibration_due'] or '' }}" data-name="{{ gm['name'] }}">
-              {{ gm['name'] }}{% if gm['calibration_due'] %} ({{ gm['calibration_due'] }}){% endif %}
+            <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}">
+              {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% endif %}
             </option>
             {% endfor %}
           </select>
@@ -398,9 +398,9 @@
                       data-nametarget="gname_{{ s['id'] }}">
                 <option value="" data-name="">직접 입력</option>
                 {% for gm in gauges %}
-                <option value="{{ gm['calibration_due'] or '' }}" data-name="{{ gm['name'] }}"
-                  {% if prefill and prefill.get('item_' ~ s['id'] ~ '_gauge_expiry') == (gm['calibration_due'] or '') %}selected{% endif %}>
-                  {{ gm['name'] }}{% if gm['calibration_due'] %} ({{ gm['calibration_due'] }}){% endif %}
+                <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
+                  {% if prefill and prefill.get('item_' ~ s['id'] ~ '_gauge_expiry') == (gm['expiry_date'] or '') %}selected{% endif %}>
+                  {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% endif %}
                 </option>
                 {% endfor %}
               </select>
@@ -443,10 +443,92 @@
   </div>
   {% endif %}
 
+  <div class="card" style="margin-top:14px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+      <label style="margin:0; font-weight:600; color:#374151;">검사자 비고</label>
+      <button type="button" class="btn secondary" style="margin:0; padding:7px 12px; font-size:13px;"
+              onclick="openDefectModal()">🚫 불량 문구 삽입</button>
+    </div>
+    <textarea name="remark_inspector" id="remarkInspector" rows="3"
+              placeholder="필요하면 검사자가 남길 특이사항을 적어. 불량이 있으면 위 버튼으로 표준 문구를 조립할 수 있어."
+              style="width:100%; font-size:13.5px; padding:10px; border:1px solid #d1d5db; border-radius:8px; resize:vertical;">{{ prefill.remark_inspector if prefill else '' }}</textarea>
+    <div style="margin-top:4px; font-size:11.5px; color:#9ca3af;">
+      "불량증상 XXX 검사 수량 N개 중 M개 불량 P%" 형식으로 조립돼. 여러 번 눌러서 줄바꿈으로 누적할 수 있어.
+    </div>
+  </div>
+
   <button type="submit" style="margin-top:20px; width:100%; font-size:16px; padding:15px;">
     판정 실행 &amp; 성적서 제출
   </button>
 </form>
+
+{# ===== 불량 문구 삽입 모달 ===== #}
+<div id="defectModal" style="display:none; position:fixed; inset:0; z-index:400;
+     background:rgba(0,0,0,.45); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:12px; padding:20px 22px; width:min(440px, 92vw);
+              box-shadow:0 20px 50px rgba(0,0,0,.25);">
+    <h3 style="margin:0 0 12px;">🚫 불량 문구 삽입</h3>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div>
+        <label style="font-size:12.5px; color:#4b5563; font-weight:600;">불량 증상</label>
+        <input type="text" id="dm_symptom" placeholder="예: 도금 벗겨짐, 나사산 뭉개짐"
+               style="width:100%; padding:9px; font-size:14px; border:1px solid #d1d5db; border-radius:8px;">
+      </div>
+      <div style="display:flex; gap:10px;">
+        <div style="flex:1;">
+          <label style="font-size:12.5px; color:#4b5563; font-weight:600;">검사 수량</label>
+          <input type="number" id="dm_total" min="1" value="{{ intake.quantity or '' }}"
+                 oninput="dmRecalc()"
+                 style="width:100%; padding:9px; font-size:14px; border:1px solid #d1d5db; border-radius:8px;">
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:12.5px; color:#4b5563; font-weight:600;">불량 수량</label>
+          <input type="number" id="dm_bad" min="0" value="1" oninput="dmRecalc()"
+                 style="width:100%; padding:9px; font-size:14px; border:1px solid #d1d5db; border-radius:8px;">
+        </div>
+      </div>
+      <div id="dm_preview" style="background:#f3f4f6; border-radius:8px; padding:10px 12px;
+           font-size:13.5px; color:#374151; min-height:20px;"></div>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button type="button" class="btn secondary" style="margin:0;" onclick="closeDefectModal()">취소</button>
+      <button type="button" style="margin:0;" onclick="confirmDefectModal()">확인 (비고에 추가)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openDefectModal() {
+  document.getElementById('defectModal').style.display = 'flex';
+  document.getElementById('dm_symptom').value = '';
+  document.getElementById('dm_bad').value = '1';
+  dmRecalc();
+  setTimeout(function(){ document.getElementById('dm_symptom').focus(); }, 50);
+}
+function closeDefectModal() { document.getElementById('defectModal').style.display = 'none'; }
+function dmBuildText() {
+  var sym = (document.getElementById('dm_symptom').value || '').trim() || 'XXX';
+  var tot = parseInt(document.getElementById('dm_total').value || '0', 10) || 0;
+  var bad = parseInt(document.getElementById('dm_bad').value || '0', 10) || 0;
+  var pct = (tot > 0) ? (bad / tot * 100) : 0;
+  var pctStr = (Math.round(pct * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  return '불량증상 ' + sym + ' 검사 수량 ' + tot + '개 중 ' + bad + '개 불량 ' + pctStr + '%';
+}
+function dmRecalc() { document.getElementById('dm_preview').textContent = dmBuildText(); }
+function confirmDefectModal() {
+  var line = dmBuildText();
+  var ta = document.getElementById('remarkInspector');
+  ta.value = ta.value ? (ta.value.replace(/\s+$/, '') + '\n' + line) : line;
+  closeDefectModal();
+  ta.focus();
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && document.getElementById('defectModal').style.display === 'flex') closeDefectModal();
+});
+document.getElementById('defectModal').addEventListener('click', function(e){
+  if (e.target === this) closeDefectModal();
+});
+</script>
 
 {# ===== 태블릿용 방향 이동 D패드 ===== #}
 <div id="navPad" style="position:fixed; right:14px; bottom:14px; z-index:200;

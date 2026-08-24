@@ -119,6 +119,9 @@
       <th>검사자</th>
       <th>검사시간</th>
       <th>판정여부</th>
+      <th title="AQL 샘플 중 합격 개수 (=최대샘플 - 불량)">합격</th>
+      <th title="검사자 비고의 표준 불량 문구에서 자동 합계">불량</th>
+      <th title="이 성적서에서 가장 큰 AQL 샘플 수">최대 샘플</th>
     </tr>
   </thead>
   <tbody>
@@ -138,6 +141,11 @@
         {% elif r.state == '불합격' %}<span class="badge badge-fail">불합격</span>
         {% else %}{{ r.state }}{% endif %}
       </td>
+      <td style="color:#166534; font-weight:600;">{% if r.max_sample %}{{ r.pass_count }}{% else %}—{% endif %}</td>
+      <td style="color:{% if r.bad_count %}#dc2626{% else %}#9ca3af{% endif %}; font-weight:600;">
+        {% if r.max_sample %}{{ r.bad_count }}{% else %}—{% endif %}
+      </td>
+      <td>{% if r.max_sample %}{{ r.max_sample }}{% else %}—{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>
