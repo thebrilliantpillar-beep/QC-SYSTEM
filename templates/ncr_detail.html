@@ -16,26 +16,82 @@
 }
 .ncr-doc {
   background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.08);
-  padding: 32px 28px; max-width: 720px; margin: 0 auto;
+  padding: 28px 28px 32px; max-width: 780px; margin: 0 auto;
 }
-.ncr-title {
-  text-align: center; margin-bottom: 24px; border-bottom: 3px solid #1f2937; padding-bottom: 16px;
+
+/* ─ 상단 헤더: 좌측 로고 + 중앙 제목 + 우측 서명 3칸 ─ */
+.ncr-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 3px solid #1f2937;
 }
-.ncr-title h1 { font-size: 22px; font-weight: 900; letter-spacing: 1px; margin: 0 0 4px; }
-.ncr-title .ncr-no { font-size: 13px; color: var(--muted); font-weight: 600; }
+.ncr-header .h-logo { width: 84px; height: 84px; display:flex; align-items:center; justify-content:center; }
+.ncr-header .h-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.ncr-header .h-title { text-align: center; }
+.ncr-header .h-title .ncr-no { font-size: 12.5px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
+.ncr-header .h-title h1 { font-size: 24px; font-weight: 900; letter-spacing: 2px; margin: 4px 0 2px; }
+.ncr-header .h-title .en { font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+.ncr-header .h-signs {
+  display: grid; grid-template-columns: repeat(3, 78px); gap: 6px;
+}
+.h-signs .h-sign {
+  border: 1px solid #9ca3af; border-radius: 6px; height: 84px;
+  display: flex; flex-direction: column;
+  font-size: 10.5px; overflow: hidden; background: #fff;
+}
+.h-signs .h-sign .role {
+  background: #f3f4f6; color: #4b5563; font-weight: 700; padding: 3px 0;
+  text-align: center; border-bottom: 1px solid #e5e7eb;
+  font-size: 10px; letter-spacing: -0.3px;
+}
+.h-signs .h-sign .body {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 3px; position: relative; text-align: center;
+}
+.h-signs .h-sign .body img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.h-signs .h-sign .body img.stamp-img { max-width: 100%; max-height: 100%; }
+.h-signs .h-sign .who { font-size: 10px; color: #374151; font-weight: 700; }
+.h-signs .h-sign .when { font-size: 9px; color: #9ca3af; margin-top: 2px; }
+
+@media (max-width: 640px) {
+  .ncr-header { grid-template-columns: 1fr; text-align: center; }
+  .ncr-header .h-logo { justify-self: center; }
+  .ncr-header .h-signs { justify-self: center; grid-template-columns: repeat(3, 72px); }
+}
+
 .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; }
 .info-table th, .info-table td { border: 1px solid #d1d5db; padding: 8px 10px; }
-.info-table th { background: #f3f4f6; font-weight: 700; width: 26%; text-align: left; color: #374151; }
+.info-table th { background: #f3f4f6; font-weight: 700; width: 22%; text-align: left; color: #374151; }
 .content-box { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 14px;
                font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; margin-bottom: 16px;
                min-height: 70px; }
 .content-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; margin-top: 14px; }
-.sign-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; }
-.sign-box { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px; text-align: center;
-            font-size: 12.5px; min-height: 70px; }
-.sign-box .s-role { font-weight: 700; color: #4b5563; margin-bottom: 4px; }
-.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
-.photo-grid img { width: 100%; border-radius: 8px; border: 1px solid var(--border); object-fit: cover; aspect-ratio: 4/3; }
+
+/* 사진 그리드 — 실제 첨부된 장수만큼만, 정사각형 비율로 정중앙 배치.
+   빈 칸(placeholder)은 만들지 않는다 — 1장이면 1칸, 4장이면 2x2, 6장이면 3x2 식으로
+   장수에 맞춰 열 개수가 달라진다(app.py의 photo_cols가 계산). */
+.photo-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  justify-content: center;
+}
+.photo-grid .photo-cell {
+  width: 170px;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fafafa;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  color: #d1d5db; font-size: 11px;
+}
+.photo-grid .photo-cell img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 480px) { .photo-grid .photo-cell { width: 120px; } }
 
 /* 상태 배지 */
 .ncr-status { display:inline-flex; align-items:center; gap:6px; padding:6px 14px;
@@ -49,13 +105,39 @@
 .confirm-banner {
   background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px;
   padding:12px 16px; margin-bottom:14px; font-size:13px;
-  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;
 }
+.stamp-choice { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 2px; }
+.stamp-choice label { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600;
+                      padding:6px 12px; border:1.5px solid #d1d5db; border-radius:8px;
+                      cursor:pointer; background:#fff; margin:0; }
+.stamp-choice input[type=radio] { width:auto; margin:0; }
+.stamp-choice label:has(input:checked) { border-color:var(--primary); background:#eff6ff; }
+
+/* ── 중앙 알림 모달 ── */
+.center-modal {
+  display:none; position:fixed; inset:0; z-index:12000;
+  background:rgba(17,24,39,.62); align-items:center; justify-content:center; padding:20px;
+}
+.center-modal.show { display:flex; }
+.center-modal .box {
+  background:#fff; border-radius:16px; width:min(94vw, 420px);
+  box-shadow:0 20px 60px rgba(0,0,0,.35); overflow:hidden;
+  border-top:7px solid #f59e0b;
+}
+.center-modal .box .body { padding:22px 22px 16px; text-align:center; }
+.center-modal .box .body .ic { font-size:44px; margin-bottom:8px; }
+.center-modal .box .body h3 { margin:0 0 8px; font-size:17px; color:#92400e; font-weight:800; }
+.center-modal .box .body p { margin:0; font-size:13.5px; color:#374151; line-height:1.6; }
+.center-modal .box .foot { padding:12px; border-top:1px solid #e5e7eb; background:#f9fafb;
+                           text-align:center; }
+.center-modal .box .foot button { padding:10px 30px; font-size:14px; font-weight:800;
+                                  background:#f59e0b; color:#fff; border:none; border-radius:8px;
+                                  cursor:pointer; margin:0; }
 </style>
 
 <!-- 상태 표시 -->
 {% set status = ncr['status'] or 'draft' %}
-<div class="no-print" style="max-width:720px; margin:0 auto 0;">
+<div class="no-print" style="max-width:780px; margin:0 auto 0;">
   <span class="ncr-status {{ status }}">
     {% if status == 'draft' %}📝 초안 (작성 완료, 확인 대기)
     {% elif status == 'confirmed' %}✅ 확인 완료 (발송 대기)
@@ -66,7 +148,7 @@
 
 <!-- 확인 대기 배너 (초안일 때만) -->
 {% if status == 'draft' and 'ncr_confirm' in user_perms %}
-<div class="confirm-banner no-print" style="max-width:720px; margin:0 auto 14px; display:block;">
+<div class="confirm-banner no-print" style="max-width:780px; margin:0 auto 14px;">
   <div style="margin-bottom:10px;">
     <span style="font-weight:700;">아직 확인 전이야.</span>
     <span style="color:#6b7280; margin-left:6px;">아래 문서를 검토한 뒤, 최종결정권자가 서명하고 확인 완료를 눌러줘.</span>
@@ -80,24 +162,58 @@
   </div>
   {% else %}
   <form method="POST" action="{{ url_for('ncr_confirm', ncr_id=ncr['id']) }}" id="ncrConfirmForm"
-        onsubmit="return prepareNcrSign()">
+        enctype="multipart/form-data" onsubmit="return prepareNcrSubmit()">
     <input type="hidden" name="signature_data" id="ncrSigData">
+    <input type="hidden" name="signature_source" id="ncrSigSource" value="draw">
 
     <div style="background:#fff; border:1px solid var(--border); border-radius:9px; padding:12px;">
       <b style="font-size:13.5px; color:#374151;">✍️ 최종결정권자 승인 서명 (필수)</b>
       <p style="margin:4px 0 9px; font-size:12.5px; color:#6b7280;">
         이 통보서는 협력사로 발송되는 문서라 승인 서명이 반드시 들어가.
       </p>
-      <canvas id="ncrSigPad" width="340" height="120"
-              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
-                     touch-action:none; display:block; max-width:100%;"></canvas>
-      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-        <button type="button" onclick="clearNcrSig()" class="btn secondary"
-                style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
-        <button type="button" onclick="loadNcrDefaultSig()" class="btn secondary"
-                style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
+
+      <!-- 서명 방식 탭 -->
+      <div class="stamp-choice">
+        <label><input type="radio" name="_sig_mode" value="draw" checked onchange="switchSigMode(this.value)"> 🖊 직접 서명</label>
+        <label><input type="radio" name="_sig_mode" value="upload" onchange="switchSigMode(this.value)"> 📎 이미지 업로드</label>
+      </div>
+
+      <div id="ncrDrawBox">
+        <canvas id="ncrSigPad" width="340" height="120"
+                style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+                       touch-action:none; display:block; max-width:100%;"></canvas>
+        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+          <button type="button" onclick="clearNcrSig()" class="btn secondary"
+                  style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
+          <button type="button" onclick="loadNcrDefaultSig()" class="btn secondary"
+                  style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
+        </div>
+      </div>
+
+      <div id="ncrUploadBox" style="display:none;">
+        <label class="btn secondary" for="ncrSigFile"
+               style="cursor:pointer; padding:10px 16px; font-size:13.5px; margin:0;">
+          📎 PNG/JPG 파일 선택
+        </label>
+        <input type="file" id="ncrSigFile" name="signature_file" accept=".png,.jpg,.jpeg"
+               style="display:none;" onchange="onNcrFile(this)">
+        <div id="ncrFileName" style="margin-top:6px; font-size:12.5px; color:#6b7280;">
+          파일이 선택되지 않았어.
+        </div>
+        <div style="margin-top:10px;">
+          <div style="font-size:12px; color:#4b5563; font-weight:700; margin-bottom:6px;">
+            업로드한 이미지가 <b>도장</b>인지 <b>사인</b>인지 골라줘.
+          </div>
+          <div class="stamp-choice">
+            <label><input type="radio" name="signature_stamp_type" value="sign"> ✍️ 사인 (기본 크기)</label>
+            <label><input type="radio" name="signature_stamp_type" value="stamp"> 🟥 도장 (5×5cm)</label>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
         <button type="submit"
-                style="background:#1d4ed8; color:#fff; padding:8px 18px; font-size:13.5px;
+                style="background:#1d4ed8; color:#fff; padding:10px 22px; font-size:14px;
                        border:none; border-radius:8px; cursor:pointer; font-weight:700; margin-top:0;">
           ✅ 서명하고 확인 완료
         </button>
@@ -109,24 +225,29 @@
 {% endif %}
 
 {% if status == 'confirmed' %}
-<div class="no-print" style="max-width:720px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
+<div class="no-print" style="max-width:780px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
   확인자: <strong>{{ ncr['confirmed_by'] }}</strong> · {{ ncr['confirmed_at'] | datetime_korean }}
   {% if ncr['confirm_signature'] %}&nbsp;|&nbsp;승인 서명 첨부됨{% endif %}
 </div>
 {% elif status == 'sent' %}
-<div class="no-print" style="max-width:720px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
+<div class="no-print" style="max-width:780px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
   발송 완료: <strong>{{ ncr['sent_to'] }}</strong> · {{ ncr['email_sent_at'] | datetime_korean }}
   &nbsp;|&nbsp; 확인자: {{ ncr['confirmed_by'] }}
 </div>
 {% endif %}
 
 <!-- 버튼 바 -->
-<div class="btn-bar no-print" style="max-width:720px; margin:0 auto 16px;">
+<div class="btn-bar no-print" style="max-width:780px; margin:0 auto 16px;">
   <button onclick="window.print()" style="background:#1f2937; color:#fff;">🖨️ 인쇄 / PDF</button>
 
   {% if 'ncr_confirm' in user_perms %}
+  {% if photos|length < 6 %}
   <button onclick="document.getElementById('photoModal').style.display='flex'"
-          style="background:#7c3aed; color:#fff;">📷 사진 첨부</button>
+          style="background:#7c3aed; color:#fff;">📷 사진 첨부 ({{ photos|length }}/6)</button>
+  {% else %}
+  <button disabled title="최대 6장까지 첨부 가능"
+          style="background:#e5e7eb; color:#9ca3af; cursor:not-allowed;">📷 사진 6/6 (가득참)</button>
+  {% endif %}
 
   {% if status in ('confirmed', 'sent') %}
   <button onclick="document.getElementById('emailModal').style.display='flex'"
@@ -151,10 +272,48 @@
 
 <!-- 통보서 본문 -->
 <div class="ncr-doc">
-  <div class="ncr-title">
-    <div class="ncr-no">{{ ncr['ncr_no'] }}</div>
-    <h1>부적합 통보서</h1>
-    <div style="font-size:13px; color:var(--muted);">NON-CONFORMANCE REPORT</div>
+  <!-- 상단: 로고 · 제목 · 서명 3칸 -->
+  <div class="ncr-header">
+    <div class="h-logo">
+      <img src="{{ logo_url }}" alt="회사 로고">
+    </div>
+    <div class="h-title">
+      <div class="ncr-no">{{ ncr['ncr_no'] }}</div>
+      <h1>부적합 통보서</h1>
+      <div class="en">NON-CONFORMANCE REPORT</div>
+    </div>
+    <div class="h-signs">
+      <div class="h-sign">
+        <div class="role">검사 담당</div>
+        <div class="body">
+          <div>
+            <div class="who">{{ ncr['issued_by'] or '' }}</div>
+            <div class="when">{{ ncr['issued_date'] or '' }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="h-sign">
+        <div class="role">최종결정권자</div>
+        <div class="body">
+          {% if ncr['confirmed_by'] %}
+            {% if confirm_signature_url %}
+              <img src="{{ confirm_signature_url }}" alt="승인 서명"
+                   class="{{ 'stamp-img' if is_stamp_sig else '' }}">
+            {% endif %}
+            <div style="position:absolute; bottom:2px; left:0; right:0;">
+              <div class="who">{{ ncr['confirmed_by'] }}</div>
+              <div class="when">{{ ncr['confirmed_at'][:10] if ncr['confirmed_at'] else '' }}</div>
+            </div>
+          {% else %}
+            <span style="color:#d1d5db;">(확인 대기)</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="h-sign">
+        <div class="role">업체 수령확인</div>
+        <div class="body"><span style="color:#d1d5db;">서명란</span></div>
+      </div>
+    </div>
   </div>
 
   <table class="info-table">
@@ -168,12 +327,13 @@
     </tr>
     <tr>
       <th>업체명</th>
-      <td colspan="3">
+      <td>
         {{ ncr['supplier'] or '-' }}
         {% if supplier_info and supplier_info['contact'] %}
           <span style="color:var(--muted); font-size:12.5px; margin-left:8px;">{{ supplier_info['contact'] }}</span>
         {% endif %}
       </td>
+      <th>발주번호</th><td>{{ po_number or '-' }}</td>
     </tr>
     {% if ncr['due_date'] %}
     <tr>
@@ -190,36 +350,16 @@
   <div class="content-box">{{ ncr['action_required'] or '-' }}</div>
 
   {% if photos %}
-  <div class="content-label">📷 불량 사진</div>
-  <div class="photo-grid">
+  {% set photo_cols = {1: 1, 2: 2, 3: 3, 4: 2, 5: 3, 6: 3} %}
+  <div class="content-label">📷 불량 사진 ({{ photos|length }}/6)</div>
+  <div class="photo-grid" style="grid-template-columns: repeat({{ photo_cols.get(photos|length, 3) }}, 170px);">
     {% for photo in photos %}
-    <img src="{{ url_for('static', filename='ncr_photos/' ~ photo) }}" alt="불량 사진">
+    <div class="photo-cell">
+      <img src="{{ url_for('static', filename='ncr_photos/' ~ photo) }}" alt="불량 사진">
+    </div>
     {% endfor %}
   </div>
   {% endif %}
-
-  <div class="sign-row">
-    <div class="sign-box">
-      <div class="s-role">검사 담당</div>
-      <div style="margin-top:30px; font-weight:700; font-size:13px;">{{ ncr['issued_by'] or '' }}</div>
-    </div>
-    <div class="sign-box">
-      <div class="s-role">최종결정권자 승인</div>
-      {% if ncr['confirmed_by'] %}
-      {% if confirm_signature_url %}
-      <img src="{{ confirm_signature_url }}" alt="승인 서명"
-           style="height:42px; margin-top:4px; object-fit:contain;">
-      {% else %}
-      <div style="margin-top:30px;"></div>
-      {% endif %}
-      <div style="font-size:12px; color:#6b7280;">{{ ncr['confirmed_at'][:10] if ncr['confirmed_at'] else '' }}</div>
-      <div style="font-weight:700; font-size:13px;">{{ ncr['confirmed_by'] }}</div>
-      {% endif %}
-    </div>
-    <div class="sign-box">
-      <div class="s-role">업체 수령 확인</div>
-    </div>
-  </div>
 </div>
 
 <!-- 사진 첨부 모달 -->
@@ -227,13 +367,19 @@
      background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:14px; padding:24px; width:min(92vw,400px);
               box-shadow:0 8px 30px rgba(0,0,0,.3);">
-    <h3 style="margin:0 0 16px;">📷 사진 첨부</h3>
+    <h3 style="margin:0 0 16px;">📷 사진 첨부 ({{ photos|length }}/6)</h3>
     <form method="POST" action="{{ url_for('ncr_add_photo', ncr_id=ncr['id']) }}"
           enctype="multipart/form-data">
-      <label style="display:block; margin-bottom:8px; font-weight:600; font-size:13.5px;">카메라 촬영</label>
-      <input type="file" name="photo" accept="image/*" capture="environment" style="margin-bottom:12px;">
-      <label style="display:block; margin-bottom:8px; font-weight:600; font-size:13.5px;">또는 갤러리에서 선택</label>
-      <input type="file" name="photo" accept="image/*" style="margin-bottom:16px;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          📸 카메라로 촬영
+          <input type="file" name="photo" accept="image/*" capture="environment" style="display:none;">
+        </label>
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          🖼️ 갤러리에서 선택
+          <input type="file" name="photo" accept="image/*" style="display:none;">
+        </label>
+      </div>
       <div style="display:flex; gap:10px;">
         <button type="submit" style="flex:1; padding:12px; font-size:14px;">첨부</button>
         <button type="button" onclick="document.getElementById('photoModal').style.display='none'"
@@ -270,6 +416,22 @@
   </div>
 </div>
 
+<!-- 중앙 알림 모달 (도장/사인 미선택 등) -->
+<div id="ncrWarn" class="center-modal">
+  <div class="box">
+    <div class="body">
+      <div class="ic">⚠️</div>
+      <h3 id="ncrWarnTitle">알림</h3>
+      <p id="ncrWarnMsg"></p>
+    </div>
+    <div class="foot">
+      <button type="button" onclick="document.getElementById('ncrWarn').classList.remove('show')">
+        확인
+      </button>
+    </div>
+  </div>
+</div>
+
 {% if status == 'draft' and 'ncr_confirm' in user_perms and can_confirm %}
 <script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
 <script>
@@ -277,16 +439,61 @@
 (function () {
   var pad = SignaturePad.attach('ncrSigPad');
   if (!pad) return;
+
+  function showWarn(title, msg) {
+    document.getElementById('ncrWarnTitle').textContent = title;
+    document.getElementById('ncrWarnMsg').innerHTML = msg;
+    document.getElementById('ncrWarn').classList.add('show');
+  }
+
   window.clearNcrSig = function () { pad.clear(); };
   window.loadNcrDefaultSig = function () {
     pad.loadDefault(function (ok) {
-      if (!ok) alert('저장된 기본 서명이 없어. 승인 화면에서 먼저 서명을 저장해줘.');
+      if (!ok) showWarn('저장된 서명이 없어',
+        '승인 화면에서 먼저 <b>기본 서명</b>을 저장해줘.');
     });
   };
-  window.prepareNcrSign = function () {
-    return pad.fillAndConfirm('ncrSigData',
-      '부적합 통보서를 승인 서명하고 확인 완료 처리할까?
-이후 협력사로 이메일 발송이 가능해져.');
+
+  window.switchSigMode = function (mode) {
+    document.getElementById('ncrDrawBox').style.display = (mode === 'draw') ? '' : 'none';
+    document.getElementById('ncrUploadBox').style.display = (mode === 'upload') ? '' : 'none';
+    document.getElementById('ncrSigSource').value = mode;
+  };
+
+  window.onNcrFile = function (input) {
+    var lbl = document.getElementById('ncrFileName');
+    if (input.files && input.files[0]) {
+      lbl.textContent = '📎 ' + input.files[0].name;
+      lbl.style.color = '#1d4ed8';
+    } else {
+      lbl.textContent = '파일이 선택되지 않았어.';
+      lbl.style.color = '#6b7280';
+    }
+  };
+
+  window.prepareNcrSubmit = function () {
+    var mode = document.getElementById('ncrSigSource').value;
+    if (mode === 'draw') {
+      if (pad.isEmpty()) {
+        showWarn('서명이 없어', '서명 패드에 <b>직접 서명</b>을 그려줘.');
+        return false;
+      }
+      document.getElementById('ncrSigData').value = pad.toDataURL();
+    } else {
+      var file = document.getElementById('ncrSigFile').files[0];
+      if (!file) {
+        showWarn('파일이 없어', '먼저 서명 <b>PNG/JPG 파일</b>을 선택해줘.');
+        return false;
+      }
+      var typeSel = document.querySelector('input[name="signature_stamp_type"]:checked');
+      if (!typeSel) {
+        showWarn('도장 / 사인 종류를 골라줘',
+          '업로드한 이미지가 <b>도장</b>인지 <b>사인</b>인지 골라야 해.<br>' +
+          '<span style="font-size:12.5px; color:#6b7280;">도장은 5×5cm로, 사인은 기본 크기로 문서에 들어가.</span>');
+        return false;
+      }
+    }
+    return confirm('부적합 통보서를 승인 서명하고 확인 완료 처리할까?\n이후 협력사로 이메일 발송이 가능해져.');
   };
 })();
 </script>

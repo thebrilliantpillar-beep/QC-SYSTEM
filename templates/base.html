@@ -152,19 +152,36 @@
 
   {# 🔍 검사 #}
   {% if 'inspect_input' in perms or 'inspect_history' in perms or 'defect_history' in perms or 'ncr' in perms or 'ncr_confirm' in perms or 'return' in perms %}
+  {% set inspect_total = nav_counts.get('inspect', 0) + nav_counts.get('ncr_draft', 0) + nav_counts.get('return', 0) %}
   <div class="nav-dropdown">
     <button type="button" onclick="toggleNav(this)" style="position:relative;">
       🔍 검사 ▾
-      {% if nav_counts.get('inspect', 0) > 0 %}
-      <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['inspect'] }}</span>
+      {% if inspect_total > 0 %}
+      <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ inspect_total }}</span>
       {% endif %}
     </button>
     <div class="menu">
-      {% if 'inspect_input' in perms %}<a href="{{ url_for('inspect_select') }}">검사 입력</a>{% endif %}
+      {% if 'inspect_input' in perms %}
+        <a href="{{ url_for('inspect_select') }}">검사 입력
+          {% if nav_counts.get('inspect', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['inspect'] }})</span>{% endif %}
+        </a>
+      {% endif %}
       {% if 'inspect_history' in perms %}<a href="{{ url_for('history') }}">검사 이력</a>{% endif %}
-      {% if 'defect_history' in perms %}<a href="{{ url_for('defect_history') }}">불량 이력</a>{% endif %}
-      {% if 'ncr' in perms or 'ncr_confirm' in perms %}<a href="{{ url_for('ncr_list') }}">부적합 통보서</a>{% endif %}
-      {% if 'return' in perms %}<a href="{{ url_for('return_list') }}">반품 처리</a>{% endif %}
+      {% if 'defect_history' in perms %}
+        <a href="{{ url_for('defect_history') }}">불량 이력
+          {% if nav_counts.get('defect_followup', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['defect_followup'] }})</span>{% endif %}
+        </a>
+      {% endif %}
+      {% if 'ncr' in perms or 'ncr_confirm' in perms %}
+        <a href="{{ url_for('ncr_list') }}">부적합 통보서 리스트
+          {% if nav_counts.get('ncr_draft', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['ncr_draft'] }})</span>{% endif %}
+        </a>
+      {% endif %}
+      {% if 'return' in perms %}
+        <a href="{{ url_for('return_list') }}">반품 처리
+          {% if nav_counts.get('return', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['return'] }})</span>{% endif %}
+        </a>
+      {% endif %}
     </div>
   </div>
   {% endif %}
@@ -216,7 +233,9 @@
     <button type="button" onclick="toggleNav(this)">📊 품질 현황 ▾</button>
     <div class="menu">
       <a href="{{ url_for('quality_dashboard') }}">현황 대시보드</a>
-      <a href="{{ url_for('defect_history') }}">불량 이력</a>
+      <a href="{{ url_for('defect_history') }}">불량 이력
+        {% if nav_counts.get('defect_followup', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['defect_followup'] }})</span>{% endif %}
+      </a>
       {% if 'supplier' in perms %}<a href="{{ url_for('supplier_report_list') }}">업체 품질 성적표</a>{% endif %}
     </div>
   </div>

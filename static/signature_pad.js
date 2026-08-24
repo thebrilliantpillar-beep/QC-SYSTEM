@@ -33,7 +33,19 @@ window.SignaturePad = (function () {
         y: (p.clientY - r.top) * (pad.height / r.height)
       };
     }
-    function start(e) { e.preventDefault(); drawing = true; var q = pos(e); ctx.beginPath(); ctx.moveTo(q.x, q.y); }
+    /* 서명을 짧게 탭한 경우에도 잉크가 남도록 start에서도 한 점을 찍고 hasInk=true 처리.
+       예전엔 hasInk가 move에서만 true로 바뀌어서 점 하나만 찍으면 "서명을 먼저 해줘" 로 튕겼다. */
+    function start(e) {
+      e.preventDefault();
+      drawing = true;
+      var q = pos(e);
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      /* 클릭 지점에 미세한 점을 남겨 실제 잉크가 보이게 */
+      ctx.lineTo(q.x + 0.1, q.y + 0.1);
+      ctx.stroke();
+      hasInk = true;
+    }
     function move(e) { if (!drawing) return; e.preventDefault(); var q = pos(e); ctx.lineTo(q.x, q.y); ctx.stroke(); hasInk = true; }
     function end() { drawing = false; }
 

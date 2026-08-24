@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_glossary.html" import term %}
-{% block title %}후속조치 추적 — Chardon QMS{% endblock %}
+{% block title %}불량 이력 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
 /* ── 공통 레인 ── */
@@ -82,7 +82,7 @@
 .s-chip.grey  { background: #f3f4f6; color: #6b7280; }
 </style>
 
-<h2>📋 후속조치 추적</h2>
+<h2>📋 불량 이력 (후속조치 추적)</h2>
 <p class="muted" style="margin: -8px 0 18px; font-size: 13px;">
   반려·불합격 건의 재검사·부적합 통보서 진행 현황을 추적하는 페이지야.
   통계 분석은 <a href="{{ url_for('quality_dashboard') }}">품질 대시보드</a>를 이용해줘.

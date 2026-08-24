@@ -305,6 +305,26 @@ def inject_perm_labels():
         nav_counts["inspect"] = len(db.list_intake(status="대기"))
         nav_counts["approve"] = len(db.list_inspections(status="pending"))
         nav_counts["output"]  = len(db.list_pending_output_inspections())
+        # 소분류 뱃지
+        try:
+            followup = db.get_defect_followup()
+            # "부적합 통보서" 배지 = /ncr 목록에서 실제로 액션이 필요한 것만.
+            #   - ncr_review(draft, 확인 대기)만 여기 넣는다
+            #   - ncr_write(작성 필요)는 아직 NCR 레코드가 안 만들어진 상태라 /ncr 목록엔 안 뜬다
+            #     → 배지에 넣으면 클릭했을 때 목록이 비어서 사용자가 혼란스러워짐
+            #     이 케이스는 아래 defect_followup(불량 이력) 배지에 이미 포함돼 있어서
+            #     검사자가 성적서 상세로 들어가서 「통보서 작성」 버튼을 누르는 흐름으로 처리한다.
+            nav_counts["ncr_draft"] = len(followup["ncr_review"])
+            # "불량 이력" 배지 = 후속조치 전체 대기 건수(재검사 대기 + 통보서 작성/확인/발송 대기)
+            nav_counts["defect_followup"] = (len(followup["recheck"]) + len(followup["ncr_write"])
+                                              + len(followup["ncr_review"]) + len(followup["ncr_send"]))
+        except Exception:
+            nav_counts["ncr_draft"] = 0
+            nav_counts["defect_followup"] = 0
+        try:
+            nav_counts["return"] = len([r for r in db.list_returns() if (r["status"] or "") in ("draft", "pending")])
+        except Exception:
+            nav_counts["return"] = 0
     return {"perm_labels": PERM_LABELS, "user_perms": user_perms,
             "status_display": status_display, "sample_size": sample_size,
             "nav_counts": nav_counts}
@@ -2294,19 +2314,42 @@ def approve(inspection_id):
     signature_path = None
     if action in ("approve", "special", "failed"):
         signature_method = request.form.get("signature_method", "draw")
+        stamp_type = (request.form.get("signature_stamp_type") or "").strip()
         if signature_method == "upload":
             signature_file = request.files.get("signature_file")
             signature_path, sig_save_error = _save_signature_upload(inspection_id, signature_file)
+            # 파일 업로드일 때는 도장/사인 종류 필수 — 안 고르면 진행 차단
+            if not sig_save_error and stamp_type not in ("stamp", "sign"):
+                flash("업로드한 이미지가 '도장'인지 '사인'인지 골라줘.")
+                return _back(on_error=True)
         else:
             signature_data = request.form.get("signature_data", "").strip()
             if not signature_data:
                 flash("서명을 입력해줘.")
                 return _back(on_error=True)
             signature_path, sig_save_error = _save_signature(inspection_id, signature_data)
+            # 직접 그린 서명은 사인 취급 (기본 크기)
+            stamp_type = "sign"
 
         if sig_save_error:
             flash(f"서명 저장 실패: {sig_save_error}")
             return _back(on_error=True)
+
+        # 도장/사인 종류를 사이드카 파일로 저장 → 출력 시 report_builder가 읽어서 크기 결정
+        # 재승인 시 stale sidecar를 남기지 않도록 항상 지운 다음 필요할 때만 새로 씀
+        if signature_path:
+            sidecar = signature_path + ".stamp"
+            try:
+                if os.path.exists(sidecar):
+                    os.remove(sidecar)
+            except Exception:
+                pass
+            if stamp_type == "stamp":
+                try:
+                    with open(sidecar, "w", encoding="utf-8") as f:
+                        f.write("stamp")
+                except Exception:
+                    pass  # 사이드카 실패해도 서명 자체는 살아있음
 
     if action in ("approve", "special"):
         approval_type = "special" if action == "special" else "normal"
@@ -3826,7 +3869,27 @@ def ncr_new(inspection_id):
         )
         record_change("부적합 통보서 발행", "ncr", ncr_id,
                       f"{ncr_no} — {header['material_no']} / {header['supplier']}")
-        flash(f"부적합 통보서 {ncr_no} 발행됐어.")
+
+        # 사진 첨부(작성 시점에 여러 장 가능) — 실패해도 통보서 발행 자체는 성공 처리
+        import uuid
+        saved_photos = 0
+        for file in request.files.getlist("photos"):
+            if not file or not file.filename:
+                continue
+            ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                continue
+            fname = f"{ncr_no}_{uuid.uuid4().hex[:8]}{ext}"
+            try:
+                file.save(os.path.join(NCR_PHOTO_DIR, fname))
+                db.add_ncr_photo(ncr_id, fname)
+                saved_photos += 1
+            except Exception:
+                pass
+        if saved_photos:
+            record_change("NCR 사진 첨부", "ncr", ncr_id, f"{saved_photos}장 (작성 시 일괄)")
+
+        flash(f"부적합 통보서 {ncr_no} 발행됐어." + (f" 사진 {saved_photos}장 첨부." if saved_photos else ""))
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
     from datetime import date
@@ -3860,7 +3923,24 @@ def ncr_detail(ncr_id):
         return redirect(url_for("home"))
     import json
     photos = json.loads(ncr["photos"] or "[]")
+    # 사진은 최대 6장까지만 표시(그 이상은 무시)
+    photos = photos[:6]
     supplier_info = db.get_supplier(ncr["supplier"] or "")
+
+    # 연결된 성적서에서 발주번호를 가져온다 — ncr 자체에는 po_number 컬럼이 없음
+    po_number = ""
+    try:
+        insp_header, _ = db.get_inspection(ncr["inspection_id"])
+        if insp_header:
+            po_number = insp_header["po_number"] or ""
+    except Exception:
+        pass
+
+    # 도장 여부(사이드카 .stamp 파일 유무) — 상세 화면에서 서명 크기를 다르게 표시
+    is_stamp_sig = False
+    sig_path_check = ncr["confirm_signature"] if "confirm_signature" in ncr.keys() else None
+    if sig_path_check and os.path.exists(sig_path_check + ".stamp"):
+        is_stamp_sig = True
 
     # 확인·발송은 최종결정권자만 — 화면에서도 미리 알려준다
     can_confirm, block_reason = _can_make_final_decision(g.user, "부적합 통보서 확인")
@@ -3875,7 +3955,10 @@ def ncr_detail(ncr_id):
                            supplier_info=supplier_info,
                            can_confirm=can_confirm,
                            confirm_block_reason=block_reason or "",
-                           confirm_signature_url=confirm_signature_url)
+                           confirm_signature_url=confirm_signature_url,
+                           po_number=po_number,
+                           is_stamp_sig=is_stamp_sig,
+                           logo_url=url_for("static", filename="logo.png"))
 
 
 @app.route("/ncr/<int:ncr_id>/confirm", methods=["POST"])
@@ -3895,11 +3978,34 @@ def ncr_confirm(ncr_id):
         flash(why)
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
-    signature_path, sig_err = _save_signature(f"ncr{ncr_id}",
-                                              request.form.get("signature_data", "").strip())
+    # 캔버스 드로잉 우선, 없으면 업로드 파일 → 어느쪽도 없으면 에러
+    sig_source = request.form.get("signature_source", "draw")
+    stamp_type = request.form.get("signature_stamp_type", "sign")
+    signature_path = None
+    if sig_source == "upload":
+        upload = request.files.get("signature_file")
+        signature_path, sig_err = _save_signature_upload(f"ncr{ncr_id}", upload)
+    else:
+        signature_path, sig_err = _save_signature(f"ncr{ncr_id}",
+                                                  request.form.get("signature_data", "").strip())
     if sig_err:
         flash(f"승인 서명이 필요해: {sig_err}")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    # 도장/사인 사이드카 처리 — 도장이면 .stamp 파일을 남긴다(성적서 로직과 동일)
+    if signature_path:
+        sidecar = signature_path + ".stamp"
+        try:
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+        except Exception:
+            pass
+        if stamp_type == "stamp":
+            try:
+                with open(sidecar, "w", encoding="utf-8") as f:
+                    f.write("stamp")
+            except Exception:
+                pass
 
     confirmed_by = g.user["display_name"] or g.user["username"]
     db.confirm_ncr(ncr_id, confirmed_by, signature_path=signature_path)

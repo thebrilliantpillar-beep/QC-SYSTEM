@@ -42,17 +42,23 @@
 </div>
 {% endif %}
 
-<form method="POST">
+<form method="POST" enctype="multipart/form-data">
   <div class="ncr-section">
     <h3>✍️ 통보서 내용</h3>
 
     <label>발행일 <span style="color:var(--fail);">*</span></label>
     <input type="date" name="issued_date" value="{{ today }}" required>
 
-    <label>불량 내용 <span style="color:var(--fail);">*</span></label>
+    <label>불량 내용 <span style="color:var(--fail);">*</span>
+      {% if header['remark_inspector'] %}
+      <span style="color:#6b7280; font-weight:400; font-size:12px; margin-left:6px;">
+        (검사자 비고를 기본값으로 채웠어. 필요하면 수정해줘)
+      </span>
+      {% endif %}
+    </label>
     <textarea name="defect_description" rows="4" required
               placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛)"
-              style="resize:vertical;"></textarea>
+              style="resize:vertical;">{{ header['remark_inspector'] or '' }}</textarea>
 
     <label>요구 조치사항 <span style="color:var(--fail);">*</span></label>
     <textarea name="action_required" rows="3" required
@@ -62,6 +68,61 @@
     <label>조치 기한</label>
     <input type="date" name="due_date">
   </div>
+
+  <div class="ncr-section">
+    <h3>📷 불량 사진 (선택 · 최대 6장)</h3>
+    <p style="margin:0 0 10px; color:#6b7280; font-size:12.5px;">
+      카메라로 바로 찍거나 갤러리에서 골라도 돼. 첨부된 사진은 통보서 상세와 이메일 발송에 자동 포함돼.
+    </p>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+      <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+        📸 카메라로 촬영
+        <input type="file" name="photos" accept="image/*" capture="environment" multiple
+               style="display:none;" onchange="previewNcrPhotos(this)">
+      </label>
+      <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+        🖼️ 갤러리에서 선택
+        <input type="file" name="photos" accept="image/*" multiple
+               style="display:none;" onchange="previewNcrPhotos(this)">
+      </label>
+    </div>
+
+    <div id="ncrPhotoPreview"
+         style="display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+                gap:8px; margin-top:8px;"></div>
+    <div id="ncrPhotoMsg" style="margin-top:6px; font-size:12.5px; color:#6b7280;"></div>
+  </div>
+
+  <script>
+  (function () {
+    var previewBox = document.getElementById('ncrPhotoPreview');
+    var msg = document.getElementById('ncrPhotoMsg');
+    var buffer = [];  // {name, size, blob URL} per file across both inputs
+    window.previewNcrPhotos = function (input) {
+      for (var i = 0; i < input.files.length; i++) {
+        if (buffer.length >= 6) break;
+        var f = input.files[i];
+        buffer.push({ name: f.name, url: URL.createObjectURL(f) });
+      }
+      if (input.files.length + (buffer.length - input.files.length) > 6) {
+        msg.textContent = '⚠ 최대 6장까지만 첨부돼. 초과된 파일은 무시됐어.';
+        msg.style.color = '#b45309';
+      } else {
+        msg.textContent = buffer.length + '장 선택됨';
+        msg.style.color = '#6b7280';
+      }
+      previewBox.innerHTML = buffer.map(function (b, idx) {
+        return '<div style="position:relative;">' +
+          '<img src="' + b.url + '" style="width:100%; aspect-ratio:1/1; object-fit:cover; ' +
+          'border-radius:8px; border:1px solid #e5e7eb;">' +
+          '<div style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.6); ' +
+          'color:#fff; font-size:10px; padding:1px 5px; border-radius:4px;">' + (idx+1) + '</div>' +
+          '</div>';
+      }).join('');
+    };
+  })();
+  </script>
 
   <button type="submit" style="width:100%; font-size:16px; padding:15px; margin-top:4px;">
     부적합 통보서 발행

@@ -384,8 +384,15 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
         else:
             try:
                 img = XLImage(signature_path)
-                img.width = SIGNATURE_WIDTH_PX
-                img.height = SIGNATURE_HEIGHT_PX
+                # 사이드카 파일(.stamp)이 있으면 도장으로 취급 → 5x5cm로 삽입
+                is_stamp = os.path.exists(signature_path + ".stamp")
+                if is_stamp:
+                    stamp_px = round(5.0 * CM_TO_PX)  # 5cm × 5cm
+                    img.width = stamp_px
+                    img.height = stamp_px
+                else:
+                    img.width = SIGNATURE_WIDTH_PX
+                    img.height = SIGNATURE_HEIGHT_PX
                 ws.add_image(img, "C30")
             except Exception as e:
                 signature_error = f"서명 이미지 삽입 실패: {e}"
