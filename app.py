@@ -2719,8 +2719,8 @@ def _collect_approval_history():
             "material_no": r["material_no"] or "",
             "quantity": r["quantity"] or 0,
             "inspector": r["inspector"] or "",
-            "total_time_sec": r["total_time_sec"] or 0,
-            "total_time_label": format_duration(r["total_time_sec"] or 0),
+            "total_time_sec": (r["total_time_sec"] or r["actual_time_sec"] or 0),
+            "total_time_label": format_duration(r["total_time_sec"] or r["actual_time_sec"] or 0),
             "state": state,
         })
 
