@@ -2709,6 +2709,18 @@ def _collect_approval_history():
         if po_nums   and (r["po_number"] or "") not in po_nums:  continue
         if states    and state not in states:                    continue
 
+        # 총 검사시간 — 저장된 total_time_sec 우선, 없으면 spec+수량으로 재계산.
+        # 옛날 성적서는 total_time_sec 컬럼이 추가되기 전에 만들어져서 NULL임.
+        # 사이클당 시간(actual_time_sec)에 샘플수를 곱해야 진짜 "총" 시간이 나온다.
+        total_sec = r["total_time_sec"] or 0
+        if not total_sec and r["actual_time_sec"]:
+            try:
+                specs, _grp, _gid = _get_specs_for_material(r["material_no"] or "")
+                sws = build_specs_with_sample(specs, r["quantity"] or 0)
+                total_sec = compute_total_time_sec(sws, r["actual_time_sec"])
+            except Exception:
+                total_sec = r["actual_time_sec"]  # 최소한 사이클당 시간이라도
+
         approved_rows.append({
             "id": r["id"],
             "receive_date": r["receive_date"] or "",
@@ -2719,8 +2731,8 @@ def _collect_approval_history():
             "material_no": r["material_no"] or "",
             "quantity": r["quantity"] or 0,
             "inspector": r["inspector"] or "",
-            "total_time_sec": (r["total_time_sec"] or r["actual_time_sec"] or 0),
-            "total_time_label": format_duration(r["total_time_sec"] or r["actual_time_sec"] or 0),
+            "total_time_sec": total_sec,
+            "total_time_label": format_duration(total_sec),
             "state": state,
         })
 
