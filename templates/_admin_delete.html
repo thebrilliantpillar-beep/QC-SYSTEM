@@ -84,23 +84,50 @@
       box.appendChild(inp);
     });
   }
-  function onRowClick(e) {
-    if (!enabled) return;
-    var row = e.currentTarget;
+  function togglePick(row) {
     var id = row.getAttribute('data-admin-id');
     if (!id) return;
-    // admin 모드일 땐 원래 링크·onclick(상세 이동)을 억제한다
-    e.preventDefault(); e.stopPropagation();
     if (picked.has(id)) { picked.delete(id); row.classList.remove('admin-del-picked'); }
     else                { picked.add(id);    row.classList.add('admin-del-picked'); }
     refresh();
   }
+  function onRowClick(e) {
+    if (!enabled) return;
+    var row = e.currentTarget;
+    if (!row.getAttribute('data-admin-id')) return;
+    // admin 모드일 땐 원래 링크·onclick(상세 이동)을 완전히 억제한다.
+    // stopImmediatePropagation까지 써야 같은 tr의 인라인 onclick이 안 터진다.
+    e.preventDefault();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    e.stopPropagation();
+    togglePick(row);
+  }
   function injectCheckboxes() {
     document.querySelectorAll('[data-admin-id]').forEach(function(row){
+      // 인라인 onclick(상세로 이동)이 캡처 단계를 뚫고 실행되는 경우가 있어서,
+      // 선택 모드가 켜진 동안은 아예 떼어냈다가 끄면 되돌린다.
+      if (row.hasAttribute('onclick') && !row.hasAttribute('data-admin-saved-onclick')) {
+        row.setAttribute('data-admin-saved-onclick', row.getAttribute('onclick'));
+        row.removeAttribute('onclick');
+      }
+      // 행 안의 링크(a[href])도 같은 이유로 잠근다
+      row.querySelectorAll('a[href]').forEach(function(a){
+        if (!a.hasAttribute('data-admin-saved-href')) {
+          a.setAttribute('data-admin-saved-href', a.getAttribute('href'));
+          a.setAttribute('href', 'javascript:void(0)');
+        }
+      });
       // 이미 넣었으면 건너뛴다
       if (row.querySelector('.admin-del-chk')) return;
       var span = document.createElement('span');
       span.className = 'admin-del-chk';
+      // 체크박스 자체 클릭도 확실히 처리 — stopImmediatePropagation로 인라인 onclick 방지
+      span.addEventListener('click', function(e){
+        e.preventDefault();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        e.stopPropagation();
+        togglePick(row);
+      });
       // tr이면 첫 번째 td 안에 넣어서 컬럼 정렬을 안 깬다
       if (row.tagName === 'TR') {
         var firstTd = row.querySelector('td');
@@ -113,6 +140,14 @@
   }
   function removeCheckboxes() {
     document.querySelectorAll('.admin-del-chk').forEach(function(el){ el.remove(); });
+    document.querySelectorAll('[data-admin-saved-onclick]').forEach(function(row){
+      row.setAttribute('onclick', row.getAttribute('data-admin-saved-onclick'));
+      row.removeAttribute('data-admin-saved-onclick');
+    });
+    document.querySelectorAll('a[data-admin-saved-href]').forEach(function(a){
+      a.setAttribute('href', a.getAttribute('data-admin-saved-href'));
+      a.removeAttribute('data-admin-saved-href');
+    });
   }
   toggle.addEventListener('click', function(){
     enabled = !enabled;
