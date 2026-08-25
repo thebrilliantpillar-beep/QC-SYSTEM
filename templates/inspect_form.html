@@ -156,6 +156,12 @@
       <button type="button" id="swToggle" class="btn secondary" style="margin-top:0; padding:8px 16px;">시작</button>
       <button type="button" id="swReset" class="btn secondary" style="margin-top:0; padding:8px 12px;">초기화</button>
     </div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:#6b7280;">
+      또는 직접입력:
+      <input type="number" id="manH" min="0" inputmode="numeric" style="width:52px; padding:6px;" placeholder="0">시
+      <input type="number" id="manM" min="0" max="59" inputmode="numeric" style="width:52px; padding:6px;" placeholder="0">분
+      <input type="number" id="manS" min="0" max="59" inputmode="numeric" style="width:52px; padding:6px;" placeholder="0">초
+    </div>
     <input type="hidden" name="actual_time_sec" id="actualTimeSec" value="{{ prefill.actual_time_sec if prefill else '0' }}">
   </div>
 
@@ -730,6 +736,9 @@ function checkAutoStop() {
   const toggleBtn = document.getElementById('swToggle');
   const resetBtn = document.getElementById('swReset');
   const hiddenInput = document.getElementById('actualTimeSec');
+  const manH = document.getElementById('manH');
+  const manM = document.getElementById('manM');
+  const manS = document.getElementById('manS');
   let seconds = parseInt(hiddenInput.value, 10) || 0;
   let timerId = null;
 
@@ -739,8 +748,14 @@ function checkAutoStop() {
     display.textContent = `${m}:${s}`;
     hiddenInput.value = seconds;
   }
+  function syncManualFromSeconds() {
+    manH.value = Math.floor(seconds / 3600) || '';
+    manM.value = Math.floor((seconds % 3600) / 60) || '';
+    manS.value = seconds % 60 || '';
+  }
   render();
-  setInputsLocked(true);  // 페이지 로드 시 항상 잠금 — 타이머를 눌러야 입력 가능
+  syncManualFromSeconds();
+  setInputsLocked(true);  // 페이지 로드 시 항상 잠금 — 타이머를 시작하거나 직접입력해야 입력 가능
 
   toggleBtn.addEventListener('click', () => {
     if (!swRunning) {
@@ -749,10 +764,13 @@ function checkAutoStop() {
       swRunning = true;
       swEverStarted = true;
       setInputsLocked(false);
+      manH.disabled = manM.disabled = manS.disabled = true;  // 타이머 도는 동안은 직접입력과 충돌 방지
     } else {
       clearInterval(timerId);
       toggleBtn.textContent = '시작';
       swRunning = false;
+      manH.disabled = manM.disabled = manS.disabled = false;
+      syncManualFromSeconds();  // 정지된 시간을 직접입력 칸에도 반영, 필요하면 수정 가능
     }
   });
 
@@ -763,13 +781,29 @@ function checkAutoStop() {
     toggleBtn.textContent = '시작';
     seconds = 0;
     render();
-    setInputsLocked(true);  // 초기화하면 다시 시작을 눌러야 입력 가능
+    manH.disabled = manM.disabled = manS.disabled = false;
+    syncManualFromSeconds();
+    setInputsLocked(true);  // 초기화하면 다시 시작하거나 직접입력해야 입력 가능
   });
+
+  // 직접입력(시/분/초) — 스톱워치를 쓰지 않고 시간을 바로 적어도 되게 함
+  function applyManualTime() {
+    const h = parseInt(manH.value, 10) || 0;
+    const m = parseInt(manM.value, 10) || 0;
+    const s = parseInt(manS.value, 10) || 0;
+    seconds = h * 3600 + m * 60 + s;
+    render();
+    if (seconds > 0) {
+      swEverStarted = true;
+      setInputsLocked(false);
+    }
+  }
+  [manH, manM, manS].forEach(el => el.addEventListener('input', applyManualTime));
 })();
 
 document.getElementById('inspectForm').addEventListener('submit', function (e) {
   if (!swEverStarted) {
-    alert('측정 시간 타이머를 먼저 시작해야 측정값을 입력하고 제출할 수 있어.');
+    alert('측정 시간 타이머를 먼저 시작하거나(또는 직접입력 칸에 시간을 적어야) 측정값을 입력하고 제출할 수 있어.');
     e.preventDefault();
     return;
   }
