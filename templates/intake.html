@@ -3,7 +3,7 @@
 {% block content %}
 <style>
   .common-fields { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
-  .common-fields > div { flex:1; min-width:160px; }
+  .common-fields > div { flex:1; min-width:180px; }
   .common-fields label { display:block; font-size:12.5px; color:#4b5563; margin-bottom:4px; font-weight:600; }
   .common-fields input {
     width:100%; box-sizing:border-box; padding:9px 10px; font-size:14px;
@@ -26,6 +26,13 @@
   .name-cell { padding:8px 8px; color:#111827; font-size:13px; }
   .name-cell.unregistered { color:#dc2626; font-weight:600; }
   .name-cell.empty { color:#c4c4c4; }
+
+  /* 드래그 선택 */
+  .intake-grid td.cell-selected { background:#dbeafe; box-shadow:inset 0 0 0 1px #60a5fa; }
+  .intake-grid td.cell-selected input { background:transparent; }
+  body.dragging-cells, body.dragging-cells .intake-grid input { user-select:none; -webkit-user-select:none; }
+  .fill-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  #fillBtn:disabled { opacity:.45; cursor:not-allowed; }
 </style>
 
 <h2>입고 리스트 등록</h2>
@@ -34,15 +41,11 @@
   <form method="POST" id="intakeForm">
     <input type="hidden" name="rows_json" id="rowsJson">
 
-    <!-- 공통 정보: 한 번만 입력 -->
+    <!-- 공통 정보: 한 번만 입력 (납품업체·입고날짜) -->
     <div class="common-fields">
       <div>
         <label>납품업체</label>
         <input type="text" name="supplier_common" id="supplierCommon" placeholder="예: ACE" required>
-      </div>
-      <div>
-        <label>발주번호</label>
-        <input type="text" name="po_common" id="poCommon" placeholder="예: 600005P086">
       </div>
       <div>
         <label>입고날짜</label>
@@ -52,15 +55,22 @@
 
     <p class="muted" style="margin-bottom:8px;">
       아래 <b>자재번호</b> 칸에 엑셀에서 자재번호를 세로로 복사해 붙여넣으면(Ctrl+V) 여러 줄이 한 번에 채워지고,
-      <b>등록된 자재는 제품명이 자동으로 표시</b>돼. 자재번호 옆 칸에 입고수량만 채우면 돼.
+      <b>등록된 자재는 제품명이 자동으로 표시</b>돼. <b>발주번호</b>는 자재마다 다를 수 있으니 줄마다 입력해.<br>
+      같은 값을 여러 줄에 넣을 땐 <b>셀을 드래그해서 범위를 잡고 "선택 영역 채우기"</b>를 누르면 맨 위 값이 아래로 채워져.
     </p>
+
+    <div class="fill-toolbar">
+      <button type="button" id="fillBtn" class="btn secondary" style="margin-top:0;" disabled>선택 영역 채우기</button>
+      <span class="muted" id="fillHint" style="font-size:12px;">셀을 드래그해서 범위를 선택해줘.</span>
+    </div>
 
     <div style="overflow-x:auto;">
       <table class="intake-grid" id="itemGrid">
         <tr>
           <th></th>
+          <th style="min-width:120px;">발주번호</th>
           <th style="min-width:130px;">자재번호</th>
-          <th style="min-width:200px;">제품명 (자동)</th>
+          <th style="min-width:190px;">제품명 (자동)</th>
           <th style="min-width:90px;">입고수량</th>
           <th></th>
         </tr>
@@ -93,7 +103,10 @@
 (function () {
   // 등록된 자재 { 자재번호: 자재명 } — 자재번호를 넣으면 제품명을 즉시 채우기 위해 페이지에 미리 담아둠
   const NAME_MAP = {{ name_map | tojson }};
+  const ITEM_COLS = ['po_number', 'material_no', 'quantity'];  // 드래그 선택 대상 입력 칸(순서 = 화면 순서)
   const grid = document.getElementById('itemGrid');
+  const fillBtn = document.getElementById('fillBtn');
+  const fillHint = document.getElementById('fillHint');
   let rowCount = 0;
 
   // 입고날짜 기본값: 오늘
@@ -125,6 +138,7 @@
     const tr = document.createElement('tr');
     tr.innerHTML =
       `<td class="rownum">${rowCount}</td>` +
+      `<td><input type="text" data-col="po_number"></td>` +
       `<td><input type="text" data-col="material_no"></td>` +
       `<td class="name-cell empty"></td>` +
       `<td><input type="text" data-col="quantity" inputmode="numeric"></td>` +
@@ -138,8 +152,91 @@
 
   document.getElementById('addRowBtn').addEventListener('click', () => addRow());
 
-  // 엑셀에서 자재번호를 세로로(줄바꿈 구분) 붙여넣으면 여러 줄에 자동 배분.
-  // 자재번호\t입고수량 두 칸을 붙여넣어도 인식.
+  // ── 셀 드래그 선택 + 선택 영역 채우기 ─────────────────────────────
+  function itemRows() {
+    return Array.from(grid.querySelectorAll('tr')).filter(tr => tr.querySelector('input[data-col="material_no"]'));
+  }
+  function cellInfo(input) {
+    const tr = input.closest('tr');
+    return { row: itemRows().indexOf(tr), col: ITEM_COLS.indexOf(input.dataset.col) };
+  }
+  function getInput(r, c) {
+    const tr = itemRows()[r];
+    if (!tr) return null;
+    return tr.querySelector(`input[data-col="${ITEM_COLS[c]}"]`);
+  }
+  function clearSel() {
+    grid.querySelectorAll('td.cell-selected').forEach(td => td.classList.remove('cell-selected'));
+  }
+  let selAnchor = null, isMouseDown = false, isDragging = false, lastRange = null;
+
+  function paintSel(a, b) {
+    clearSel();
+    const rMin = Math.min(a.row, b.row), rMax = Math.max(a.row, b.row);
+    const cMin = Math.min(a.col, b.col), cMax = Math.max(a.col, b.col);
+    let count = 0;
+    for (let r = rMin; r <= rMax; r++) {
+      for (let c = cMin; c <= cMax; c++) {
+        const inp = getInput(r, c);
+        if (inp) { inp.closest('td').classList.add('cell-selected'); count++; }
+      }
+    }
+    return { rMin, rMax, cMin, cMax, count };
+  }
+  function updateFillBtn() {
+    const on = !!(lastRange && lastRange.count > 1);
+    fillBtn.disabled = !on;
+    fillHint.textContent = on
+      ? `${lastRange.count}칸 선택됨 — 맨 위 값이 아래로 채워져.`
+      : '셀을 드래그해서 범위를 선택해줘.';
+  }
+
+  grid.addEventListener('mousedown', function (e) {
+    const inp = e.target.closest('input[data-col]');
+    if (!inp || ITEM_COLS.indexOf(inp.dataset.col) < 0) return;
+    isMouseDown = true;
+    isDragging = false;
+    selAnchor = cellInfo(inp);
+  });
+  grid.addEventListener('mouseover', function (e) {
+    if (!isMouseDown) return;
+    const inp = e.target.closest('input[data-col]');
+    if (!inp || ITEM_COLS.indexOf(inp.dataset.col) < 0) return;
+    const cur = cellInfo(inp);
+    if (cur.row === selAnchor.row && cur.col === selAnchor.col) return;  // 아직 시작 칸
+    isDragging = true;
+    document.body.classList.add('dragging-cells');
+    const sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    lastRange = paintSel(selAnchor, cur);
+    updateFillBtn();
+  });
+  document.addEventListener('mouseup', function () {
+    if (isMouseDown && !isDragging) {   // 그냥 클릭 → 선택 해제(입력은 그대로 가능)
+      clearSel();
+      lastRange = null;
+      updateFillBtn();
+    }
+    isMouseDown = false;
+    document.body.classList.remove('dragging-cells');
+  });
+
+  fillBtn.addEventListener('click', function () {
+    if (!lastRange) return;
+    for (let c = lastRange.cMin; c <= lastRange.cMax; c++) {
+      const top = getInput(lastRange.rMin, c);
+      if (!top) continue;
+      const v = top.value;
+      for (let r = lastRange.rMin + 1; r <= lastRange.rMax; r++) {
+        const inp = getInput(r, c);
+        if (!inp) continue;
+        inp.value = v;
+        if (ITEM_COLS[c] === 'material_no') fillName(inp.closest('tr'));
+      }
+    }
+  });
+
+  // 엑셀에서 여러 셀을 복사해 붙여넣으면(탭/줄바꿈 구분) 현재 칸부터 자동으로 채워짐
   grid.addEventListener('paste', function (e) {
     const target = e.target;
     if (target.tagName !== 'INPUT') return;
@@ -147,9 +244,9 @@
     if (!text.includes('\t') && !text.includes('\n')) return;  // 단일 값 붙여넣기는 기본 동작 유지
     e.preventDefault();
 
-    const cols = ['material_no', 'quantity'];
     const startRow = target.closest('tr');
-    const startColIdx = cols.indexOf(target.dataset.col);
+    const startColIdx = ITEM_COLS.indexOf(target.dataset.col);
+    if (startColIdx < 0) return;
     const lines = text.replace(/\r/g, '').split('\n').filter((l, i, arr) => !(i === arr.length - 1 && l === ''));
 
     let currentRow = startRow;
@@ -161,8 +258,8 @@
       const cells = line.split('\t');
       cells.forEach((val, colOffset) => {
         const colIdx = startColIdx + colOffset;
-        if (colIdx >= cols.length) return;
-        const input = currentRow.querySelector(`input[data-col="${cols[colIdx]}"]`);
+        if (colIdx >= ITEM_COLS.length) return;
+        const input = currentRow.querySelector(`input[data-col="${ITEM_COLS[colIdx]}"]`);
         if (input) input.value = val.trim();
       });
       fillName(currentRow);
@@ -171,17 +268,15 @@
 
   document.getElementById('intakeForm').addEventListener('submit', function (e) {
     const supplier = document.getElementById('supplierCommon').value.trim();
-    const po = document.getElementById('poCommon').value.trim();
     const date = document.getElementById('dateCommon').value.trim();
 
     // 백엔드는 [입고날짜, 납품업체, 발주번호, 제품명, 자재번호, 입고수량] 6칸 순서를 기대함.
-    // 공통정보를 각 줄에 반복해서 채워 넣는다.
+    // 납품업체·입고날짜(공통)를 각 줄에 반복해서 채워 넣고, 발주번호는 줄마다 값을 사용한다.
     const rows = [];
-    grid.querySelectorAll('tr').forEach(tr => {
-      const noInput = tr.querySelector('input[data-col="material_no"]');
-      if (!noInput) return;  // 헤더 행
-      const no = noInput.value.trim();
+    itemRows().forEach(tr => {
+      const no = tr.querySelector('input[data-col="material_no"]').value.trim();
       if (!no) return;
+      const po = tr.querySelector('input[data-col="po_number"]').value.trim();
       const qty = tr.querySelector('input[data-col="quantity"]').value.trim();
       const name = (Object.prototype.hasOwnProperty.call(NAME_MAP, no) ? NAME_MAP[no] : '') || '';
       rows.push([date, supplier, po, name, no, qty]);
