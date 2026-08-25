@@ -376,6 +376,9 @@ function closeDetailPopup(){
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape' && document.getElementById('detailModal').classList.contains('open')) closeDetailPopup();
 });
+// 이 스크립트는 페이지 맨 아래(DOM 로드 후)에서 실행되므로, 목록 페이지의 팝업 토글을
+// 여기서 활성화한다. (각 페이지가 위쪽에서 호출하면 함수 정의보다 먼저라 안 붙는다.)
+initOpenModeToggle('openModeChk');
 </script>
 </body>
 </html>
