@@ -984,9 +984,11 @@ def intake():
 
     pending = db.list_intake(status="대기")
     done = db.list_intake(status="검사완료")
-    registered = {m["material_no"] for m in db.get_materials()}
+    mats = db.get_materials()
+    registered = {m["material_no"] for m in mats}
+    name_map = {m["material_no"]: m["material_name"] for m in mats}
     return render_template("intake.html", pending=pending, done=done,
-                           registered=registered, group_nos=set())
+                           registered=registered, group_nos=set(), name_map=name_map)
 
 
 # ---------- 규격 관리 ----------
@@ -1367,12 +1369,14 @@ def inspect_select():
     """입고 리스트 중 미검사(대기) 건만 표로 보여줌"""
     query = request.args.get("q", "").strip()
     pending = db.search_intake(query, status="대기") if query else db.list_intake(status="대기")
-    registered = {m["material_no"] for m in db.get_materials()}
+    mats = db.get_materials()
+    registered = {m["material_no"] for m in mats}
+    name_map = {m["material_no"]: m["material_name"] for m in mats}
     intake_ids = [r["id"] for r in pending]
     progress_map = db.get_progress_by_intake_ids(intake_ids)
     return render_template("inspect_select.html", pending=pending, query=query,
                            registered=registered, group_nos=set(),
-                           progress_map=progress_map)
+                           progress_map=progress_map, name_map=name_map)
 
 
 @app.route("/inspect/delete_bulk", methods=["POST"])
