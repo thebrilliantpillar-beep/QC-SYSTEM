@@ -307,5 +307,75 @@ function toggleNav(btn) {
   © 2026 윤주호 — IQC 입고검사 성적서 자동화 시스템.<br>
   <span style="font-size:11px;">무단 복제·배포·수정을 금합니다. All rights reserved.</span>
 </footer>
+
+<!-- 공용 상세 팝업(목록에서 '팝업으로 열기'를 켰을 때 사용) -->
+<style>
+.open-mode-toggle { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:#4b5563;
+                    background:#fff; border:1px solid var(--border); border-radius:8px; padding:7px 12px;
+                    cursor:pointer; user-select:none; }
+.open-mode-toggle input { width:auto; margin:0; }
+.detail-modal-bg { display:none; position:fixed; inset:0; z-index:9500; background:rgba(15,23,42,.55);
+                   align-items:center; justify-content:center; padding:16px; }
+.detail-modal-bg.open { display:flex; }
+.detail-modal-box { background:#fff; border-radius:12px; width:min(96vw,960px); height:92vh;
+                    display:flex; flex-direction:column; overflow:hidden; box-shadow:0 16px 48px rgba(0,0,0,.4); }
+.detail-modal-head { display:flex; justify-content:space-between; align-items:center; gap:10px;
+                     padding:8px 14px; border-bottom:1px solid var(--border); background:#f9fafb; }
+.detail-modal-head .t { font-weight:700; font-size:13.5px; color:#374151; }
+.detail-modal-head .btns { display:flex; gap:8px; }
+.detail-modal-head a, .detail-modal-head button { margin:0; padding:6px 12px; font-size:12.5px; border-radius:7px;
+                     text-decoration:none; cursor:pointer; }
+.detail-modal-box iframe { flex:1; width:100%; border:none; background:#fff; }
+</style>
+<div id="detailModal" class="detail-modal-bg" onclick="if(event.target===this)closeDetailPopup()">
+  <div class="detail-modal-box">
+    <div class="detail-modal-head">
+      <span class="t">상세 보기</span>
+      <div class="btns">
+        <a id="detailOpenFull" href="#" target="_blank" class="btn secondary">새 탭에서 열기 ↗</a>
+        <button type="button" onclick="closeDetailPopup()" style="background:#e5e7eb; color:#374151; border:none;">✕ 닫기</button>
+      </div>
+    </div>
+    <iframe id="detailFrame" src="about:blank" title="상세 보기"></iframe>
+  </div>
+</div>
+<script>
+/* 목록 행 클릭을 '페이지 이동' 또는 '팝업'으로 고르게 한다. 선택은 localStorage에 기억. */
+function rowOpenMode(){ return localStorage.getItem('rowOpenMode') === 'popup'; }
+function setRowOpenMode(on){ localStorage.setItem('rowOpenMode', on ? 'popup' : 'page'); }
+function initOpenModeToggle(id){
+  var el = document.getElementById(id); if(!el) return;
+  el.checked = rowOpenMode();
+  el.addEventListener('change', function(){ setRowOpenMode(el.checked); });
+}
+function openRow(url){ if(rowOpenMode()) openDetailPopup(url); else location.href = url; }
+
+var _detailDirty = false;
+function openDetailPopup(url){
+  _detailDirty = false;
+  var f = document.getElementById('detailFrame');
+  f._loaded = false;
+  f.onload = function(){
+    // 첫 로드 이후 iframe이 다시 로드되면(저장/삭제 후 리다이렉트) 목록을 새로고침해야 반영됨
+    if(f._loaded) _detailDirty = true;
+    f._loaded = true;
+  };
+  f.src = url;
+  document.getElementById('detailOpenFull').href = url;
+  document.getElementById('detailModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeDetailPopup(){
+  document.getElementById('detailModal').classList.remove('open');
+  var f = document.getElementById('detailFrame');
+  f.src = 'about:blank';
+  f._loaded = false;
+  document.body.style.overflow = '';
+  if(_detailDirty) location.reload();  // 팝업 안에서 저장/삭제했으면 목록 갱신
+}
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape' && document.getElementById('detailModal').classList.contains('open')) closeDetailPopup();
+});
+</script>
 </body>
 </html>

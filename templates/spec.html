@@ -21,12 +21,20 @@
         <option value="material_name" {% if search_by=='material_name' %}selected{% endif %}>자재명</option>
         <option value="spec" {% if search_by=='spec' %}selected{% endif %}>규격 표기</option>
         <option value="method" {% if search_by=='method' %}selected{% endif %}>검사방식</option>
+        <option value="method_empty" {% if search_by=='method_empty' %}selected{% endif %}>검사방식 미입력</option>
       </select>
     </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or search_by != 'all' %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
   </form>
+  <p class="muted" style="margin:8px 0 0; font-size:12px;">
+    '검사방식 미입력'을 고르면 검색어 없이도 검사방식이 비어 있는 항목을 가진 자재만 모아 보여줘.
+  </p>
 </div>
+
+<label class="open-mode-toggle" style="margin-bottom:10px;">
+  <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
+</label>
 
 <form id="materialBulkDeleteForm" method="POST" action="{{ url_for('spec_delete_bulk') }}"
       onsubmit="return confirm('선택한 자재의 규격을 전부 삭제할까? 되돌릴 수 없어.');"></form>
@@ -45,11 +53,12 @@
     <td onclick="event.stopPropagation()">
       <input type="checkbox" class="material-check" form="materialBulkDeleteForm" name="material_nos" value="{{ m['material_no'] }}">
     </td>
-    <td onclick="location.href='{{ url_for('spec_detail', material_no=m['material_no']) }}'" style="cursor:pointer">{{ m['material_no'] }}</td>
-    <td onclick="location.href='{{ url_for('spec_detail', material_no=m['material_no']) }}'" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
+    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
+    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="3">{% if query %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
+  <tr><td colspan="3">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
   {% endfor %}
 </table>
+<script>initOpenModeToggle('openModeChk');</script>
 {% endblock %}

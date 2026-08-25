@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}자재 개별 등록{% endblock %}
 {% block content %}
+{# 측정 방식(계측기) 선택지 — 계측기 관리에 등록된 종류 + 육안/외관. 목록에 없으면 직접 입력 가능 #}
+<datalist id="methodOptions">
+  {% for m in (method_options or []) %}<option value="{{ m }}">{% endfor %}
+</datalist>
 <style>
   .quick-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
                 overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
@@ -323,7 +327,7 @@ function renderItemRows() {
       </td>
       <td><input type="text" inputmode="decimal" value="${it.lower_limit}" onchange="${arrRef}[${idx}].lower_limit=this.value"></td>
       <td><input type="text" inputmode="decimal" value="${it.upper_limit}" onchange="${arrRef}[${idx}].upper_limit=this.value"></td>
-      <td><input type="text" value="${it.inspect_method}" onchange="${arrRef}[${idx}].inspect_method=this.value"></td>
+      <td><input type="text" list="methodOptions" value="${it.inspect_method}" onchange="${arrRef}[${idx}].inspect_method=this.value"></td>
       <td>
         <select onchange="${arrRef}[${idx}].aql_select=this.value; renderItemRows();">
           <option value="4" ${it.aql_select==='4'?'selected':''}>4</option>

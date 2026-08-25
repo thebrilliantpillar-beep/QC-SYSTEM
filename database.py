@@ -766,6 +766,16 @@ def search_materials(query=None, search_by="all"):
     'all'(전체)은 자재번호·자재명·규격 표기·검사방식을 모두 훑는다.
     """
     conn = get_conn()
+    if search_by == "method_empty":
+        # 검사방식(inspect_method)이 비어 있는 항목을 가진 자재. 검색어와 무관하게 동작한다.
+        rows = conn.execute("""
+            SELECT DISTINCT m.material_no, m.material_name FROM materials m
+            JOIN specs s ON s.material_no = m.material_no
+            WHERE s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''
+            ORDER BY m.material_no
+        """).fetchall()
+        conn.close()
+        return rows
     if not query:
         rows = conn.execute("SELECT material_no, material_name FROM materials ORDER BY material_no").fetchall()
         conn.close()
@@ -1468,6 +1478,24 @@ def get_defect_count_for(supplier, material_no):
 
 
 # ---------- 계측기 마스터 ----------
+
+# 측정 방식(specs.inspect_method)에 적히지만 계측기가 아닌 값들.
+# (육안/외관=시각검사, 전수=검사 범위) — 계측기 종류 자동등록·자동매칭 대상에서 뺀다.
+NON_GAUGE_METHODS = {"육안", "외관", "전수"}
+
+def distinct_inspect_methods():
+    """규격에 실제로 쓰인 측정 방식들을 (이름, 사용건수)로 돌려준다. 빈칸 제외.
+    계측기 종류 자동등록·드롭다운 옵션의 원본이 된다."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT TRIM(inspect_method) AS m, COUNT(*) AS c
+          FROM specs
+         WHERE inspect_method IS NOT NULL AND TRIM(inspect_method) <> ''
+      GROUP BY TRIM(inspect_method)
+      ORDER BY c DESC
+    """).fetchall()
+    conn.close()
+    return [(r["m"], r["c"]) for r in rows]
 
 def list_gauges():
     conn = get_conn()

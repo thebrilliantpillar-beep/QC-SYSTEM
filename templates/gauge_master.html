@@ -13,10 +13,20 @@
              box-shadow:0 8px 30px rgba(0,0,0,.25); max-height:90vh; overflow-y:auto; }
 </style>
 
-<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
   <h2 style="margin:0;">🔧 계측기 관리</h2>
-  <button onclick="openModal()" style="padding:10px 20px; font-size:14px; margin-top:0;">+ 계측기 등록</button>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <form method="POST" action="{{ url_for('gauge_import_methods') }}" style="margin:0;"
+          onsubmit="return confirm('자재 규격에 적힌 측정 방식들을 계측기 종류로 한 번에 등록할까?\n(육안·외관·전수 제외, 이미 등록된 종류는 건너뜀. 유효기간은 비워두니 등록 후 채워줘.)');">
+      <button type="submit" class="btn secondary" style="padding:10px 16px; font-size:14px; margin-top:0;">측정방식에서 종류 불러오기</button>
+    </form>
+    <button onclick="openModal()" style="padding:10px 20px; font-size:14px; margin-top:0;">+ 계측기 등록</button>
+  </div>
 </div>
+<p class="muted" style="margin:0 0 16px; font-size:12.5px;">
+  자재 규격의 '측정 방식'에 적힌 계측기 종류와 이름이 같으면(띄어쓰기 무시), 검사 입력 화면에서 그 항목의 유효기간이 자동으로 채워져.
+  종류를 불러온 뒤 각 계측기의 <b>만료일</b>을 넣어줘.
+</p>
 
 {% if gauges %}
 <div style="overflow-x:auto;">

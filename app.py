@@ -819,6 +819,70 @@ def build_specs_with_sample(specs, quantity):
     return out
 
 
+def _norm_method(s):
+    """계측기 이름/측정 방식 매칭용 정규화 — 공백을 모두 없애고 소문자로.
+    (사용자 확정: '도장두께측정기'와 '도장 두께 측정기'는 같은 것으로 본다)"""
+    import re
+    return re.sub(r"\s+", "", (s or "")).strip().lower()
+
+
+def gauge_method_options():
+    """자재 등록 화면의 '측정 방식' 드롭다운에 넣을 후보 목록.
+    등록된 계측기 이름 + 시각검사(육안/외관) — 규격 등록 시 이 중에서 고르되
+    직접 입력도 가능(datalist)."""
+    names = [g["name"] for g in db.list_gauges() if (g["name"] or "").strip()]
+    for v in ("육안", "외관"):
+        if v not in names:
+            names.append(v)
+    # 중복 제거(정규화 기준) 후 정렬
+    seen, out = set(), []
+    for n in names:
+        k = _norm_method(n)
+        if k and k not in seen:
+            seen.add(k)
+            out.append(n)
+    return sorted(out)
+
+
+def build_sel_gauge(specs, gauges, prefill=None):
+    """항목별로 '어느 계측기가 선택돼야 하는지'(계측기 이름)를 정해서 dict로 돌려준다.
+    - 이미 입력된 값(prefill의 gauge_name)이 있으면 그게 우선
+    - 없으면 항목의 측정 방식(inspect_method)을 등록된 계측기와 공백무시로 매칭해 자동 선택
+    - 같은 이름(정규화)이 여러 계측기에 있으면 애매하므로 자동선택하지 않는다
+    검사폼에서 유효기간이 자동으로 채워지게 하는 핵심."""
+    idx, dup = {}, set()
+    for gm in gauges:
+        k = _norm_method(gm["name"])
+        if not k:
+            continue
+        if k in idx:
+            dup.add(k)
+        else:
+            idx[k] = gm["name"]
+    for k in dup:
+        idx.pop(k, None)
+
+    sel = {}
+    for s in specs:
+        sid = s["id"]
+        pf_name = (prefill or {}).get(f"item_{sid}_gauge_name") if prefill else None
+        pf_exp = (prefill or {}).get(f"item_{sid}_gauge_expiry") if prefill else None
+        if pf_name:                      # 이미 고른 계측기가 있으면 그대로 둠
+            sel[sid] = pf_name
+            continue
+        if pf_exp:                       # 직접 입력한 유효기간이 있으면 자동선택 안 함
+            continue
+        if s.get("judge_type") not in ("numeric", "numeric_pair"):
+            continue
+        method = s.get("inspect_method") or ""
+        if "육안" in method:
+            continue
+        name = idx.get(_norm_method(method))
+        if name:
+            sel[sid] = name
+    return sel
+
+
 def _unique_aql_sample_qty(specs_with_sample):
     """AQL 그룹당 한 번만 세어 {AQL(숫자 또는 '전수'/'퍼센트N' 문자열): 샘플수량} 딕셔너리 반환."""
     seen_aql = {}
@@ -998,7 +1062,11 @@ def intake():
 def spec_list():
     query = request.args.get("q", "").strip()
     search_by = request.args.get("by", "all")
-    materials = db.search_materials(query, search_by) if query else db.get_materials()
+    # 검사방식 미입력(method_empty)은 검색어가 없어도 조회한다.
+    if query or search_by == "method_empty":
+        materials = db.search_materials(query, search_by)
+    else:
+        materials = db.get_materials()
     return render_template("spec.html", materials=materials, query=query, search_by=search_by)
 
 
@@ -1104,7 +1172,7 @@ def spec_quick_add():
             flash("등록할 내용이 없어.")
         return redirect(url_for("spec_quick_add"))
 
-    return render_template("spec_quick_add.html")
+    return render_template("spec_quick_add.html", method_options=gauge_method_options())
 
 
 @app.route("/spec/delete_bulk", methods=["POST"])
@@ -1136,7 +1204,8 @@ def spec_detail(material_no):
     return render_template("spec_detail.html", material_no=material_no, specs=specs,
                            material_name=material_name, material=material, drawing_no=drawing_no,
                            drawing_pdf=drawing_pdf, drawing_has_auto=drawing_has_auto,
-                           full_inspect_config=full_inspect_config)
+                           full_inspect_config=full_inspect_config,
+                           method_options=gauge_method_options())
 
 
 @app.route("/spec/<material_no>/full-inspect-config", methods=["POST"])
@@ -1619,6 +1688,7 @@ def inspect_form(intake_id):
     return render_template("inspect_form.html", intake=intake_row, specs=specs_with_sample,
                            is_group=is_group, group_name=group_name,
                            prior_defect_count=prior_defect_count, gauges=gauges,
+                           sel_gauge=build_sel_gauge(specs_with_sample, gauges),
                            server_draft=server_draft, draft_info=draft_info,
                            change_points=change_points,
                            full_inspect_config=full_inspect_config,
@@ -1915,10 +1985,14 @@ def edit_inspection(inspection_id):
         }
 
     prior_defect_count = db.get_defect_count_for(intake_row["supplier"], header["material_no"])
+    gauges = db.list_gauges()
     return render_template("inspect_form.html",
                            intake=intake_row, specs=specs_with_sample,
                            prefill=prefill, edit_mode=inspection_id,
                            is_group=is_group, group_name=group_name,
+                           gauges=gauges,
+                           sel_gauge=build_sel_gauge(specs_with_sample, gauges, prefill),
+                           gauge_master_empty=(len(gauges) == 0),
                            prior_defect_count=prior_defect_count)
 
 
@@ -3704,10 +3778,14 @@ def reinspect(inspection_id):
         prefill[f"item_{s['id']}_gauge_name"] = it["gauge_name"] or ""
 
     prior_defect_count = db.get_defect_count_for(intake_row["supplier"], header["material_no"])
+    gauges = db.list_gauges()
     return render_template("inspect_form.html",
                            intake=intake_row, specs=specs_with_sample,
                            prefill=prefill, reinspect_from=inspection_id,
                            is_group=is_group, group_name=group_name,
+                           gauges=gauges,
+                           sel_gauge=build_sel_gauge(specs_with_sample, gauges, prefill),
+                           gauge_master_empty=(len(gauges) == 0),
                            prior_defect_count=prior_defect_count)
 
 
@@ -3881,6 +3959,35 @@ def gauge_save():
     record_change(f"계측기 {action}", "gauge", gauge_id, name)
     flash(f"계측기 '{name}' {action}됐어.")
     return redirect(url_for("gauge_list"))
+
+@app.route("/gauges/import-methods", methods=["POST"])
+@perm_required("gauge")
+def gauge_import_methods():
+    """자재 규격에 적힌 '측정 방식'들을 계측기 종류로 한 번에 등록한다.
+    - 육안/외관/전수 같은 비(非)계측기 값은 뺀다
+    - 이미 등록된 이름(공백무시)은 건너뛴다
+    - 유효기간은 비워두고 넣는다 → 관리자가 각 종류의 교정 유효기간을 채우면
+      검사폼에서 그 종류의 항목들이 유효기간을 자동으로 받아온다"""
+    existing = {_norm_method(g["name"]) for g in db.list_gauges()}
+    added = []
+    for method, _cnt in db.distinct_inspect_methods():
+        if method in db.NON_GAUGE_METHODS:
+            continue
+        key = _norm_method(method)
+        if not key or key in existing:
+            continue
+        # gauge_no는 UNIQUE라 빈 문자열이 여러 개면 충돌 → NULL로 두고 관리번호는 나중에 채움
+        db.upsert_gauge(gauge_id=None, gauge_no=None, name=method, model="",
+                        location="", last_calibrated=None, expiry_date=None, notes="측정방식 자동등록")
+        existing.add(key)
+        added.append(method)
+    if added:
+        record_change("계측기 종류 자동등록", "gauge", None, f"{len(added)}종: " + ", ".join(added[:15]))
+        flash(f"측정 방식에서 계측기 종류 {len(added)}개를 등록했어. 각 종류의 교정 유효기간을 채워줘.")
+    else:
+        flash("새로 등록할 계측기 종류가 없어 (이미 다 등록돼 있어).")
+    return redirect(url_for("gauge_list"))
+
 
 @app.route("/gauges/<int:gauge_id>/delete", methods=["POST"])
 @perm_required("gauge")

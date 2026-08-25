@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ material_no }} 자재{% endblock %}
 {% block content %}
+{# 측정 방식(계측기) 선택지 — 계측기 관리에 등록된 종류 + 육안/외관. 목록에 없으면 직접 입력 가능 #}
+<datalist id="methodOptions">
+  {% for m in (method_options or []) %}<option value="{{ m }}">{% endfor %}
+</datalist>
 <style>
   .spec-edit-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
                       overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
@@ -223,7 +227,7 @@
       </td>
       <td><input form="spec-row-{{ s['id'] }}" type="text" inputmode="decimal" name="lower_limit" id="lowerLimit_{{ s['id'] }}" value="{{ s['lower_limit'] if s['lower_limit'] is not none else '' }}"></td>
       <td><input form="spec-row-{{ s['id'] }}" type="text" inputmode="decimal" name="upper_limit" id="upperLimit_{{ s['id'] }}" value="{{ s['upper_limit'] if s['upper_limit'] is not none else '' }}"></td>
-      <td><input form="spec-row-{{ s['id'] }}" type="text" name="inspect_method" value="{{ s['inspect_method'] or '' }}"></td>
+      <td><input form="spec-row-{{ s['id'] }}" type="text" name="inspect_method" list="methodOptions" value="{{ s['inspect_method'] or '' }}"></td>
       <td>
         <select form="spec-row-{{ s['id'] }}" name="aql_select" onchange="const p=this.closest('td').querySelector('.aql-percent'); p.style.display = this.value==='퍼센트' ? 'inline-block' : 'none';">
           <option value="4" {% if s['aql']|string == '4' %}selected{% endif %}>4</option>
@@ -285,7 +289,7 @@
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:80px;"><label>하한</label><input type="text" inputmode="decimal" name="lower_limit" id="lowerLimit_new"></div>
       <div style="flex:1; min-width:80px;"><label>상한</label><input type="text" inputmode="decimal" name="upper_limit" id="upperLimit_new"></div>
-      <div style="flex:1; min-width:100px;"><label>검사방법</label><input type="text" name="inspect_method" placeholder="예: 버니어캘리퍼스"></div>
+      <div style="flex:1; min-width:100px;"><label>검사방법</label><input type="text" name="inspect_method" list="methodOptions" placeholder="예: 버니어캘리퍼스"></div>
       <div style="flex:1; min-width:70px;">
         <label>AQL
           <span class="info-anchor">

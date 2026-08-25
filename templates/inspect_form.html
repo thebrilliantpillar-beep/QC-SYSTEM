@@ -258,12 +258,14 @@
                   style="font-size:12px;">
             <option value="" data-name="">직접 입력</option>
             {% for gm in gauges %}
-            <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}">
+            <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
+              {% if sel_gauge and sel_gauge.get(s['id']) == gm['name'] %}selected{% endif %}>
               {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
             </option>
             {% endfor %}
           </select>
-          <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}">
+          <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
+                 value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
           <span id="gview_{{ s['id'] }}" style="font-size:11.5px; color:#dc2626; margin-left:4px;"></span>
           {% else %}
           <input type="text" name="item_{{ s['id'] }}_gauge_expiry" placeholder="YYYY-MM-DD" style="font-size:12px;width:110px;">
@@ -401,13 +403,13 @@
                 <option value="" data-name="">직접 입력</option>
                 {% for gm in gauges %}
                 <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
-                  {% if prefill and prefill.get('item_' ~ s['id'] ~ '_gauge_expiry') == (gm['expiry_date'] or '') %}selected{% endif %}>
+                  {% if sel_gauge and sel_gauge.get(s['id']) == gm['name'] %}selected{% endif %}>
                   {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
                 </option>
                 {% endfor %}
               </select>
               <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
-                     value="{{ prefill['item_' ~ s['id'] ~ '_gauge_name'] if prefill else '' }}">
+                     value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
               {% else %}
               <input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
                      name="item_{{ s['id'] }}_gauge_expiry"
@@ -645,6 +647,15 @@ function checkGaugeExpiry(input) {
 window.addEventListener('load', () => {
   document.querySelectorAll('.gauge-input').forEach(el => {
     if (el.value) checkGaugeExpiry(el);
+  });
+  // 측정 방식으로 자동 선택된 계측기의 이름/유효기간 표시를 초기화
+  document.querySelectorAll('select[name$="_gauge_expiry"]').forEach(sel => {
+    var o = sel.options[sel.selectedIndex]; if (!o) return;
+    var id = sel.name.slice(5, -('_gauge_expiry'.length));  // item_<id>_gauge_expiry → <id>
+    var gn = document.getElementById('gname_' + id);
+    if (gn && !gn.value) gn.value = o.dataset.name || '';
+    var gv = document.getElementById('gview_' + id);
+    if (gv) gv.textContent = sel.value ? ('만료 ' + sel.value) : (o.dataset.name ? '⚠ 만료일 미등록' : '');
   });
 });
 
