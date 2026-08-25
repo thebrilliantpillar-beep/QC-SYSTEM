@@ -432,6 +432,10 @@ admin_required = perm_required()  # "users" 권한 보유자만
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if request.method == "GET" and g.user is not None:
+        # 이미 로그인된 상태로 /login에 들어오면(북마크, 뒤로가기 등) 로그인 폼 위에
+        # 상단 메뉴까지 같이 뜨는 이상한 화면이 됐다 — 바로 홈으로 보낸다.
+        return redirect(url_for("home"))
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
