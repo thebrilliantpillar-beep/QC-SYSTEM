@@ -11,7 +11,7 @@
   <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
     <div style="flex:2; min-width:180px;">
       <label>검색어</label>
-      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 자재명, 검사방식...">
+      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 자재명, 규격 표기, 검사방식...">
     </div>
     <div style="flex:1; min-width:130px;">
       <label>검색 기준</label>
@@ -19,6 +19,7 @@
         <option value="all" {% if search_by=='all' %}selected{% endif %}>전체</option>
         <option value="material_no" {% if search_by=='material_no' %}selected{% endif %}>자재번호</option>
         <option value="material_name" {% if search_by=='material_name' %}selected{% endif %}>자재명</option>
+        <option value="spec" {% if search_by=='spec' %}selected{% endif %}>규격 표기</option>
         <option value="method" {% if search_by=='method' %}selected{% endif %}>검사방식</option>
       </select>
     </div>

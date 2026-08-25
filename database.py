@@ -761,8 +761,9 @@ def upsert_materials_bulk(rows):
 
 def search_materials(query=None, search_by="all"):
     """
-    query: 검색어. search_by: 'material_no' / 'material_name' / 'method' / 'all'
-    'method'(검사방식)는 specs.inspect_method에서 매칭.
+    query: 검색어. search_by: 'material_no' / 'material_name' / 'method' / 'spec' / 'all'
+    'method'(검사방식)는 specs.inspect_method에서, 'spec'(규격 표기)는 specs.spec_display에서 매칭.
+    'all'(전체)은 자재번호·자재명·규격 표기·검사방식을 모두 훑는다.
     """
     conn = get_conn()
     if not query:
@@ -788,13 +789,23 @@ def search_materials(query=None, search_by="all"):
             WHERE s.inspect_method LIKE ?
             ORDER BY m.material_no
         """, (like,)).fetchall()
+    elif search_by == "spec":
+        rows = conn.execute("""
+            SELECT DISTINCT m.material_no, m.material_name FROM materials m
+            JOIN specs s ON s.material_no = m.material_no
+            WHERE s.spec_display LIKE ?
+            ORDER BY m.material_no
+        """, (like,)).fetchall()
     else:
+        # 전체: 자재번호·자재명·규격 표기·검사방식 어디에 있든 잡는다.
+        # (규격 표기 spec_display를 빠뜨려서 규격에만 있는 검색어가 안 걸리던 버그 수정)
         rows = conn.execute("""
             SELECT DISTINCT m.material_no, m.material_name FROM materials m
             LEFT JOIN specs s ON s.material_no = m.material_no
-            WHERE m.material_no LIKE ? OR m.material_name LIKE ? OR s.inspect_method LIKE ?
+            WHERE m.material_no LIKE ? OR m.material_name LIKE ?
+               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?
             ORDER BY m.material_no
-        """, (like, like, like)).fetchall()
+        """, (like, like, like, like)).fetchall()
     conn.close()
     return rows
 
