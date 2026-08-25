@@ -213,6 +213,32 @@ def ensure_perm_migration():
     db.set_setting("perm_schema_version", "2")
 
 
+def ensure_inspect_method_fill_20260825():
+    """검사방식(inspect_method) 미입력 항목 일괄 정리 (2026-08-25, 1회 실행, 버전 플래그로 멱등 보장).
+    숫자측정 항목이 아닌(육안으로 판단 가능한) 미입력 항목은 전부 '육안'으로 채우고,
+    600006P276의 *A 항목(치수 75±0.8)만 예외로 '버니어캘리퍼스'를 채운다 — 로컬 DB에서
+    사용자가 직접 확인하고 승인한 규칙을 그대로 운영 DB에도 적용."""
+    if db.get_setting("inspect_method_fill_20260825", "0") == "1":
+        return
+    conn = db.get_conn()
+    conn.execute("""
+        UPDATE specs SET inspect_method='버니어캘리퍼스'
+        WHERE material_no='600006P276' AND item_name='*A'
+          AND (inspect_method IS NULL OR TRIM(inspect_method)='')
+    """)
+    cur = conn.execute("""
+        UPDATE specs SET inspect_method='육안'
+        WHERE judge_type IN ('ok_ng', 'visual')
+          AND (inspect_method IS NULL OR TRIM(inspect_method)='')
+    """)
+    filled = cur.rowcount
+    conn.commit()
+    conn.close()
+    db.set_setting("inspect_method_fill_20260825", "1")
+    db.log_activity(None, "system", "system", "검사방식 미입력 일괄 수정 (배포 마이그레이션)",
+                     "specs", None, f"{filled}건을 육안으로 자동 설정 (numeric 미입력 항목은 개별 확인 후 수동 처리)")
+
+
 def record_change(action, target_type=None, target_id=None, detail=None):
     """
     데이터가 새로 생기거나 수정될 때마다 호출:
@@ -4964,6 +4990,7 @@ def assembly_delete(assembly_id):
 db.init_db()
 ensure_default_admin()
 ensure_perm_migration()
+ensure_inspect_method_fill_20260825()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
