@@ -46,7 +46,7 @@
 <table>
   <tr>
     <th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>
-    <th>자재번호</th><th>자재명</th>
+    <th>자재번호</th><th>자재명</th><th>도면</th>
   </tr>
   {% for m in materials %}
   <tr>
@@ -55,9 +55,13 @@
     </td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
+    <td onclick="event.stopPropagation()">
+      <a href="{{ url_for('serve_drawing', material_no=m['material_no']) }}" target="_blank"
+         class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
+    </td>
   </tr>
   {% else %}
-  <tr><td colspan="3">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
+  <tr><td colspan="4">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

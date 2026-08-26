@@ -74,8 +74,12 @@
       &nbsp;·&nbsp; 총 {{ inspections|length }}건
     </p>
   </div>
-  <a href="{{ url_for('spec_detail', material_no=material_no) }}" class="btn secondary"
-     style="padding:8px 16px; font-size:13px; margin-top:0;">← 규격으로</a>
+  <div style="display:flex; gap:8px;">
+    <a href="{{ url_for('serve_drawing', material_no=material_no) }}" target="_blank" class="btn secondary"
+       style="padding:8px 16px; font-size:13px; margin-top:0;">📐 도면보기</a>
+    <a href="{{ url_for('spec_detail', material_no=material_no) }}" class="btn secondary"
+       style="padding:8px 16px; font-size:13px; margin-top:0;">← 규격으로</a>
+  </div>
 </div>
 
 {% if inspections %}

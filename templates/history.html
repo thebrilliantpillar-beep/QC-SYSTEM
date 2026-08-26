@@ -83,6 +83,7 @@
           <th>자동판정</th>
           <th>총 측정시간</th>
           <th>승인상태</th>
+          <th>도면</th>
         </tr>
       </thead>
       <tbody>
@@ -112,6 +113,10 @@
         </td>
         <td>{{ time_labels.get(i['id'], '-') }}</td>
         <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
+        <td onclick="event.stopPropagation()">
+          <a href="{{ url_for('serve_drawing', material_no=i['material_no']) }}" target="_blank"
+             class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
+        </td>
       </tr>
       {% endfor %}
       </tbody>
