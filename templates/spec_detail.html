@@ -131,6 +131,18 @@
     </a>
     {% endif %}
   </form>
+
+  <form method="POST" action="{{ url_for('spec_drawing_upload', material_no=material_no) }}"
+        enctype="multipart/form-data"
+        style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:14px; padding-top:14px; border-top:1px solid #e5e7eb;">
+    <div style="flex:1; min-width:200px;">
+      <label>새 도면 파일 업로드 (PDF)</label>
+      <input type="file" name="drawing_pdf" accept="application/pdf,.pdf" required style="width:100%;">
+    </div>
+    <button type="submit" style="margin-top:0;">업로드</button>
+  </form>
+  <p class="hint" style="margin:6px 0 0;">업로드하면 이 자재번호({{ material_no }}.pdf)로 저장되고 바로 자동 연결돼.
+    다른 파일을 수동으로 지정해둔 게 있었다면 새로 올린 파일로 바뀌어.</p>
 </div>
 <script>
 (function(){

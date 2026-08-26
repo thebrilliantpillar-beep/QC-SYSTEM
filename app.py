@@ -581,6 +581,30 @@ def spec_drawing_assign(material_no):
     return redirect(url_for("spec_detail", material_no=material_no))
 
 
+@app.route("/spec/<material_no>/drawing/upload", methods=["POST"])
+@perm_required("material_edit")
+def spec_drawing_upload(material_no):
+    """도면 PDF 파일을 직접 업로드. 자재번호.pdf 로 저장해서 자동 매칭되게 한다."""
+    file = request.files.get("drawing_pdf")
+    if not file or file.filename == "":
+        flash("업로드할 도면 파일을 선택해줘.")
+        return redirect(url_for("spec_detail", material_no=material_no))
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext != ".pdf":
+        flash("PDF 파일만 업로드할 수 있어.")
+        return redirect(url_for("spec_detail", material_no=material_no))
+
+    db.upsert_material(material_no)
+    fname = f"{material_no}.pdf"
+    file.save(os.path.join(DRAWING_DIR, fname))
+    # 수동 지정이 남아있으면 방금 올린 파일 대신 옛 파일이 계속 쓰이니 해제해서
+    # 자동 매칭(자재번호.pdf = 방금 올린 파일)이 바로 적용되게 한다.
+    db.update_drawing_file(material_no, None)
+    record_change("도면 파일 업로드", "material", material_no, f"업로드: {fname}")
+    flash("도면 파일이 업로드됐어.")
+    return redirect(url_for("spec_detail", material_no=material_no))
+
+
 # ---------- 계정 관리 (관리자 전용) ----------
 
 @app.route("/users", methods=["GET", "POST"])
