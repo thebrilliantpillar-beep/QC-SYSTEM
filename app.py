@@ -969,6 +969,18 @@ def compute_total_time_sec(specs_with_sample, per_cycle_sec):
     return total
 
 
+def total_time_label_for(header):
+    """목록 화면(승인 목록/검사 이력)에 표시할 '총 측정 시간' — 성적서 상세와 동일한 계산."""
+    per_cycle_sec = header["actual_time_sec"] or 0
+    if not per_cycle_sec:
+        return "-"
+    specs, _, _ = _get_specs_for_material(header["material_no"])
+    if not specs:
+        return "-"
+    specs_with_sample = build_specs_with_sample(specs, header["quantity"])
+    return format_duration(compute_total_time_sec(specs_with_sample, per_cycle_sec))
+
+
 @app.route("/")
 @login_required
 def home():
@@ -2729,7 +2741,9 @@ def approve_list():
         "special":  sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "special"),
         "rejected": len(db.list_inspections(status="rejected")),
     }
-    return render_template("approve_list.html", rows=rows, tab=tab, q=q, counts=counts)
+    time_labels = {r["id"]: total_time_label_for(r) for r in rows}
+    return render_template("approve_list.html", rows=rows, tab=tab, q=q, counts=counts,
+                           time_labels=time_labels)
 
 
 @app.route("/approve/<int:inspection_id>/revoke", methods=["POST"])
@@ -2889,8 +2903,10 @@ def history():
                           reverse=True)
     # 헤더에 그대로 쓸 수 있게 '2026-08-21 (금)' 형태의 표시용 라벨도 같이 넘긴다
     date_labels = {d: (format_date_korean(d) if d != NO_DATE else NO_DATE) for d in sorted_dates}
+    time_labels = {i["id"]: total_time_label_for(i) for i in inspections}
     return render_template("history.html", by_date=by_date,
-                           sorted_dates=sorted_dates, date_labels=date_labels)
+                           sorted_dates=sorted_dates, date_labels=date_labels,
+                           time_labels=time_labels)
 
 
 # ---------- 승인 이력 (필터+엑셀 내보내기) ----------

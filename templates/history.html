@@ -81,6 +81,7 @@
           <th>검사일</th>
           <th>검사자</th>
           <th>자동판정</th>
+          <th>총 측정시간</th>
           <th>승인상태</th>
         </tr>
       </thead>
@@ -109,6 +110,7 @@
             <span class="badge pending">{{ i['overall_result'] or '-' }}</span>
           {% endif %}
         </td>
+        <td>{{ time_labels.get(i['id'], '-') }}</td>
         <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
       </tr>
       {% endfor %}

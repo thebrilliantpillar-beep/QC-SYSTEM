@@ -136,6 +136,7 @@ canvas#batchSigPad {
       <th>검사일</th>
       <th>검사자</th>
       <th>자동판정</th>
+      <th>총 측정시간</th>
       {% if tab != 'pending' %}<th>결정</th>{% endif %}
     </tr>
   </thead>
@@ -166,6 +167,7 @@ canvas#batchSigPad {
         <span class="badge pending">{{ i['overall_result'] or '-' }}</span>
       {% endif %}
     </td>
+    <td>{{ time_labels.get(i['id'], '-') }}</td>
     {% if tab != 'pending' %}
     <td onclick="event.stopPropagation()">
       {% if 'approve_revoke' in user_perms %}
