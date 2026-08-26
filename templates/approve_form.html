@@ -294,7 +294,11 @@ function showApproveWarn(title, msg){
       {% else %}
         <b>규격 없음</b>
       {% endif %}
-      &nbsp;|&nbsp; AQL: <b>{{ it['aql'] if it['aql'] is not none else '-' }}</b>
+      &nbsp;|&nbsp; AQL: <b>{{ it['aql'] | aql_display if it['aql'] is not none else '-' }}</b>
+      {% set sm_pi = specs_map.get(it['item_name'], {}) %}
+      {% if sm_pi.get('ac_allowance') is not none %}
+      <span style="color:#6b7280; font-size:12px;">(Ac{{ sm_pi['ac_allowance'] }}/Re{{ sm_pi['ac_allowance'] + 1 }})</span>
+      {% endif %}
     </div>
 
     <div>

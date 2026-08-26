@@ -875,9 +875,10 @@ EXTRA_SAMPLE_SEC = 10  # 기준 AQL 초과 샘플 1개당 추가 시간(고정�
 def build_specs_with_sample(specs, quantity):
     """규격 목록에 화면·계산용 파생값을 붙여서 돌려준다.
 
-    - sample_qty : 항목의 AQL과 입고수량으로 계산한 샘플수량
-    - no_limit   : 숫자 판정인데 하한·상한이 둘 다 비어 있는 항목
-                   (judge_numeric()이 이런 항목을 무조건 불합격 처리하므로 화면에서 경고해야 함)
+    - sample_qty   : 항목의 AQL과 입고수량으로 계산한 샘플수량
+    - ac_allowance : 위 샘플수량 기준 합격판정개수(Ac). re_allowance는 항상 Ac+1(호출부에서 계산)
+    - no_limit     : 숫자 판정인데 하한·상한이 둘 다 비어 있는 항목
+                     (judge_numeric()이 이런 항목을 무조건 불합격 처리하므로 화면에서 경고해야 함)
 
     검사 입력 / 성적서 상세 / 재검사 / 시간계산이 전부 같은 계산을 쓰도록 한 곳에 모아둔 헬퍼.
     (예전엔 같은 리스트 컴프리헨션이 8군데에 복사돼 있어서 한 곳만 고치면 나머지가 어긋났다)
@@ -886,6 +887,7 @@ def build_specs_with_sample(specs, quantity):
     for s in specs:
         d = dict(s)
         d["sample_qty"] = sample_size(d.get("aql"), quantity)
+        d["ac_allowance"] = aql_ac_allowance(d.get("aql"), d["sample_qty"]) if d.get("aql") is not None else None
         d["no_limit"] = (d.get("judge_type") in ("numeric", "numeric_pair")
                          and d.get("lower_limit") is None
                          and d.get("upper_limit") is None)
@@ -2011,10 +2013,8 @@ def inspection_detail(inspection_id):
                 "days_left": days_left,
             })
 
-    # AQL·샘플수량 매핑 (specs → item_name 기준)
-    specs_all = []
-    for s in specs:
-        specs_all.append({**dict(s), "sample_qty": sample_size(s["aql"], header["quantity"])})
+    # AQL·샘플수량·Ac 매핑 (specs → item_name 기준)
+    specs_all = build_specs_with_sample(specs, header["quantity"]) if specs else []
     specs_map = {s["item_name"]: s for s in specs_all}
 
     # AQL 그룹별 샘플수 요약 (대시보드·설명용)

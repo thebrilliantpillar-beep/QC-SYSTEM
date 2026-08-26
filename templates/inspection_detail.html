@@ -189,7 +189,12 @@
       </td>
       <td style="font-size:12.5px; color:#374151;">{{ '%.2f'|format(it['max_value']) if it['max_value'] is not none else '-' }}</td>
       <td style="font-size:12.5px; color:#374151;">{{ '%.2f'|format(it['min_value']) if it['min_value'] is not none else '-' }}</td>
-      <td style="font-size:12px; color:{{ '#dc2626' if sm.get('aql')|string == '0.65' else '#374151' }}; font-weight:{{ '700' if sm.get('aql')|string == '0.65' else '400' }};">{{ sm.get('aql') or '-' }}</td>
+      <td style="font-size:12px; color:{{ '#dc2626' if sm.get('aql')|string == '0.65' else '#374151' }}; font-weight:{{ '700' if sm.get('aql')|string == '0.65' else '400' }};">
+        {{ sm.get('aql') | aql_display if sm.get('aql') is not none else '-' }}
+        {% if sm.get('ac_allowance') is not none %}
+        <br><span style="font-size:10.5px; font-weight:400; color:#6b7280;">Ac{{ sm['ac_allowance'] }}/Re{{ sm['ac_allowance'] + 1 }}</span>
+        {% endif %}
+      </td>
       <td style="font-size:12.5px;">{{ sm.get('sample_qty') or '-' }}</td>
       <td><span class="badge {{ 'pass' if it['result']=='합격' else ('fail' if it['result']=='불합격' else 'pending') }}">{{ it['result'] }}</span></td>
       <td style="font-size:12px;">
