@@ -56,8 +56,12 @@
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
     <td onclick="event.stopPropagation()">
+      {% if m['material_no'] in drawing_materials %}
       <a href="{{ url_for('serve_drawing', material_no=m['material_no']) }}" target="_blank"
          class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
+      {% else %}
+      <span style="color:#d1d5db; font-size:12px;">-</span>
+      {% endif %}
     </td>
   </tr>
   {% else %}

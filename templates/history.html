@@ -114,8 +114,12 @@
         <td>{{ time_labels.get(i['id'], '-') }}</td>
         <td>{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
         <td onclick="event.stopPropagation()">
+          {% if i['material_no'] in drawing_materials %}
           <a href="{{ url_for('serve_drawing', material_no=i['material_no']) }}" target="_blank"
              class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
+          {% else %}
+          <span style="color:#d1d5db; font-size:12px;">-</span>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

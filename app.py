@@ -548,6 +548,26 @@ def find_drawing_pdf(material_no):
     return None
 
 
+def materials_with_drawings(material_nos):
+    """주어진 자재번호들 중 도면 파일이 실제로 있는 것만 집합으로 반환.
+    목록 화면에서 도면보기 버튼을 도면 있는 행에만 보여주기 위해 씀."""
+    material_nos = set(material_nos)
+    if not material_nos:
+        return set()
+    try:
+        existing_files = set(os.listdir(DRAWING_DIR))
+    except OSError:
+        existing_files = set()
+    result = set()
+    for mno in material_nos:
+        material = db.get_material(mno)
+        if material and material["drawing_file"] and material["drawing_file"] in existing_files:
+            result.add(mno)
+        elif f"{mno}.pdf" in existing_files:
+            result.add(mno)
+    return result
+
+
 @app.route("/drawing/<material_no>")
 @perm_required("inspect_input", "inspect_history", "approve", "output", "material_view")
 def serve_drawing(material_no):
@@ -1176,7 +1196,9 @@ def spec_list():
         materials = db.search_materials(query, search_by)
     else:
         materials = db.get_materials()
-    return render_template("spec.html", materials=materials, query=query, search_by=search_by)
+    drawing_materials = materials_with_drawings(m["material_no"] for m in materials)
+    return render_template("spec.html", materials=materials, query=query, search_by=search_by,
+                            drawing_materials=drawing_materials)
 
 
 @app.route("/spec/quick_add", methods=["GET", "POST"])
@@ -1567,9 +1589,11 @@ def inspect_select():
     name_map = {m["material_no"]: m["material_name"] for m in mats}
     intake_ids = [r["id"] for r in pending]
     progress_map = db.get_progress_by_intake_ids(intake_ids)
+    drawing_materials = materials_with_drawings(r["material_no"] for r in pending)
     return render_template("inspect_select.html", pending=pending, query=query,
                            registered=registered, group_nos=set(),
-                           progress_map=progress_map, name_map=name_map)
+                           progress_map=progress_map, name_map=name_map,
+                           drawing_materials=drawing_materials)
 
 
 @app.route("/inspect/delete_bulk", methods=["POST"])
@@ -2986,9 +3010,10 @@ def history():
     # 헤더에 그대로 쓸 수 있게 '2026-08-21 (금)' 형태의 표시용 라벨도 같이 넘긴다
     date_labels = {d: (format_date_korean(d) if d != NO_DATE else NO_DATE) for d in sorted_dates}
     time_labels = {i["id"]: total_time_label_for(i) for i in inspections}
+    drawing_materials = materials_with_drawings(i["material_no"] for i in inspections)
     return render_template("history.html", by_date=by_date,
                            sorted_dates=sorted_dates, date_labels=date_labels,
-                           time_labels=time_labels)
+                           time_labels=time_labels, drawing_materials=drawing_materials)
 
 
 # ---------- 승인 이력 (필터+엑셀 내보내기) ----------
@@ -4027,12 +4052,14 @@ def material_history(material_no):
         items_dict[insp_id] = {r["item_name"]: r for r in rows}
 
     material = db.get_material(material_no)
+    has_drawing = find_drawing_pdf(material_no) is not None
     return render_template("material_history.html",
                            material_no=material_no,
                            material=material,
                            inspections=inspections,
                            item_names=item_names,
-                           items_dict=items_dict)
+                           items_dict=items_dict,
+                           has_drawing=has_drawing)
 
 
 # =========================================================================
