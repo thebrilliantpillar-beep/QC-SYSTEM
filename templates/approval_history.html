@@ -133,7 +133,7 @@
         onclick="location.href='{{ url_for('inspection_detail', inspection_id=r.id) }}'">
       <td>{{ r.receive_date_label }}</td>
       <td>{{ r.supplier }}</td>
-      <td>{{ r.po_number }}</td>
+      <td style="white-space:pre-line;">{{ r.po_number }}</td>
       <td style="text-align:left;">{{ r.material_name }}</td>
       <td>{{ r.material_no }}</td>
       <td>{{ '{:,}'.format(r.quantity) if r.quantity else '' }}</td>

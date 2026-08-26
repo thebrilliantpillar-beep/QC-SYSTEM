@@ -274,6 +274,14 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
     if total_time_label:
         ws["K6"] = f"총 측정 시간 : {total_time_label}"
 
+    # 같은 자재가 발주번호만 다르게 여러 번 입고돼 한 건으로 합쳐진 경우, 발주번호가 여러 줄이 된다.
+    # F5:J5는 wrap_text가 이미 켜져 있으니(원본 템플릿) 줄 수만큼 행 높이를 늘려서 잘리지 않게 하고,
+    # 늘어난 높이는 fitToPage(아래)가 전체 배율을 낮춰서 자동으로 A4 1장에 맞춘다.
+    po_no_text = header.get("po_no") or ""
+    po_line_count = po_no_text.count("\n") + 1 if po_no_text else 1
+    if po_line_count > 1:
+        ws.row_dimensions[5].height = 33.75 * po_line_count
+
     _insert_logo(ws, width_cm=CERT_LOGO_WIDTH_CM)  # 성적서: 너비 8.52cm 고정, 높이는 비율대로
 
     # 인쇄 시 가로·세로 폭이 항상 1페이지 안에 들어가도록 강제 (원본 템플릿의 고정 배율 54%는

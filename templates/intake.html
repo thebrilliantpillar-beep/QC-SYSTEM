@@ -299,7 +299,7 @@
   <tr>
     <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td>{{ r['supplier'] or '-' }}</td>
-    <td>{{ r['po_number'] or '-' }}</td>
+    <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
     <td>{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
     <td>
       {{ r['material_no'] }}
@@ -324,7 +324,7 @@
   <tr>
     <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td>{{ r['supplier'] or '-' }}</td>
-    <td>{{ r['po_number'] or '-' }}</td>
+    <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
     <td>{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
     <td>{{ r['material_no'] }}</td>
     <td>{{ r['quantity'] or '-' }}</td>

@@ -39,7 +39,7 @@
     </td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['supplier'] or '-' }}</td>
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['po_number'] or '-' }}</td>
+    <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['po_number'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">
       {{ r['material_no'] }}

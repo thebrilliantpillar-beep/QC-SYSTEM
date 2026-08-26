@@ -1018,6 +1018,45 @@ def daily_status():
 
 # ---------- 입고 리스트 (엑셀 붙여넣기 등록) ----------
 
+def _merge_duplicate_intake_rows(rows):
+    """
+    등록 화면(붙여넣기)에서 같은 자재번호가 여러 줄로 들어오면 발주번호만 다른
+    한 배치 입고로 보고 한 줄로 합친다 — 입고수량은 더하고, 발주번호는 줄바꿈으로 이어붙임.
+    (사용자 확정: 이번 등록 화면 안에서만 합친다. 이미 대기 중인 기존 건과는 합치지 않음.)
+    """
+    merged = {}
+    order = []
+    for r in rows:
+        key = r["material_no"]
+        if key not in merged:
+            merged[key] = dict(r)
+            order.append(key)
+            continue
+        existing = merged[key]
+        try:
+            existing_qty = int(existing["quantity"]) if existing["quantity"] not in (None, "") else 0
+        except (TypeError, ValueError):
+            existing_qty = None
+        try:
+            new_qty = int(r["quantity"]) if r["quantity"] not in (None, "") else 0
+        except (TypeError, ValueError):
+            new_qty = None
+        if existing_qty is None or new_qty is None:
+            # 숫자로 못 바꾸는 값이 섞여 있으면 합산 대신 원문을 이어붙임(값 유실 방지)
+            parts = [str(p) for p in (existing["quantity"], r["quantity"]) if p not in (None, "")]
+            existing["quantity"] = ", ".join(parts) if parts else None
+        else:
+            existing["quantity"] = existing_qty + new_qty
+        po_parts = [p for p in (existing.get("po_number") or "").split("\n") if p]
+        new_po = (r.get("po_number") or "").strip()
+        if new_po and new_po not in po_parts:
+            po_parts.append(new_po)
+        existing["po_number"] = "\n".join(po_parts)
+        if not existing.get("product_name") and r.get("product_name"):
+            existing["product_name"] = r["product_name"]
+    return [merged[k] for k in order]
+
+
 @app.route("/intake", methods=["GET", "POST"])
 @perm_required("intake")
 def intake():
@@ -1077,6 +1116,7 @@ def intake():
         if errors:
             for e in errors:
                 flash(e)
+        rows = _merge_duplicate_intake_rows(rows)
         if rows:
             db.add_intake_bulk(rows)
             flash(f"{len(rows)}건 등록 완료")

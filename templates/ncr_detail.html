@@ -333,7 +333,7 @@
           <span style="color:var(--muted); font-size:12.5px; margin-left:8px;">{{ supplier_info['contact'] }}</span>
         {% endif %}
       </td>
-      <th>발주번호</th><td>{{ po_number or '-' }}</td>
+      <th>발주번호</th><td style="white-space:pre-line;">{{ po_number or '-' }}</td>
     </tr>
     {% if ncr['due_date'] %}
     <tr>
