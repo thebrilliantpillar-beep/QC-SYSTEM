@@ -80,7 +80,7 @@
     </td>
     <td onclick="event.stopPropagation()">
       {% if r['material_no'] in drawing_materials %}
-      <a href="{{ url_for('serve_drawing', material_no=r['material_no']) }}" target="_blank"
+      <a href="javascript:void(0)" onclick="openDrawingModal('{{ r['material_no'] }}')"
          class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
       {% else %}
       <span style="color:#d1d5db; font-size:12px;">-</span>
@@ -96,4 +96,5 @@
   </td></tr>
   {% endfor %}
 </table>
+{% include "_drawing_modal.html" %}
 {% endblock %}

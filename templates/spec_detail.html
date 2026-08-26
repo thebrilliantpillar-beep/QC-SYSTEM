@@ -123,10 +123,10 @@
     </div>
     <button type="submit" style="margin-top:0;">저장</button>
     {% if drawing_pdf %}
-    <a href="{{ url_for('serve_drawing', material_no=material_no) }}" target="_blank"
+    <a href="javascript:void(0)" onclick="openDrawingModal('{{ material_no }}')"
        style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px;
               background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:8px;
-              font-size:13.5px; font-weight:600; text-decoration:none; margin-top:0;">
+              font-size:13.5px; font-weight:600; text-decoration:none; margin-top:0; cursor:pointer;">
       📐 도면 보기
     </a>
     {% endif %}
@@ -574,4 +574,5 @@ async function saveAllSpecs() {
   }
 }
 </script>
+{% include "_drawing_modal.html" %}
 {% endblock %}

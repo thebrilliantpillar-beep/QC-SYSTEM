@@ -76,7 +76,7 @@
   </div>
   <div style="display:flex; gap:8px;">
     {% if has_drawing %}
-    <a href="{{ url_for('serve_drawing', material_no=material_no) }}" target="_blank" class="btn secondary"
+    <a href="javascript:void(0)" onclick="openDrawingModal('{{ material_no }}')" class="btn secondary"
        style="padding:8px 16px; font-size:13px; margin-top:0;">📐 도면보기</a>
     {% endif %}
     <a href="{{ url_for('spec_detail', material_no=material_no) }}" class="btn secondary"
@@ -179,4 +179,5 @@
 </div>
 {% endif %}
 
+{% include "_drawing_modal.html" %}
 {% endblock %}
