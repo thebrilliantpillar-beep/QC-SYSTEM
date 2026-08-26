@@ -960,7 +960,7 @@ def build_sel_gauge(specs, gauges, prefill=None):
 
 
 def _unique_aql_sample_qty(specs_with_sample):
-    """AQL 그룹당 한 번만 세어 {AQL(숫자 또는 '전수'/'퍼센트N' 문자열): 샘플수량} 딕셔너리 반환."""
+    """AQL 그룹당 한 번만 세어 {AQL(숫자 또는 '전수'/'퍼센트N' 문자열): {"qty":샘플수량, "ac":Ac}} 딕셔너리 반환."""
     seen_aql = {}
     for s in specs_with_sample:
         aql = s.get("aql")
@@ -978,7 +978,7 @@ def _unique_aql_sample_qty(specs_with_sample):
             except (TypeError, ValueError):
                 continue
         if key not in seen_aql:
-            seen_aql[key] = qty
+            seen_aql[key] = {"qty": qty, "ac": s.get("ac_allowance")}
     return seen_aql
 
 
@@ -996,8 +996,8 @@ def compute_total_time_sec(specs_with_sample, per_cycle_sec):
     if not seen_aql:
         return 0
 
-    special = {k: v for k, v in seen_aql.items() if isinstance(k, str)}
-    numeric = {k: v for k, v in seen_aql.items() if not isinstance(k, str)}
+    special = {k: v["qty"] for k, v in seen_aql.items() if isinstance(k, str)}
+    numeric = {k: v["qty"] for k, v in seen_aql.items() if not isinstance(k, str)}
 
     # 전수/퍼센티지만 있는 경우 → 샘플수 × 개당시간 (단순 계산)
     if not numeric:
@@ -1007,10 +1007,10 @@ def compute_total_time_sec(specs_with_sample, per_cycle_sec):
     base_aql = max(numeric.keys())   # 4 > 1.5 > 0.65 — 숫자 클수록 샘플 적음
     base_qty = numeric[base_aql]
     total = base_qty * per_cycle_sec
-    for aql_key, qty in seen_aql.items():
+    for aql_key, v in seen_aql.items():
         if aql_key == base_aql:
             continue
-        extra = max(0, qty - base_qty)
+        extra = max(0, v["qty"] - base_qty)
         total += extra * EXTRA_SAMPLE_SEC
     return total
 

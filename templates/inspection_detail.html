@@ -102,8 +102,9 @@
         </div>
         {% if aql_groups %}
         <div style="margin-top:8px; border-top:1px solid #e5e7eb; padding-top:6px; font-size:12px;">
-          {% for aql_key, qty in aql_groups.items() %}
-          <div>AQL <b>{{ aql_key | aql_display }}</b> → 샘플 <b>{{ qty }}개</b>
+          {% for aql_key, v in aql_groups.items() %}
+          <div>AQL <b>{{ aql_key | aql_display }}</b> → 샘플 <b>{{ v['qty'] }}개</b>
+          {% if v['ac'] is not none %}<span style="color:#6b7280;"> (Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }})</span>{% endif %}
           {% if loop.first %}<span style="color:#9ca3af;"> (기준)</span>{% endif %}
           </div>
           {% endfor %}
@@ -115,12 +116,15 @@
   {% if aql_groups %}
   <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
     <span style="font-size:12px; color:#6b7280;">AQL별 샘플수 {{ term('aql') }}</span>
-    {% for aql_key, qty in aql_groups.items() %}
+    {% for aql_key, v in aql_groups.items() %}
     <span style="display:inline-flex; align-items:center; gap:4px; background:{{ '#fee2e2' if aql_key|string == '0.65' else '#f0f4ff' }}; border:1px solid {{ '#fca5a5' if aql_key|string == '0.65' else '#bfdbfe' }}; border-radius:6px; padding:3px 10px; font-size:12.5px; font-weight:700;">
       <span style="color:#6b7280; font-weight:400; font-size:11px;">AQL</span>
       <span style="color:{{ '#dc2626' if aql_key|string == '0.65' else '#1d4ed8' }};">{{ aql_key | aql_display }}</span>
       <span style="color:#9ca3af; font-weight:400; font-size:11px;">→</span>
-      <span>{{ qty }}개</span>
+      <span>{{ v['qty'] }}개</span>
+      {% if v['ac'] is not none %}
+      <span style="color:#9ca3af; font-weight:400; font-size:11px; border-left:1px solid #d1d5db; padding-left:4px; margin-left:2px;">Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }}</span>
+      {% endif %}
     </span>
     {% endfor %}
   </div>

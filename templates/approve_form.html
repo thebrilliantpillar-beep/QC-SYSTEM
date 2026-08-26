@@ -212,12 +212,15 @@ function showApproveWarn(title, msg){
         </div>
       </span>
     </span>
-    {% for aql_key, qty in aql_groups.items() %}
+    {% for aql_key, v in aql_groups.items() %}
     <span style="display:inline-flex; align-items:center; gap:4px; background:{{ '#fee2e2' if aql_key|string == '0.65' else '#f0f4ff' }}; border:1px solid {{ '#fca5a5' if aql_key|string == '0.65' else '#bfdbfe' }}; border-radius:6px; padding:3px 10px; font-size:12.5px; font-weight:700;">
       <span style="color:#6b7280; font-weight:400; font-size:11px;">AQL</span>
-      <span style="color:{{ '#dc2626' if aql_key|string == '0.65' else '#1d4ed8' }};">{{ aql_key }}</span>
+      <span style="color:{{ '#dc2626' if aql_key|string == '0.65' else '#1d4ed8' }};">{{ aql_key | aql_display }}</span>
       <span style="color:#9ca3af; font-weight:400; font-size:11px;">→</span>
-      <span>{{ qty }}개</span>
+      <span>{{ v['qty'] }}개</span>
+      {% if v['ac'] is not none %}
+      <span style="color:#9ca3af; font-weight:400; font-size:11px; border-left:1px solid #d1d5db; padding-left:4px; margin-left:2px;">Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }}</span>
+      {% endif %}
     </span>
     {% endfor %}
   </div>
