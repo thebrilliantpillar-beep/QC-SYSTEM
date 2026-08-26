@@ -165,27 +165,28 @@
 </script>
 
 {# 각 행의 수정용 폼을 테이블 바깥에 미리 선언 — <tr> 안에 <form>을 직접 넣을 수 없어서
-   input들은 form="spec-row-N" 속성으로 이 폼에 연결한다 #}
+   input들은 form="spec-row-N" 속성으로 이 폼에 연결한다. AJAX로 새 행을 추가할 때도
+   JS가 이 컨테이너 안에 같은 구조의 폼을 만들어 넣는다(specRowForms). #}
+<div id="specRowForms">
 {% for s in specs %}
 <form id="spec-row-{{ s['id'] }}" method="POST"
       action="{{ url_for('spec_item_update', material_no=material_no, spec_id=s['id']) }}"></form>
 <form id="spec-del-{{ s['id'] }}" method="POST"
-      action="{{ url_for('spec_item_delete', material_no=material_no, spec_id=s['id']) }}"
-      onsubmit="return confirm('이 항목을 삭제할까?');"></form>
+      action="{{ url_for('spec_item_delete', material_no=material_no, spec_id=s['id']) }}"></form>
 {% endfor %}
+</div>
 
 <form id="bulkDeleteForm" method="POST" action="{{ url_for('spec_item_delete_bulk', material_no=material_no) }}"
       onsubmit="return confirm('선택한 항목을 모두 삭제할까?');"></form>
 
-{% if specs %}
-<div style="display:flex; gap:8px; margin:0 0 10px;">
+<div id="specActionBar" style="display:{{ 'flex' if specs else 'none' }}; gap:8px; align-items:center; margin:0 0 10px;">
   <button type="button" id="saveAllBtn" onclick="saveAllSpecs()"
           style="padding:9px 18px; background:#1a6faf; color:#fff; border:none; border-radius:6px; cursor:pointer;">
     전체 저장
   </button>
   <button type="submit" form="bulkDeleteForm" class="btn-del" style="padding:9px 18px;">선택 삭제</button>
+  <span id="specSaveStatus" style="font-size:13px; color:#16a34a; font-weight:600;"></span>
 </div>
-{% endif %}
 
 <div style="overflow-x:auto;">
   <table class="spec-edit-table">
@@ -215,8 +216,9 @@
       </th>
       <th>관리</th>
     </tr>
+    <tbody id="specRowsBody">
     {% for s in specs %}
-    <tr>
+    <tr id="specRow_{{ s['id'] }}">
       <td><input type="checkbox" class="spec-row-check" form="bulkDeleteForm" name="spec_ids" value="{{ s['id'] }}"></td>
       <td><input form="spec-row-{{ s['id'] }}" type="number" name="item_order" value="{{ s['item_order'] or 0 }}"></td>
       <td><input form="spec-row-{{ s['id'] }}" type="text" name="item_name" value="{{ s['item_name'] or '' }}"></td>
@@ -261,20 +263,21 @@
       </td>
       <td>
         <div class="row-actions">
-          <button type="submit" form="spec-row-{{ s['id'] }}">저장</button>
-          <button type="submit" form="spec-del-{{ s['id'] }}" class="btn-del">삭제</button>
+          <button type="button" onclick="saveRow({{ s['id'] }})">저장</button>
+          <button type="button" class="btn-del" onclick="deleteRow({{ s['id'] }})">삭제</button>
         </div>
       </td>
     </tr>
-    {% else %}
-    <tr><td colspan="10">등록된 항목이 없어.</td></tr>
     {% endfor %}
+    </tbody>
   </table>
+  <p id="noSpecsMsg" class="hint" style="{{ 'display:none;' if specs else '' }}">등록된 항목이 없어.</p>
 </div>
 
 <div class="card" style="margin-top:20px;">
   <h3 style="margin-top:0;">새 항목 추가</h3>
-  <form method="POST" action="{{ url_for('spec_item_add', material_no=material_no) }}">
+  <form id="addItemForm" onsubmit="return submitAddItem(event)"
+        data-action="{{ url_for('spec_item_add', material_no=material_no) }}">
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <div style="flex:1; min-width:80px;"><label>순서</label><input type="number" name="item_order"></div>
       <div style="flex:1; min-width:80px;"><label>항목기호</label><input type="text" name="item_name" placeholder="예: H"></div>
@@ -335,13 +338,181 @@
         <input type="number" step="0.1" name="aql_percent" id="newAqlPercent" placeholder="%" style="display:none; margin-top:6px;">
       </div>
     </div>
-    <button type="submit">항목 추가</button>
+    <button type="submit" id="addItemBtn">항목 추가</button>
+    <span id="addItemStatus" style="margin-left:10px; font-size:13px; color:#16a34a; font-weight:600;"></span>
   </form>
 </div>
 
 <a href="{{ url_for('inspect_select') }}" class="btn secondary">검사 대기 목록에서 입력하기</a>
 
 <script>
+const MATERIAL_NO = {{ material_no | tojson }};
+
+// 항목 추가/수정/삭제를 페이지 새로고침 없이 처리하기 위한 헬퍼들.
+// 서버는 요청 헤더에 X-Requested-With: XMLHttpRequest가 있으면 리다이렉트 대신 JSON을 돌려준다.
+function escapeAttr(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 항목 테이블의 한 행 — 서버가 새로 만든/기존 항목 데이터(spec)로 <tr> 내용을 만든다.
+// 규격 상세 화면을 처음 그릴 때(Jinja) 쓰는 행 구조와 반드시 같은 필드를 넣어야 한다.
+function buildRowHTML(spec) {
+  const id = spec.id;
+  const aqlStr = (spec.aql === null || spec.aql === undefined) ? '' : String(spec.aql);
+  const isPercent = aqlStr.startsWith('퍼센트');
+  const percentVal = isPercent ? aqlStr.slice(3) : '';
+  const aqlSel = (v) => aqlStr === v ? 'selected' : '';
+  const lower = (spec.lower_limit === null || spec.lower_limit === undefined) ? '' : spec.lower_limit;
+  const upper = (spec.upper_limit === null || spec.upper_limit === undefined) ? '' : spec.upper_limit;
+
+  return `
+    <td><input type="checkbox" class="spec-row-check" form="bulkDeleteForm" name="spec_ids" value="${id}"></td>
+    <td><input form="spec-row-${id}" type="number" name="item_order" value="${escapeAttr(spec.item_order || 0)}"></td>
+    <td><input form="spec-row-${id}" type="text" name="item_name" value="${escapeAttr(spec.item_name)}"></td>
+    <td class="wide">
+      <input form="spec-row-${id}" type="text" name="spec_display" id="specDisplay_${id}" value="${escapeAttr(spec.spec_display)}">
+      <div class="tol-builder">
+        <input type="text" inputmode="decimal" class="tol-base" placeholder="기준값" id="tolBase_${id}">
+        <select class="tol-sign" id="tolSign_${id}">
+          <option value="+">+</option>
+          <option value="-">-</option>
+          <option value="±" selected>±</option>
+          <option value="+%">+%</option>
+          <option value="-%">-%</option>
+          <option value="±%">±%</option>
+        </select>
+        <input type="text" inputmode="decimal" class="tol-val" placeholder="공차" id="tolVal_${id}">
+        <button type="button" class="tol-apply-btn" onclick="applyTolerance(${id})">적용</button>
+      </div>
+    </td>
+    <td>
+      <select form="spec-row-${id}" name="judge_type">
+        <option value="numeric" ${spec.judge_type === 'numeric' ? 'selected' : ''}>수치</option>
+        <option value="visual" ${spec.judge_type === 'visual' ? 'selected' : ''}>육안</option>
+        <option value="ok_ng" ${spec.judge_type === 'ok_ng' ? 'selected' : ''}>O,X</option>
+      </select>
+    </td>
+    <td><input form="spec-row-${id}" type="text" inputmode="decimal" name="lower_limit" id="lowerLimit_${id}" value="${escapeAttr(lower)}"></td>
+    <td><input form="spec-row-${id}" type="text" inputmode="decimal" name="upper_limit" id="upperLimit_${id}" value="${escapeAttr(upper)}"></td>
+    <td><input form="spec-row-${id}" type="text" name="inspect_method" list="methodOptions" value="${escapeAttr(spec.inspect_method)}"></td>
+    <td>
+      <select form="spec-row-${id}" name="aql_select" onchange="const p=this.closest('td').querySelector('.aql-percent'); p.style.display = this.value==='퍼센트' ? 'inline-block' : 'none';">
+        <option value="4" ${aqlSel('4')}>4</option>
+        <option value="1.5" ${aqlSel('1.5')}>1.5</option>
+        <option value="0.65" ${aqlSel('0.65')}>0.65</option>
+        <option value="전수" ${aqlSel('전수')}>전수</option>
+        <option value="퍼센트" ${isPercent ? 'selected' : ''}>퍼센트</option>
+      </select>
+      <input form="spec-row-${id}" type="number" step="0.1" name="aql_percent" class="aql-percent"
+             placeholder="%"
+             style="display:${isPercent ? 'inline-block' : 'none'}; width:50px; margin-top:3px;"
+             value="${escapeAttr(percentVal)}">
+    </td>
+    <td>
+      <div class="row-actions">
+        <button type="button" onclick="saveRow(${id})">저장</button>
+        <button type="button" class="btn-del" onclick="deleteRow(${id})">삭제</button>
+      </div>
+    </td>
+  `;
+}
+
+// 새로 추가된 항목의 <tr>과, 그 행이 참조하는 숨은 저장/삭제 <form> 두 개를 DOM에 끼워 넣는다.
+function addRowToTable(spec) {
+  const tr = document.createElement('tr');
+  tr.id = `specRow_${spec.id}`;
+  tr.innerHTML = buildRowHTML(spec);
+  document.getElementById('specRowsBody').appendChild(tr);
+
+  const formsContainer = document.getElementById('specRowForms');
+  const updateForm = document.createElement('form');
+  updateForm.id = `spec-row-${spec.id}`;
+  updateForm.method = 'POST';
+  updateForm.action = `/spec/${encodeURIComponent(MATERIAL_NO)}/item/${spec.id}/update`;
+  const delForm = document.createElement('form');
+  delForm.id = `spec-del-${spec.id}`;
+  delForm.method = 'POST';
+  delForm.action = `/spec/${encodeURIComponent(MATERIAL_NO)}/item/${spec.id}/delete`;
+  formsContainer.appendChild(updateForm);
+  formsContainer.appendChild(delForm);
+
+  document.getElementById('noSpecsMsg').style.display = 'none';
+  document.getElementById('specActionBar').style.display = 'flex';
+}
+
+async function submitAddItem(e) {
+  e.preventDefault();
+  const form = document.getElementById('addItemForm');
+  const btn = document.getElementById('addItemBtn');
+  const status = document.getElementById('addItemStatus');
+  const specDisplayInput = document.getElementById('specDisplay_new');
+  if (!specDisplayInput.value.trim()) { alert('규격 표기를 입력해줘.'); return false; }
+
+  btn.disabled = true;
+  status.textContent = '추가 중...';
+  try {
+    const res = await fetch(form.dataset.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(form),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || '항목 추가 중 문제가 생겼어.');
+    addRowToTable(data.spec);
+    form.reset();
+    document.getElementById('newAqlPercent').style.display = 'none';
+    status.textContent = '✓ 추가됨';
+    setTimeout(() => { status.textContent = ''; }, 2000);
+  } catch (err) {
+    alert(err.message || '항목 추가 중 문제가 생겼어. 다시 시도해줘.');
+  } finally {
+    btn.disabled = false;
+  }
+  return false;
+}
+
+async function saveRow(id) {
+  const form = document.getElementById(`spec-row-${id}`);
+  const status = document.getElementById('specSaveStatus');
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(form),
+    });
+    if (!res.ok) throw new Error();
+    status.textContent = '✓ 저장됨';
+    setTimeout(() => { status.textContent = ''; }, 2000);
+  } catch (e) {
+    alert('저장 중 문제가 생겼어. 다시 시도해줘.');
+  }
+}
+
+async function deleteRow(id) {
+  if (!confirm('이 항목을 삭제할까?')) return;
+  const delForm = document.getElementById(`spec-del-${id}`);
+  try {
+    const res = await fetch(delForm.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(delForm),
+    });
+    if (!res.ok) throw new Error();
+    const tr = document.getElementById(`specRow_${id}`);
+    if (tr) tr.remove();
+    delForm.remove();
+    const updateForm = document.getElementById(`spec-row-${id}`);
+    if (updateForm) updateForm.remove();
+    if (!document.querySelectorAll('#specRowsBody tr').length) {
+      document.getElementById('noSpecsMsg').style.display = '';
+      document.getElementById('specActionBar').style.display = 'none';
+    }
+  } catch (e) {
+    alert('삭제 중 문제가 생겼어. 다시 시도해줘.');
+  }
+}
+
 // 규격표기 조합형 빌더 — 기준값+부호(+,-,±,+%,-%,±%)+공차값으로 규격표기·하한·상한을 한번에 계산
 function computeTolerance(base, sign, tol) {
   base = parseFloat(base);
@@ -376,19 +547,29 @@ function applyTolerance(id) {
 // 항목마다 따로 "저장"을 누르지 않고, 표에 있는 모든 행을 한 번에 저장.
 // 각 행은 여전히 별개의 <form>이라(줄마다 규격이 달라서), 순서대로 하나씩 제출한다
 // (동시에 여러 개를 보내면 SQLite가 잠겨서 일부가 실패할 수 있어 순차 처리).
+// 페이지는 새로고침하지 않고 상태 문구로만 저장 완료를 알린다.
 async function saveAllSpecs() {
   const forms = document.querySelectorAll('form[id^="spec-row-"]');
   if (!forms.length) return;
   const btn = document.getElementById('saveAllBtn');
+  const status = document.getElementById('specSaveStatus');
   if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
   try {
     for (const form of forms) {
-      const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+      const res = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form),
+      });
       if (!res.ok) throw new Error('저장 실패');
     }
-    location.reload();
+    if (status) {
+      status.textContent = '✓ 전체 저장됨';
+      setTimeout(() => { status.textContent = ''; }, 2500);
+    }
   } catch (e) {
     alert('저장 중 문제가 생겼어. 다시 시도해줘.');
+  } finally {
     if (btn) { btn.disabled = false; btn.textContent = '전체 저장'; }
   }
 }

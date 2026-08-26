@@ -938,12 +938,13 @@ def resolve_review_flag(flag_id):
 def add_spec(material_no, material_name, item_name, spec_display,
              judge_type, lower_limit, upper_limit, inspect_method, aql, item_order=0):
     conn = get_conn()
-    conn.execute("""
+    cur = conn.execute("""
         INSERT INTO specs (material_no, material_name, item_name, spec_display,
                             judge_type, lower_limit, upper_limit, inspect_method, aql, item_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (material_no, material_name, item_name, spec_display,
           judge_type, lower_limit, upper_limit, inspect_method, aql, item_order))
+    new_id = cur.lastrowid
     if not conn.execute("SELECT 1 FROM materials WHERE material_no = ?", (material_no,)).fetchone():
         conn.execute("INSERT INTO materials (material_no, material_name) VALUES (?, ?)",
                     (material_no, material_name))
@@ -952,6 +953,7 @@ def add_spec(material_no, material_name, item_name, spec_display,
                     (material_name, material_no))
     conn.commit()
     conn.close()
+    return new_id
 
 
 def replace_specs_for_material(material_no, material_name, items):

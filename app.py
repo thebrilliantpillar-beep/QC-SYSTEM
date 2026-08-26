@@ -37,7 +37,7 @@ import os, base64, io, time, shutil, re, zipfile, tempfile
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify
 import database as db
 import report_builder
 import spec_import as spec_import_module
@@ -1436,8 +1436,10 @@ def spec_item_update(material_no, spec_id):
         _parse_spec_form(request.form)
     db.update_spec_item(spec_id, item_name, spec_display, judge_type,
                         lower_limit, upper_limit, inspect_method, aql, item_order)
-    flash(f"항목 {item_name or spec_id} 수정됐어.")
     record_change("규격 항목 수정", "spec_item", spec_id, f"{material_no} / 항목 {item_name}: {spec_display}")
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash(f"항목 {item_name or spec_id} 수정됐어.")
     return redirect(url_for("spec_detail", material_no=material_no))
 
 
@@ -1446,9 +1448,11 @@ def spec_item_update(material_no, spec_id):
 def spec_item_delete(material_no, spec_id):
     item = db.get_spec_item(spec_id)
     db.delete_spec_item(spec_id)
-    flash("항목 삭제됐어.")
     detail = f"{material_no} / 항목 {item['item_name']}: {item['spec_display']}" if item else material_no
     record_change("규격 항목 삭제", "spec_item", spec_id, detail)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash("항목 삭제됐어.")
     return redirect(url_for("spec_detail", material_no=material_no))
 
 
@@ -1470,7 +1474,10 @@ def spec_item_delete_bulk(material_no):
 def spec_item_add(material_no):
     item_name, spec_display, judge_type, lower_limit, upper_limit, inspect_method, aql, item_order = \
         _parse_spec_form(request.form)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     if not spec_display:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "규격 표기를 입력해줘."}), 400
         flash("규격 표기를 입력해줘.")
         return redirect(url_for("spec_detail", material_no=material_no))
 
@@ -1479,10 +1486,18 @@ def spec_item_add(material_no):
     if not item_order:
         item_order = (max((s["item_order"] or 0) for s in existing) + 1) if existing else 1
 
-    db.add_spec(material_no, material_name, item_name or f"항목{item_order}", spec_display,
+    final_item_name = item_name or f"항목{item_order}"
+    spec_id = db.add_spec(material_no, material_name, final_item_name, spec_display,
                 judge_type, lower_limit, upper_limit, inspect_method, aql, item_order)
-    flash("새 항목이 추가됐어.")
     record_change("규격 항목 추가", "spec_item", None, f"{material_no} / 항목 {item_name or item_order}: {spec_display}")
+    if is_ajax:
+        return jsonify({"ok": True, "spec": {
+            "id": spec_id, "item_order": item_order, "item_name": final_item_name,
+            "spec_display": spec_display, "judge_type": judge_type,
+            "lower_limit": lower_limit, "upper_limit": upper_limit,
+            "inspect_method": inspect_method, "aql": aql,
+        }})
+    flash("새 항목이 추가됐어.")
     return redirect(url_for("spec_detail", material_no=material_no))
 
 
