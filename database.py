@@ -149,6 +149,11 @@ def init_db():
     if "product_name" not in existing_intake_cols:
         # 제품명 — 입고리스트 표시 전용 필드. 규격표에 등록된 자재명과는 별개(자동 연동 안 함)
         cur.execute("ALTER TABLE intake_list ADD COLUMN product_name TEXT")
+    if "assembly_no" not in existing_intake_cols:
+        # 이 행이 조립품(MA) 파츠 자동전개로 생성됐으면 그 MA번호. 일반 입고는 NULL.
+        # (예전엔 product_name에 " - "가 들어있는지로 MA 파츠 여부를 추측했는데, 우연히 제품명에
+        #  " - "가 들어간 일반 자재까지 "MA 파츠"로 잘못 표시되는 오판정이 있었다 — 이제 이 컬럼으로 실제 출처를 기록한다.)
+        cur.execute("ALTER TABLE intake_list ADD COLUMN assembly_no TEXT")
 
     # 2. 검사(성적서) 헤더 — 자재 입고 1건 = 성적서 1건
     cur.execute("""
@@ -1019,17 +1024,17 @@ def delete_materials_bulk(material_nos):
 
 def add_intake_bulk(rows):
     """
-    rows: list of dict (material_no, quantity, supplier, receive_date, po_number, product_name)
+    rows: list of dict (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no)
     붙여넣기로 여러 건을 한 번에 등록
     """
     conn = get_conn()
     cur = conn.cursor()
     for r in rows:
         cur.execute("""
-            INSERT INTO intake_list (material_no, quantity, supplier, receive_date, po_number, product_name)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO intake_list (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (r["material_no"], r.get("quantity"), r.get("supplier"),
-              r.get("receive_date"), r.get("po_number"), r.get("product_name")))
+              r.get("receive_date"), r.get("po_number"), r.get("product_name"), r.get("assembly_no")))
     conn.commit()
     conn.close()
 

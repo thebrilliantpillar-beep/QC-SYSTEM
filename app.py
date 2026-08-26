@@ -1054,6 +1054,8 @@ def _merge_duplicate_intake_rows(rows):
         existing["po_number"] = "\n".join(po_parts)
         if not existing.get("product_name") and r.get("product_name"):
             existing["product_name"] = r["product_name"]
+        if not existing.get("assembly_no") and r.get("assembly_no"):
+            existing["assembly_no"] = r["assembly_no"]
     return [merged[k] for k in order]
 
 
@@ -1101,6 +1103,7 @@ def intake():
                         "receive_date": receive_date,
                         "po_number": po_number,
                         "product_name": component_name,
+                        "assembly_no": ma_info["ma_master"],
                     })
             else:
                 # 일반 자재

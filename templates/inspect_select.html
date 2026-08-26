@@ -43,12 +43,17 @@
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">
       {{ r['material_no'] }}
-      {% if ' - ' in (r['product_name'] or '') %}
-        <span class="badge special" style="margin-left:4px;">MA 파츠</span>
+      {% if r['assembly_no'] %}
+        <span class="badge special" style="margin-left:4px;" title="{{ r['assembly_no'] }} 조립품의 파츠로 자동 전개됨">MA 파츠</span>
       {% elif r['material_no'] in group_nos %}
         <span class="badge pending" style="margin-left:4px;">조립품</span>
-      {% elif r['material_no'] not in registered %}
-        <span class="badge fail" style="margin-left:4px;">규격 미등록</span>
+      {% endif %}
+      {% if r['material_no'] not in registered %}
+        <a href="{{ url_for('spec_detail', material_no=r['material_no']) }}" target="_blank"
+           class="badge fail" style="margin-left:4px; text-decoration:none;"
+           onclick="event.stopPropagation()" title="클릭하면 이 자재의 규격 등록 페이지로 이동해">
+          규격 미등록 · 등록하기
+        </a>
       {% endif %}
     </td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['quantity'] or '-' }}</td>
