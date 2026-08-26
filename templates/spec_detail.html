@@ -178,7 +178,13 @@
       onsubmit="return confirm('선택한 항목을 모두 삭제할까?');"></form>
 
 {% if specs %}
-<button type="submit" form="bulkDeleteForm" class="btn-del" style="margin:0 0 10px; padding:9px 18px;">선택 삭제</button>
+<div style="display:flex; gap:8px; margin:0 0 10px;">
+  <button type="button" id="saveAllBtn" onclick="saveAllSpecs()"
+          style="padding:9px 18px; background:#1a6faf; color:#fff; border:none; border-radius:6px; cursor:pointer;">
+    전체 저장
+  </button>
+  <button type="submit" form="bulkDeleteForm" class="btn-del" style="padding:9px 18px;">선택 삭제</button>
+</div>
 {% endif %}
 
 <div style="overflow-x:auto;">
@@ -365,6 +371,26 @@ function applyTolerance(id) {
   document.getElementById(`specDisplay_${id}`).value = result.text;
   document.getElementById(`lowerLimit_${id}`).value = result.lower;
   document.getElementById(`upperLimit_${id}`).value = result.upper;
+}
+
+// 항목마다 따로 "저장"을 누르지 않고, 표에 있는 모든 행을 한 번에 저장.
+// 각 행은 여전히 별개의 <form>이라(줄마다 규격이 달라서), 순서대로 하나씩 제출한다
+// (동시에 여러 개를 보내면 SQLite가 잠겨서 일부가 실패할 수 있어 순차 처리).
+async function saveAllSpecs() {
+  const forms = document.querySelectorAll('form[id^="spec-row-"]');
+  if (!forms.length) return;
+  const btn = document.getElementById('saveAllBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+  try {
+    for (const form of forms) {
+      const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+      if (!res.ok) throw new Error('저장 실패');
+    }
+    location.reload();
+  } catch (e) {
+    alert('저장 중 문제가 생겼어. 다시 시도해줘.');
+    if (btn) { btn.disabled = false; btn.textContent = '전체 저장'; }
+  }
 }
 </script>
 {% endblock %}

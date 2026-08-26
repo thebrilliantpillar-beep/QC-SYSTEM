@@ -734,8 +734,17 @@ def rename_material(old_no, new_no, new_name):
             conn.close()
             return False, f"'{new_no}'는 이미 조립품 그룹 번호로 쓰이고 있어."
 
-    conn.execute("UPDATE materials SET material_no = ?, material_name = ? WHERE material_no = ?",
-                (new_no, new_name, old_no))
+    existing = conn.execute("SELECT 1 FROM materials WHERE material_no = ?", (old_no,)).fetchone()
+    if existing:
+        conn.execute("UPDATE materials SET material_no = ?, material_name = ? WHERE material_no = ?",
+                    (new_no, new_name, old_no))
+    else:
+        # old_no가 아직 자재로 등록 안 된 상태(예: 검사대기 목록에서 "규격 미등록" 링크로 바로
+        # 들어와서 자재명만 처음 입력하는 경우) — UPDATE는 매칭되는 행이 없어 조용히 아무 일도
+        # 안 하므로, 이 경우엔 새로 INSERT해야 한다.
+        today = _dt.now().strftime("%Y-%m-%d")
+        conn.execute("INSERT INTO materials (material_no, material_name, revision_date) VALUES (?, ?, ?)",
+                    (new_no, new_name, today))
     conn.execute("UPDATE specs SET material_no = ?, material_name = ? WHERE material_no = ?",
                 (new_no, new_name, old_no))
     conn.execute("UPDATE material_group_items SET material_no = ? WHERE material_no = ?",
