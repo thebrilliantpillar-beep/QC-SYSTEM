@@ -259,7 +259,7 @@
         <div style="display:flex;align-items:center;gap:5px;font-size:12px;">
           <span style="color:#374151;">{{ s['item_name'] }}:</span>
           {% if gauges %}
-          <select name="item_{{ s['id'] }}_gauge_expiry"
+          <select class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry"
                   onchange="var o=this.options[this.selectedIndex]; document.getElementById('gname_{{ s['id'] }}').value=o.dataset.name||''; document.getElementById('gview_{{ s['id'] }}').textContent = this.value ? ('만료 '+this.value) : (o.dataset.name ? '⚠ 만료일 미등록' : '');"
                   style="font-size:12px;">
             <option value="" data-name="">직접 입력</option>
@@ -274,7 +274,7 @@
                  value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
           <span id="gview_{{ s['id'] }}" style="font-size:11.5px; color:#dc2626; margin-left:4px;"></span>
           {% else %}
-          <input type="text" name="item_{{ s['id'] }}_gauge_expiry" placeholder="YYYY-MM-DD" style="font-size:12px;width:110px;">
+          <input type="text" class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry" placeholder="YYYY-MM-DD" style="font-size:12px;width:110px;">
           {% endif %}
         </div>
         {% endif %}
@@ -811,6 +811,16 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     alert('측정 시간 타이머가 아직 켜져 있어. 정지를 누른 다음 제출해줘.');
     e.preventDefault();
     return;
+  }
+  const emptyGauges = Array.from(document.querySelectorAll('.gauge-input'))
+    .filter(function (el) { return !el.value; });
+  if (emptyGauges.length > 0) {
+    const ok = confirm('계측기 유효기간이 입력 안 된 항목이 ' + emptyGauges.length + '개 있어. 그래도 제출할까?');
+    if (!ok) {
+      e.preventDefault();
+      emptyGauges[0].focus();
+      return;
+    }
   }
 });
 
