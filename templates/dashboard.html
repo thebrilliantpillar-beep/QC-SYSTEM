@@ -162,13 +162,17 @@
   <div style="margin-top:13px; padding-top:12px; border-top:1px solid var(--border);
               display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
     <span class="muted" style="font-size:12.5px;">내보내기:</span>
+    {% if 'users' in user_perms %}
     <a class="btn secondary" style="margin:0; padding:7px 13px; font-size:12.5px;"
        href="{{ url_for('dashboard_export_json') }}?{{ qs }}">📄 JSON</a>
+    {% endif %}
     <a class="btn secondary" style="margin:0; padding:7px 13px; font-size:12.5px;"
        href="{{ url_for('dashboard_export_xlsx') }}?{{ qs }}">📊 엑셀</a>
     <button type="button" class="btn secondary" style="margin:0; padding:7px 13px; font-size:12.5px;"
             onclick="window.print()">🖨️ 인쇄 / PDF</button>
+    {% if 'users' in user_perms %}
     <span class="muted" style="font-size:11.5px;">발표자료를 만들 땐 <b>JSON</b>이 숫자가 그대로 넘어가.</span>
+    {% endif %}
   </div>
 </div>
 

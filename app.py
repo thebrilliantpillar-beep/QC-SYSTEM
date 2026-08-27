@@ -4172,7 +4172,12 @@ def supplier_list():
             db.upsert_supplier(name,
                 request.form.get("email", "").strip(),
                 request.form.get("contact", "").strip(),
-                request.form.get("notes", "").strip())
+                request.form.get("notes", "").strip(),
+                request.form.get("address", "").strip(),
+                request.form.get("biz_no", "").strip(),
+                request.form.get("contact_name", "").strip(),
+                request.form.get("contact2", "").strip(),
+                request.form.get("items", "").strip())
             record_change("업체 등록/수정", "supplier", name, name)
             flash(f"업체 '{name}' 저장됐어.")
         return redirect(url_for("supplier_list"))
@@ -4744,7 +4749,7 @@ def quality_dashboard():
 
 
 @app.route("/dashboard/export.json")
-@perm_required("defect_history", "inspect_history")
+@perm_required("users")
 def dashboard_export_json():
     """발표자료·보고서 작성용 원본 데이터. 화면(HTML)을 긁는 것보다 이게 훨씬 정확하다.
     파일만 봐도 무슨 데이터인지 알 수 있게 기간·필터·불량률 기준을 같이 담는다."""

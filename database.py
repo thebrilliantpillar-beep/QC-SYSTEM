@@ -395,6 +395,17 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     """)
+    existing_supplier_cols = [row[1] for row in cur.execute("PRAGMA table_info(suppliers)").fetchall()]
+    if "address" not in existing_supplier_cols:
+        cur.execute("ALTER TABLE suppliers ADD COLUMN address TEXT")
+    if "biz_no" not in existing_supplier_cols:
+        cur.execute("ALTER TABLE suppliers ADD COLUMN biz_no TEXT")
+    if "contact_name" not in existing_supplier_cols:
+        cur.execute("ALTER TABLE suppliers ADD COLUMN contact_name TEXT")
+    if "contact2" not in existing_supplier_cols:
+        cur.execute("ALTER TABLE suppliers ADD COLUMN contact2 TEXT")
+    if "items" not in existing_supplier_cols:
+        cur.execute("ALTER TABLE suppliers ADD COLUMN items TEXT")
 
     # 9. 부적합 통보서 (NCR)
     cur.execute("""
@@ -1599,14 +1610,17 @@ def get_supplier(name):
     conn.close()
     return row
 
-def upsert_supplier(name, email, contact, notes):
+def upsert_supplier(name, email, contact, notes, address="", biz_no="", contact_name="", contact2="", items=""):
     conn = get_conn()
     conn.execute("""
-        INSERT INTO suppliers (name, email, contact, notes)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO suppliers (name, email, contact, notes, address, biz_no, contact_name, contact2, items)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET email=excluded.email,
-            contact=excluded.contact, notes=excluded.notes
-    """, (name, email, contact, notes))
+            contact=excluded.contact, notes=excluded.notes,
+            address=excluded.address, biz_no=excluded.biz_no,
+            contact_name=excluded.contact_name, contact2=excluded.contact2,
+            items=excluded.items
+    """, (name, email, contact, notes, address, biz_no, contact_name, contact2, items))
     conn.commit()
     conn.close()
 

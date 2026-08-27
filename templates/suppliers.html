@@ -12,16 +12,36 @@
         <input name="name" required placeholder="예: ACE 코리아">
       </div>
       <div>
+        <label>업체주소</label>
+        <input name="address" placeholder="예: 경기도 화성시 ...">
+      </div>
+      <div>
+        <label>사업자 등록번호</label>
+        <input name="biz_no" placeholder="000-00-00000">
+      </div>
+      <div>
+        <label>담당자</label>
+        <input name="contact_name" placeholder="예: 홍길동 과장">
+      </div>
+      <div>
+        <label>연락처1</label>
+        <input name="contact" placeholder="010-0000-0000">
+      </div>
+      <div>
+        <label>연락처2</label>
+        <input name="contact2" placeholder="010-0000-0000">
+      </div>
+      <div>
         <label>이메일</label>
         <input name="email" type="email" placeholder="example@supplier.com">
       </div>
       <div>
-        <label>연락처</label>
-        <input name="contact" placeholder="010-0000-0000">
+        <label>취급 품목</label>
+        <input name="items" placeholder="예: 볼트류">
       </div>
-      <div>
+      <div style="grid-column:1 / -1;">
         <label>메모</label>
-        <input name="notes" placeholder="담당자명 등">
+        <input name="notes" placeholder="그 외 참고사항">
       </div>
     </div>
     <button type="submit" style="margin-top:14px; padding:10px 24px; font-size:14px;">업체 추가 / 수정</button>
@@ -29,12 +49,18 @@
 </div>
 
 {% if suppliers %}
+<div style="overflow-x:auto;">
 <table>
   <thead>
     <tr>
       <th style="text-align:left; padding-left:14px;">업체명</th>
+      <th>업체주소</th>
+      <th>사업자등록번호</th>
+      <th>담당자</th>
+      <th>연락처1</th>
+      <th>연락처2</th>
       <th>이메일</th>
-      <th>연락처</th>
+      <th>취급품목</th>
       <th>메모</th>
       <th style="width:60px;"></th>
     </tr>
@@ -43,8 +69,13 @@
   {% for s in suppliers %}
   <tr>
     <td style="text-align:left; font-weight:700; padding-left:14px;">{{ s['name'] }}</td>
-    <td style="font-size:13px;">{{ s['email'] or '-' }}</td>
+    <td style="font-size:12.5px;">{{ s['address'] or '-' }}</td>
+    <td style="font-size:12.5px;">{{ s['biz_no'] or '-' }}</td>
+    <td style="font-size:13px;">{{ s['contact_name'] or '-' }}</td>
     <td style="font-size:13px;">{{ s['contact'] or '-' }}</td>
+    <td style="font-size:13px;">{{ s['contact2'] or '-' }}</td>
+    <td style="font-size:13px;">{{ s['email'] or '-' }}</td>
+    <td style="font-size:12.5px;">{{ s['items'] or '-' }}</td>
     <td style="font-size:12.5px; color:var(--muted);">{{ s['notes'] or '-' }}</td>
     <td>
       <form method="POST" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
@@ -58,6 +89,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <div style="text-align:center; padding:40px 0; color:var(--muted);">
   등록된 업체가 없어. 위에서 추가해줘.
