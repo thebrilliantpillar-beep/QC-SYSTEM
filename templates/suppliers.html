@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}업체 관리 — Chardon QMS{% endblock %}
+{% macro ml(value, sep=' / ') %}{% if value %}{% for part in value.split(sep) %}{{ part }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}-{% endif %}{% endmacro %}
 {% block content %}
 <h2>🏭 업체 관리</h2>
 
@@ -71,11 +72,11 @@
   <thead>
     <tr>
       <th style="text-align:left; padding-left:14px;">업체명</th>
+      <th>취급품목</th>
       <th>담당자</th>
       <th>연락처1</th>
       <th>연락처2</th>
       <th>이메일</th>
-      <th>취급품목</th>
       <th>메모</th>
       <th style="width:110px;"></th>
     </tr>
@@ -95,11 +96,11 @@
         </div>
       </div>
     </td>
-    <td>{{ s['contact_name'] or '-' }}</td>
+    <td>{{ ml(s['items'], ', ') }}</td>
+    <td>{{ ml(s['contact_name']) }}</td>
     <td>{{ s['contact'] or '-' }}</td>
-    <td>{{ s['contact2'] or '-' }}</td>
-    <td>{{ s['email'] or '-' }}</td>
-    <td>{{ s['items'] or '-' }}</td>
+    <td>{{ ml(s['contact2']) }}</td>
+    <td>{{ ml(s['email']) }}</td>
     <td style="color:var(--muted);">{{ s['notes'] or '-' }}</td>
     <td>
       <button type="button" onclick="startEdit(this)" style="background:none; border:none; color:var(--primary);
