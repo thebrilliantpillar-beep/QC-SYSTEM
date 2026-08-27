@@ -102,6 +102,24 @@
 </div>
 {% endif %}
 
+<div id="other-edit-notice" style="display:none; background:#fff7ed; border:1px solid #fdba74;
+     border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:13.5px;
+     align-items:center; justify-content:space-between; gap:10px;">
+  <span id="other-edit-text">⚠ 다른 계정이 방금 이 검사 건을 저장했어.</span>
+  <span style="display:flex; gap:6px;">
+    <button type="button" onclick="location.reload()"
+            style="background:#ea580c; border:none; border-radius:6px; padding:4px 10px;
+                   font-size:12px; color:#fff; cursor:pointer; margin-top:0; font-weight:600;">
+      새로고침
+    </button>
+    <button type="button" onclick="dismissOtherEditNotice()"
+            style="background:none; border:1px solid #fdba74; border-radius:6px; padding:4px 10px;
+                   font-size:12px; color:#9a3412; cursor:pointer; margin-top:0; font-weight:600;">
+      무시
+    </button>
+  </span>
+</div>
+
 {% if gauge_master_empty %}
 <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px;
      padding:10px 14px; margin-bottom:10px; font-size:13.5px; display:flex; align-items:flex-start; gap:10px;">
@@ -1066,6 +1084,37 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
 
   // 페이지 로드 시 복구
   window.addEventListener('load', restoreDraft);
+
+  // ── 다른 계정이 같은 건을 저장했는지 주기적으로 확인(실시간 반영은 아니고, 새로고침 권유만) ──
+  var STATUS_URL = '{{ url_for("inspect_draft_status", intake_id=intake.id) }}';
+  var CURRENT_USER_ID = {{ g.user['id'] }};
+  var lastKnownDraftUpdate = {{ (draft_info.updated_at if draft_info else None) | tojson }};
+  var otherEditDismissed = false;
+
+  window.dismissOtherEditNotice = function () {
+    otherEditDismissed = true;
+    var n = document.getElementById('other-edit-notice');
+    if (n) n.style.display = 'none';
+  };
+
+  function checkOtherEdit() {
+    fetch(STATUS_URL, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.exists) return;
+      if (d.user_id === CURRENT_USER_ID) {
+        // 내가 방금 저장한 것 — 기준값만 갱신하고 배너는 안 띄운다
+        lastKnownDraftUpdate = d.updated_at;
+        return;
+      }
+      if (d.updated_at === lastKnownDraftUpdate) return;   // 이미 알고 있던 저장이면 무시
+      lastKnownDraftUpdate = d.updated_at;
+      if (otherEditDismissed) return;
+      var text = document.getElementById('other-edit-text');
+      if (text) text.textContent = '⚠ ' + (d.username || '다른 계정') + '님이 방금 이 검사 건을 저장했어. 최신 내용을 보려면 새로고침해줘.';
+      var n = document.getElementById('other-edit-notice');
+      if (n) n.style.display = 'flex';
+    }).catch(function () {});
+  }
+  setInterval(checkOtherEdit, 15000);
 })();
 </script>
 

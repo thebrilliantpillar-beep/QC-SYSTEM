@@ -1872,6 +1872,18 @@ def inspect_draft_delete(intake_id):
     return {"ok": True}
 
 
+@app.route("/inspect/draft/<int:intake_id>/status")
+@perm_required("inspect_input")
+def inspect_draft_status(intake_id):
+    """다른 계정이 같은 검사 건 임시저장을 갱신했는지 가볍게 확인하기 위한 폴링용 엔드포인트.
+    실시간 동기화(자동 반영)는 아니고, 화면에 '새로고침 권유' 배너를 띄우는 용도라 payload는 안 돌려준다."""
+    draft_row = db.get_inspection_draft(intake_id)
+    if not draft_row:
+        return {"exists": False}
+    return {"exists": True, "user_id": draft_row["user_id"], "username": draft_row["username"],
+            "updated_at": draft_row["updated_at"]}
+
+
 NO_SPEC_RESULT = "규격미입력"   # 판정 기준 자체가 없어서 합격/불합격을 말할 수 없는 상태
 
 
