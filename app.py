@@ -3002,10 +3002,14 @@ def approve_view(inspection_id):
 @app.route("/history")
 @perm_required("inspect_history")
 def history():
-    """전체 성적서를 입고일 기준으로 날짜별 그룹화해서 보여줌.
+    """전체 성적서를 검사일 기준으로 날짜별 그룹화해서 보여줌.
 
-    입고일이 '260821'처럼 다른 형식으로 들어온 값이 섞여 있어서, 원본 문자열을 그대로
+    검사일이 '260821'처럼 다른 형식으로 들어온 값이 섞여 있어서, 원본 문자열을 그대로
     그룹 키로 쓰면 같은 날인데 그룹이 갈라진다. 날짜로 해석해서 YYYY-MM-DD 로 묶는다.
+
+    입고일이 아니라 검사일 기준으로 묶는다 — 입고 처리를 며칠 전에 해두고 실제 검사는
+    나중에 하는 경우가 많아서, 입고일로 묶으면 "오늘 검사한 것"이 어제·그제 그룹에
+    흩어져 보이는 문제가 있었다(2026-08-27 사용자 피드백으로 변경).
     """
     from collections import defaultdict
     NO_DATE = "날짜 없음"
@@ -3013,7 +3017,7 @@ def history():
 
     by_date = defaultdict(list)
     for insp in inspections:
-        d = _parse_any_date(insp["receive_date"])
+        d = _parse_any_date(insp["inspect_date"])
         by_date[d.isoformat() if d else NO_DATE].append(insp)
 
     sorted_dates = sorted(by_date.keys(),
@@ -3030,7 +3034,7 @@ def history():
 
 # ---------- 승인 이력 (필터+엑셀 내보내기) ----------
 #
-# 검사 이력(/history)은 상태 무관 전체를 입고일 그룹으로 보여주는 화면이라
+# 검사 이력(/history)은 상태 무관 전체를 검사일 그룹으로 보여주는 화면이라
 # "판정이 확정된 것만 뽑아서 업체·발주번호로 필터링 + 엑셀로 내보내기"에는 안 맞았음.
 # 아래는 승인 완료(합격·특채·불합격 확정)된 것만 리스트로 정리해서 필터·엑셀 내보내기 전용
 # 인터페이스로 따로 뺀 것.
