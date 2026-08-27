@@ -3,45 +3,62 @@
 {% block content %}
 <h2>🏭 업체 관리</h2>
 
+<style>
+  .addr-btn { border-radius:6px; width:auto; height:auto; padding:2px 8px; font-size:11px;
+              font-weight:600; color:#2563eb; border-color:#bfdbfe; margin-left:0; }
+  .addr-btn:hover, .addr-btn.pinned { background:#eff6ff; border-color:#93c5fd; color:#1d4ed8; }
+  .addr-pop { left:0; top:100%; margin-top:4px; }
+  #supplierTable td, #supplierTable th { white-space:nowrap; }
+  #supplierTable td { text-align:center; font-size:13px; }
+  #editingNotice { display:none; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8;
+                   font-size:13px; padding:8px 14px; border-radius:8px; margin-bottom:10px; }
+  #editingNotice a { color:#dc2626; font-weight:700; cursor:pointer; margin-left:8px; }
+</style>
+
+<div id="editingNotice">
+  <span id="editingLabel"></span> 수정 중입니다.
+  <a onclick="cancelEdit()">취소하고 새 업체 추가로 전환</a>
+</div>
+
 <div class="card" style="margin-bottom:16px;">
   <form method="POST" id="addForm">
     <input type="hidden" name="action" value="add">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
       <div>
         <label>업체명 <span style="color:var(--fail);">*</span></label>
-        <input name="name" required placeholder="예: ACE 코리아">
+        <input name="name" id="f_name" required placeholder="예: ACE 코리아">
       </div>
       <div>
         <label>업체주소</label>
-        <input name="address" placeholder="예: 경기도 화성시 ...">
+        <input name="address" id="f_address" placeholder="예: 경기도 화성시 ...">
       </div>
       <div>
         <label>사업자 등록번호</label>
-        <input name="biz_no" placeholder="000-00-00000">
+        <input name="biz_no" id="f_biz_no" placeholder="000-00-00000">
       </div>
       <div>
         <label>담당자</label>
-        <input name="contact_name" placeholder="예: 홍길동 과장">
+        <input name="contact_name" id="f_contact_name" placeholder="예: 홍길동 과장">
       </div>
       <div>
         <label>연락처1</label>
-        <input name="contact" placeholder="010-0000-0000">
+        <input name="contact" id="f_contact" placeholder="010-0000-0000">
       </div>
       <div>
         <label>연락처2</label>
-        <input name="contact2" placeholder="010-0000-0000">
+        <input name="contact2" id="f_contact2" placeholder="010-0000-0000">
       </div>
       <div>
         <label>이메일</label>
-        <input name="email" type="email" placeholder="example@supplier.com">
+        <input name="email" id="f_email" type="email" placeholder="example@supplier.com">
       </div>
       <div>
         <label>취급 품목</label>
-        <input name="items" placeholder="예: 볼트류">
+        <input name="items" id="f_items" placeholder="예: 볼트류">
       </div>
       <div style="grid-column:1 / -1;">
         <label>메모</label>
-        <input name="notes" placeholder="그 외 참고사항">
+        <input name="notes" id="f_notes" placeholder="그 외 참고사항">
       </div>
     </div>
     <button type="submit" style="margin-top:14px; padding:10px 24px; font-size:14px;">업체 추가 / 수정</button>
@@ -50,35 +67,44 @@
 
 {% if suppliers %}
 <div style="overflow-x:auto;">
-<table>
+<table id="supplierTable">
   <thead>
     <tr>
       <th style="text-align:left; padding-left:14px;">업체명</th>
-      <th>업체주소</th>
-      <th>사업자등록번호</th>
       <th>담당자</th>
       <th>연락처1</th>
       <th>연락처2</th>
       <th>이메일</th>
       <th>취급품목</th>
       <th>메모</th>
-      <th style="width:60px;"></th>
+      <th style="width:110px;"></th>
     </tr>
   </thead>
   <tbody>
   {% for s in suppliers %}
-  <tr>
-    <td style="text-align:left; font-weight:700; padding-left:14px;">{{ s['name'] }}</td>
-    <td style="font-size:12.5px;">{{ s['address'] or '-' }}</td>
-    <td style="font-size:12.5px;">{{ s['biz_no'] or '-' }}</td>
-    <td style="font-size:13px;">{{ s['contact_name'] or '-' }}</td>
-    <td style="font-size:13px;">{{ s['contact'] or '-' }}</td>
-    <td style="font-size:13px;">{{ s['contact2'] or '-' }}</td>
-    <td style="font-size:13px;">{{ s['email'] or '-' }}</td>
-    <td style="font-size:12.5px;">{{ s['items'] or '-' }}</td>
-    <td style="font-size:12.5px; color:var(--muted);">{{ s['notes'] or '-' }}</td>
+  <tr data-name="{{ s['name'] }}" data-email="{{ s['email'] or '' }}" data-contact="{{ s['contact'] or '' }}"
+      data-notes="{{ s['notes'] or '' }}" data-address="{{ s['address'] or '' }}" data-biz-no="{{ s['biz_no'] or '' }}"
+      data-contact-name="{{ s['contact_name'] or '' }}" data-contact2="{{ s['contact2'] or '' }}" data-items="{{ s['items'] or '' }}">
+    <td style="text-align:left; padding-left:14px;">
+      <div style="font-weight:700;">{{ s['name'] }}</div>
+      <div class="info-anchor">
+        <button type="button" class="info-btn addr-btn" data-pop="addr-pop-{{ loop.index }}">주소보기</button>
+        <div class="info-pop addr-pop" id="addr-pop-{{ loop.index }}">
+          <button type="button" class="info-pop-close">×</button>
+          {{ s['address'] or '등록된 주소 없음' }}
+        </div>
+      </div>
+    </td>
+    <td>{{ s['contact_name'] or '-' }}</td>
+    <td>{{ s['contact'] or '-' }}</td>
+    <td>{{ s['contact2'] or '-' }}</td>
+    <td>{{ s['email'] or '-' }}</td>
+    <td>{{ s['items'] or '-' }}</td>
+    <td style="color:var(--muted);">{{ s['notes'] or '-' }}</td>
     <td>
-      <form method="POST" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
+      <button type="button" onclick="startEdit(this)" style="background:none; border:none; color:var(--primary);
+              font-size:13px; cursor:pointer; padding:4px 8px; margin-top:0;">수정</button>
+      <form method="POST" style="display:inline;" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="name" value="{{ s['name'] }}">
         <button type="submit" style="background:none; border:none; color:var(--fail);
@@ -95,4 +121,35 @@
   등록된 업체가 없어. 위에서 추가해줘.
 </div>
 {% endif %}
+
+<script>
+function startEdit(btn) {
+  var row = btn.closest('tr');
+  document.getElementById('f_name').value = row.dataset.name || '';
+  document.getElementById('f_email').value = row.dataset.email || '';
+  document.getElementById('f_contact').value = row.dataset.contact || '';
+  document.getElementById('f_notes').value = row.dataset.notes || '';
+  document.getElementById('f_address').value = row.dataset.address || '';
+  document.getElementById('f_biz_no').value = row.dataset.bizNo || '';
+  document.getElementById('f_contact_name').value = row.dataset.contactName || '';
+  document.getElementById('f_contact2').value = row.dataset.contact2 || '';
+  document.getElementById('f_items').value = row.dataset.items || '';
+
+  var nameField = document.getElementById('f_name');
+  nameField.readOnly = true;
+  nameField.style.background = '#f3f4f6';
+
+  document.getElementById('editingLabel').textContent = '"' + row.dataset.name + '"';
+  document.getElementById('editingNotice').style.display = 'block';
+  document.getElementById('addForm').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function cancelEdit() {
+  document.getElementById('addForm').reset();
+  var nameField = document.getElementById('f_name');
+  nameField.readOnly = false;
+  nameField.style.background = '';
+  document.getElementById('editingNotice').style.display = 'none';
+}
+</script>
 {% endblock %}
