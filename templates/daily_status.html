@@ -254,6 +254,31 @@
   </div>
 </details>
 
+{# ───────── 오늘 업체별 입고 ───────── #}
+<details class="sec" data-sec="today-intake-supplier">
+  <summary>🏭 오늘 업체별 입고 <span class="cnt gray">{{ s['입고']['업체별']|length }}</span><span class="arrow">▶</span></summary>
+  <div class="body">
+    {% if s['입고']['업체별'] %}
+    <div class="tblw">
+      <table>
+        <thead><tr><th>업체</th><th class="num">건수</th><th class="num">수량</th></tr></thead>
+        <tbody>
+        {% for b in s['입고']['업체별'] %}
+        <tr>
+          <td>{{ b['업체'] }}</td>
+          <td class="num">{{ b['건수'] }}</td>
+          <td class="num">{{ "{:,}".format(b['수량']) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="none">오늘 등록된 입고가 없어.</div>
+    {% endif %}
+  </div>
+</details>
+
 {# ───────── 오늘 입고 ───────── #}
 <details class="sec" data-sec="today-intake">
   <summary>📦 오늘 입고 목록 <span class="cnt gray">{{ s['입고']['목록']|length }}</span><span class="arrow">▶</span></summary>
