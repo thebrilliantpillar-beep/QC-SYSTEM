@@ -1457,6 +1457,16 @@ def _parse_spec_form(form):
 def spec_item_update(material_no, spec_id):
     item_name, spec_display, judge_type, lower_limit, upper_limit, inspect_method, aql, item_order = \
         _parse_spec_form(request.form)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    # 항목기호가 같은 자재의 다른 항목과 겹치면 조회 시 조인이 두 배로 불어나서
+    # 항목이 겹쳐 보이거나 판정이 엉뚱하게 섞이는 사고가 실제로 있었다(2026-08-30 발견).
+    existing = db.get_specs_by_material(material_no)
+    if any((s["item_name"] or "") == item_name and s["id"] != spec_id for s in existing):
+        msg = f"항목기호 '{item_name}'는 이미 이 자재의 다른 항목에서 쓰고 있어. 다른 기호를 써줘."
+        if is_ajax:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg)
+        return redirect(url_for("spec_detail", material_no=material_no))
     db.update_spec_item(spec_id, item_name, spec_display, judge_type,
                         lower_limit, upper_limit, inspect_method, aql, item_order)
     record_change("규격 항목 수정", "spec_item", spec_id, f"{material_no} / 항목 {item_name}: {spec_display}")
@@ -1510,6 +1520,14 @@ def spec_item_add(material_no):
         item_order = (max((s["item_order"] or 0) for s in existing) + 1) if existing else 1
 
     final_item_name = item_name or f"항목{item_order}"
+    # 항목기호(item_name)가 자재 안에서 중복되면 성적서 조회 시 SQL 조인이 두 배로 불어나서
+    # 항목이 겹쳐 보이거나 판정이 엉뚱하게 섞이는 사고가 실제로 있었다(2026-08-30 발견).
+    if any((s["item_name"] or "") == final_item_name for s in existing):
+        msg = f"항목기호 '{final_item_name}'는 이미 이 자재에 있어. 다른 기호를 써줘."
+        if is_ajax:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg)
+        return redirect(url_for("spec_detail", material_no=material_no))
     spec_id = db.add_spec(material_no, material_name, final_item_name, spec_display,
                 judge_type, lower_limit, upper_limit, inspect_method, aql, item_order)
     record_change("규격 항목 추가", "spec_item", None, f"{material_no} / 항목 {item_name or item_order}: {spec_display}")
@@ -2031,6 +2049,23 @@ def inspection_detail(inspection_id):
     # AQL 그룹별 샘플수 요약 (대시보드·설명용)
     aql_groups = _unique_aql_sample_qty(specs_all) if specs_all else {}
 
+    # 판정 대기(pending) 중에 자재 규격이 수정되면, 화면의 규격 표기/하한상한은
+    # specs 테이블과 실시간 조인이라 바로 바뀌어 보이는데, 이미 저장된 항목별
+    # 판정(result/max/min)은 측정 당시 값 그대로 얼어붙어 있어서 안 바뀐다.
+    # "규격 수정했는데 반영이 안 된다"는 혼동의 원인 — 여기서 미리 감지해서 안내한다.
+    # (승인 이후엔 감사기록 보존을 위해 절대 건드리지 않고, 이 체크도 안 한다)
+    stale_spec_items = []
+    if header["status"] == "pending":
+        for it in items:
+            spec_row = specs_map.get(it["item_name"])
+            if not spec_row or spec_row["judge_type"] != "numeric":
+                continue
+            allowed = aql_ac_allowance(spec_row.get("aql"), spec_row.get("sample_qty"))
+            fresh_result, _mx, _mn = judge_numeric(
+                it["measured_value"], it["lower_limit"], it["upper_limit"], allowed)
+            if fresh_result != it["result"]:
+                stale_spec_items.append(it["item_name"])
+
     existing_ncr_list = db.list_ncr(inspection_id=inspection_id)
     return_requests = db.get_return_requests_by_inspection(inspection_id)
     prior_defect_count = db.get_defect_count_for(header["supplier"], header["material_no"])
@@ -2050,7 +2085,8 @@ def inspection_detail(inspection_id):
                            prior_defect_count=prior_defect_count,
                            specs_map=specs_map, is_failed=is_failed,
                            full_inspect_config=full_inspect_config,
-                           full_inspect=full_inspect)
+                           full_inspect=full_inspect,
+                           stale_spec_items=stale_spec_items)
 
 
 @app.route("/inspection/<int:inspection_id>/remark", methods=["POST"])
@@ -2493,6 +2529,26 @@ def _final_decision_block_reason(inspection_id, action, reject_reason=None):
     not_measured = [it["item_name"] for it in items if it["result"] in ("미측정", "입력오류")]
     if not_measured:
         return f"측정값이 비어 있거나 잘못된 항목이 있어: {', '.join(not_measured)} — 검사를 먼저 마무리해줘."
+
+    # 2-1) 측정 이후에 자재 규격이 바뀌었는데 저장된 판정은 그대로면(예전 규격 기준) 그 판정으로
+    #      승인/불합격 확정을 내리면 안 된다 — 실제 사용자가 겪은 사고: 규격을 고쳤는데
+    #      이미 계산된 result가 안 바뀌어서 옛 규격 기준 판정으로 결정이 나갈 뻔했음.
+    specs, _, _ = _get_specs_for_material(header["material_no"])
+    specs_all = build_specs_with_sample(specs, header["quantity"]) if specs else []
+    specs_map = {s["item_name"]: s for s in specs_all}
+    stale = []
+    for it in items:
+        spec_row = specs_map.get(it["item_name"])
+        if not spec_row or spec_row["judge_type"] != "numeric":
+            continue
+        allowed = aql_ac_allowance(spec_row.get("aql"), spec_row.get("sample_qty"))
+        fresh_result, _mx, _mn = judge_numeric(
+            it["measured_value"], it["lower_limit"], it["upper_limit"], allowed)
+        if fresh_result != it["result"]:
+            stale.append(it["item_name"])
+    if stale:
+        return (f"측정 이후 자재 규격이 바뀐 항목이 있어서 결정할 수 없어: {', '.join(stale)} — "
+                f"성적서에서 '측정값 수정'을 눌러 최신 규격으로 다시 저장한 뒤 결정해줘.")
 
     # 3) 특채는 '규격을 벗어났지만 예외적으로 쓴다'는 결정이다.
     #    전 항목 합격인 성적서를 특채로 올리는 건 성립하지 않는다(그냥 합격 승인해야 함).
