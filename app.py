@@ -4216,9 +4216,11 @@ def ncr_new(inspection_id):
         flash("성적서를 찾을 수 없어.")
         return redirect(url_for("home"))
 
-    # 관리자가 '불합격 확정'을 누른 성적서에서만 부적합 통보서를 작성할 수 있어
-    if not (header["status"] == "approved" and header["approval_type"] == "failed"):
-        flash("불합격 확정된 성적서만 부적합 통보서를 작성할 수 있어. 먼저 관리자가 '불합격 확정'을 눌러야 해.")
+    # 불합격 확정 건은 물론, 합격·특채로 이미 승인된 건도 나중에 문제가 발견되면
+    # 사후에 부적합 통보서를 쓸 수 있어야 한다(2026-08-30 사용자 요청) — 승인 자체가
+    # 안 된 건(대기중·반려)은 아직 판정이 확정 안 된 상태라 통보서 대상이 아니다.
+    if header["status"] != "approved":
+        flash("승인이 확정된 성적서만 부적합 통보서를 작성할 수 있어.")
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
     if request.method == "POST":
