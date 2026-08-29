@@ -58,7 +58,8 @@
     <b style="color:#dc2626;">규격(하한·상한) 미입력 항목이 있어</b> —
     {% for s in no_limit_items %}<b>{{ s['item_name'] }}</b>{% if not loop.last %}, {% endif %}{% endfor %}
     <div style="margin-top:4px; color:#7f1d1d;">
-      이 항목은 판정 기준이 없어서 <b>측정값을 뭘 넣든 불합격</b>으로 처리돼.
+      이 항목은 판정 기준이 없어서 <b>측정값을 뭘 넣든 "규격미입력"(검토필요)</b>으로 처리돼 —
+      불합격은 아니지만 승인도 막혀.
       먼저 <a href="{{ url_for('spec_detail', material_no=intake['material_no']) }}"
              style="color:#dc2626; font-weight:700;">자재 규격</a>에서 하한/상한을 채워줘.
     </div>
@@ -451,7 +452,7 @@
             </td>
             {% endif %}
 
-          {% else %}{# 육안 항목 — 샘플수량이 6 미만이면 그만큼만 활성화 #}
+          {% else %}{# 육안(visual)·적합판정(ok_ng) 항목 — 샘플수량이 6 미만이면 그만큼만 활성화 #}
             {% set active_v = s['sample_qty'] if (s['sample_qty'] and s['sample_qty'] < 6) else 6 %}
             {% for i in range(1, 7) %}
             <td>
@@ -470,7 +471,37 @@
             <td>-</td><td>-</td>
             <td class="result-cell" id="res_{{ s['id'] }}">-</td>
             <input type="hidden" name="item_{{ s['id'] }}_result" id="hres_{{ s['id'] }}">
+            {# 육안(visual)은 계측기로 재는 게 아니라 계측기 해당 없음. 적합/부적합(ok_ng)은
+               계측기로 재고 O/X로 기록하는 항목일 수 있어서 계측기 선택이 나와야 한다
+               (사용자 확정 — 판정유형에서 계측기 미해당은 육안뿐). #}
+            {% if s['judge_type'] == 'visual' %}
             <td style="color:#9ca3af;">해당없음</td>
+            {% else %}
+            <td>
+              {% if gauges %}
+              <select class="gauge-input" style="width:130px; font-size:12px;"
+                      name="item_{{ s['id'] }}_gauge_expiry"
+                      onchange="syncGaugeExpiry(this)"
+                      data-spec="{{ s['id'] }}"
+                      data-nametarget="gname_{{ s['id'] }}">
+                <option value="" data-name="">직접 입력</option>
+                {% for gm in gauges %}
+                <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
+                  {% if sel_gauge and sel_gauge.get(s['id']) == gm['name'] %}selected{% endif %}>
+                  {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
+                     value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
+              {% else %}
+              <input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
+                     name="item_{{ s['id'] }}_gauge_expiry"
+                     oninput="checkGaugeExpiry(this)"
+                     value="{{ prefill['item_' ~ s['id'] ~ '_gauge_expiry'] if prefill else '' }}">
+              {% endif %}
+            </td>
+            {% endif %}
           {% endif %}
         </tr>
       {% endfor %}
@@ -592,8 +623,9 @@ document.getElementById('defectModal').addEventListener('click', function(e){
 <script>
 function recalc(id) {
   const inputs = document.querySelectorAll(`input[data-id="${id}"]`);
-  const lo = parseFloat(inputs[0].dataset.lo);
-  const hi = parseFloat(inputs[0].dataset.hi);
+  const loRaw = inputs[0].dataset.lo, hiRaw = inputs[0].dataset.hi;
+  const lo = loRaw !== '' ? parseFloat(loRaw) : null;
+  const hi = hiRaw !== '' ? parseFloat(hiRaw) : null;
   const vals = [];
   inputs.forEach(inp => { const v = parseFloat(inp.value); if (!isNaN(v)) vals.push(v); });
   if (vals.length === 0) {
@@ -603,7 +635,8 @@ function recalc(id) {
     return;
   }
   const mx = Math.max(...vals), mn = Math.min(...vals);
-  const ok = vals.every(v => v >= lo && v <= hi);
+  // 하한/상한 중 하나만 있는 단측 표기("80 이상")도 그쪽만 본다 — 서버(judge_numeric)와 동일 규칙
+  const ok = vals.every(v => (lo === null || v >= lo) && (hi === null || v <= hi));
   document.getElementById(`max_${id}`).textContent = mx.toFixed(2);
   document.getElementById(`min_${id}`).textContent = mn.toFixed(2);
   const resEl = document.getElementById(`res_${id}`);
@@ -977,7 +1010,13 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     if (dateEl) data['inspect_date'] = dateEl.value;
     var timerEl = document.getElementById('actualTimeSec');
     if (timerEl) data['actual_time_sec'] = timerEl.value;
-    document.querySelectorAll('.sample-input, .visual-select, .gauge-input, .aql-select').forEach(function (el) {
+    var remarkEl = document.getElementById('remarkInspector');
+    if (remarkEl) data['remark_inspector'] = remarkEl.value;
+    // .fi-serial/.fi-val(+같은 이름의 unit_N_remark)는 전수검사(100%) 모드 입력칸 —
+    // 빠뜨리면 전수검사 자재는 임시저장을 눌러도 실제로는 아무것도 안 남는다(실사용자 버그 리포트로 발견).
+    document.querySelectorAll(
+      '.sample-input, .visual-select, .gauge-input, .aql-select, .fi-serial, .fi-val, input[name^="unit_"]'
+    ).forEach(function (el) {
       if (el.name) data[el.name] = el.value;
     });
     return data;
@@ -1028,6 +1067,9 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     var dateEl = document.querySelector('input[name="inspect_date"]');
     if (dateEl && data['inspect_date']) dateEl.value = data['inspect_date'];
 
+    var remarkEl = document.getElementById('remarkInspector');
+    if (remarkEl && data['remark_inspector'] !== undefined) remarkEl.value = data['remark_inspector'];
+
     document.querySelectorAll('.aql-select').forEach(function (el) {
       if (el.name && data[el.name] !== undefined) {
         el.value = data[el.name];
@@ -1041,6 +1083,15 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
         if (el.classList.contains('gauge-input')) checkGaugeExpiry(el);
       }
     });
+    // 전수검사(100%) 모드 — 유닛별 값도 같이 복구
+    var fiUnits = {};
+    document.querySelectorAll('.fi-serial, .fi-val, input[name^="unit_"]').forEach(function (el) {
+      if (el.name && data[el.name] !== undefined) {
+        el.value = data[el.name];
+        if (el.dataset.unit) fiUnits[el.dataset.unit] = true;
+      }
+    });
+    Object.keys(fiUnits).forEach(function (u) { if (typeof fiRecalc === 'function') fiRecalc(u); });
 
     // 복구 후 판정 재계산
     document.querySelectorAll('input.sample-input[data-id]').forEach(function (inp) { recalc(inp.dataset.id); });

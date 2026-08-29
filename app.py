@@ -947,7 +947,7 @@ def build_sel_gauge(specs, gauges, prefill=None):
             continue
         if pf_exp:                       # 직접 입력한 유효기간이 있으면 자동선택 안 함
             continue
-        if s.get("judge_type") not in ("numeric", "numeric_pair"):
+        if s.get("judge_type") not in ("numeric", "numeric_pair", "ok_ng"):
             continue
         method = s.get("inspect_method") or ""
         if "육안" in method:
