@@ -1167,6 +1167,18 @@ def create_inspection(header, items_with_results, overall_result, intake_id=None
     return inspection_id
 
 
+def rename_inspection_item(item_id, new_item_name):
+    """inspection_items 한 행의 item_name만 고친다.
+
+    자재 규격에 항목기호(item_name)가 중복 등록됐다가 하나를 다른 기호로 고친 뒤,
+    이미 저장된 성적서 쪽의 item_name도 맞춰줘야 할 때 쓰는 정정용 함수
+    (2026-08-30, 실제 데이터 사고 수습 — 정상 플로우에서는 쓰이지 않음)."""
+    conn = get_conn()
+    conn.execute("UPDATE inspection_items SET item_name=? WHERE id=?", (new_item_name, item_id))
+    conn.commit()
+    conn.close()
+
+
 def update_inspection_items(inspection_id, inspect_date, inspector, items_with_results, overall_result,
                              est_time_label=None, actual_time_sec=None, total_time_sec=None):
     """pending 상태 성적서 측정값·판정 전체 갱신"""

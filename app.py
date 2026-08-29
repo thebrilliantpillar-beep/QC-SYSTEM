@@ -529,6 +529,30 @@ def download_db():
     return send_file(db.DB_PATH, as_attachment=True, download_name=filename)
 
 
+# ---------- 데이터 정정(관리자 전용) ----------
+
+@app.route("/admin/inspection-item/<int:item_id>/rename", methods=["POST"])
+@perm_required("users")
+def admin_rename_inspection_item(item_id):
+    """항목기호 중복 등록 사고 정정용 — inspection_items 한 행의 item_name만 고친다.
+    정상 사용 흐름에는 없는 버튼이라 UI 없이 직접 호출하는 관리자 전용 라우트."""
+    expected_old = (request.form.get("expected_old") or "").strip()
+    new_name = (request.form.get("new_name") or "").strip()
+    if not new_name:
+        return jsonify({"ok": False, "error": "new_name이 비어 있어."}), 400
+    conn = db.get_conn()
+    row = conn.execute("SELECT * FROM inspection_items WHERE id=?", (item_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return jsonify({"ok": False, "error": "해당 항목을 찾을 수 없어."}), 404
+    if expected_old and row["item_name"] != expected_old:
+        return jsonify({"ok": False, "error": f"현재 item_name이 예상과 달라: {row['item_name']}"}), 409
+    db.rename_inspection_item(item_id, new_name)
+    record_change("성적서 항목기호 정정", "inspection_item", item_id,
+                  f"inspection {row['inspection_id']} / {row['item_name']} → {new_name} (항목기호 중복 사고 수습)")
+    return jsonify({"ok": True})
+
+
 # ---------- 도면 ----------
 
 def find_drawing_pdf(material_no):
