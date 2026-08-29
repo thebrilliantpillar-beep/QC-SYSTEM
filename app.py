@@ -523,11 +523,10 @@ def my_password():
 @app.route("/download-db")
 @perm_required("users")
 def download_db():
-    db_path = os.path.join(os.path.dirname(__file__), "iqc.db")
     today = _dt.now().strftime("%Y%m%d_%H%M%S")
     filename = f"iqc_backup_{today}.db"
     record_change("DB 백업 다운로드", "system", 0, f"다운로드: {filename}")
-    return send_file(db_path, as_attachment=True, download_name=filename)
+    return send_file(db.DB_PATH, as_attachment=True, download_name=filename)
 
 
 # ---------- 도면 ----------
