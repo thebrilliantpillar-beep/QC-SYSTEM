@@ -20,8 +20,12 @@
   .gauge-input { width: 128px; padding: 6px 4px; font-size: 12.5px; border: 1px solid #d1d5db;
                  border-radius: 6px; text-align: center; }
   .gauge-input:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
-  .gauge-input.gauge-expiring { color: #dc2626; font-style: italic; border-color: #dc2626; font-weight: 700; }
-  .gauge-input.gauge-invalid { color: #991b1b; background: #fee2e2; border-color: #fca5a5; font-weight: 700; }
+  .gauge-search { padding: 6px 4px; border: 1px solid #d1d5db; border-radius: 6px; }
+  .gauge-search:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  .gauge-input.gauge-expiring, .gauge-search.gauge-expiring {
+    color: #dc2626; font-style: italic; border-color: #dc2626; font-weight: 700; }
+  .gauge-input.gauge-invalid, .gauge-search.gauge-invalid {
+    color: #991b1b; background: #fee2e2; border-color: #fca5a5; font-weight: 700; }
   .disabled-cell { color: #d1d5db; background: #f3f4f6; }
   .inactive-slot { background: #f3f4f6 !important; color: #d1d5db !important; }
   .aql-select { width: 76px; padding: 4px 2px; font-size: 11.5px; border-radius: 5px;
@@ -168,6 +172,12 @@
 <form method="POST" id="inspectForm"
       action="{% if edit_mode %}{{ url_for('edit_inspection_submit', inspection_id=edit_mode) }}{% endif %}">
 
+  {% if gauges %}
+  <datalist id="gaugeNames">
+    {% for gm in gauges %}<option value="{{ gm['name'] }}">{% endfor %}
+  </datalist>
+  {% endif %}
+
   <div class="card" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <div style="font-size:13.5px; color:#374151;">개당 측정 시간</div>
     <div style="display:flex; align-items:center; gap:10px;">
@@ -282,24 +292,18 @@
     <div style="font-size:12px; color:#6b7280; margin-bottom:6px;"><b>계측기 유효기간</b> (항목별로 한 번)</div>
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for s in specs %}
-        {% if s['judge_type'] == 'numeric' and not (s['inspect_method'] and '육안' in s['inspect_method']) %}
+        {% if s['judge_type'] != 'visual' %}
         <div style="display:flex;align-items:center;gap:5px;font-size:12px;">
           <span style="color:#374151;">{{ s['item_name'] }}:</span>
           {% if gauges %}
-          <select class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry"
-                  onchange="var o=this.options[this.selectedIndex]; document.getElementById('gname_{{ s['id'] }}').value=o.dataset.name||''; document.getElementById('gview_{{ s['id'] }}').textContent = this.value ? ('만료 '+this.value) : (o.dataset.name ? '⚠ 만료일 미등록' : '');"
-                  style="font-size:12px;">
-            <option value="" data-name="">직접 입력</option>
-            {% for gm in gauges %}
-            <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
-              {% if sel_gauge and sel_gauge.get(s['id']) == gm['name'] %}selected{% endif %}>
-              {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
-            </option>
-            {% endfor %}
-          </select>
+          <input type="text" class="gauge-search" name="item_{{ s['id'] }}_gauge_search" list="gaugeNames" placeholder="계측기 검색"
+                 style="font-size:12px; width:140px;"
+                 value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}"
+                 data-spec="{{ s['id'] }}" oninput="onGaugeSearch(this, {{ s['id'] }})">
+          <input type="hidden" class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry" id="gexp_{{ s['id'] }}">
           <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
                  value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
-          <span id="gview_{{ s['id'] }}" style="font-size:11.5px; color:#dc2626; margin-left:4px;"></span>
+          <span id="gview_{{ s['id'] }}" style="font-size:11.5px; margin-left:4px;"></span>
           {% else %}
           <input type="text" class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry" placeholder="YYYY-MM-DD" style="font-size:12px;width:110px;">
           {% endif %}
@@ -428,21 +432,14 @@
             {% else %}
             <td>
               {% if gauges %}
-              <select class="gauge-input" style="width:130px; font-size:12px;"
-                      name="item_{{ s['id'] }}_gauge_expiry"
-                      onchange="syncGaugeExpiry(this)"
-                      data-spec="{{ s['id'] }}"
-                      data-nametarget="gname_{{ s['id'] }}">
-                <option value="" data-name="">직접 입력</option>
-                {% for gm in gauges %}
-                <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
-                  {% if sel_gauge and sel_gauge.get(s['id']) == gm['name'] %}selected{% endif %}>
-                  {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
-                </option>
-                {% endfor %}
-              </select>
+              <input type="text" class="gauge-search" name="item_{{ s['id'] }}_gauge_search" list="gaugeNames" placeholder="계측기 검색"
+                     style="width:120px; font-size:12px;"
+                     value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}"
+                     data-spec="{{ s['id'] }}" oninput="onGaugeSearch(this, {{ s['id'] }})">
+              <input type="hidden" class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry" id="gexp_{{ s['id'] }}">
               <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
                      value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
+              <div id="gview_{{ s['id'] }}" style="font-size:10.5px; margin-top:2px;"></div>
               {% else %}
               <input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
                      name="item_{{ s['id'] }}_gauge_expiry"
@@ -479,21 +476,14 @@
             {% else %}
             <td>
               {% if gauges %}
-              <select class="gauge-input" style="width:130px; font-size:12px;"
-                      name="item_{{ s['id'] }}_gauge_expiry"
-                      onchange="syncGaugeExpiry(this)"
-                      data-spec="{{ s['id'] }}"
-                      data-nametarget="gname_{{ s['id'] }}">
-                <option value="" data-name="">직접 입력</option>
-                {% for gm in gauges %}
-                <option value="{{ gm['expiry_date'] or '' }}" data-name="{{ gm['name'] }}"
-                  {% if sel_gauge and sel_gauge.get(s['id']) == gm['name'] %}selected{% endif %}>
-                  {{ gm['name'] }}{% if gm['expiry_date'] %} ({{ gm['expiry_date'] }}){% else %} (만료일 미등록){% endif %}
-                </option>
-                {% endfor %}
-              </select>
+              <input type="text" class="gauge-search" name="item_{{ s['id'] }}_gauge_search" list="gaugeNames" placeholder="계측기 검색"
+                     style="width:120px; font-size:12px;"
+                     value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}"
+                     data-spec="{{ s['id'] }}" oninput="onGaugeSearch(this, {{ s['id'] }})">
+              <input type="hidden" class="gauge-input" name="item_{{ s['id'] }}_gauge_expiry" id="gexp_{{ s['id'] }}">
               <input type="hidden" name="item_{{ s['id'] }}_gauge_name" id="gname_{{ s['id'] }}"
                      value="{{ sel_gauge.get(s['id'], '') if sel_gauge else '' }}">
+              <div id="gview_{{ s['id'] }}" style="font-size:10.5px; margin-top:2px;"></div>
               {% else %}
               <input type="text" class="gauge-input" placeholder="YYYY-MM-DD"
                      name="item_{{ s['id'] }}_gauge_expiry"
@@ -674,15 +664,51 @@ function restrictNumeric(input) {
   input.value = v;
 }
 
-// 계측기 마스터 드롭다운에서 선택 시 유효기간 강조 + 계측기 이름 hidden 필드에 반영
-function syncGaugeExpiry(sel) {
-  // sel.value가 유효기간 문자열 (YYYY-MM-DD 또는 빈 문자열)
-  checkGaugeExpiry(sel);
-  var opt = sel.options[sel.selectedIndex];
-  var tgt = sel.getAttribute('data-nametarget');
-  if (tgt) {
-    var h = document.getElementById(tgt);
-    if (h) h.value = opt ? (opt.getAttribute('data-name') || '') : '';
+// 계측기 검색칸(datalist) — 이름을 입력/선택하면 등록된 계측기와 매칭해서
+// 유효기간을 hidden 필드에 채우고 옆에 D-day와 함께 보여준다.
+var GAUGE_MAP = {
+  {% for gm in gauges %}{{ gm['name'] | tojson }}: {{ (gm['expiry_date'] or '') | tojson }}{% if not loop.last %},{% endif %}{% endfor %}
+};
+
+function onGaugeSearch(input, specId) {
+  var name = input.value.trim();
+  var gexp = document.getElementById('gexp_' + specId);
+  var gname = document.getElementById('gname_' + specId);
+  var gview = document.getElementById('gview_' + specId);
+  var hasMatch = Object.prototype.hasOwnProperty.call(GAUGE_MAP, name);
+
+  if (!hasMatch) {
+    if (gname) gname.value = '';
+    if (gexp) gexp.value = '';
+    if (gview) { gview.textContent = name ? '일치하는 계측기 없음' : ''; gview.style.color = '#9ca3af'; }
+    input.classList.remove('gauge-expiring', 'gauge-invalid');
+    return;
+  }
+
+  var exp = GAUGE_MAP[name];
+  if (gname) gname.value = name;
+  if (gexp) gexp.value = exp;
+  input.classList.remove('gauge-invalid');
+
+  if (!exp) {
+    if (gview) { gview.textContent = '⚠ 만료일 미등록'; gview.style.color = '#dc2626'; }
+    input.classList.remove('gauge-expiring');
+    return;
+  }
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(exp);
+  if (!m) { if (gview) { gview.textContent = '만료 ' + exp; gview.style.color = '#374151'; } return; }
+  var target = new Date(+m[1], +m[2] - 1, +m[3]);
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var diffDays = Math.round((target - today) / 86400000);
+  if (diffDays < 0) {
+    if (gview) { gview.textContent = '⛔ 만료됨 (' + exp + ')'; gview.style.color = '#991b1b'; }
+    input.classList.add('gauge-expiring');
+  } else if (diffDays <= 15) {
+    if (gview) { gview.textContent = '⚠ D-' + diffDays + ' (' + exp + ')'; gview.style.color = '#dc2626'; }
+    input.classList.add('gauge-expiring');
+  } else {
+    if (gview) { gview.textContent = '만료 ' + exp; gview.style.color = '#16a34a'; }
+    input.classList.remove('gauge-expiring');
   }
 }
 
@@ -713,14 +739,9 @@ window.addEventListener('load', () => {
   document.querySelectorAll('.gauge-input').forEach(el => {
     if (el.value) checkGaugeExpiry(el);
   });
-  // 측정 방식으로 자동 선택된 계측기의 이름/유효기간 표시를 초기화
-  document.querySelectorAll('select[name$="_gauge_expiry"]').forEach(sel => {
-    var o = sel.options[sel.selectedIndex]; if (!o) return;
-    var id = sel.name.slice(5, -('_gauge_expiry'.length));  // item_<id>_gauge_expiry → <id>
-    var gn = document.getElementById('gname_' + id);
-    if (gn && !gn.value) gn.value = o.dataset.name || '';
-    var gv = document.getElementById('gview_' + id);
-    if (gv) gv.textContent = sel.value ? ('만료 ' + sel.value) : (o.dataset.name ? '⚠ 만료일 미등록' : '');
+  // 검색칸에 이미 값이 있으면(자동선택된 계측기, 반려 재입력 등) 유효기간 표시를 초기화
+  document.querySelectorAll('.gauge-search').forEach(el => {
+    if (el.value && el.dataset.spec) onGaugeSearch(el, el.dataset.spec);
   });
 });
 
@@ -737,7 +758,9 @@ function setInputsLocked(locked) {
 
 function changeAQL(id) {
   var selEl = document.getElementById('aql_' + id);
+  if (!selEl) return;
   var opt = selEl.options[selEl.selectedIndex];
+  if (!opt) return;
   var rawQty = opt.dataset.qty;
   var newQty = parseInt(rawQty, 10);
   var activeN = (isNaN(newQty) || newQty >= 6) ? 6 : Math.max(newQty, 1);
@@ -1015,7 +1038,8 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     // .fi-serial/.fi-val(+같은 이름의 unit_N_remark)는 전수검사(100%) 모드 입력칸 —
     // 빠뜨리면 전수검사 자재는 임시저장을 눌러도 실제로는 아무것도 안 남는다(실사용자 버그 리포트로 발견).
     document.querySelectorAll(
-      '.sample-input, .visual-select, .gauge-input, .aql-select, .fi-serial, .fi-val, input[name^="unit_"]'
+      '.sample-input, .visual-select, .gauge-input, .gauge-search, .aql-select, .fi-serial, .fi-val, ' +
+      'input[name^="unit_"], input[name$="_gauge_name"]'
     ).forEach(function (el) {
       if (el.name) data[el.name] = el.value;
     });
@@ -1064,38 +1088,67 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     var data;
     try { data = JSON.parse(raw); } catch (e) { return; }
 
-    var dateEl = document.querySelector('input[name="inspect_date"]');
-    if (dateEl && data['inspect_date']) dateEl.value = data['inspect_date'];
+    // 항목 하나 복구하다 생긴 오류가 나머지 항목 복구까지 통째로 막으면 안 되므로
+    // 구간마다 개별적으로 try/catch — 한 필드가 깨져도 나머지는 정상 복구된다.
+    function safe(fn) { try { fn(); } catch (e) { console.error('draft restore step failed', e); } }
 
-    var remarkEl = document.getElementById('remarkInspector');
-    if (remarkEl && data['remark_inspector'] !== undefined) remarkEl.value = data['remark_inspector'];
-
-    document.querySelectorAll('.aql-select').forEach(function (el) {
-      if (el.name && data[el.name] !== undefined) {
-        el.value = data[el.name];
-        el.classList.toggle('changed', el.value !== '');
-        changeAQL(parseInt(el.dataset.specId, 10));
-      }
+    safe(function () {
+      var dateEl = document.querySelector('input[name="inspect_date"]');
+      if (dateEl && data['inspect_date']) dateEl.value = data['inspect_date'];
     });
-    document.querySelectorAll('.sample-input, .visual-select, .gauge-input').forEach(function (el) {
-      if (el.name && data[el.name] !== undefined) {
-        el.value = data[el.name];
-        if (el.classList.contains('gauge-input')) checkGaugeExpiry(el);
-      }
+
+    safe(function () {
+      var remarkEl = document.getElementById('remarkInspector');
+      if (remarkEl && data['remark_inspector'] !== undefined) remarkEl.value = data['remark_inspector'];
+    });
+
+    safe(function () {
+      document.querySelectorAll('.aql-select').forEach(function (el) {
+        if (el.name && data[el.name] !== undefined) {
+          el.value = data[el.name];
+          el.classList.toggle('changed', el.value !== '');
+          changeAQL(parseInt(el.dataset.specId, 10));
+        }
+      });
+    });
+    safe(function () {
+      document.querySelectorAll('input[name$="_gauge_name"]').forEach(function (el) {
+        if (el.name && data[el.name] !== undefined) el.value = data[el.name];
+      });
+    });
+    safe(function () {
+      document.querySelectorAll('.gauge-search').forEach(function (el) {
+        if (el.name && data[el.name] !== undefined) {
+          el.value = data[el.name];
+          if (el.dataset.spec) onGaugeSearch(el, el.dataset.spec);
+        }
+      });
+    });
+    safe(function () {
+      document.querySelectorAll('.sample-input, .visual-select, .gauge-input').forEach(function (el) {
+        if (el.name && data[el.name] !== undefined) {
+          el.value = data[el.name];
+          if (el.classList.contains('gauge-input')) checkGaugeExpiry(el);
+        }
+      });
     });
     // 전수검사(100%) 모드 — 유닛별 값도 같이 복구
-    var fiUnits = {};
-    document.querySelectorAll('.fi-serial, .fi-val, input[name^="unit_"]').forEach(function (el) {
-      if (el.name && data[el.name] !== undefined) {
-        el.value = data[el.name];
-        if (el.dataset.unit) fiUnits[el.dataset.unit] = true;
-      }
+    safe(function () {
+      var fiUnits = {};
+      document.querySelectorAll('.fi-serial, .fi-val, input[name^="unit_"]').forEach(function (el) {
+        if (el.name && data[el.name] !== undefined) {
+          el.value = data[el.name];
+          if (el.dataset.unit) fiUnits[el.dataset.unit] = true;
+        }
+      });
+      Object.keys(fiUnits).forEach(function (u) { if (typeof fiRecalc === 'function') fiRecalc(u); });
     });
-    Object.keys(fiUnits).forEach(function (u) { if (typeof fiRecalc === 'function') fiRecalc(u); });
 
     // 복구 후 판정 재계산
-    document.querySelectorAll('input.sample-input[data-id]').forEach(function (inp) { recalc(inp.dataset.id); });
-    document.querySelectorAll('select[data-id]').forEach(function (sel) { recalcVisual(sel.dataset.id); });
+    safe(function () {
+      document.querySelectorAll('input.sample-input[data-id]').forEach(function (inp) { recalc(inp.dataset.id); });
+      document.querySelectorAll('select[data-id]').forEach(function (sel) { recalcVisual(sel.dataset.id); });
+    });
 
     // 복구된 임시저장이 있으면 안내 표시
     var notice = document.getElementById('draft-notice');
