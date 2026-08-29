@@ -40,9 +40,34 @@ _RE_OFFSET_RANGE = re.compile(
 _RE_AT_LEAST = re.compile(r"([\d.]+)\s*(?:[^\d\s]*)\s*이상")
 # "10 이하" 같은 최대값만 있는 단측 표기 — 하한 없음
 _RE_AT_MOST = re.compile(r"([\d.]+)\s*(?:[^\d\s]*)\s*이하")
-# "4T" 같은 두께(Thickness) 단독 표기 — 공차 정보가 없어 자동으로 하한/상한을 못 채움
-# (인식은 하되 "두께 표기로 인식됨" 안내를 위해 별도로 구분)
+# "4T" 같은 두께(Thickness) 단독 표기 — 자체 공차가 안 적혀 있으면 KS B ISO 2768-1
+# 일반공차(표1/C급)를 자동 적용한다(_general_tolerance_for, 2026-08-30 사용자 확정 —
+# 첨부 이미지 기준표 그대로).
 _RE_THICKNESS_ONLY = re.compile(r"^\s*([\d.]+)\s*T\s*$")
+
+# KS B ISO 2768-1 (표1 / C급) 일반 공차 — (구간 상한, 허용편차) 순서, 구간은 초과~이하.
+# 첫 구간만 0.5 이상(그 미만 두께는 이 표의 적용 범위 밖이라 자동 계산하지 않는다).
+_GENERAL_TOLERANCE_TABLE = [
+    (3,    0.2),
+    (6,    0.3),
+    (30,   0.5),
+    (120,  0.8),
+    (400,  1.2),
+    (1000, 2.0),
+    (2000, 3.0),
+    (4000, 4.0),
+]
+
+
+def _general_tolerance_for(nominal):
+    """KS B ISO 2768-1 표1(C급) 기준, 치수 구간에 맞는 허용 편차(±)를 돌려준다.
+    0.5 미만이거나 4000 초과면 이 표의 적용 범위 밖이라 None."""
+    if nominal is None or nominal < 0.5 or nominal > 4000:
+        return None
+    for upper, tol in _GENERAL_TOLERANCE_TABLE:
+        if nominal <= upper:
+            return tol
+    return None
 
 MAX_LABEL_SEARCH_ROW = 12     # 자재번호/품명 라벨을 찾을 때 앞에서 몇 행까지 볼지
 MAX_HEADER_SEARCH_ROW = 15    # 항목표 헤더 행을 찾을 때 앞에서 몇 행까지 볼지
@@ -195,9 +220,13 @@ def _parse_tolerance(spec_display, is_visual):
 
     m = _RE_THICKNESS_ONLY.match(text)
     if m:
-        # "4T" — 두께 표기로는 인식했지만 공차 정보가 없어서 자동으로 범위를 못 채움 →
-        # 확인 필요 목록에 "두께 표기"라고 구체적으로 안내
-        return None, None, True, "두께(T) 표기로 인식됐지만 허용 오차가 적혀있지 않아 하한/상한을 직접 입력해야 해"
+        # "4T" — 두께(T) 단독 표기. 자체 공차가 없으면 KS B ISO 2768-1 일반공차(표1/C급)를
+        # 치수 구간에 맞춰 자동 적용한다(사용자 확정, 2026-08-30).
+        nominal = float(m.group(1))
+        tol = _general_tolerance_for(nominal)
+        if tol is not None:
+            return nominal - tol, nominal + tol, False, None
+        return None, None, True, "두께(T) 표기로 인식됐지만 일반공차표 적용 범위(0.5~4000) 밖이라 하한/상한을 직접 입력해야 해"
 
     return None, None, True, None
 
