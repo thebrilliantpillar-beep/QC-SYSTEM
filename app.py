@@ -2176,6 +2176,7 @@ def edit_inspection(inspection_id):
         "inspect_date": header["inspect_date"] or "",
         "inspector": header["inspector"] or "",
         "remark_inspector": header["remark_inspector"] or "",
+        "actual_time_sec": header["actual_time_sec"] or 0,
     }
     items_by_key = {(it["part_material_no"], it["item_name"]): it for it in items}
     for s in specs:
