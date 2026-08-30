@@ -41,11 +41,15 @@
   <form method="POST" id="intakeForm">
     <input type="hidden" name="rows_json" id="rowsJson">
 
-    <!-- 공통 정보: 한 번만 입력 (납품업체·입고날짜) -->
+    <!-- 공통 정보: 한 번만 입력 (납품업체·로트번호·입고날짜) -->
     <div class="common-fields">
       <div>
         <label>납품업체</label>
         <input type="text" name="supplier_common" id="supplierCommon" placeholder="예: ACE" required>
+      </div>
+      <div>
+        <label>로트번호</label>
+        <input type="text" name="lot_common" id="lotCommon" placeholder="예: CK2608-001">
       </div>
       <div>
         <label>입고날짜</label>
@@ -55,7 +59,7 @@
 
     <p class="muted" style="margin-bottom:8px;">
       아래 <b>자재번호</b> 칸에 엑셀에서 자재번호를 세로로 복사해 붙여넣으면(Ctrl+V) 여러 줄이 한 번에 채워지고,
-      <b>등록된 자재는 제품명이 자동으로 표시</b>돼. <b>발주번호</b>는 자재마다 다를 수 있으니 줄마다 입력해.<br>
+      <b>등록된 자재는 제품명이 자동으로 표시</b>돼.<br>
       같은 값을 여러 줄에 넣을 땐 <b>셀을 드래그해서 범위를 잡고 "선택 영역 채우기"</b>를 누르면 맨 위 값이 아래로 채워져.
     </p>
 
@@ -68,7 +72,6 @@
       <table class="intake-grid" id="itemGrid">
         <tr>
           <th></th>
-          <th style="min-width:120px;">발주번호</th>
           <th style="min-width:130px;">자재번호</th>
           <th style="min-width:190px;">제품명 (자동)</th>
           <th style="min-width:90px;">입고수량</th>
@@ -103,7 +106,7 @@
 (function () {
   // 등록된 자재 { 자재번호: 자재명 } — 자재번호를 넣으면 제품명을 즉시 채우기 위해 페이지에 미리 담아둠
   const NAME_MAP = {{ name_map | tojson }};
-  const ITEM_COLS = ['po_number', 'material_no', 'quantity'];  // 드래그 선택 대상 입력 칸(순서 = 화면 순서)
+  const ITEM_COLS = ['material_no', 'quantity'];  // 드래그 선택 대상 입력 칸(순서 = 화면 순서)
   const grid = document.getElementById('itemGrid');
   const fillBtn = document.getElementById('fillBtn');
   const fillHint = document.getElementById('fillHint');
@@ -138,7 +141,6 @@
     const tr = document.createElement('tr');
     tr.innerHTML =
       `<td class="rownum">${rowCount}</td>` +
-      `<td><input type="text" data-col="po_number"></td>` +
       `<td><input type="text" data-col="material_no"></td>` +
       `<td class="name-cell empty"></td>` +
       `<td><input type="text" data-col="quantity" inputmode="numeric"></td>` +
@@ -269,17 +271,17 @@
   document.getElementById('intakeForm').addEventListener('submit', function (e) {
     const supplier = document.getElementById('supplierCommon').value.trim();
     const date = document.getElementById('dateCommon').value.trim();
+    const lot = document.getElementById('lotCommon').value.trim();
 
-    // 백엔드는 [입고날짜, 납품업체, 발주번호, 제품명, 자재번호, 입고수량] 6칸 순서를 기대함.
-    // 납품업체·입고날짜(공통)를 각 줄에 반복해서 채워 넣고, 발주번호는 줄마다 값을 사용한다.
+    // 백엔드는 [입고날짜, 납품업체, 발주번호(=로트번호), 제품명, 자재번호, 입고수량] 6칸 순서를 기대함.
+    // 납품업체·로트번호·입고날짜는 이번 등록 전체에 공통이라 모든 줄에 그대로 반복해서 채워 넣는다.
     const rows = [];
     itemRows().forEach(tr => {
       const no = tr.querySelector('input[data-col="material_no"]').value.trim();
       if (!no) return;
-      const po = tr.querySelector('input[data-col="po_number"]').value.trim();
       const qty = tr.querySelector('input[data-col="quantity"]').value.trim();
       const name = (Object.prototype.hasOwnProperty.call(NAME_MAP, no) ? NAME_MAP[no] : '') || '';
-      rows.push([date, supplier, po, name, no, qty]);
+      rows.push([date, supplier, lot, name, no, qty]);
     });
 
     if (rows.length === 0) {
@@ -294,7 +296,7 @@
 
 <h3 style="margin-top:24px;">대기 중 ({{ pending|length }}건)</h3>
 <table>
-  <tr><th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+  <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
   {% for r in pending %}
   <tr>
     <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
@@ -319,7 +321,7 @@
 {% if done %}
 <h3 style="margin-top:24px;">검사완료 ({{ done|length }}건)</h3>
 <table>
-  <tr><th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+  <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
   {% for r in done %}
   <tr>
     <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
