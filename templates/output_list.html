@@ -15,7 +15,7 @@
   <table>
     <tr>
       <th style="width:30px;"><input type="checkbox" id="checkAll" onclick="document.querySelectorAll('.row-check').forEach(c=>c.checked=this.checked)"></th>
-      <th>번호</th><th>자재번호</th><th>업체</th><th>승인여부</th><th>승인일</th><th>승인자</th>
+      <th>번호</th><th>자재번호</th><th>업체</th><th>검사일</th><th>승인여부</th><th>승인일</th><th>승인자</th>
     </tr>
     {% for i in pending %}
     {% set durl = url_for('inspection_detail', inspection_id=i['id']) %}
@@ -25,12 +25,13 @@
       <td class="clickable" onclick="openRow('{{ durl }}')">{{ i['id'] }}</td>
       <td class="clickable" onclick="openRow('{{ durl }}')">{{ i['material_no'] }}</td>
       <td class="clickable" onclick="openRow('{{ durl }}')">{{ i['supplier'] or '-' }}</td>
+      <td class="clickable" onclick="openRow('{{ durl }}')" style="font-size:12px; color:#6b7280;">{{ (i['inspect_date'] | date_korean) or '-' }}</td>
       <td class="clickable" onclick="openRow('{{ durl }}')">{% set label, cls = status_display(i) %}<span class="badge {{ cls }}">{{ label }}</span></td>
       <td class="clickable" onclick="openRow('{{ durl }}')" style="font-size:12px; color:#6b7280;">{{ (i['approved_at'] | datetime_korean) or '-' }}</td>
       <td class="clickable" onclick="openRow('{{ durl }}')">{{ i['approver'] or '-' }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7">출력 대기 중인 성적서가 없어.</td></tr>
+    <tr><td colspan="8">출력 대기 중인 성적서가 없어.</td></tr>
     {% endfor %}
   </table>
 

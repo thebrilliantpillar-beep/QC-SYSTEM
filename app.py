@@ -2349,7 +2349,8 @@ def _generate_report_files(inspection_id, approver, signature_path):
             "logo_path": report_builder.LOGO_PATH,
         }
         fname = report_builder.build_report_filename(
-            header["supplier"], header["material_no"], header["material_name"] or "")
+            header["supplier"], header["material_no"], header["material_name"] or "",
+            inspect_date=header["inspect_date"])
         out_pdf = report_builder._dedupe_path(
             os.path.join(report_builder.report_output_dir(), fname + ".pdf"))
         try:

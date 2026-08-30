@@ -132,9 +132,24 @@ def report_output_dir():
     return path
 
 
-def build_report_filename(supplier, material_no, product_name):
-    """'260821_ACE_600005P086_둥근머리 볼트(M4*16L,STS304)' 형식의 파일명(확장자 제외)."""
-    date_prefix = date.today().strftime("%y%m%d")
+def _date_prefix_from(date_str):
+    """파일명에 쓸 YYMMDD를 뽑는다. inspect_date는 'YYYY-MM-DD'/'YYMMDD' 등 형식이 섞여
+    있을 수 있어서(과거 일괄입력 잔재) 자릿수로만 판단한다 — "260821"을 %Y%m%d로 잘못
+    해석해서 엉뚱한 연도가 되는 사고를 피하려면 반드시 자릿수를 먼저 확인해야 한다
+    (검사 이력 그룹핑에서 겪은 것과 같은 함정, CLAUDE.md 8-2-14 참고).
+    못 알아보면 오늘 날짜로 대체한다(파일 생성 자체가 막히면 안 되므로)."""
+    digits = re.sub(r"[^0-9]", "", date_str or "")
+    if len(digits) == 8:      # YYYYMMDD
+        return digits[2:]
+    if len(digits) == 6:      # YYMMDD
+        return digits
+    return date.today().strftime("%y%m%d")
+
+
+def build_report_filename(supplier, material_no, product_name, inspect_date=None):
+    """'260821_ACE_600005P086_둥근머리 볼트(M4*16L,STS304)' 형식의 파일명(확장자 제외).
+    날짜는 출력(생성)일이 아니라 검사일 기준 — inspect_date를 못 읽으면 오늘 날짜로 대체."""
+    date_prefix = _date_prefix_from(inspect_date)
     supplier_part = _safe_filename_part(supplier) or "미상"
     material_part = _safe_filename_part(material_no) or "미상"
     product_part = _safe_filename_part(product_name)
@@ -484,7 +499,8 @@ def build_report(material_no, product_name, header, results, overall,
     반환: (xlsx_path, pdf_path 또는 None, pdf_error 또는 None, signature_error 또는 None)
     """
     out_dir = report_output_dir()
-    base_name = build_report_filename(header.get("vendor"), material_no, product_name)
+    base_name = build_report_filename(header.get("vendor"), material_no, product_name,
+                                      inspect_date=header.get("inspect_date"))
     xlsx_path = os.path.join(out_dir, f"{base_name}.xlsx")
     xlsx_path = _dedupe_path(xlsx_path)
     shutil.copy(TEMPLATE, xlsx_path)
@@ -560,7 +576,8 @@ def build_group_report(group_no, group_name, header, parts, overall,
     반환: (xlsx_path, pdf_path 또는 None, pdf_error 또는 None, signature_error 또는 None)
     """
     out_dir = report_output_dir()
-    base_name = build_report_filename(header.get("vendor"), group_no, group_name)
+    base_name = build_report_filename(header.get("vendor"), group_no, group_name,
+                                      inspect_date=header.get("inspect_date"))
     xlsx_path = os.path.join(out_dir, f"{base_name}.xlsx")
     xlsx_path = _dedupe_path(xlsx_path)
 
