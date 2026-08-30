@@ -839,9 +839,28 @@ function checkAutoStop() {
   syncManualFromSeconds();
   setInputsLocked(true);  // 페이지 로드 시 항상 잠금 — 타이머를 시작하거나 직접입력해야 입력 가능
 
+  // 임시저장(서버/localStorage)에서 측정 시간을 복구할 때 쓰는 함수 — 스톱워치 내부 변수(seconds)는
+  // 이 IIFE 안에 갇혀 있어서 밖에서 직접 못 건드리므로 전역으로 하나 열어둔다.
+  // 타이머가 켜진 채로 저장됐어도 자동으로 다시 돌리진 않고(그 사이 흐른 실제 시간이 섞이면 안 되므로)
+  // 멈춘 상태로 값만 복구한다 — 이어서 재려면 사용자가 직접 '시작'을 눌러야 한다.
+  window.restoreTimerSeconds = function (sec) {
+    var n = parseInt(sec, 10);
+    if (isNaN(n) || n <= 0) return;
+    seconds = n;
+    render();
+    syncManualFromSeconds();
+    swEverStarted = true;
+    setInputsLocked(false);
+  };
+
   toggleBtn.addEventListener('click', () => {
     if (!swRunning) {
-      timerId = setInterval(() => { seconds++; render(); checkAutoStop(); }, 1000);
+      timerId = setInterval(() => {
+        seconds++; render(); checkAutoStop();
+        // 타이머가 도는 동안 다른 입력 없이도 20초마다 한 번씩 서버에 흘러간 시간을 흘려 넣는다 —
+        // 안 그러면 페이지가 갑자기 꺼지는 등(정상 종료가 아닌 경우) 흐른 시간이 통째로 날아갈 수 있음.
+        if (seconds % 20 === 0 && typeof window.manualSaveDraft === 'function') window.manualSaveDraft();
+      }, 1000);
       toggleBtn.textContent = '정지';
       swRunning = true;
       swEverStarted = true;
@@ -1095,6 +1114,12 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     safe(function () {
       var dateEl = document.querySelector('input[name="inspect_date"]');
       if (dateEl && data['inspect_date']) dateEl.value = data['inspect_date'];
+    });
+
+    safe(function () {
+      if (data['actual_time_sec'] !== undefined && typeof window.restoreTimerSeconds === 'function') {
+        window.restoreTimerSeconds(data['actual_time_sec']);
+      }
     });
 
     safe(function () {
