@@ -1390,7 +1390,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
     #    재검사됐으면 원본이 superseded로 바뀌므로 rejected만 보면 됨
     recheck = q("""
         SELECT i.id, i.material_no, m.material_name, i.supplier, i.inspector,
-               i.inspect_date, i.reject_reason, i.status
+               i.inspect_date, i.receive_date, i.reject_reason, i.status
           FROM inspections i
           LEFT JOIN materials m ON m.material_no = i.material_no
          WHERE i.status = 'rejected'
@@ -1400,7 +1400,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
     # 2. 통보서 작성 필요 — 불합격 확정, NCR 없음
     ncr_write = q("""
         SELECT i.id, i.material_no, m.material_name, i.supplier, i.inspector,
-               i.inspect_date, i.remark_approver
+               i.inspect_date, i.receive_date, i.remark_approver
           FROM inspections i
           LEFT JOIN materials m ON m.material_no = i.material_no
          WHERE i.status = 'approved' AND i.approval_type = 'failed'
@@ -1412,7 +1412,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
     ncr_review = q("""
         SELECT n.id AS ncr_id, n.ncr_no, n.material_no, m.material_name, n.supplier,
                n.issued_by, n.created_at, n.due_date, n.defect_description,
-               i.inspect_date, i.id AS inspection_id
+               i.inspect_date, i.receive_date, i.inspector, i.id AS inspection_id
           FROM ncr n
           LEFT JOIN materials m ON m.material_no = n.material_no
           LEFT JOIN inspections i ON i.id = n.inspection_id
@@ -1424,7 +1424,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
     ncr_send = q("""
         SELECT n.id AS ncr_id, n.ncr_no, n.material_no, m.material_name, n.supplier,
                n.issued_by, n.confirmed_by, n.confirmed_at, n.due_date, n.defect_description,
-               i.inspect_date, i.id AS inspection_id
+               i.inspect_date, i.receive_date, i.inspector, i.id AS inspection_id
           FROM ncr n
           LEFT JOIN materials m ON m.material_no = n.material_no
           LEFT JOIN inspections i ON i.id = n.inspection_id
@@ -1445,7 +1445,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
     completed = q(f"""
         SELECT n.id AS ncr_id, n.ncr_no, n.material_no, m.material_name, n.supplier,
                n.sent_to, n.email_sent_at, n.issued_by, n.confirmed_by, n.defect_description,
-               i.inspect_date, i.id AS inspection_id
+               i.inspect_date, i.receive_date, i.inspector, i.id AS inspection_id
           FROM ncr n
           LEFT JOIN materials m ON m.material_no = n.material_no
           LEFT JOIN inspections i ON i.id = n.inspection_id
@@ -1690,14 +1690,29 @@ def get_ncr(ncr_id):
     conn.close()
     return row
 
+_NCR_LIST_SELECT = """
+    SELECT n.*,
+           i.inspector       AS insp_inspector,
+           i.receive_date    AS insp_receive_date,
+           i.inspect_date    AS insp_inspect_date,
+           i.overall_result  AS insp_overall_result,
+           i.status          AS insp_status,
+           i.approval_type   AS insp_approval_type
+    FROM ncr n
+    LEFT JOIN inspections i ON i.id = n.inspection_id
+"""
+
+
 def list_ncr(inspection_id=None):
+    """검사자/입고일/검사일/자동판정/승인상태로도 검색할 수 있게 원본 성적서(inspections)
+    정보를 같이 조인해서 넘긴다(insp_ 접두어 — ncr.status와 헷갈리지 않게 구분)."""
     conn = get_conn()
     if inspection_id:
         rows = conn.execute(
-            "SELECT * FROM ncr WHERE inspection_id = ? ORDER BY id DESC", (inspection_id,)
+            _NCR_LIST_SELECT + " WHERE n.inspection_id = ? ORDER BY n.id DESC", (inspection_id,)
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM ncr ORDER BY id DESC").fetchall()
+        rows = conn.execute(_NCR_LIST_SELECT + " ORDER BY n.id DESC").fetchall()
     conn.close()
     return rows
 
@@ -2118,14 +2133,29 @@ def create_return_request(inspection_id, material_no, material_name, supplier,
     return rid
 
 
+_RETURN_LIST_SELECT = """
+    SELECT r.*,
+           i.inspector       AS insp_inspector,
+           i.receive_date    AS insp_receive_date,
+           i.inspect_date    AS insp_inspect_date,
+           i.overall_result  AS insp_overall_result,
+           i.status          AS insp_status,
+           i.approval_type   AS insp_approval_type
+    FROM return_requests r
+    LEFT JOIN inspections i ON i.id = r.inspection_id
+"""
+
+
 def list_return_requests(status=None):
+    """검사자/입고일/검사일/자동판정/승인상태로도 검색할 수 있게 원본 성적서(inspections)
+    정보를 같이 조인해서 넘긴다(insp_ 접두어 — return_requests.status와 헷갈리지 않게 구분)."""
     conn = get_conn()
     if status:
         rows = conn.execute(
-            "SELECT * FROM return_requests WHERE status = ? ORDER BY id DESC", (status,)
+            _RETURN_LIST_SELECT + " WHERE r.status = ? ORDER BY r.id DESC", (status,)
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM return_requests ORDER BY id DESC").fetchall()
+        rows = conn.execute(_RETURN_LIST_SELECT + " ORDER BY r.id DESC").fetchall()
     conn.close()
     return rows
 

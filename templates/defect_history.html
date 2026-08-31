@@ -95,6 +95,8 @@
   통계 분석은 <a href="{{ url_for('quality_dashboard') }}">품질 대시보드</a>를 이용해줘.
 </p>
 
+{% include "_list_search.html" %}
+
 {# ── 상단 미결 건수 요약 ── #}
 {% set total_pending = data.recheck|length + data.ncr_write|length + data.ncr_review|length + data.ncr_send|length %}
 <div class="summary-strip">

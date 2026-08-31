@@ -13,6 +13,8 @@
   <h2 style="margin:0;">🔄 반품 처리 목록</h2>
 </div>
 
+{% include "_list_search.html" %}
+
 <!-- 상태 필터 -->
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
   <a href="{{ url_for('return_list') }}"

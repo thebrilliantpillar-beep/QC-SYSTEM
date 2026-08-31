@@ -47,6 +47,8 @@
   {% endif %}
 </div>
 
+{% include "_list_search.html" %}
+
 {% if 'history_delete' in user_perms %}
 <form id="deleteForm" method="post" action="{{ url_for('history_delete_selected') }}">
   <div class="edit-toolbar">

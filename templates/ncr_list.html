@@ -16,6 +16,8 @@
   <h2 style="margin:0;">📋 부적합 통보서 목록</h2>
 </div>
 
+{% include "_list_search.html" %}
+
 <!-- 상태 필터 -->
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
   {% for label, val in [('전체',''), ('초안','draft'), ('확인완료','confirmed'), ('발송됨','sent')] %}

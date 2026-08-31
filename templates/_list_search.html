@@ -1,0 +1,69 @@
+{# 검사이력/불량이력/부적합통보서/반품처리 4개 목록 화면이 공통으로 쓰는 검색 폼.
+   사용: {% include "_list_search.html" %}  (호출부에서 f, result_options, status_options,
+   show_result, show_status를 미리 set 해두면 그대로 씀 — 기본은 전부 표시) #}
+<details style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px 14px; margin-bottom:14px;"
+    {% if f and (f.q_inspector or f.q_supplier or f.q_product or f.q_material or f.f_result or f.f_status or f.insp_start or f.insp_end or f.recv_start or f.recv_end) %}open{% endif %}>
+  <summary style="cursor:pointer; font-weight:600; color:#374151; font-size:14px;">🔎 검색</summary>
+  <div>
+    <form method="get" style="display:flex; flex-wrap:wrap; gap:10px 16px; align-items:flex-end; margin-top:10px;">
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">검사자</label>
+        <input type="text" name="q_inspector" value="{{ f.q_inspector }}" placeholder="이름" style="width:110px; padding:7px 8px; font-size:13px;">
+      </div>
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">업체명</label>
+        <input type="text" name="q_supplier" value="{{ f.q_supplier }}" placeholder="업체명" style="width:130px; padding:7px 8px; font-size:13px;">
+      </div>
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">제품명</label>
+        <input type="text" name="q_product" value="{{ f.q_product }}" placeholder="제품명" style="width:150px; padding:7px 8px; font-size:13px;">
+      </div>
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">자재번호</label>
+        <input type="text" name="q_material" value="{{ f.q_material }}" placeholder="자재번호" style="width:130px; padding:7px 8px; font-size:13px;">
+      </div>
+      {% if show_result | default(true) %}
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">자동판정</label>
+        <select name="f_result" style="width:110px; padding:7px 8px; font-size:13px;">
+          <option value="">전체</option>
+          {% for opt in result_options %}
+          <option value="{{ opt }}" {% if f.f_result == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      {% if show_status | default(true) %}
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">승인상태</label>
+        <select name="f_status" style="width:120px; padding:7px 8px; font-size:13px;">
+          <option value="">전체</option>
+          {% for opt in status_options %}
+          <option value="{{ opt }}" {% if f.f_status == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">입고일</label>
+        <div style="display:flex; align-items:center; gap:4px;">
+          <input type="date" name="recv_start" value="{{ f.recv_start }}" style="padding:6px 6px; font-size:12.5px;">
+          <span style="color:#9ca3af;">~</span>
+          <input type="date" name="recv_end" value="{{ f.recv_end }}" style="padding:6px 6px; font-size:12.5px;">
+        </div>
+      </div>
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">검사일</label>
+        <div style="display:flex; align-items:center; gap:4px;">
+          <input type="date" name="insp_start" value="{{ f.insp_start }}" style="padding:6px 6px; font-size:12.5px;">
+          <span style="color:#9ca3af;">~</span>
+          <input type="date" name="insp_end" value="{{ f.insp_end }}" style="padding:6px 6px; font-size:12.5px;">
+        </div>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button type="submit" style="margin-top:0; padding:8px 16px; font-size:13px;">검색</button>
+        <a href="{{ request.path }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</a>
+      </div>
+    </form>
+  </div>
+</details>

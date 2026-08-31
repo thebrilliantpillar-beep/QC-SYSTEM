@@ -366,27 +366,104 @@ def _admin_only():
     return None
 
 
+def _approval_status_label(status, overall_result, approval_type):
+    """status_display()와 같은 규칙을 raw 값(row 객체 아님)으로 받아 라벨만 돌려준다 —
+    검사이력 외에도 NCR·반품처럼 원본 성적서를 조인해서 쓰는 목록의 검색 필터에서
+    재사용하기 위해 분리."""
+    if status == "pending":
+        if overall_result == "검토필요":
+            return "검토필요"
+        return "대기중"
+    if status == "rejected":
+        return "반려"
+    if status == "superseded":
+        return "재검사 진행됨"
+    if status == "approved":
+        if approval_type == "special":
+            return "특채 승인"
+        if approval_type == "failed":
+            return "불합격 확정"
+        return "합격 승인"
+    return status or ""
+
+
+APPROVAL_STATUS_LABELS = ["대기중", "검토필요", "반려", "재검사 진행됨", "특채 승인", "불합격 확정", "합격 승인"]
+OVERALL_RESULT_OPTIONS = ["합격", "검토필요", "불합격", "규격미입력"]
+
+
 def status_display(insp):
     """
     성적서 한 건의 (한글 상태 라벨, badge css 클래스) 반환.
     승인된 건은 합격/불합격/특채 여부까지 구분해서 보여준다.
     """
-    status = insp["status"]
-    if status == "pending":
-        if insp["overall_result"] == "검토필요":
-            return ("검토필요", "review")
-        return ("대기중", "pending")
-    if status == "rejected":
-        return ("반려", "fail")
-    if status == "superseded":
-        return ("재검사 진행됨", "muted")
-    if status == "approved":
-        if insp["approval_type"] == "special":
-            return ("특채 승인", "special")
-        if insp["approval_type"] == "failed":
-            return ("불합격 확정", "fail")
-        return ("합격 승인", "pass")
-    return (status, "pending")
+    label = _approval_status_label(insp["status"], insp["overall_result"], insp["approval_type"])
+    cls_map = {"대기중": "pending", "검토필요": "review", "반려": "fail", "재검사 진행됨": "muted",
+               "특채 승인": "special", "불합격 확정": "fail", "합격 승인": "pass"}
+    return (label, cls_map.get(label, "pending"))
+
+
+def _list_search_params():
+    """4개 목록 화면(검사이력/불량이력/부적합통보서/반품처리)이 공통으로 쓰는 검색 조건을
+    쿼리스트링에서 뽑아 dict로 정리."""
+    a = request.args
+    return {
+        "q_inspector": (a.get("q_inspector") or "").strip(),
+        "q_supplier": (a.get("q_supplier") or "").strip(),
+        "q_product": (a.get("q_product") or "").strip(),
+        "q_material": (a.get("q_material") or "").strip(),
+        "f_result": (a.get("f_result") or "").strip(),
+        "f_status": (a.get("f_status") or "").strip(),
+        "insp_start": (a.get("insp_start") or "").strip(),
+        "insp_end": (a.get("insp_end") or "").strip(),
+        "recv_start": (a.get("recv_start") or "").strip(),
+        "recv_end": (a.get("recv_end") or "").strip(),
+    }
+
+
+def _row_passes_search(f, inspector=None, supplier=None, product=None, material=None,
+                        result=None, status=None, insp_date=None, recv_date=None):
+    """공통 검색 필터 한 건 판정. 필드가 그 화면에 아예 없으면(None) 그 조건은 건너뛰고,
+    있는데 값이 비어 있으면(빈 문자열) 정상적으로 걸러진다."""
+    if f["q_inspector"] and inspector is not None and f["q_inspector"] not in inspector:
+        return False
+    if f["q_supplier"] and supplier is not None and f["q_supplier"] not in supplier:
+        return False
+    if f["q_product"] and product is not None and f["q_product"] not in product:
+        return False
+    if f["q_material"] and material is not None and f["q_material"] not in material:
+        return False
+    if f["f_result"] and result is not None and f["f_result"] != result:
+        return False
+    if f["f_status"] and status is not None and f["f_status"] != status:
+        return False
+
+    if (f["insp_start"] or f["insp_end"]) and insp_date is not None:
+        d = _parse_any_date(insp_date)
+        if not d:
+            return False
+        if f["insp_start"]:
+            sd = _parse_any_date(f["insp_start"])
+            if sd and d < sd:
+                return False
+        if f["insp_end"]:
+            ed = _parse_any_date(f["insp_end"])
+            if ed and d > ed:
+                return False
+
+    if (f["recv_start"] or f["recv_end"]) and recv_date is not None:
+        d = _parse_any_date(recv_date)
+        if not d:
+            return False
+        if f["recv_start"]:
+            sd = _parse_any_date(f["recv_start"])
+            if sd and d < sd:
+                return False
+        if f["recv_end"]:
+            ed = _parse_any_date(f["recv_end"])
+            if ed and d > ed:
+                return False
+
+    return True
 
 
 def ensure_default_admin():
@@ -3130,6 +3207,19 @@ def history():
     NO_DATE = "날짜 없음"
     inspections = db.list_inspections()
 
+    f = _list_search_params()
+    inspections = [
+        insp for insp in inspections
+        if _row_passes_search(
+            f,
+            inspector=insp["inspector"] or "", supplier=insp["supplier"] or "",
+            product=insp["material_name"] or "", material=insp["material_no"] or "",
+            result=insp["overall_result"] or "",
+            status=_approval_status_label(insp["status"], insp["overall_result"], insp["approval_type"]),
+            insp_date=insp["inspect_date"], recv_date=insp["receive_date"],
+        )
+    ]
+
     by_date = defaultdict(list)
     for insp in inspections:
         d = _parse_any_date(insp["inspect_date"])
@@ -3144,7 +3234,8 @@ def history():
     drawing_materials = materials_with_drawings(i["material_no"] for i in inspections)
     return render_template("history.html", by_date=by_date,
                            sorted_dates=sorted_dates, date_labels=date_labels,
-                           time_labels=time_labels, drawing_materials=drawing_materials)
+                           time_labels=time_labels, drawing_materials=drawing_materials,
+                           f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
 
 
 # ---------- 승인 이력 (필터+엑셀 내보내기) ----------
@@ -3378,9 +3469,25 @@ def defect_history():
         completed_start=start or None,
         completed_end=end or None,
     )
+
+    f = _list_search_params()
+
+    def _filt(rows):
+        return [
+            r for r in rows
+            if _row_passes_search(
+                f,
+                inspector=r.get("inspector") or "", supplier=r.get("supplier") or "",
+                product=r.get("material_name") or "", material=r.get("material_no") or "",
+                insp_date=r.get("inspect_date"), recv_date=r.get("receive_date"),
+            )
+        ]
+    data = {k: _filt(v) for k, v in data.items()}
+
     return render_template("defect_history.html",
                            data=data,
-                           preset=preset, start=start, end=end)
+                           preset=preset, start=start, end=end,
+                           f=f, show_result=False, show_status=False)
 
 
 # ---------- 전수검사 기록지 ----------
@@ -4394,8 +4501,23 @@ def ncr_list():
     ncrs = db.list_ncr()
     if status_filter:
         ncrs = [n for n in ncrs if n["status"] == status_filter]
+
+    f = _list_search_params()
+    ncrs = [
+        n for n in ncrs
+        if _row_passes_search(
+            f,
+            inspector=n["insp_inspector"] or "", supplier=n["supplier"] or "",
+            product=n["material_name"] or "", material=n["material_no"] or "",
+            result=n["insp_overall_result"] or "",
+            status=_approval_status_label(n["insp_status"], n["insp_overall_result"], n["insp_approval_type"]),
+            insp_date=n["insp_inspect_date"], recv_date=n["insp_receive_date"],
+        )
+    ]
+
     return render_template("ncr_list.html", ncrs=ncrs, status_filter=status_filter,
-                           today=date.today().isoformat())
+                           today=date.today().isoformat(),
+                           f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
 
 
 @app.route("/ncr/<int:ncr_id>")
@@ -4628,9 +4750,24 @@ def return_list():
     status_filter = request.args.get("status", "")
     returns = db.list_return_requests(status=status_filter or None)
     statuses = ["반품요청", "반품완료", "재납품대기", "재검사완료"]
+
+    f = _list_search_params()
+    returns = [
+        r for r in returns
+        if _row_passes_search(
+            f,
+            inspector=r["insp_inspector"] or "", supplier=r["supplier"] or "",
+            product=r["material_name"] or "", material=r["material_no"] or "",
+            result=r["insp_overall_result"] or "",
+            status=_approval_status_label(r["insp_status"], r["insp_overall_result"], r["insp_approval_type"]),
+            insp_date=r["insp_inspect_date"], recv_date=r["insp_receive_date"],
+        )
+    ]
+
     return render_template("return_list.html", returns=returns,
                            status_filter=status_filter, statuses=statuses,
-                           today=date.today().isoformat())
+                           today=date.today().isoformat(),
+                           f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
 
 
 @app.route("/return/new/<int:inspection_id>", methods=["GET", "POST"])
