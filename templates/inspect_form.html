@@ -748,7 +748,11 @@ window.addEventListener('load', () => {
 // 개당 측정 시간 스톱워치 (수동 시작/정지) — 정지된 시간이 실제 제출값(actual_time_sec)이 됨
 // 타이머를 시작해야만 측정값 입력이 가능하고, 측정1(샘플 1개) 칸이 다 채워지면 자동으로 정지된다.
 let swRunning = false;
-let swEverStarted = {{ 'true' if (prefill and prefill.actual_time_sec) else 'false' }};
+// prefill이 있으면(측정값 수정·재검사 화면) 이미 예전에 측정을 마친 상태이므로 잠금 없이 시작한다.
+// prefill.actual_time_sec만 보면 그 값이 0/미기록인 옛 성적서에서 조건이 거짓이 되어
+// 측정칸이 disabled로 남고, disabled 입력은 폼 제출에서 아예 빠지므로 "타이머를 안 건드리고
+// 저장하면 기존 측정값이 통째로 사라지는" 사고로 이어졌다(실사용자가 겪음, 2026-08-31).
+let swEverStarted = {{ 'true' if prefill else 'false' }};
 
 function setInputsLocked(locked) {
   document.querySelectorAll('.sample-input, .visual-select').forEach(el => {
@@ -837,7 +841,9 @@ function checkAutoStop() {
   }
   render();
   syncManualFromSeconds();
-  setInputsLocked(true);  // 페이지 로드 시 항상 잠금 — 타이머를 시작하거나 직접입력해야 입력 가능
+  // 이미 측정 이력이 있는 화면(prefill, swEverStarted=true)은 잠그지 않는다 — 안 그러면 disabled 입력이
+  // 폼 제출에서 통째로 빠져서 기존 측정값이 사라진다. 새 검사(swEverStarted=false)만 잠근다.
+  setInputsLocked(!swEverStarted);
 
   // 임시저장(서버/localStorage)에서 측정 시간을 복구할 때 쓰는 함수 — 스톱워치 내부 변수(seconds)는
   // 이 IIFE 안에 갇혀 있어서 밖에서 직접 못 건드리므로 전역으로 하나 열어둔다.

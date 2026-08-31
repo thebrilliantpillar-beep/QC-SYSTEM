@@ -2027,6 +2027,32 @@ def judge_visual(raw_value, allowed_defects=0):
     return ("합격" if ok else "불합격"), None, None
 
 
+_BAD_MARKERS = {"X", "NG", "×", "불합격", "FAIL"}
+
+
+def _out_of_spec_flags(measured_value, judge_type, lower, upper):
+    """측정값 문자열(콤마 구분)을 낱개로 쪼개서, 각 값이 실제로 규격을 벗어났는지 배열로
+    돌려준다. 항목 전체가 불합격이어도 샘플 6개 중 실제로 벗어난 건 1개뿐일 수 있는데,
+    예전엔 항목이 불합격이면 값 전부를 빨갛게 칠해서 어느 값이 문제인지 구분이 안 됐다
+    (2026-08-31 사용자 피드백). numeric은 하한/상한과 직접 비교, 그 외(visual/ok_ng)는
+    X/NG 같은 불량 표기 자체를 벗어난 값으로 본다."""
+    if not measured_value:
+        return []
+    vals = [v.strip() for v in measured_value.split(",")]
+    if judge_type == "numeric":
+        flags = []
+        for v in vals:
+            try:
+                n = float(v)
+            except ValueError:
+                flags.append(True)   # 숫자로 못 읽는 값도 눈에 띄게 강조
+                continue
+            bad = (lower is not None and n < lower) or (upper is not None and n > upper)
+            flags.append(bad)
+        return flags
+    return [v.upper() in _BAD_MARKERS for v in vals]
+
+
 # ---------- 성적서 상세 ----------
 
 @app.route("/inspection/<int:inspection_id>")
@@ -2070,6 +2096,13 @@ def inspection_detail(inspection_id):
     specs_all = build_specs_with_sample(specs, header["quantity"]) if specs else []
     specs_map = {s["item_name"]: s for s in specs_all}
 
+    # 항목이 불합격이어도 샘플 중 실제로 규격을 벗어난 값만 강조하기 위한 개별 값 플래그
+    # (item id → [bool, ...], measured_value를 콤마로 쪼갠 순서와 동일)
+    value_flags = {
+        it["id"]: _out_of_spec_flags(it["measured_value"], it["judge_type"], it["lower_limit"], it["upper_limit"])
+        for it in items
+    }
+
     # AQL 그룹별 샘플수 요약 (대시보드·설명용)
     aql_groups = _unique_aql_sample_qty(specs_all) if specs_all else {}
 
@@ -2110,7 +2143,8 @@ def inspection_detail(inspection_id):
                            specs_map=specs_map, is_failed=is_failed,
                            full_inspect_config=full_inspect_config,
                            full_inspect=full_inspect,
-                           stale_spec_items=stale_spec_items)
+                           stale_spec_items=stale_spec_items,
+                           value_flags=value_flags)
 
 
 @app.route("/inspection/<int:inspection_id>/remark", methods=["POST"])

@@ -180,11 +180,12 @@
       <td>
         {% if it['measured_value'] %}
           {% set vals = it['measured_value'].split(',') %}
+          {% set flags = value_flags.get(it['id'], []) %}
           {% if vals|length == 1 %}
-            <span class="val-box {{ 'fail' if is_fail_item else '' }}">{{ vals[0].strip() }}</span>
+            <span class="val-box {{ 'fail' if (flags[0] if flags else is_fail_item) else '' }}">{{ vals[0].strip() }}</span>
           {% else %}
             {% for v in vals %}
-            <span class="val-box {{ 'fail' if (it['result']=='불합격') else '' }}" style="font-size:12px;">
+            <span class="val-box {{ 'fail' if (flags[loop.index0] if flags|length > loop.index0 else is_fail_item) else '' }}" style="font-size:12px;">
               <span style="color:#9ca3af; font-size:10px; margin-right:2px;">{{ loop.index }}</span>{{ v.strip() }}
             </span>
             {% endfor %}

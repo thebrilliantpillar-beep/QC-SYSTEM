@@ -1220,6 +1220,7 @@ def get_inspection(inspection_id):
                s.inspect_method AS inspect_method,
                s.lower_limit AS lower_limit,
                s.upper_limit AS upper_limit,
+               s.judge_type AS judge_type,
                s.material_name AS part_material_name
         FROM inspection_items ii
         LEFT JOIN specs s
