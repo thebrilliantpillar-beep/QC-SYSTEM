@@ -4431,6 +4431,61 @@ NCR_PHOTO_DIR = os.path.join(db.DATA_DIR, "ncr_photos")
 os.makedirs(NCR_PHOTO_DIR, exist_ok=True)
 
 
+@app.route("/ncr/new", methods=["GET", "POST"])
+@perm_required("ncr", "approve")
+def ncr_new_manual():
+    """자재번호·업체 등을 직접 입력해서 부적합 통보서를 발행하는 화면.
+
+    이 시스템 도입 전(회사 로컬 PC에만 있던) 과거 불량 기록을 지금 통보서로
+    남기고 싶을 때 쓴다 — 성적서(inspection_id) 연결 없이도 발행 가능
+    (2026-08-31 사용자 요청)."""
+    if request.method == "POST":
+        material_no = request.form.get("material_no", "").strip()
+        material_name = request.form.get("material_name", "").strip()
+        supplier = request.form.get("supplier", "").strip()
+        if not material_no or not supplier:
+            flash("자재번호와 업체는 필수야.")
+            return redirect(url_for("ncr_new_manual"))
+
+        ncr_id, ncr_no = db.create_ncr(
+            inspection_id=None,
+            material_no=material_no,
+            material_name=material_name,
+            supplier=supplier,
+            defect_description=request.form.get("defect_description", "").strip(),
+            action_required=request.form.get("action_required", "").strip(),
+            due_date=request.form.get("due_date", "").strip(),
+            issued_by=g.user["display_name"] or g.user["username"],
+            issued_date=request.form.get("issued_date", "").strip(),
+        )
+        record_change("부적합 통보서 발행(수기입력)", "ncr", ncr_id,
+                      f"{ncr_no} — {material_no} / {supplier}")
+
+        import uuid
+        saved_photos = 0
+        for file in request.files.getlist("photos"):
+            if not file or not file.filename:
+                continue
+            ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                continue
+            fname = f"{ncr_no}_{uuid.uuid4().hex[:8]}{ext}"
+            try:
+                file.save(os.path.join(NCR_PHOTO_DIR, fname))
+                db.add_ncr_photo(ncr_id, fname)
+                saved_photos += 1
+            except Exception:
+                pass
+        if saved_photos:
+            record_change("NCR 사진 첨부", "ncr", ncr_id, f"{saved_photos}장 (작성 시 일괄)")
+
+        flash(f"부적합 통보서 {ncr_no} 발행됐어." + (f" 사진 {saved_photos}장 첨부." if saved_photos else ""))
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    from datetime import date
+    return render_template("ncr_manual_form.html", today=date.today().isoformat())
+
+
 @app.route("/ncr/new/<int:inspection_id>", methods=["GET", "POST"])
 @perm_required("ncr", "approve")
 def ncr_new(inspection_id):

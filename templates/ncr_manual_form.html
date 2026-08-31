@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}부적합 통보서 작성 (수기입력){% endblock %}
+{% block content %}
+<style>
+.ncr-section { background: #fff; border-radius: 12px; padding: 18px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; }
+.ncr-section h3 { font-size: 14px; font-weight: 700; color: #4b5563;
+                  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+</style>
+
+<h2>📋 부적합 통보서 작성 (수기입력)</h2>
+<p class="muted" style="margin:-6px 0 14px;">
+  성적서에 연결하지 않고 직접 입력해서 발행해 — 이 시스템 도입 전 회사 로컬에만 있던
+  과거 불량 기록을 지금 통보서로 남기고 싶을 때 써. 이미 검사입력이 돼 있는 건은
+  해당 성적서 상세 화면의 "부적합 통보서" 버튼을 쓰는 게 더 편해.
+</p>
+
+<form method="POST" enctype="multipart/form-data">
+  <div class="ncr-section">
+    <h3>📦 자재·업체 정보</h3>
+
+    <label>자재번호 <span style="color:var(--fail);">*</span></label>
+    <input type="text" name="material_no" required placeholder="예: 600005P086">
+
+    <label>제품명</label>
+    <input type="text" name="material_name" placeholder="예: 둥근머리 볼트(M4*16L,STS304)">
+
+    <label>업체 <span style="color:var(--fail);">*</span></label>
+    <input type="text" name="supplier" required placeholder="예: ACE">
+  </div>
+
+  <div class="ncr-section">
+    <h3>✍️ 통보서 내용</h3>
+
+    <label>발행일 <span style="color:var(--fail);">*</span></label>
+    <input type="date" name="issued_date" value="{{ today }}" required>
+
+    <label>불량 내용 <span style="color:var(--fail);">*</span></label>
+    <textarea name="defect_description" rows="4" required
+              placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛) — 2026년 3월경 발생분"
+              style="resize:vertical;"></textarea>
+
+    <label>요구 조치사항 <span style="color:var(--fail);">*</span></label>
+    <textarea name="action_required" rows="3" required
+              placeholder="예: 불량 수량 전량 반품 후 재납품 요청. 원인 분석서 제출 요망."
+              style="resize:vertical;"></textarea>
+
+    <label>조치 기한</label>
+    <input type="date" name="due_date">
+  </div>
+
+  <div class="ncr-section">
+    <h3>📷 불량 사진 (선택 · 최대 6장)</h3>
+    <p style="margin:0 0 10px; color:#6b7280; font-size:12.5px;">
+      카메라로 바로 찍거나 갤러리에서 골라도 돼. 첨부된 사진은 통보서 상세와 이메일 발송에 자동 포함돼.
+    </p>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+      <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+        📸 카메라로 촬영
+        <input type="file" name="photos" accept="image/*" capture="environment" multiple
+               style="display:none;" onchange="previewNcrPhotos(this)">
+      </label>
+      <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+        🖼️ 갤러리에서 선택
+        <input type="file" name="photos" accept="image/*" multiple
+               style="display:none;" onchange="previewNcrPhotos(this)">
+      </label>
+    </div>
+
+    <div id="ncrPhotoPreview"
+         style="display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+                gap:8px; margin-top:8px;"></div>
+    <div id="ncrPhotoMsg" style="margin-top:6px; font-size:12.5px; color:#6b7280;"></div>
+  </div>
+
+  <script>
+  (function () {
+    var previewBox = document.getElementById('ncrPhotoPreview');
+    var msg = document.getElementById('ncrPhotoMsg');
+    var buffer = [];
+    window.previewNcrPhotos = function (input) {
+      for (var i = 0; i < input.files.length; i++) {
+        if (buffer.length >= 6) break;
+        var f = input.files[i];
+        buffer.push({ name: f.name, url: URL.createObjectURL(f) });
+      }
+      if (input.files.length + (buffer.length - input.files.length) > 6) {
+        msg.textContent = '⚠ 최대 6장까지만 첨부돼. 초과된 파일은 무시됐어.';
+        msg.style.color = '#b45309';
+      } else {
+        msg.textContent = buffer.length + '장 선택됨';
+        msg.style.color = '#6b7280';
+      }
+      previewBox.innerHTML = buffer.map(function (b, idx) {
+        return '<div style="position:relative;">' +
+          '<img src="' + b.url + '" style="width:100%; aspect-ratio:1/1; object-fit:cover; ' +
+          'border-radius:8px; border:1px solid #e5e7eb;">' +
+          '<div style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.6); ' +
+          'color:#fff; font-size:10px; padding:1px 5px; border-radius:4px;">' + (idx+1) + '</div>' +
+          '</div>';
+      }).join('');
+    };
+  })();
+  </script>
+
+  <button type="submit" style="width:100%; font-size:16px; padding:15px; margin-top:4px;">
+    부적합 통보서 발행
+  </button>
+</form>
+{% endblock %}

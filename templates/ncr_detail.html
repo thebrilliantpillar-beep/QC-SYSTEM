@@ -266,8 +266,10 @@
 
   <a href="{{ url_for('ncr_list') }}"
      style="background:#fff; border:1.5px solid var(--border); color:#374151;">← 목록</a>
+  {% if ncr['inspection_id'] %}
   <a href="{{ url_for('inspection_detail', inspection_id=ncr['inspection_id']) }}"
      style="background:#fff; border:1.5px solid var(--border); color:#374151;">← 성적서</a>
+  {% endif %}
 </div>
 
 <!-- 통보서 본문 -->

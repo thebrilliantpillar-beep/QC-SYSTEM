@@ -177,6 +177,9 @@
           {% if nav_counts.get('ncr_draft', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['ncr_draft'] }})</span>{% endif %}
         </a>
       {% endif %}
+      {% if 'ncr' in perms or 'approve' in perms %}
+        <a href="{{ url_for('ncr_new_manual') }}">부적합 통보서 작성</a>
+      {% endif %}
       {% if 'return' in perms %}
         <a href="{{ url_for('return_list') }}">반품 처리
           {% if nav_counts.get('return', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['return'] }})</span>{% endif %}
