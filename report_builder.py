@@ -99,6 +99,33 @@ FIRST_ROW = 9   # 항목 A가 들어가는 행
 LAST_ROW = 27   # 항목 S가 들어가는 마지막 행(템플릿이 지원하는 최대 항목수)
 ITEM_COLS = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "N", "O", "P", "Q"]
 
+ITEM_ROW_HEIGHT = 39.0   # 항목표 한 행 기본 높이(템플릿 원본 값) — 대략 2줄까지 여유 있게 잡혀 있음
+_ITEM_ROW_CHARS_PER_LINE = 16  # B열 폭(약 18.7) 기준, 한글 위주 텍스트가 한 줄에 대략 들어가는 양
+
+
+def _estimate_wrapped_lines(text, chars_per_line=_ITEM_ROW_CHARS_PER_LINE):
+    """검사항목(B열) 텍스트가 셀 폭 안에서 대략 몇 줄로 접힐지 추정한다.
+    실제 폰트 폭 측정은 아니라서 정확하진 않지만, "규격 설명이 길어서 줄이 넘치는데
+    행 높이는 그대로라 글자가 뭉개져 보인다"는 실사용자 피드백에 대응하기 위한
+    근사치 — 한글/전각 문자는 라틴 문자의 약 2배 폭으로 가중치를 준다."""
+    if not text:
+        return 1
+    width = sum(2 if ord(ch) > 0x1100 else 1 for ch in text)
+    return max(1, -(-width // (chars_per_line * 2)))  # 올림 나눗셈
+
+
+def _grow_row_for_text(ws, row, text, base_height=ITEM_ROW_HEIGHT):
+    """긴 검사항목 설명 때문에 줄바꿈이 2줄을 넘어가면, 그만큼 행 높이를 늘려서
+    글자가 눌려 보이지 않게 한다. 페이지 전체는 fitToPage(1페이지 강제)로 스케일이
+    자동 조정되므로, 이렇게 특정 행만 키워도 A4 1장 안에 그대로 들어간다."""
+    lines = _estimate_wrapped_lines(text)
+    if lines <= 2:
+        return
+    new_height = base_height / 2 * lines * 1.1  # 기본 높이가 2줄 기준이라 줄당 높이로 환산 후 여유 10%
+    current = ws.row_dimensions[row].height or base_height
+    if new_height > current:
+        ws.row_dimensions[row].height = new_height
+
 
 def _safe_folder_name(s):
     """폴더명에 못 쓰는 문자 제거/치환."""
@@ -276,7 +303,7 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
     ws["K4"] = f"자재번호：{material_no}"
     ws["A3"] = f"검사 날짜 : {header.get('inspect_date','')}"
     ws["A5"] = f"납품 업체：{header.get('vendor','')}"
-    ws["F5"] = f"발주 번호：{header.get('po_no','')}"
+    ws["F5"] = f"로트 번호：{header.get('po_no','')}"
     ws["A6"] = f"입고 날짜 / 로트번호 : {header.get('lot','')}"
     qty_raw = header.get("qty")
     try:
@@ -326,6 +353,7 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
         ws[f"A{row}"].alignment = center  # 번호(항목기호)
         if r.get("spec_display") is not None:
             ws[f"B{row}"] = r["spec_display"]
+            _grow_row_for_text(ws, row, r["spec_display"])
         # AQL 칸은 두 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
         #   AQL 4.0
         #   샘플 6개/Ac1 이내 합격   (또는 Ac=0이면 예전처럼 "무결점")
