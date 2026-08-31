@@ -3393,7 +3393,7 @@ def approval_history_export():
     ws.merge_cells("B1:M1")
     ws.row_dimensions[1].height = 28
 
-    headers = ["입고일", "업체명", "발주번호", "자재명", "자재번호",
+    headers = ["입고일", "업체명", "로트번호", "자재명", "자재번호",
                "입고수량", "검사자", "검사시간", "판정여부",
                "합격 수량", "불량 수량", "AQL 최대 샘플"]
     thin = Side(style="thin", color="B7BEC9")
@@ -3850,7 +3850,7 @@ def output_download_zip():
 
 # 디자이너에서 끌어다 쓰는 데이터 필드 → 성적서 헤더에서 값을 뽑는 규칙
 CUSTOM_FIELD_KEYS = ["자재번호", "제품명", "업체명", "검사일", "검사자",
-                     "발주번호", "도면번호", "입고수량", "종합판정"]
+                     "로트번호", "도면번호", "입고수량", "종합판정"]
 
 
 def _custom_fields_from_header(header):
@@ -3870,7 +3870,7 @@ def _custom_fields_from_header(header):
         "업체명":   g("supplier") or "",
         "검사일":   g("inspect_date") or "",
         "검사자":   g("inspector") or "",
-        "발주번호": g("po_number") or "",
+        "로트번호": g("po_number") or "",
         "도면번호": report_builder.compute_drawing_no(g("material_no") or ""),
         "입고수량": f"{qty:,}" if isinstance(qty, int) else (str(qty) if qty is not None else ""),
         "종합판정": overall,
@@ -4028,7 +4028,7 @@ def _custom_preview_data(template_id):
         "fields": {
             "자재번호": "600005P086", "제품명": "둥근머리 볼트(M416L,STS304)",
             "업체명": "ACE", "검사일": date.today().isoformat(), "검사자": "홍길동",
-            "발주번호": "PO-260823-01", "도면번호": "A600005-086", "입고수량": "2,000",
+            "로트번호": "CK260823-01", "도면번호": "A600005-086", "입고수량": "2,000",
         },
         "items": [
             {"label": "*A", "spec": "Ø9.0 ±0.1", "method": "캘리퍼", "value": "9.02", "verdict": "합격"},
@@ -4457,6 +4457,8 @@ def ncr_new_manual():
             due_date=request.form.get("due_date", "").strip(),
             issued_by=g.user["display_name"] or g.user["username"],
             issued_date=request.form.get("issued_date", "").strip(),
+            lot_number=request.form.get("lot_number", "").strip() or None,
+            receive_date=request.form.get("receive_date", "").strip() or None,
         )
         record_change("부적합 통보서 발행(수기입력)", "ncr", ncr_id,
                       f"{ncr_no} — {material_no} / {supplier}")
@@ -4588,12 +4590,15 @@ def ncr_detail(ncr_id):
     photos = photos[:6]
     supplier_info = db.get_supplier(ncr["supplier"] or "")
 
-    # 연결된 성적서에서 발주번호를 가져온다 — ncr 자체에는 po_number 컬럼이 없음
-    po_number = ""
+    # 연결된 성적서에서 로트번호(po_number)·입고날짜를 가져온다 — 성적서 연결이 없는
+    # 수기입력 통보서는 ncr 테이블에 직접 저장된 lot_number/receive_date로 대신한다.
+    po_number = ncr["lot_number"] or "" if "lot_number" in ncr.keys() else ""
+    receive_date = ncr["receive_date"] or "" if "receive_date" in ncr.keys() else ""
     try:
         insp_header, _ = db.get_inspection(ncr["inspection_id"])
         if insp_header:
-            po_number = insp_header["po_number"] or ""
+            po_number = insp_header["po_number"] or po_number
+            receive_date = insp_header["receive_date"] or receive_date
     except Exception:
         pass
 
@@ -4618,6 +4623,7 @@ def ncr_detail(ncr_id):
                            confirm_block_reason=block_reason or "",
                            confirm_signature_url=confirm_signature_url,
                            po_number=po_number,
+                           ncr_receive_date=receive_date,
                            is_stamp_sig=is_stamp_sig,
                            logo_url=url_for("static", filename="logo.png"))
 
@@ -5120,7 +5126,7 @@ def dashboard_export_xlsx():
     for k, v in [("보고기간", f"{p['start']} ~ {p['end']}"),
                  ("기간유형", dict(db.PERIOD_TYPES)[p["period_type"]]),
                  ("업체", report["필터"]["업체"]),
-                 ("발주번호", report["필터"]["발주번호"]),
+                 ("로트번호", report["필터"]["로트번호"]),
                  ("자재/제품명", report["필터"]["자재/제품명"]),
                  ("불량률기준", report["불량률기준"]),
                  ("검사 로트", s["로트"]), ("검사 수량", s["수량"]),

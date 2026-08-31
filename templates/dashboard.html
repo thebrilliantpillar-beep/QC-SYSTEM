@@ -8,7 +8,7 @@
   .f-row label { font-size:12px; margin:0 0 5px; }
   .f-row input, .f-row select { margin:0; }
 
-  /* 선택한 업체·발주번호가 쌓이는 칩 */
+  /* 선택한 업체·로트번호가 쌓이는 칩 */
   .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
   .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
           border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
@@ -112,14 +112,14 @@
       <div class="chip-box" id="chips-supplier"></div>
     </div>
 
-    {# 발주번호(로트) #}
+    {# 로트번호 #}
     <div style="margin-top:13px;">
       <label style="margin:0 0 5px;">
-        발주번호 {{ term('lot', '(로트)') }}
+        {{ term('lot', '로트번호') }}
         <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span>
       </label>
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
-        <input list="poList" id="poPick" placeholder="발주번호 검색 후 선택" style="flex:1; min-width:180px;"
+        <input list="poList" id="poPick" placeholder="로트번호 검색 후 선택" style="flex:1; min-width:180px;"
                onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('po_number','poPick');}">
         <datalist id="poList">{% for po in po_options %}<option value="{{ po }}">{% endfor %}</datalist>
         <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
@@ -402,7 +402,7 @@
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>검사일</th><th>자재번호</th><th>제품명</th><th>업체</th><th>발주번호</th>
+          <th>검사일</th><th>자재번호</th><th>제품명</th><th>업체</th><th>로트번호</th>
           <th class="num">수량</th><th>판정</th><th>상태</th><th></th>
         </tr></thead>
         <tbody>
@@ -453,12 +453,12 @@
 </div>
 
 <script>
-/* ───────── 선택 칩 (업체 / 발주번호) ───────── */
+/* ───────── 선택 칩 (업체 / 로트번호) ───────── */
 var CHIPS = {
   supplier:  {{ p.suppliers  | tojson }},
   po_number: {{ p.po_numbers | tojson }}
 };
-var CHIP_LABEL = { supplier: '업체', po_number: '발주번호' };
+var CHIP_LABEL = { supplier: '업체', po_number: '로트번호' };
 
 function renderChips(name) {
   var box = document.getElementById('chips-' + name);

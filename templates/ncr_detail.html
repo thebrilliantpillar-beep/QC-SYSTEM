@@ -335,7 +335,11 @@
           <span style="color:var(--muted); font-size:12.5px; margin-left:8px;">{{ supplier_info['contact'] }}</span>
         {% endif %}
       </td>
-      <th>발주번호</th><td style="white-space:pre-line;">{{ po_number or '-' }}</td>
+      <th>로트번호</th><td style="white-space:pre-line;">{{ po_number or '-' }}</td>
+    </tr>
+    <tr>
+      <th>입고날짜</th><td>{{ (ncr_receive_date | date_korean) if ncr_receive_date else '-' }}</td>
+      <td colspan="2"></td>
     </tr>
     {% if ncr['due_date'] %}
     <tr>

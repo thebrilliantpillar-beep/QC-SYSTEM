@@ -45,7 +45,7 @@
 <div class="card">
   <div class="form-header">
     <div><span>업체</span><br><b>{{ intake['supplier'] or '-' }}</b></div>
-    <div><span>발주번호</span><br><b style="white-space:pre-line;">{{ intake['po_number'] or '-' }}</b></div>
+    <div><span>로트번호</span><br><b style="white-space:pre-line;">{{ intake['po_number'] or '-' }}</b></div>
     {% set reg_name = group_name if is_group else (specs[0]['material_name'] if specs else '') %}
     <div><span>제품명</span><br><b>{{ reg_name or intake['product_name'] or '-' }}</b></div>
     <div><span>입고일</span><br><b>{{ (intake['receive_date'] | date_korean) or '-' }}</b></div>

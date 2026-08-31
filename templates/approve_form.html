@@ -158,7 +158,7 @@ function showApproveWarn(title, msg){
     <div><div class="lbl">검사일</div><div class="val">{{ (header['inspect_date'] | date_korean) or '-' }}</div></div>
     <div><div class="lbl">검사자</div><div class="val">{{ header['inspector'] or '-' }}</div></div>
     <div><div class="lbl">입고수량</div><div class="val">{{ header['quantity'] or '-' }}</div></div>
-    <div><div class="lbl">발주번호</div><div class="val" style="white-space:pre-line;">{{ header['po_number'] or '-' }}</div></div>
+    <div><div class="lbl">로트번호</div><div class="val" style="white-space:pre-line;">{{ header['po_number'] or '-' }}</div></div>
     <div><div class="lbl">측정시간(개당)</div><div class="val">{{ per_cycle_label }}</div></div>
     <div><div class="lbl">총 측정시간</div><div class="val" style="font-weight:800; color:#1d4ed8;">{{ total_time_label }}</div></div>
   </div>

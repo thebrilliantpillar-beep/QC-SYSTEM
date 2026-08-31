@@ -438,6 +438,10 @@ def init_db():
         ("sent_to",      "TEXT"),
         # 최종결정권자 승인 서명 이미지 경로 — 협력사로 나가는 문서라 서명 근거가 남아야 함
         ("confirm_signature", "TEXT"),
+        # 수기입력(성적서 미연결) 통보서용 — 연결된 성적서가 있으면 insp_ 조인값을 쓰고,
+        # 없으면(inspection_id NULL) 이 값을 대신 보여준다
+        ("lot_number", "TEXT"),
+        ("receive_date", "TEXT"),
     ]:
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE ncr ADD COLUMN {col} {definition}")
@@ -1657,15 +1661,17 @@ def _next_ncr_no():
     return f"NCR-{today}-{count + 1:03d}"
 
 def create_ncr(inspection_id, material_no, material_name, supplier, defect_description,
-               action_required, due_date, issued_by, issued_date):
+               action_required, due_date, issued_by, issued_date, lot_number=None, receive_date=None):
     ncr_no = _next_ncr_no()
     conn = get_conn()
     cur = conn.execute("""
         INSERT INTO ncr (ncr_no, inspection_id, material_no, material_name, supplier,
-            defect_description, action_required, due_date, issued_by, issued_date, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+            defect_description, action_required, due_date, issued_by, issued_date, status,
+            lot_number, receive_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
     """, (ncr_no, inspection_id, material_no, material_name, supplier,
-          defect_description, action_required, due_date, issued_by, issued_date))
+          defect_description, action_required, due_date, issued_by, issued_date,
+          lot_number, receive_date))
     conn.commit()
     ncr_id = cur.lastrowid
     conn.close()
@@ -2909,7 +2915,7 @@ def quality_report(start_date, end_date, period_type="monthly",
     return {
         "기간": {"시작": start_date, "종료": end_date, "유형": period_type},
         "필터": {"업체": ", ".join(suppliers) if suppliers else "전체",
-                 "발주번호": ", ".join(po_numbers) if po_numbers else "전체",
+                 "로트번호": ", ".join(po_numbers) if po_numbers else "전체",
                  "자재/제품명": material or "전체",
                  "판정상태": ", ".join(states) if states else "전체"},
         "불량률기준": "수량기준 (불합격 확정수량 ÷ 판정 확정수량)",

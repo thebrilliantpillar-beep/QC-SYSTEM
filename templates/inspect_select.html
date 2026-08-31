@@ -8,7 +8,7 @@
   <form method="GET" style="display:flex; gap:8px; align-items:flex-end;">
     <div style="flex:1; min-width:180px;">
       <label>검색어</label>
-      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 제품명, 납품업체, 발주번호...">
+      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 제품명, 납품업체, 로트번호...">
     </div>
     <button type="submit" style="margin-top:0;">검색</button>
     {% if query %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
@@ -29,7 +29,7 @@
 <table>
   <tr>
     <th style="width:26px;"><input type="checkbox" id="checkAllPending" onclick="document.querySelectorAll('.pending-check').forEach(c=>c.checked=this.checked)"></th>
-    <th>입고날짜</th><th>납품업체</th><th>발주번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th><th>검사원</th><th>도면</th>
+    <th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th><th>검사원</th><th>도면</th>
   </tr>
   {% for r in pending %}
   {% set inspectors = progress_map.get(r['id'], []) %}

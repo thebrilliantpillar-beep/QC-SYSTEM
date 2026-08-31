@@ -54,7 +54,7 @@
       </span>
       {% endif %}
     </div>
-    <div><span>발주번호</span><br><b style="white-space:pre-line;">{{ header['po_number'] or '-' }}</b></div>
+    <div><span>로트번호</span><br><b style="white-space:pre-line;">{{ header['po_number'] or '-' }}</b></div>
     <div><span>입고일</span><br><b>{{ (header['receive_date'] | date_korean) or '-' }}</b></div>
     <div><span>검사일</span><br><b>{{ (header['inspect_date'] | date_korean) or '-' }}</b></div>
     <div><span>검사자</span><br><b>{{ header['inspector'] or '-' }}</b></div>
