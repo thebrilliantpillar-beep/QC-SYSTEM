@@ -996,30 +996,30 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
 // ===== 키보드 올라오면: D패드 → 우하단(키보드 위), 도면 버튼 → 좌상단 =====
 // 도면 버튼은 예전엔 visualViewport 계산으로 "키보드 바로 위"를 쫓아다니게 했는데,
 // 기기·브라우저마다 visualViewport가 살짝씩 다르게 움직여서 화면 밖으로 밀려나는
-// 경우가 실제로 있었다(스크롤해야 겨우 보임, 2026-09-02 실사용자 리포트). 키보드는
-// 항상 화면 "아래쪽"만 가리니까, 아예 화면 맨 위(헤더 바로 밑)에 고정해버리면
-// 뷰포트 계산이 조금 틀려도 항상 눈에 보인다 — 계산이 아니라 위치 자체를 안전지대로.
-(function () {
+// 경우가 실제로 있었다(스크롤해야 겨우 보임, 2026-09-02 실사용자 리포트).
+// top:70px로 위치만 안전지대로 바꿔봤는데도 여전히 가려졌다 — 즉 위치가 아니라
+// "키보드가 열렸다"는 감지 자체(visualViewport resize/scroll 이벤트)가 이 기기·
+// 브라우저에서는 안 일어나거나 못 미더웠던 것. 그래서 도면 버튼은 아예 뷰포트
+// 계산을 버리고, 실제로 입력칸에 포커스가 가는/빠지는 순간(focusin/focusout)에
+// 바로 반응하도록 바꿨다 — 이건 키보드가 열리는 바로 그 트리거라 감지를 놓칠 수가 없다.
+document.addEventListener('DOMContentLoaded', function () {
+  // 이 스크립트가 파싱되는 시점엔 도면 버튼(#drawingFab)이 아직 HTML 뒤쪽에 있어서
+  // DOM에 안 만들어져 있었다 — getElementById가 계속 null을 돌려줘서 아래 focusin/
+  // focusout 리스너 자체가 한 번도 안 걸렸던 게 진짜 원인이었다(포커스 이벤트로
+  // 바꾼 것과 별개 문제). DOMContentLoaded 이후로 미뤄서 항상 제대로 찾게 한다.
   var navPad = document.getElementById('navPad');
   var fab    = document.getElementById('drawingFab');
+  var GAP = 14;
 
   function place(vv) {
     // visual viewport 하단 = offsetTop + height (레이아웃 좌표 기준)
     var visBottom = vv.offsetTop + vv.height;
-    var GAP = 14;
 
     // D패드: 우하단 (visual viewport 하단 GAP 위)
     navPad.style.top    = (visBottom - navPad.offsetHeight - GAP) + 'px';
     navPad.style.bottom = 'auto';
     navPad.style.right  = GAP + 'px';
     navPad.style.left   = 'auto';
-
-    // 도면 버튼: 화면 맨 위 고정(키보드가 절대 못 가리는 자리)
-    if (fab) {
-      fab.style.top    = '70px';
-      fab.style.bottom = 'auto';
-      fab.style.left   = GAP + 'px';
-    }
   }
 
   function reset() {
@@ -1027,11 +1027,6 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     navPad.style.bottom = '14px';
     navPad.style.right  = '14px';
     navPad.style.left   = 'auto';
-    if (fab) {
-      fab.style.top    = 'auto';
-      fab.style.bottom = '24px';
-      fab.style.left   = '14px';
-    }
   }
 
   if (window.visualViewport) {
@@ -1045,7 +1040,32 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
       if ((window.innerHeight - vv.height) > 150) place(vv);
     });
   }
-})();
+
+  // 도면 버튼: 뷰포트 계산 대신 실제 입력 포커스로만 판단(더 확실함)
+  var fabForm = document.getElementById('inspectForm');
+  if (fab && fabForm) {
+    var pinFabUp = function () {
+      fab.style.top = '70px';
+      fab.style.bottom = 'auto';
+      fab.style.left = GAP + 'px';
+    };
+    var unpinFab = function () {
+      fab.style.top = 'auto';
+      fab.style.bottom = '24px';
+      fab.style.left = '14px';
+    };
+    fabForm.addEventListener('focusin', function (e) {
+      if (e.target && e.target.matches && e.target.matches('input, select, textarea')) pinFabUp();
+    });
+    fabForm.addEventListener('focusout', function (e) {
+      // 다음 칸으로 탭 이동하는 찰나에 깜빡이지 않게 한 틱 늦춰서 확인
+      setTimeout(function () {
+        var a = document.activeElement;
+        if (!a || !fabForm.contains(a) || !a.matches('input, select, textarea')) unpinFab();
+      }, 50);
+    });
+  }
+});
 
 // ===== 자동저장 (서버 DB + localStorage 백업) =====
 // 예전엔 localStorage만 썼는데, 태블릿이 꺼지거나 다른 기기로 넘어가면 입력하던 게 날아갔다.
