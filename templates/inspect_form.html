@@ -172,6 +172,33 @@
 <form method="POST" id="inspectForm"
       action="{% if edit_mode %}{{ url_for('edit_inspection_submit', inspection_id=edit_mode) }}{% endif %}">
 
+  {# 도면 버튼 — position:fixed로 여러 번 시도했는데 이 화면에서는 스크롤 중 키보드가
+     떠 있으면 화면 밖으로 밀려나는 문제가 실기기 녹화로 반복 확인됐다(2026-09-02).
+     fixed는 레이아웃/비주얼 뷰포트가 어긋나는 순간 위치 계산이 틀어질 수 있는데,
+     position:sticky는 스크롤 컨테이너 기준으로 브라우저가 알아서 따라다녀서 이런
+     계산 자체가 필요 없다 — 더 단순하고 이 문제의 근본 원인 자체를 피해간다. #}
+  <div style="position:sticky; top:8px; z-index:8000; display:flex; justify-content:flex-end;
+              margin-bottom:8px; pointer-events:none;">
+    <button type="button" onclick="openDrawingModal('{{ intake['material_no'] }}')" id="drawingFab"
+      style="pointer-events:auto; background:#1d4ed8; color:#fff; border:none; border-radius:50px;
+             padding:10px 18px; font-size:14px; font-weight:700; cursor:pointer;
+             box-shadow:0 4px 14px rgba(29,78,216,.45); display:flex; align-items:center; gap:6px;
+             touch-action:manipulation;">
+      📐 도면
+    </button>
+  </div>
+  <script>
+  (function () {
+    var url = "{{ url_for('serve_drawing', material_no=intake['material_no']) }}";
+    // 도면 없으면 버튼 숨김
+    fetch(url, { method: 'HEAD' }).then(function (r) {
+      if (!r.ok) document.getElementById('drawingFab').closest('div').style.display = 'none';
+    }).catch(function () {
+      document.getElementById('drawingFab').closest('div').style.display = 'none';
+    });
+  })();
+  </script>
+
   {% if gauges %}
   <datalist id="gaugeNames">
     {% for gm in gauges %}<option value="{{ gm['name'] }}">{% endfor %}
@@ -993,29 +1020,13 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
   });
 })();
 
-// ===== 키보드 올라오면: D패드 → 우하단(키보드 위), 도면 버튼 → 좌상단 =====
-// 도면 버튼은 예전엔 visualViewport 계산으로 "키보드 바로 위"를 쫓아다니게 했는데,
-// 기기·브라우저마다 visualViewport가 살짝씩 다르게 움직여서 화면 밖으로 밀려나는
-// 경우가 실제로 있었다(스크롤해야 겨우 보임, 2026-09-02 실사용자 리포트).
-// top:70px로 위치만 안전지대로 바꿔봤는데도 여전히 가려졌다 — 즉 위치가 아니라
-// "키보드가 열렸다"는 감지 자체(visualViewport resize/scroll 이벤트)가 이 기기·
-// 브라우저에서는 안 일어나거나 못 미더웠던 것. 그래서 도면 버튼은 아예 뷰포트
-// 계산을 버리고, 실제로 입력칸에 포커스가 가는/빠지는 순간(focusin/focusout)에
-// 바로 반응하도록 바꿨다 — 이건 키보드가 열리는 바로 그 트리거라 감지를 놓칠 수가 없다.
+// ===== 키보드 올라오면: D패드 → 우하단(키보드 위) =====
+// 도면 버튼은 여기서 같이 다루다가(fixed + visualViewport 계산) 실기기에서 자꾸
+// 화면 밖으로 밀려나는 문제가 반복돼서(2026-09-02) position:sticky 방식으로 완전히
+// 분리했다 — 이제 이 스크립트는 D패드만 담당한다.
 document.addEventListener('DOMContentLoaded', function () {
-  // 이 스크립트가 파싱되는 시점엔 도면 버튼(#drawingFab)이 아직 HTML 뒤쪽에 있어서
-  // DOM에 안 만들어져 있었다 — getElementById가 계속 null을 돌려줘서 아래 리스너 자체가
-  // 한 번도 안 걸렸던 게 첫 번째 원인이었다. DOMContentLoaded 이후로 미뤄서 고쳤다.
-  //
-  // 그 다음엔 도면 버튼만 focusin/focusout로 따로 판단하게 했었는데, 실제 태블릿
-  // 화면 녹화로 확인해보니 D패드(visualViewport resize/scroll 기반)는 스크롤 중에도
-  // 계속 화면에 붙어있는데 도면 버튼만 사라졌다 — 즉 "포커스가 잠깐 빠지는 순간"에
-  // 원위치(bottom:24px, 레이아웃 뷰포트 기준)로 풀렸다가 키보드에 가려진 채 안 돌아온
-  // 것. visualViewport 기반이 이 기기에서 실제로 더 안정적이라는 게 영상으로 증명됐으니,
-  // 도면 버튼도 같은 트리거(visualViewport)를 쓰되, 목표 위치만 안전지대(top:70px)로
-  // 고정한다 — "언제 움직일지"는 검증된 방식, "어디로 움직일지"는 계산 없는 고정값.
   var navPad = document.getElementById('navPad');
-  var fab    = document.getElementById('drawingFab');
+  if (!navPad) return;
   var GAP = 14;
 
   function place(vv) {
@@ -1027,13 +1038,6 @@ document.addEventListener('DOMContentLoaded', function () {
     navPad.style.bottom = 'auto';
     navPad.style.right  = GAP + 'px';
     navPad.style.left   = 'auto';
-
-    // 도면 버튼: 화면 맨 위 고정(키보드가 절대 못 가리는 자리)
-    if (fab) {
-      fab.style.top    = '70px';
-      fab.style.bottom = 'auto';
-      fab.style.left   = GAP + 'px';
-    }
   }
 
   function reset() {
@@ -1041,11 +1045,6 @@ document.addEventListener('DOMContentLoaded', function () {
     navPad.style.bottom = '14px';
     navPad.style.right  = '14px';
     navPad.style.left   = 'auto';
-    if (fab) {
-      fab.style.top    = 'auto';
-      fab.style.bottom = '24px';
-      fab.style.left   = '14px';
-    }
   }
 
   if (window.visualViewport) {
@@ -1290,21 +1289,4 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 {% include "_drawing_modal.html" %}
-
-<button onclick="openDrawingModal('{{ intake['material_no'] }}')" id="drawingFab"
-  style="position:fixed; bottom:24px; left:14px; z-index:8000; background:#1d4ed8; color:#fff;
-         border:none; border-radius:50px; padding:14px 22px; font-size:15px; font-weight:700;
-         cursor:pointer; box-shadow:0 4px 14px rgba(29,78,216,.45); display:flex;
-         align-items:center; gap:7px; touch-action:manipulation;">
-  📐 도면
-</button>
-<script>
-(function(){
-  var url = "{{ url_for('serve_drawing', material_no=intake['material_no']) }}";
-  // 도면 없으면 FAB 숨김
-  fetch(url, {method:'HEAD'}).then(function(r){
-    if (!r.ok) document.getElementById('drawingFab').style.display = 'none';
-  }).catch(function(){ document.getElementById('drawingFab').style.display = 'none'; });
-})();
-</script>
 {% endblock %}
