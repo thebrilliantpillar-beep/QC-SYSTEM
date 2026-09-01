@@ -174,11 +174,15 @@
 
   {# 도면 버튼 — position:fixed로 여러 번 시도했는데 이 화면에서는 스크롤 중 키보드가
      떠 있으면 화면 밖으로 밀려나는 문제가 실기기 녹화로 반복 확인됐다(2026-09-02).
-     fixed는 레이아웃/비주얼 뷰포트가 어긋나는 순간 위치 계산이 틀어질 수 있는데,
-     position:sticky는 스크롤 컨테이너 기준으로 브라우저가 알아서 따라다녀서 이런
-     계산 자체가 필요 없다 — 더 단순하고 이 문제의 근본 원인 자체를 피해간다. #}
-  <div style="position:sticky; top:8px; z-index:8000; display:flex; justify-content:flex-end;
-              margin-bottom:8px; pointer-events:none;">
+     position:sticky로 바꿔서 대부분은 해결됐는데, 폼(#inspectForm) 끝(제출 버튼)을
+     지나 페이지 맨 아래 푸터까지 스크롤하면 sticky가 "붙어있을 범위"의 기준이 되는
+     부모 상자(form) 자체가 이미 화면 밖으로 지나가버려서 버튼도 같이 사라졌다
+     (실기기 녹화로 재확인, 2026-09-02 두 번째). sticky는 자기 부모 박스 범위
+     안에서만 붙어있을 수 있어서, 부모가 form처럼 페이지 중간에서 끝나면 거기서
+     같이 끝나버린다. 그래서 이 버튼을 body 바로 밑으로 옮겨서(reparent) 부모 범위를
+     페이지 전체(푸터 포함)로 넓혔다 — 이제 어디까지 스크롤해도 끝까지 붙어있다. #}
+  <div id="drawingFabWrap" style="position:sticky; top:8px; z-index:8000; display:flex;
+              justify-content:flex-end; margin-bottom:8px; pointer-events:none;">
     <button type="button" onclick="openDrawingModal('{{ intake['material_no'] }}')" id="drawingFab"
       style="pointer-events:auto; background:#1d4ed8; color:#fff; border:none; border-radius:50px;
              padding:10px 18px; font-size:14px; font-weight:700; cursor:pointer;
@@ -189,12 +193,22 @@
   </div>
   <script>
   (function () {
+    // sticky 범위를 form 상자가 아니라 페이지 전체(푸터 포함)로 넓히기 위해
+    // body 바로 밑 최상위로 옮긴다. 화면상 위치는 CSS(position:sticky)가 그대로
+    // 결정하므로 DOM 순서를 옮겨도 보이는 자리는 안 바뀐다.
+    // body 맨 끝에 붙이면(appendChild) 원래 자리(sticky가 아닐 때의 위치) 자체가
+    // 페이지 맨 아래가 돼버려서, 스크롤 대부분 구간에서 "붙잡을 위치"에 아직
+    // 도달하지 못한 것으로 계산돼 오히려 sticky가 안 걸린다 — 맨 앞에 꽂아야
+    // 원래 자리가 페이지 맨 위가 되고, 거기서부터 쭉 붙어서 따라온다.
+    var wrap = document.getElementById('drawingFabWrap');
+    if (wrap) document.body.insertBefore(wrap, document.body.firstChild);
+
     var url = "{{ url_for('serve_drawing', material_no=intake['material_no']) }}";
     // 도면 없으면 버튼 숨김
     fetch(url, { method: 'HEAD' }).then(function (r) {
-      if (!r.ok) document.getElementById('drawingFab').closest('div').style.display = 'none';
+      if (!r.ok) wrap.style.display = 'none';
     }).catch(function () {
-      document.getElementById('drawingFab').closest('div').style.display = 'none';
+      wrap.style.display = 'none';
     });
   })();
   </script>
