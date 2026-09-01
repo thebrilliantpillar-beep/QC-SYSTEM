@@ -994,6 +994,11 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
 })();
 
 // ===== 키보드 올라오면: D패드 → 우하단(키보드 위), 도면 버튼 → 좌상단 =====
+// 도면 버튼은 예전엔 visualViewport 계산으로 "키보드 바로 위"를 쫓아다니게 했는데,
+// 기기·브라우저마다 visualViewport가 살짝씩 다르게 움직여서 화면 밖으로 밀려나는
+// 경우가 실제로 있었다(스크롤해야 겨우 보임, 2026-09-02 실사용자 리포트). 키보드는
+// 항상 화면 "아래쪽"만 가리니까, 아예 화면 맨 위(헤더 바로 밑)에 고정해버리면
+// 뷰포트 계산이 조금 틀려도 항상 눈에 보인다 — 계산이 아니라 위치 자체를 안전지대로.
 (function () {
   var navPad = document.getElementById('navPad');
   var fab    = document.getElementById('drawingFab');
@@ -1009,9 +1014,9 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
     navPad.style.right  = GAP + 'px';
     navPad.style.left   = 'auto';
 
-    // 도면 버튼: 좌하단 (같은 높이)
+    // 도면 버튼: 화면 맨 위 고정(키보드가 절대 못 가리는 자리)
     if (fab) {
-      fab.style.top    = (visBottom - fab.offsetHeight - GAP) + 'px';
+      fab.style.top    = '70px';
       fab.style.bottom = 'auto';
       fab.style.left   = GAP + 'px';
     }

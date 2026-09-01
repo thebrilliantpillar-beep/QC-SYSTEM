@@ -21,7 +21,10 @@
         <button type="button" onclick="drawingZoom(1.25)" title="확대"
                 style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
                        font-size:16px; font-weight:700; color:#374151; cursor:pointer; padding:0;">＋</button>
-        <button type="button" onclick="drawingRotate()" title="회전"
+        <button type="button" onclick="drawingRotate(-90)" title="왼쪽으로 회전"
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
+                       font-size:15px; color:#374151; cursor:pointer; padding:0;">⟲</button>
+        <button type="button" onclick="drawingRotate(90)" title="오른쪽으로 회전"
                 style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
                        font-size:15px; color:#374151; cursor:pointer; padding:0;">⟳</button>
         <button type="button" onclick="drawingResetView()" title="맞춤으로 초기화"
@@ -93,8 +96,8 @@
     zoom = Math.min(4, Math.max(0.4, zoom * factor));
     renderAll();
   };
-  window.drawingRotate = function () {
-    rotation = (rotation + 90) % 360;
+  window.drawingRotate = function (deg) {
+    rotation = (rotation + (deg || 90) + 360) % 360;
     renderAll();
   };
   window.drawingResetView = function () {
