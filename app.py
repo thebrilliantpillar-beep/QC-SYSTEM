@@ -1453,6 +1453,7 @@ def _resolve_material_name(material_no, specs=None):
 @perm_required("material_view")
 def spec_detail(material_no):
     specs = db.get_specs_by_material(material_no)
+    material = db.get_material(material_no)
     material_name = _resolve_material_name(material_no, specs)
     drawing_no = report_builder.compute_drawing_no(material_no)
     drawing_pdf = find_drawing_pdf(material_no)

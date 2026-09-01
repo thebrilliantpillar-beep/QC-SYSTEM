@@ -1270,22 +1270,9 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
 })();
 </script>
 
-{# 도면 팝업 모달 #}
-<div id="drawingModal" style="display:none; position:fixed; inset:0; z-index:9000;
-     background:rgba(0,0,0,.6); align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:14px; width:min(96vw,900px); height:min(90vh,680px);
-              display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.35);">
-    <div style="display:flex; align-items:center; justify-content:space-between;
-                padding:12px 18px; border-bottom:1px solid #e5e7eb;">
-      <span style="font-weight:700; font-size:15px;">📐 도면 — {{ intake['material_no'] }}</span>
-      <button onclick="closeDrawing()" style="font-size:20px; background:none; border:none;
-              cursor:pointer; color:#6b7280; padding:4px 8px; border-radius:6px;">✕</button>
-    </div>
-    <iframe id="drawingFrame" src="" style="flex:1; border:none;"></iframe>
-  </div>
-</div>
+{% include "_drawing_modal.html" %}
 
-<button onclick="openDrawing()" id="drawingFab"
+<button onclick="openDrawingModal('{{ intake['material_no'] }}')" id="drawingFab"
   style="position:fixed; bottom:24px; left:14px; z-index:8000; background:#1d4ed8; color:#fff;
          border:none; border-radius:50px; padding:14px 22px; font-size:15px; font-weight:700;
          cursor:pointer; box-shadow:0 4px 14px rgba(29,78,216,.45); display:flex;
@@ -1294,22 +1281,7 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
 </button>
 <script>
 (function(){
-  var loaded = false;
   var url = "{{ url_for('serve_drawing', material_no=intake['material_no']) }}";
-  window.openDrawing = function(){
-    var m = document.getElementById('drawingModal');
-    m.style.display = 'flex';
-    if (!loaded) {
-      document.getElementById('drawingFrame').src = url;
-      loaded = true;
-    }
-  };
-  window.closeDrawing = function(){
-    document.getElementById('drawingModal').style.display = 'none';
-  };
-  document.getElementById('drawingModal').addEventListener('click', function(e){
-    if (e.target === this) closeDrawing();
-  });
   // 도면 없으면 FAB 숨김
   fetch(url, {method:'HEAD'}).then(function(r){
     if (!r.ok) document.getElementById('drawingFab').style.display = 'none';
