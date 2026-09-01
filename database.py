@@ -1183,6 +1183,36 @@ def rename_inspection_item(item_id, new_item_name):
     conn.close()
 
 
+def sync_material_names_from_master():
+    """specs.material_name(등록 당시 복사본)이 materials.material_name(정본)과 어긋난
+    자재들을 바로잡고, 그 여파로 material_name이 빈 채 저장된 성적서(inspections)도
+    같이 채운다. 원인: 성적서 생성 코드가 예전엔 정본(materials) 대신 이 복사본을
+    읽어서, 복사본이 비어있거나 오래된 자재는 검사이력·승인 화면에 자재명이
+    안 보였다(2026-09-01 실사용자 리포트로 발견). 코드는 이미 정본을 보게 고쳤고,
+    이건 기존에 어긋나 있던 데이터 자체를 정리하는 일회성 정리 함수.
+    반환: {"specs_fixed": N, "inspections_fixed": N}"""
+    conn = get_conn()
+    materials_rows = conn.execute(
+        "SELECT material_no, material_name FROM materials WHERE material_name IS NOT NULL AND material_name != ''"
+    ).fetchall()
+    specs_fixed = 0
+    insp_fixed = 0
+    for m in materials_rows:
+        cur = conn.execute(
+            "UPDATE specs SET material_name = ? WHERE material_no = ? AND (material_name IS NULL OR material_name != ?)",
+            (m["material_name"], m["material_no"], m["material_name"]),
+        )
+        specs_fixed += cur.rowcount
+        cur = conn.execute(
+            "UPDATE inspections SET material_name = ? WHERE material_no = ? AND (material_name IS NULL OR material_name = '')",
+            (m["material_name"], m["material_no"]),
+        )
+        insp_fixed += cur.rowcount
+    conn.commit()
+    conn.close()
+    return {"specs_fixed": specs_fixed, "inspections_fixed": insp_fixed}
+
+
 def update_inspection_items(inspection_id, inspect_date, inspector, items_with_results, overall_result,
                              est_time_label=None, actual_time_sec=None, total_time_sec=None):
     """pending 상태 성적서 측정값·판정 전체 갱신"""

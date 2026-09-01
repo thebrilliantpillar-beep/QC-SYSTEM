@@ -630,6 +630,18 @@ def admin_rename_inspection_item(item_id):
     return jsonify({"ok": True})
 
 
+@app.route("/admin/sync-material-names", methods=["POST"])
+@perm_required("users")
+def admin_sync_material_names():
+    """specs.material_name(등록 당시 복사본)이 materials.material_name(정본)과
+    어긋나 있던 데이터를 정리 — 검사이력/승인 화면에 자재명이 안 보이던 사고 수습.
+    자세한 설명은 db.sync_material_names_from_master() 참고."""
+    result = db.sync_material_names_from_master()
+    record_change("자재명 동기화 정정", "system", 0,
+                  f"specs {result['specs_fixed']}건, inspections {result['inspections_fixed']}건 (정본 기준 정정)")
+    return jsonify({"ok": True, **result})
+
+
 # ---------- 도면 ----------
 
 def find_drawing_pdf(material_no):
@@ -1421,14 +1433,27 @@ def spec_delete_bulk():
     return redirect(url_for("spec_list"))
 
 
+def _resolve_material_name(material_no, specs=None):
+    """자재명은 materials 테이블이 정본이다 — specs.material_name은 등록 당시 값을
+    그대로 복사해둔 사본이라 나중에 자재명을 고쳐도 안 따라가서 어긋날 수 있다
+    (실제로 30개 자재에서 비어있거나 다른 값으로 발견됨, 2026-09-01).
+    검사이력·승인 화면에 이름이 빈 채로 찍히던 원인이 이 우선순위가 거꾸로였기 때문 —
+    materials를 최우선으로 보고, 거기 없을 때만 specs 사본을 대신 쓴다."""
+    material = db.get_material(material_no)
+    if material and material["material_name"]:
+        return material["material_name"]
+    if specs is None:
+        specs = db.get_specs_by_material(material_no)
+    if specs and specs[0]["material_name"]:
+        return specs[0]["material_name"]
+    return None
+
+
 @app.route("/spec/<material_no>")
 @perm_required("material_view")
 def spec_detail(material_no):
     specs = db.get_specs_by_material(material_no)
-    material = db.get_material(material_no)
-    material_name = specs[0]["material_name"] if specs else None
-    if material_name is None:
-        material_name = material["material_name"] if material else None
+    material_name = _resolve_material_name(material_no, specs)
     drawing_no = report_builder.compute_drawing_no(material_no)
     drawing_pdf = find_drawing_pdf(material_no)
     drawing_auto = os.path.join(DRAWING_DIR, f"{material_no}.pdf")
@@ -1769,7 +1794,7 @@ def inspect_form(intake_id):
     if request.method == "POST":
         header = {
             "material_no": material_no,
-            "material_name": group_name if is_group else specs[0]["material_name"],
+            "material_name": group_name if is_group else _resolve_material_name(material_no, specs),
             "supplier": intake_row["supplier"],
             "po_number": intake_row["po_number"],
             "receive_date": intake_row["receive_date"],
@@ -4190,7 +4215,7 @@ def reinspect_submit(inspection_id):
 
     header = {
         "material_no": material_no,
-        "material_name": group_name if is_group else (specs[0]["material_name"] if specs else ""),
+        "material_name": group_name if is_group else _resolve_material_name(material_no, specs),
         "supplier": intake_row["supplier"],
         "po_number": intake_row["po_number"],
         "receive_date": intake_row["receive_date"],
