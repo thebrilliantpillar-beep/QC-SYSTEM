@@ -4,23 +4,39 @@
    iframe으로 PDF를 띄우면 태블릿(안드로이드 크롬 등)에서는 내장 PDF 뷰어가 없어서
    그냥 다운로드가 되어버리는 문제가 있었다(실사용자 리포트, 2026-09-01) — PC에서만
    되고 태블릿에서 안 되는 게 딱 이 증상. PDF.js(순수 JS 렌더러)로 캔버스에 직접
-   그려서 기기·브라우저 관계없이 항상 화면 안에서 바로 보이게 바꿨다. #}
+   그려서 기기·브라우저 관계없이 항상 화면 안에서 바로 보이게 바꿨다.
+   확대/축소(버튼 + 두 손가락 핀치)와 회전 버튼도 같이 넣었다(2026-09-02 요청). #}
 <div id="drawingModal" style="display:none; position:fixed; inset:0; z-index:9000;
      background:rgba(0,0,0,.6); align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:14px; width:min(96vw,900px); height:min(90vh,680px);
               display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.35);">
     <div style="display:flex; align-items:center; justify-content:space-between;
-                padding:12px 18px; border-bottom:1px solid #e5e7eb;">
+                padding:12px 18px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap; gap:8px;">
       <span id="drawingModalTitle" style="font-weight:700; font-size:15px;">📐 도면</span>
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; gap:6px;">
+        <button type="button" onclick="drawingZoom(0.8)" title="축소"
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
+                       font-size:16px; font-weight:700; color:#374151; cursor:pointer; padding:0;">－</button>
+        <span id="drawingZoomLabel" style="font-size:12px; color:#6b7280; min-width:38px; text-align:center;">100%</span>
+        <button type="button" onclick="drawingZoom(1.25)" title="확대"
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
+                       font-size:16px; font-weight:700; color:#374151; cursor:pointer; padding:0;">＋</button>
+        <button type="button" onclick="drawingRotate()" title="회전"
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
+                       font-size:15px; color:#374151; cursor:pointer; padding:0;">⟳</button>
+        <button type="button" onclick="drawingResetView()" title="맞춤으로 초기화"
+                style="font-size:12px; color:#2563eb; background:none; border:none; cursor:pointer; padding:4px 2px;">맞춤</button>
         <a id="drawingModalOpenNew" href="#" target="_blank" rel="noopener"
-           style="font-size:12.5px; color:#2563eb; text-decoration:none;">새 탭에서 열기</a>
+           style="font-size:12.5px; color:#2563eb; text-decoration:none; margin-left:4px;">새 탭</a>
         <button onclick="closeDrawingModal()" style="font-size:20px; background:none; border:none;
                 cursor:pointer; color:#6b7280; padding:4px 8px; border-radius:6px;">✕</button>
       </div>
     </div>
-    <div id="drawingModalBody" style="flex:1; overflow:auto; background:#525659; text-align:center; padding:10px;">
-      <div id="drawingModalMsg" style="color:#e5e7eb; font-size:13.5px; padding:20px;">불러오는 중…</div>
+    <div id="drawingModalBody" style="flex:1; overflow:auto; background:#525659; text-align:center; padding:10px;
+                                       touch-action:pan-x pan-y;">
+      <div id="drawingPageWrap" style="transform-origin:top center;">
+        <div id="drawingModalMsg" style="color:#e5e7eb; font-size:13.5px; padding:20px;">불러오는 중…</div>
+      </div>
     </div>
   </div>
 </div>
@@ -31,70 +47,141 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
-  var renderToken = 0;  // 모달을 빠르게 여러 번 열었을 때 옛 렌더링이 뒤늦게 끼어드는 것 방지
+  var renderToken = 0;   // 모달을 빠르게 여러 번 열었을 때 옛 렌더링이 뒤늦게 끼어드는 것 방지
+  var currentPdf = null;
+  var zoom = 1;          // "맞춤(컨테이너 폭)" 기준의 배율
+  var rotation = 0;       // 0/90/180/270
+  var pinchStartDist = null, pinchStartZoom = 1;
+
+  function zoomLabel() {
+    var el = document.getElementById('drawingZoomLabel');
+    if (el) el.textContent = Math.round(zoom * 100) + '%';
+  }
+
+  function renderAll() {
+    if (!currentPdf) return;
+    var myToken = renderToken;
+    var wrap = document.getElementById('drawingPageWrap');
+    var body = document.getElementById('drawingModalBody');
+    wrap.style.transform = '';  // 핀치 중 걸어뒀던 임시 CSS 확대는 실제 재렌더링으로 대체
+    wrap.innerHTML = '';
+    zoomLabel();
+    var containerWidth = body.clientWidth - 20;
+    var renderPage = function (pageNum) {
+      return currentPdf.getPage(pageNum).then(function (page) {
+        if (myToken !== renderToken) return;
+        var baseViewport = page.getViewport({ scale: 1, rotation: rotation });
+        var fitScale = Math.max(0.3, containerWidth / baseViewport.width);
+        var viewport = page.getViewport({ scale: fitScale * zoom, rotation: rotation });
+        var canvas = document.createElement('canvas');
+        canvas.style.cssText = 'background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.4); margin:0 auto 10px; display:block;';
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        wrap.appendChild(canvas);
+        var ctx = canvas.getContext('2d');
+        return page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      });
+    };
+    var chain = Promise.resolve();
+    for (var i = 1; i <= currentPdf.numPages; i++) {
+      (function (n) { chain = chain.then(function () { return renderPage(n); }); })(i);
+    }
+    return chain;
+  }
+
+  window.drawingZoom = function (factor) {
+    zoom = Math.min(4, Math.max(0.4, zoom * factor));
+    renderAll();
+  };
+  window.drawingRotate = function () {
+    rotation = (rotation + 90) % 360;
+    renderAll();
+  };
+  window.drawingResetView = function () {
+    zoom = 1;
+    rotation = 0;
+    renderAll();
+  };
 
   window.openDrawingModal = function (materialNo, label) {
     var m = document.getElementById('drawingModal');
     var body = document.getElementById('drawingModalBody');
-    var msg = document.getElementById('drawingModalMsg');
+    var wrap = document.getElementById('drawingPageWrap');
     var url = '/drawing/' + encodeURIComponent(materialNo);
 
     document.getElementById('drawingModalTitle').textContent = '📐 도면 — ' + (label || materialNo);
     document.getElementById('drawingModalOpenNew').href = url;
-    body.innerHTML = '';
-    var msgEl = document.createElement('div');
-    msgEl.id = 'drawingModalMsg';
-    msgEl.style.cssText = 'color:#e5e7eb; font-size:13.5px; padding:20px;';
-    msgEl.textContent = '불러오는 중…';
-    body.appendChild(msgEl);
+    currentPdf = null;
+    zoom = 1;
+    rotation = 0;
+    zoomLabel();
+    wrap.style.transform = '';
+    wrap.innerHTML = '<div id="drawingModalMsg" style="color:#e5e7eb; font-size:13.5px; padding:20px;">불러오는 중…</div>';
     m.style.display = 'flex';
 
     var myToken = ++renderToken;
     if (!window.pdfjsLib) {
-      msgEl.textContent = 'PDF 뷰어를 불러오지 못했어. "새 탭에서 열기"를 눌러줘.';
+      wrap.innerHTML = '<div style="color:#e5e7eb; font-size:13.5px; padding:20px;">PDF 뷰어를 불러오지 못했어. "새 탭"을 눌러줘.</div>';
       return;
     }
 
     pdfjsLib.getDocument(url).promise.then(function (pdf) {
       if (myToken !== renderToken) return;
-      msgEl.remove();
-      var containerWidth = body.clientWidth - 20;
-      var renderPage = function (pageNum) {
-        return pdf.getPage(pageNum).then(function (page) {
-          if (myToken !== renderToken) return;
-          var baseViewport = page.getViewport({ scale: 1 });
-          var scale = Math.max(0.5, containerWidth / baseViewport.width);
-          var viewport = page.getViewport({ scale: scale });
-          var canvas = document.createElement('canvas');
-          canvas.style.cssText = 'background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.4); margin:0 auto 10px; display:block; max-width:100%;';
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          body.appendChild(canvas);
-          var ctx = canvas.getContext('2d');
-          return page.render({ canvasContext: ctx, viewport: viewport }).promise;
-        });
-      };
-      var chain = Promise.resolve();
-      for (var i = 1; i <= pdf.numPages; i++) {
-        (function (n) { chain = chain.then(function () { return renderPage(n); }); })(i);
-      }
-      return chain;
+      currentPdf = pdf;
+      return renderAll();
     }).catch(function (err) {
       if (myToken !== renderToken) return;
-      msgEl.textContent = '도면을 불러오지 못했어. "새 탭에서 열기"를 눌러줘.';
+      wrap.innerHTML = '<div style="color:#e5e7eb; font-size:13.5px; padding:20px;">도면을 불러오지 못했어. "새 탭"을 눌러줘.</div>';
       console.error('drawing PDF load failed', err);
     });
   };
 
   window.closeDrawingModal = function () {
     renderToken++;  // 진행 중이던 렌더링이 있으면 여기서 무효화
+    currentPdf = null;
     document.getElementById('drawingModal').style.display = 'none';
-    document.getElementById('drawingModalBody').innerHTML = '';
+    document.getElementById('drawingPageWrap').innerHTML = '';
   };
 
+  // ── 두 손가락 핀치 확대/축소 ──
+  // 핀치하는 동안은 CSS transform으로 즉시 반응하게(가벼움), 손을 떼면 PDF.js로 다시
+  // 렌더링해서 확대해도 선명하게(캔버스 확대만 하면 흐려짐) 마무리한다.
+  function touchDist(t0, t1) {
+    var dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
   document.addEventListener('DOMContentLoaded', function () {
     var modal = document.getElementById('drawingModal');
+    var body = document.getElementById('drawingModalBody');
+    var wrap = document.getElementById('drawingPageWrap');
     if (modal) modal.addEventListener('click', function (e) { if (e.target === this) closeDrawingModal(); });
+    if (!body) return;
+
+    body.addEventListener('touchstart', function (e) {
+      if (e.touches.length === 2) {
+        pinchStartDist = touchDist(e.touches[0], e.touches[1]);
+        pinchStartZoom = zoom;
+      }
+    }, { passive: true });
+
+    body.addEventListener('touchmove', function (e) {
+      if (e.touches.length === 2 && pinchStartDist) {
+        e.preventDefault();
+        var dist = touchDist(e.touches[0], e.touches[1]);
+        var ratio = dist / pinchStartDist;
+        wrap.style.transform = 'scale(' + Math.min(2.5, Math.max(0.5, ratio)) + ')';
+      }
+    }, { passive: false });
+
+    body.addEventListener('touchend', function (e) {
+      if (pinchStartDist && e.touches.length < 2) {
+        var m = /scale\(([\d.]+)\)/.exec(wrap.style.transform);
+        var ratio = m ? parseFloat(m[1]) : 1;
+        pinchStartDist = null;
+        zoom = Math.min(4, Math.max(0.4, pinchStartZoom * ratio));
+        renderAll();
+      }
+    });
   });
 })();
 </script>
