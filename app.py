@@ -2667,25 +2667,12 @@ def _final_decision_block_reason(inspection_id, action, reject_reason=None):
     if not_measured:
         return f"측정값이 비어 있거나 잘못된 항목이 있어: {', '.join(not_measured)} — 검사를 먼저 마무리해줘."
 
-    # 2-1) 측정 이후에 자재 규격이 바뀌었는데 저장된 판정은 그대로면(예전 규격 기준) 그 판정으로
-    #      승인/불합격 확정을 내리면 안 된다 — 실제 사용자가 겪은 사고: 규격을 고쳤는데
-    #      이미 계산된 result가 안 바뀌어서 옛 규격 기준 판정으로 결정이 나갈 뻔했음.
-    specs, _, _ = _get_specs_for_material(header["material_no"])
-    specs_all = build_specs_with_sample(specs, header["quantity"]) if specs else []
-    specs_map = {s["item_name"]: s for s in specs_all}
-    stale = []
-    for it in items:
-        spec_row = specs_map.get(it["item_name"])
-        if not spec_row or spec_row["judge_type"] != "numeric":
-            continue
-        allowed = aql_ac_allowance(spec_row.get("aql"), spec_row.get("sample_qty"))
-        fresh_result, _mx, _mn = judge_numeric(
-            it["measured_value"], it["lower_limit"], it["upper_limit"], allowed)
-        if fresh_result != it["result"]:
-            stale.append(it["item_name"])
-    if stale:
-        return (f"측정 이후 자재 규격이 바뀐 항목이 있어서 결정할 수 없어: {', '.join(stale)} — "
-                f"성적서에서 '측정값 수정'을 눌러 최신 규격으로 다시 저장한 뒤 결정해줘.")
+    # (예전엔 여기서 "측정 이후 규격이 바뀐 항목"을 감지해서 승인 자체를 막았는데,
+    # 규격을 정정하는 일(오탈자 수정, 단위 보정 등)이 실제로는 흔히 있고 그때마다
+    # 이미 대기 중인 다른 성적서들의 결정이 통째로 막혀버리는 부작용이 커서
+    # 2026-09-01 제거했다 — 안내는 inspection_detail.html의 배너로만 하고, 최종 결정은
+    # 사람이 판단해서 내리도록 둔다. 감지 로직 자체는 inspection_detail()의
+    # stale_spec_items 계산에 남아있음.)
 
     # 3) 특채는 '규격을 벗어났지만 예외적으로 쓴다'는 결정이다.
     #    전 항목 합격인 성적서를 특채로 올리는 건 성립하지 않는다(그냥 합격 승인해야 함).
