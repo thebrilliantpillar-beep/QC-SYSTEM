@@ -1004,9 +1004,16 @@ document.getElementById('inspectForm').addEventListener('submit', function (e) {
 // 바로 반응하도록 바꿨다 — 이건 키보드가 열리는 바로 그 트리거라 감지를 놓칠 수가 없다.
 document.addEventListener('DOMContentLoaded', function () {
   // 이 스크립트가 파싱되는 시점엔 도면 버튼(#drawingFab)이 아직 HTML 뒤쪽에 있어서
-  // DOM에 안 만들어져 있었다 — getElementById가 계속 null을 돌려줘서 아래 focusin/
-  // focusout 리스너 자체가 한 번도 안 걸렸던 게 진짜 원인이었다(포커스 이벤트로
-  // 바꾼 것과 별개 문제). DOMContentLoaded 이후로 미뤄서 항상 제대로 찾게 한다.
+  // DOM에 안 만들어져 있었다 — getElementById가 계속 null을 돌려줘서 아래 리스너 자체가
+  // 한 번도 안 걸렸던 게 첫 번째 원인이었다. DOMContentLoaded 이후로 미뤄서 고쳤다.
+  //
+  // 그 다음엔 도면 버튼만 focusin/focusout로 따로 판단하게 했었는데, 실제 태블릿
+  // 화면 녹화로 확인해보니 D패드(visualViewport resize/scroll 기반)는 스크롤 중에도
+  // 계속 화면에 붙어있는데 도면 버튼만 사라졌다 — 즉 "포커스가 잠깐 빠지는 순간"에
+  // 원위치(bottom:24px, 레이아웃 뷰포트 기준)로 풀렸다가 키보드에 가려진 채 안 돌아온
+  // 것. visualViewport 기반이 이 기기에서 실제로 더 안정적이라는 게 영상으로 증명됐으니,
+  // 도면 버튼도 같은 트리거(visualViewport)를 쓰되, 목표 위치만 안전지대(top:70px)로
+  // 고정한다 — "언제 움직일지"는 검증된 방식, "어디로 움직일지"는 계산 없는 고정값.
   var navPad = document.getElementById('navPad');
   var fab    = document.getElementById('drawingFab');
   var GAP = 14;
@@ -1020,6 +1027,13 @@ document.addEventListener('DOMContentLoaded', function () {
     navPad.style.bottom = 'auto';
     navPad.style.right  = GAP + 'px';
     navPad.style.left   = 'auto';
+
+    // 도면 버튼: 화면 맨 위 고정(키보드가 절대 못 가리는 자리)
+    if (fab) {
+      fab.style.top    = '70px';
+      fab.style.bottom = 'auto';
+      fab.style.left   = GAP + 'px';
+    }
   }
 
   function reset() {
@@ -1027,6 +1041,11 @@ document.addEventListener('DOMContentLoaded', function () {
     navPad.style.bottom = '14px';
     navPad.style.right  = '14px';
     navPad.style.left   = 'auto';
+    if (fab) {
+      fab.style.top    = 'auto';
+      fab.style.bottom = '24px';
+      fab.style.left   = '14px';
+    }
   }
 
   if (window.visualViewport) {
@@ -1038,31 +1057,6 @@ document.addEventListener('DOMContentLoaded', function () {
     window.visualViewport.addEventListener('scroll', function () {
       var vv = window.visualViewport;
       if ((window.innerHeight - vv.height) > 150) place(vv);
-    });
-  }
-
-  // 도면 버튼: 뷰포트 계산 대신 실제 입력 포커스로만 판단(더 확실함)
-  var fabForm = document.getElementById('inspectForm');
-  if (fab && fabForm) {
-    var pinFabUp = function () {
-      fab.style.top = '70px';
-      fab.style.bottom = 'auto';
-      fab.style.left = GAP + 'px';
-    };
-    var unpinFab = function () {
-      fab.style.top = 'auto';
-      fab.style.bottom = '24px';
-      fab.style.left = '14px';
-    };
-    fabForm.addEventListener('focusin', function (e) {
-      if (e.target && e.target.matches && e.target.matches('input, select, textarea')) pinFabUp();
-    });
-    fabForm.addEventListener('focusout', function (e) {
-      // 다음 칸으로 탭 이동하는 찰나에 깜빡이지 않게 한 틱 늦춰서 확인
-      setTimeout(function () {
-        var a = document.activeElement;
-        if (!a || !fabForm.contains(a) || !a.matches('input, select, textarea')) unpinFab();
-      }, 50);
     });
   }
 });
