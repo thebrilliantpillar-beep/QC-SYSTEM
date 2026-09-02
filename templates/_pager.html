@@ -1,0 +1,56 @@
+{# 목록 페이지네이션 바 (공용).
+   사용:  {% set p = pager %}{% include "_pager.html" %}
+   또는 여러 pager를 한 화면에서 쓰면 {% with p=my_pager %}{% include "_pager.html" %}{% endwith %}
+
+   page_arg가 "page"가 아니면(예: pending_page/done_page 처럼 한 화면에 여러 목록이
+   있을 때) 자기 파라미터만 갈아끼우고 나머지 쿼리스트링은 그대로 유지한다. #}
+{% if p and p.last > 1 %}
+{% set _keep = [] %}
+{% for k, v in request.args.lists() %}{% if k != p.page_arg %}{% for one in v %}{% set _ = _keep.append((k, one)) %}{% endfor %}{% endif %}{% endfor %}
+{% set _base = _keep | map('join', '=') | join('&') %}
+{% set _sep = '?' if not _base else '?' + _base + '&' %}
+<nav aria-label="페이지 이동"
+     style="display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap;
+            margin:14px 0 4px; font-size:13px; user-select:none;">
+  <a href="{{ _sep }}{{ p.page_arg }}=1"
+     style="padding:6px 10px; border-radius:6px; text-decoration:none;
+            {% if p.has_prev %}background:#f3f4f6; color:#374151;{% else %}background:#f9fafb; color:#d1d5db; pointer-events:none;{% endif %}">
+    « 처음</a>
+  <a href="{{ _sep }}{{ p.page_arg }}={{ p.page - 1 }}"
+     style="padding:6px 10px; border-radius:6px; text-decoration:none;
+            {% if p.has_prev %}background:#f3f4f6; color:#374151;{% else %}background:#f9fafb; color:#d1d5db; pointer-events:none;{% endif %}">
+    ‹ 이전</a>
+
+  {# 페이지 번호 — 현재 페이지 앞뒤 2개씩, 처음/끝은 항상 포함 #}
+  {% set _lo = [1, p.page - 2] | max %}
+  {% set _hi = [p.last, p.page + 2] | min %}
+  {% if _lo > 1 %}
+    <a href="{{ _sep }}{{ p.page_arg }}=1" style="padding:6px 10px; border-radius:6px; text-decoration:none; background:#f3f4f6; color:#374151;">1</a>
+    {% if _lo > 2 %}<span style="color:#9ca3af;">…</span>{% endif %}
+  {% endif %}
+  {% for n in range(_lo, _hi + 1) %}
+    {% if n == p.page %}
+    <span style="padding:6px 10px; border-radius:6px; background:var(--primary); color:#fff; font-weight:700;">{{ n }}</span>
+    {% else %}
+    <a href="{{ _sep }}{{ p.page_arg }}={{ n }}"
+       style="padding:6px 10px; border-radius:6px; text-decoration:none; background:#f3f4f6; color:#374151;">{{ n }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if _hi < p.last %}
+    {% if _hi < p.last - 1 %}<span style="color:#9ca3af;">…</span>{% endif %}
+    <a href="{{ _sep }}{{ p.page_arg }}={{ p.last }}" style="padding:6px 10px; border-radius:6px; text-decoration:none; background:#f3f4f6; color:#374151;">{{ p.last }}</a>
+  {% endif %}
+
+  <a href="{{ _sep }}{{ p.page_arg }}={{ p.page + 1 }}"
+     style="padding:6px 10px; border-radius:6px; text-decoration:none;
+            {% if p.has_next %}background:#f3f4f6; color:#374151;{% else %}background:#f9fafb; color:#d1d5db; pointer-events:none;{% endif %}">
+    다음 ›</a>
+  <a href="{{ _sep }}{{ p.page_arg }}={{ p.last }}"
+     style="padding:6px 10px; border-radius:6px; text-decoration:none;
+            {% if p.has_next %}background:#f3f4f6; color:#374151;{% else %}background:#f9fafb; color:#d1d5db; pointer-events:none;{% endif %}">
+    끝 »</a>
+  <span style="margin-left:6px; color:#9ca3af; font-size:12px;">
+    {{ p.start_index }}–{{ p.end_index }} / {{ p.total }}
+  </span>
+</nav>
+{% endif %}

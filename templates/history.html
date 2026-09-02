@@ -134,6 +134,7 @@
 {% if 'history_delete' in user_perms %}
 </form>
 {% endif %}
+{% set p = pager %}{% include "_pager.html" %}
 {% include "_drawing_modal.html" %}
 
 <script>

@@ -35,9 +35,13 @@
   #fillBtn:disabled { opacity:.45; cursor:not-allowed; }
 </style>
 
-<h2>입고 리스트 등록</h2>
+<h2>입고 리스트</h2>
 
-<div class="card">
+<details class="card" style="padding:0; border:1px solid var(--border); border-radius:12px;">
+  <summary style="cursor:pointer; padding:14px 18px; font-weight:700; color:#111; font-size:15px; list-style:none; user-select:none;">
+    ➕ 새 입고 등록 <span class="muted" style="font-weight:500; font-size:12.5px;">(누르면 펼침)</span>
+  </summary>
+  <div style="padding:0 18px 18px;">
   <form method="POST" id="intakeForm">
     <input type="hidden" name="rows_json" id="rowsJson">
 
@@ -100,7 +104,8 @@
       <button type="submit">등록</button>
     </div>
   </form>
-</div>
+  </div>
+</details>
 
 <script>
 (function () {
@@ -294,44 +299,85 @@
 })();
 </script>
 
-<h3 style="margin-top:24px;">대기 중 ({{ pending|length }}건)</h3>
-<table>
-  <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
-  {% for r in pending %}
-  <tr>
-    <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
-    <td>{{ r['supplier'] or '-' }}</td>
-    <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
-    <td>{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
-    <td>
-      {{ r['material_no'] }}
-      {% if r['material_no'] in group_nos %}
-        <span class="badge pending" style="margin-left:4px;">조립품</span>
-      {% elif r['material_no'] not in registered %}
-        <span class="badge fail" style="margin-left:4px;">규격 미등록</span>
-      {% endif %}
-    </td>
-    <td>{{ r['quantity'] or '-' }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="6">대기 중인 입고 건이 없어.</td></tr>
-  {% endfor %}
-</table>
+{# ───────── 목록: 대기/완료 탭 + 검색 + 페이지네이션 ───────── #}
+<style>
+  .intake-tabs { display:flex; gap:4px; border-bottom:2px solid var(--border); margin:24px 0 0; }
+  .intake-tabs a { padding:10px 18px; text-decoration:none; color:#6b7280; font-weight:600;
+                    border-bottom:3px solid transparent; margin-bottom:-2px; font-size:14.5px; }
+  .intake-tabs a:hover { color:#374151; background:#f9fafb; }
+  .intake-tabs a.active { color:var(--primary); border-bottom-color:var(--primary); }
+  .intake-tabs .cnt { font-size:12px; background:#f3f4f6; color:#6b7280; padding:2px 8px;
+                       border-radius:999px; margin-left:6px; font-weight:700; }
+  .intake-tabs a.active .cnt { background:#dbeafe; color:var(--primary); }
+  .intake-search { display:flex; gap:8px; align-items:center; margin:14px 0 6px; }
+  .intake-search input { flex:1; max-width:340px; padding:8px 12px; font-size:13.5px;
+                          border:1px solid var(--border); border-radius:8px; }
+  .intake-search button { padding:8px 14px; font-size:13.5px; margin-top:0; }
+</style>
 
-{% if done %}
-<h3 style="margin-top:24px;">검사완료 ({{ done|length }}건)</h3>
-<table>
-  <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
-  {% for r in done %}
-  <tr>
-    <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
-    <td>{{ r['supplier'] or '-' }}</td>
-    <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
-    <td>{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
-    <td>{{ r['material_no'] }}</td>
-    <td>{{ r['quantity'] or '-' }}</td>
-  </tr>
-  {% endfor %}
-</table>
+<div class="intake-tabs">
+  <a href="?tab=pending{% if q %}&q={{ q|urlencode }}{% endif %}" class="{{ 'active' if active_tab == 'pending' }}">
+    대기 중 <span class="cnt">{{ pending_total_all }}</span>
+  </a>
+  <a href="?tab=done{% if q %}&q={{ q|urlencode }}{% endif %}" class="{{ 'active' if active_tab == 'done' }}">
+    검사완료 <span class="cnt">{{ done_total_all }}</span>
+  </a>
+</div>
+
+<form method="get" class="intake-search">
+  <input type="hidden" name="tab" value="{{ active_tab }}">
+  <input type="text" name="q" value="{{ q }}"
+         placeholder="자재번호, 제품명, 납품업체, 로트번호로 검색…" autocomplete="off">
+  <button type="submit">검색</button>
+  {% if q %}<a href="?tab={{ active_tab }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</a>{% endif %}
+</form>
+
+{% if active_tab == 'pending' %}
+  {% set p = pending_pager %}
+  <table>
+    <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+    {% for r in p['items'] %}
+    <tr>
+      <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
+      <td>{{ r['supplier'] or '-' }}</td>
+      <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
+      <td>{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
+      <td>
+        {{ r['material_no'] }}
+        {% if r['material_no'] in group_nos %}
+          <span class="badge pending" style="margin-left:4px;">조립품</span>
+        {% elif r['material_no'] not in registered %}
+          <span class="badge fail" style="margin-left:4px;">규격 미등록</span>
+        {% endif %}
+      </td>
+      <td>{{ r['quantity'] or '-' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" style="text-align:center; color:var(--muted);">
+      {% if q %}검색 결과가 없어.{% else %}대기 중인 입고 건이 없어.{% endif %}
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% include "_pager.html" %}
+{% else %}
+  {% set p = done_pager %}
+  <table>
+    <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+    {% for r in p['items'] %}
+    <tr>
+      <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
+      <td>{{ r['supplier'] or '-' }}</td>
+      <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
+      <td>{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
+      <td>{{ r['material_no'] }}</td>
+      <td>{{ r['quantity'] or '-' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" style="text-align:center; color:var(--muted);">
+      {% if q %}검색 결과가 없어.{% else %}검사완료된 입고 건이 없어.{% endif %}
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% include "_pager.html" %}
 {% endif %}
 {% endblock %}

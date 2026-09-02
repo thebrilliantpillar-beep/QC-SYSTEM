@@ -254,53 +254,56 @@
   </div>
 </details>
 
-{# ───────── 오늘 업체별 입고 ───────── #}
-<details class="sec" data-sec="today-intake-supplier">
-  <summary>🏭 오늘 업체별 입고 <span class="cnt gray">{{ s['입고']['업체별']|length }}</span><span class="arrow">▶</span></summary>
+{# ───────── 오늘 입고 (업체별 접기·펼치기 한 섹션) ─────────
+   예전엔 "업체별 요약표"와 "전체 목록" 두 섹션이 따로였는데, 업체별로 접었다가
+   클릭하면 그 업체의 자재만 펼쳐 보이는 방식이 더 간결해서 하나로 합쳤다
+   (2026-09-02 사용자 요청). 업체 헤더를 다시 누르면 다시 접힌다. #}
+<details class="sec" data-sec="today-intake" open>
+  <summary>📦 오늘 입고 <span class="cnt gray">{{ s['입고']['건수'] }}건 · {{ "{:,}".format(s['입고']['수량']) }}개</span><span class="arrow">▶</span></summary>
   <div class="body">
     {% if s['입고']['업체별'] %}
-    <div class="tblw">
-      <table>
-        <thead><tr><th>업체</th><th class="num">건수</th><th class="num">수량</th></tr></thead>
-        <tbody>
-        {% for b in s['입고']['업체별'] %}
-        <tr>
-          <td>{{ b['업체'] }}</td>
-          <td class="num">{{ b['건수'] }}</td>
-          <td class="num">{{ "{:,}".format(b['수량']) }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="none">오늘 등록된 입고가 없어.</div>
-    {% endif %}
-  </div>
-</details>
-
-{# ───────── 오늘 입고 ───────── #}
-<details class="sec" data-sec="today-intake">
-  <summary>📦 오늘 입고 목록 <span class="cnt gray">{{ s['입고']['목록']|length }}</span><span class="arrow">▶</span></summary>
-  <div class="body">
-    {% if s['입고']['목록'] %}
-    <div class="tblw">
-      <table>
-        <thead><tr><th>자재번호</th><th>제품명</th><th>업체</th><th>로트번호</th><th class="num">수량</th><th>상태</th></tr></thead>
-        <tbody>
-        {% for r in s['입고']['목록'] %}
-        <tr>
-          <td>{{ r['material_no'] }}</td>
-          <td>{{ r['product_name'] or '-' }}</td>
-          <td>{{ r['supplier'] or '-' }}</td>
-          <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
-          <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
-          <td>{{ r['status'] }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <style>
+      .sup-block { border:1px solid var(--border); border-radius:10px; margin-bottom:8px; overflow:hidden; background:#fff; }
+      .sup-block > summary { list-style:none; padding:11px 14px; cursor:pointer;
+                              display:flex; align-items:center; gap:12px;
+                              font-size:14px; user-select:none; }
+      .sup-block > summary::-webkit-details-marker { display:none; }
+      .sup-block > summary:hover { background:#f9fafb; }
+      .sup-block[open] > summary { background:#eff6ff; border-bottom:1px solid var(--border); }
+      .sup-name { font-weight:700; color:#111827; flex:1; }
+      .sup-stat { font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+      .sup-caret { color:#9ca3af; transition:transform .15s; }
+      .sup-block[open] .sup-caret { transform:rotate(90deg); }
+      .sup-body { padding:0; }
+      .sup-body table { margin:0; }
+    </style>
+    {% for b in s['입고']['업체별'] %}
+    <details class="sup-block">
+      <summary>
+        <span class="sup-caret">▶</span>
+        <span class="sup-name">{{ b['업체'] }}</span>
+        <span class="sup-stat">{{ b['건수'] }}건 · {{ "{:,}".format(b['수량']) }}개</span>
+      </summary>
+      <div class="sup-body">
+        <div class="tblw">
+          <table>
+            <thead><tr><th>자재번호</th><th>제품명</th><th>로트번호</th><th class="num">수량</th><th>상태</th></tr></thead>
+            <tbody>
+            {% for r in b['목록'] %}
+            <tr>
+              <td>{{ r['material_no'] }}</td>
+              <td>{{ r['product_name'] or '-' }}</td>
+              <td style="white-space:pre-line;">{{ r['po_number'] or '-' }}</td>
+              <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
+              <td>{{ r['status'] }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
     {% else %}
     <div class="none">오늘 등록된 입고가 없어.</div>
     {% endif %}

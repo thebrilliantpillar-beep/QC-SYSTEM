@@ -2675,13 +2675,16 @@ def daily_status(day=None):
                             ORDER BY id DESC""", (day,))
     intake_qty = sum(int(r["quantity"] or 0) for r in intake_today)
 
-    # 업체별로 몇 건·몇 개 들어왔는지 (금일 현황에서 "어디서 뭐가 왔는지" 한눈에 보기 위함)
+    # 업체별로 몇 건·몇 개 들어왔는지 + 그 업체의 실제 입고 행 목록도 같이 담아둔다
+    # (2026-09-02: 예전엔 요약표와 전체 목록 두 섹션이 따로였는데, 업체별 접기/펼치기
+    # 하나로 합치는 게 스크롤도 덜하고 "어느 업체에서 뭐가 왔는지"가 한눈에 보인다.)
     by_supplier = {}
     for r in intake_today:
         sup = r["supplier"] or "(미입력)"
-        b = by_supplier.setdefault(sup, {"업체": sup, "건수": 0, "수량": 0})
+        b = by_supplier.setdefault(sup, {"업체": sup, "건수": 0, "수량": 0, "목록": []})
         b["건수"] += 1
         b["수량"] += int(r["quantity"] or 0)
+        b["목록"].append(r)
     by_supplier_list = sorted(by_supplier.values(), key=lambda x: -x["건수"])
 
     # ── 오늘 검사한 것 ──

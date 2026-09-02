@@ -402,6 +402,38 @@ def status_display(insp):
     return (label, cls_map.get(label, "pending"))
 
 
+PAGE_SIZE = 50
+
+
+def _paginate(items, page_arg="page", per_page=PAGE_SIZE):
+    """긴 목록을 페이지 단위로 자른다. 화면(_pager.html)이 요구하는 dict 하나로 통일해서
+    돌려준다 — 각 목록 라우트마다 페이지 계산 로직을 복붙하지 않게(2026-09-02).
+
+    쿼리스트링의 ?page=N을 읽고, 범위를 벗어나면 1~last로 클램프한다. items가 리스트가
+    아니어도(제너레이터 등) 안전하게 처리하려면 호출부에서 list()로 감싸서 넘길 것."""
+    total = len(items)
+    last = max(1, -(-total // per_page))
+    try:
+        page = int(request.args.get(page_arg, "1"))
+    except ValueError:
+        page = 1
+    page = max(1, min(page, last))
+    start = (page - 1) * per_page
+    end = start + per_page
+    return {
+        "items": items[start:end],
+        "page": page,
+        "last": last,
+        "total": total,
+        "per_page": per_page,
+        "has_prev": page > 1,
+        "has_next": page < last,
+        "page_arg": page_arg,
+        "start_index": start + 1 if total else 0,
+        "end_index": min(end, total),
+    }
+
+
 def _list_search_params():
     """4개 목록 화면(검사이력/불량이력/부적합통보서/반품처리)이 공통으로 쓰는 검색 조건을
     쿼리스트링에서 뽑아 dict로 정리."""
@@ -1294,7 +1326,34 @@ def intake():
     mats = db.get_materials()
     registered = {m["material_no"] for m in mats}
     name_map = {m["material_no"]: m["material_name"] for m in mats}
-    return render_template("intake.html", pending=pending, done=done,
+
+    # 탭 검색어 + 페이지네이션 — 대기/완료 각자 별개(?tab=/?q=/?pending_page=/?done_page=)
+    active_tab = (request.args.get("tab") or "pending").lower()
+    if active_tab not in ("pending", "done"):
+        active_tab = "pending"
+    q = (request.args.get("q") or "").strip().lower()
+
+    def _match(rows):
+        if not q:
+            return rows
+        out = []
+        for r in rows:
+            name = name_map.get(r["material_no"]) or r["product_name"] or ""
+            hay = " ".join(str(x or "") for x in (
+                r["material_no"], name, r["supplier"], r["po_number"])).lower()
+            if q in hay:
+                out.append(r)
+        return out
+
+    pending_filtered = _match(pending)
+    done_filtered = _match(done)
+    pending_pager = _paginate(pending_filtered, page_arg="pending_page")
+    done_pager = _paginate(done_filtered, page_arg="done_page")
+
+    return render_template("intake.html",
+                           pending_pager=pending_pager, done_pager=done_pager,
+                           pending_total_all=len(pending), done_total_all=len(done),
+                           active_tab=active_tab, q=q,
                            registered=registered, group_nos=set(), name_map=name_map)
 
 
@@ -1310,9 +1369,11 @@ def spec_list():
         materials = db.search_materials(query, search_by)
     else:
         materials = db.get_materials()
-    drawing_materials = materials_with_drawings(m["material_no"] for m in materials)
-    return render_template("spec.html", materials=materials, query=query, search_by=search_by,
-                            drawing_materials=drawing_materials)
+    materials = list(materials)
+    pager = _paginate(materials)
+    drawing_materials = materials_with_drawings(m["material_no"] for m in pager["items"])
+    return render_template("spec.html", materials=pager["items"], query=query, search_by=search_by,
+                            drawing_materials=drawing_materials, pager=pager)
 
 
 @app.route("/spec/quick_add", methods=["GET", "POST"])
@@ -3233,8 +3294,16 @@ def history():
         )
     ]
 
+    # 검사일 내림차순으로 정렬해두고 페이지네이션(50개/페이지) — 페이지 안에서
+    # 같은 날짜끼리 다시 그룹핑해서 헤더를 붙인다(원래 화면 형태 유지).
+    def _date_key(i):
+        d = _parse_any_date(i["inspect_date"])
+        return d.isoformat() if d else "0000"
+    inspections.sort(key=lambda i: (_date_key(i), i["id"]), reverse=True)
+    pager = _paginate(inspections)
+
     by_date = defaultdict(list)
-    for insp in inspections:
+    for insp in pager["items"]:
         d = _parse_any_date(insp["inspect_date"])
         by_date[d.isoformat() if d else NO_DATE].append(insp)
 
@@ -3243,11 +3312,12 @@ def history():
                           reverse=True)
     # 헤더에 그대로 쓸 수 있게 '2026-08-21 (금)' 형태의 표시용 라벨도 같이 넘긴다
     date_labels = {d: (format_date_korean(d) if d != NO_DATE else NO_DATE) for d in sorted_dates}
-    time_labels = {i["id"]: total_time_label_for(i) for i in inspections}
-    drawing_materials = materials_with_drawings(i["material_no"] for i in inspections)
+    time_labels = {i["id"]: total_time_label_for(i) for i in pager["items"]}
+    drawing_materials = materials_with_drawings(i["material_no"] for i in pager["items"])
     return render_template("history.html", by_date=by_date,
                            sorted_dates=sorted_dates, date_labels=date_labels,
                            time_labels=time_labels, drawing_materials=drawing_materials,
+                           pager=pager,
                            f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
 
 
@@ -3381,7 +3451,8 @@ def _collect_approval_history():
 @perm_required("inspect_history")
 def approval_history():
     rows, filt = _collect_approval_history()
-    return render_template("approval_history.html", rows=rows, filt=filt)
+    pager = _paginate(rows)
+    return render_template("approval_history.html", rows=pager["items"], filt=filt, pager=pager)
 
 
 @app.route("/history/approved/export")
@@ -3497,9 +3568,15 @@ def defect_history():
         ]
     data = {k: _filt(v) for k, v in data.items()}
 
+    # 완료(archive) 버킷만 페이지네이션 — 시간이 갈수록 계속 쌓이는 유일한 항목이라서.
+    # 나머지 4개 버킷(재검사/작성/확인/발송)은 처리하면 사라지는 대기열이라 페이지 나눌 필요 없음.
+    completed_pager = _paginate(data.get("completed", []), page_arg="page")
+    data["completed"] = completed_pager["items"]
+
     return render_template("defect_history.html",
                            data=data,
                            preset=preset, start=start, end=end,
+                           pager=completed_pager,
                            f=f, show_result=False, show_status=False)
 
 
@@ -3692,7 +3769,8 @@ def full_inspect_pdf(inspection_id):
 @perm_required("output")
 def output_list():
     pending = db.list_pending_output_inspections()
-    return render_template("output_list.html", pending=pending)
+    pager = _paginate(list(pending))
+    return render_template("output_list.html", pending=pager["items"], pager=pager)
 
 
 @app.route("/output/generate", methods=["POST"])
@@ -4585,8 +4663,9 @@ def ncr_list():
         )
     ]
 
-    return render_template("ncr_list.html", ncrs=ncrs, status_filter=status_filter,
-                           today=date.today().isoformat(),
+    pager = _paginate(ncrs)
+    return render_template("ncr_list.html", ncrs=pager["items"], status_filter=status_filter,
+                           today=date.today().isoformat(), pager=pager,
                            f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
 
 
@@ -4838,9 +4917,10 @@ def return_list():
         )
     ]
 
-    return render_template("return_list.html", returns=returns,
+    pager = _paginate(returns)
+    return render_template("return_list.html", returns=pager["items"],
                            status_filter=status_filter, statuses=statuses,
-                           today=date.today().isoformat(),
+                           today=date.today().isoformat(), pager=pager,
                            f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
 
 

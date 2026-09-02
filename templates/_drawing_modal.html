@@ -29,6 +29,9 @@
                        font-size:15px; color:#374151; cursor:pointer; padding:0;">⟳</button>
         <button type="button" onclick="drawingResetView()" title="맞춤으로 초기화"
                 style="font-size:12px; color:#2563eb; background:none; border:none; cursor:pointer; padding:4px 2px;">맞춤</button>
+        <button type="button" onclick="drawingPrint()" title="인쇄"
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
+                       font-size:14px; color:#374151; cursor:pointer; padding:0;">🖨️</button>
         <a id="drawingModalOpenNew" href="#" target="_blank" rel="noopener"
            style="font-size:12.5px; color:#2563eb; text-decoration:none; margin-left:4px;">새 탭</a>
         <button onclick="closeDrawingModal()" style="font-size:20px; background:none; border:none;
@@ -104,6 +107,27 @@
     zoom = 1;
     rotation = 0;
     renderAll();
+  };
+
+  // 인쇄 — PDF 원본을 숨긴 iframe으로 열고 iframe의 print()를 호출한다.
+  // 이렇게 하면 브라우저의 표준 인쇄 대화상자가 뜨고, PC/태블릿 어디서 열든
+  // 그 기기에 연결된 프린터로 바로 보낼 수 있다(PDF 저장도 같은 대화상자에서).
+  // window.print()로 캔버스를 직접 인쇄하면 낮은 해상도라 도면이 흐릿하게 나온다.
+  window.drawingPrint = function () {
+    var linkEl = document.getElementById('drawingModalOpenNew');
+    var url = linkEl ? linkEl.href : null;
+    if (!url) return;
+    var old = document.getElementById('drawingPrintFrame');
+    if (old) old.remove();
+    var f = document.createElement('iframe');
+    f.id = 'drawingPrintFrame';
+    f.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+    f.src = url;
+    f.onload = function () {
+      try { f.contentWindow.focus(); f.contentWindow.print(); }
+      catch (e) { window.open(url, '_blank'); }  // 팝업 차단이나 크로스오리진 예외 대비
+    };
+    document.body.appendChild(f);
   };
 
   window.openDrawingModal = function (materialNo, label) {

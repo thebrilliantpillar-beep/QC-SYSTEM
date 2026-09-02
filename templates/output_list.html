@@ -34,6 +34,7 @@
     <tr><td colspan="8">출력 대기 중인 성적서가 없어.</td></tr>
     {% endfor %}
   </table>
+  {% set p = pager %}{% include "_pager.html" %}
 
   {% if pending %}
   <div style="margin-top:16px; padding:14px 18px; background:#f8fafc; border:1px solid #e2e8f0;

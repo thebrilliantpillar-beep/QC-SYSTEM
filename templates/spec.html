@@ -68,5 +68,6 @@
   <tr><td colspan="4">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
   {% endfor %}
 </table>
+{% set p = pager %}{% include "_pager.html" %}
 {% include "_drawing_modal.html" %}
 {% endblock %}
