@@ -1332,17 +1332,29 @@ def intake():
     if active_tab not in ("pending", "done"):
         active_tab = "pending"
     q = (request.args.get("q") or "").strip().lower()
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    d_from = _parse_any_date(date_from) if date_from else None
+    d_to = _parse_any_date(date_to) if date_to else None
 
     def _match(rows):
-        if not q:
-            return rows
         out = []
         for r in rows:
-            name = name_map.get(r["material_no"]) or r["product_name"] or ""
-            hay = " ".join(str(x or "") for x in (
-                r["material_no"], name, r["supplier"], r["po_number"])).lower()
-            if q in hay:
-                out.append(r)
+            if q:
+                name = name_map.get(r["material_no"]) or r["product_name"] or ""
+                hay = " ".join(str(x or "") for x in (
+                    r["material_no"], name, r["supplier"], r["po_number"])).lower()
+                if q not in hay:
+                    continue
+            if d_from or d_to:
+                rd = _parse_any_date(r["receive_date"])
+                if not rd:
+                    continue
+                if d_from and rd < d_from:
+                    continue
+                if d_to and rd > d_to:
+                    continue
+            out.append(r)
         return out
 
     pending_filtered = _match(pending)
@@ -1354,6 +1366,7 @@ def intake():
                            pending_pager=pending_pager, done_pager=done_pager,
                            pending_total_all=len(pending), done_total_all=len(done),
                            active_tab=active_tab, q=q,
+                           date_from=date_from, date_to=date_to,
                            registered=registered, group_nos=set(), name_map=name_map)
 
 

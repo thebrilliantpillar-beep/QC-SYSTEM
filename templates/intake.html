@@ -315,11 +315,17 @@
   .intake-search button { padding:8px 14px; font-size:13.5px; margin-top:0; }
 </style>
 
+{% set _keep_qs = [] %}
+{% if q %}{% set _ = _keep_qs.append('q=' + q|urlencode) %}{% endif %}
+{% if date_from %}{% set _ = _keep_qs.append('date_from=' + date_from|urlencode) %}{% endif %}
+{% if date_to %}{% set _ = _keep_qs.append('date_to=' + date_to|urlencode) %}{% endif %}
+{% set _keep_str = ('&' + _keep_qs|join('&')) if _keep_qs else '' %}
+
 <div class="intake-tabs">
-  <a href="?tab=pending{% if q %}&q={{ q|urlencode }}{% endif %}" class="{{ 'active' if active_tab == 'pending' }}">
+  <a href="?tab=pending{{ _keep_str }}" class="{{ 'active' if active_tab == 'pending' }}">
     대기 중 <span class="cnt">{{ pending_total_all }}</span>
   </a>
-  <a href="?tab=done{% if q %}&q={{ q|urlencode }}{% endif %}" class="{{ 'active' if active_tab == 'done' }}">
+  <a href="?tab=done{{ _keep_str }}" class="{{ 'active' if active_tab == 'done' }}">
     검사완료 <span class="cnt">{{ done_total_all }}</span>
   </a>
 </div>
@@ -328,8 +334,16 @@
   <input type="hidden" name="tab" value="{{ active_tab }}">
   <input type="text" name="q" value="{{ q }}"
          placeholder="자재번호, 제품명, 납품업체, 로트번호로 검색…" autocomplete="off">
+  <span style="color:#9ca3af; font-size:12.5px; margin:0 2px;">입고날짜</span>
+  <input type="date" name="date_from" value="{{ date_from }}" title="시작일"
+         style="padding:8px 10px; font-size:13px; border:1px solid var(--border); border-radius:8px;">
+  <span style="color:#9ca3af;">~</span>
+  <input type="date" name="date_to" value="{{ date_to }}" title="종료일"
+         style="padding:8px 10px; font-size:13px; border:1px solid var(--border); border-radius:8px;">
   <button type="submit">검색</button>
-  {% if q %}<a href="?tab={{ active_tab }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</a>{% endif %}
+  {% if q or date_from or date_to %}
+  <a href="?tab={{ active_tab }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</a>
+  {% endif %}
 </form>
 
 {% if active_tab == 'pending' %}
