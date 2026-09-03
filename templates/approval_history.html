@@ -45,9 +45,19 @@
     <h2 style="margin:0;">승인 이력</h2>
     <p class="muted" style="margin:4px 0 0;">판정이 확정된 성적서(합격·특채·불합격)만 모아서 보여줘. 필터를 걸어서 원하는 범위만 엑셀로 뽑을 수 있어.</p>
   </div>
-  <a class="btn" style="background:#059669; color:#fff; border-color:#059669;"
-     href="{{ url_for('approval_history_export') }}?{{ request.query_string.decode('utf-8') }}">📊 엑셀 다운로드</a>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <span id="ahSelCount" class="muted" style="font-size:12.5px; display:none;"></span>
+    <button type="button" id="ahExportSelected" class="btn" disabled
+            style="background:#059669; color:#fff; border-color:#059669; opacity:.5;"
+            onclick="ahExportSelected()">✅ 선택 항목만 다운로드</button>
+    <a class="btn secondary"
+       href="{{ url_for('approval_history_export') }}?{{ request.query_string.decode('utf-8') }}"
+       onclick="return ahConfirmFullExport({{ pager.total if pager else rows|length }})">📊 전체(현재 조건) 다운로드</a>
+  </div>
 </div>
+<p class="muted" style="font-size:12.5px; margin:-6px 0 12px;">
+  💡 한 번에 너무 많이 뽑으면 서버가 느려질 수 있어 — 아래 표에서 체크박스로 필요한 건만 골라 <b>선택 항목만 다운로드</b>를 쓰는 걸 권장해.
+</p>
 
 <div class="filter-card">
   <form id="filterForm" method="get" action="{{ url_for('approval_history') }}">
@@ -113,6 +123,7 @@
 <table class="ah-table">
   <thead>
     <tr>
+      <th style="width:34px;"><input type="checkbox" id="ahCheckAll" onchange="ahToggleAll(this)" title="이 페이지 전체 선택"></th>
       <th>입고일</th>
       <th>업체명</th>
       <th>로트번호</th>
@@ -131,6 +142,9 @@
     {% for r in rows %}
     <tr class="clickable" data-admin-id="{{ r.id }}"
         onclick="location.href='{{ url_for('inspection_detail', inspection_id=r.id) }}'">
+      <td onclick="event.stopPropagation();">
+        <input type="checkbox" class="ah-row-chk" value="{{ r.id }}" onchange="ahUpdateSelCount()">
+      </td>
       <td>{{ r.receive_date_label }}</td>
       <td>{{ r.supplier }}</td>
       <td style="white-space:pre-line;">{{ r.po_number }}</td>
@@ -196,5 +210,42 @@ function addChip(name, inputId) {
 }
 renderChips('supplier');
 renderChips('po_number');
+
+// 선택 항목만 엑셀로 뽑기 — Render 서버가 전체를 한 번에 뽑으면 과부하로
+// 타임아웃 나는 문제가 있어서(2026-09-04), 체크박스로 고른 것만 내보낼 수
+// 있게 함. 페이지네이션 때문에 선택은 "현재 페이지"에서만 가능하다.
+function ahUpdateSelCount() {
+  var n = document.querySelectorAll('.ah-row-chk:checked').length;
+  var btn = document.getElementById('ahExportSelected');
+  var cnt = document.getElementById('ahSelCount');
+  btn.disabled = (n === 0);
+  btn.style.opacity = n === 0 ? '.5' : '1';
+  if (n > 0) {
+    cnt.style.display = '';
+    cnt.textContent = n + '건 선택됨';
+  } else {
+    cnt.style.display = 'none';
+  }
+  var all = document.querySelectorAll('.ah-row-chk');
+  document.getElementById('ahCheckAll').checked = all.length > 0 && n === all.length;
+}
+function ahToggleAll(cb) {
+  document.querySelectorAll('.ah-row-chk').forEach(function (c) { c.checked = cb.checked; });
+  ahUpdateSelCount();
+}
+function ahExportSelected() {
+  var ids = Array.from(document.querySelectorAll('.ah-row-chk:checked')).map(function (c) { return c.value; });
+  if (!ids.length) return;
+  var qs = new URLSearchParams(window.location.search);
+  qs.delete('ids');
+  ids.forEach(function (id) { qs.append('ids', id); });
+  window.location.href = "{{ url_for('approval_history_export') }}?" + qs.toString();
+}
+function ahConfirmFullExport(total) {
+  if (total > 200) {
+    return confirm('현재 조건에 ' + total + '건이 있어. 한 번에 뽑으면 서버가 느려지거나 오류가 날 수 있어 — 체크박스로 필요한 것만 고르는 걸 권장해.\n\n그래도 전체를 다운로드할까?');
+  }
+  return true;
+}
 </script>
 {% endblock %}

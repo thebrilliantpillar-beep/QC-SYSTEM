@@ -3479,6 +3479,14 @@ def approval_history_export():
 
     rows, _ = _collect_approval_history()
 
+    # 체크박스로 고른 건만 뽑을 때 사용 — 전체를 한 번에 뽑으면 Render 서버
+    # 리소스가 부족해서 타임아웃 나는 문제가 있어(2026-09-04 사용자 리포트),
+    # 화면에서 선택한 것만 내보낼 수 있게 함. ids가 없으면 예전처럼 전체.
+    selected_ids = _multi_arg("ids")
+    if selected_ids:
+        wanted = {int(x) for x in selected_ids if x.isdigit()}
+        rows = [r for r in rows if r["id"] in wanted]
+
     wb = Workbook()
     ws = wb.active
     ws.title = "승인이력"
