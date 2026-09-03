@@ -2,8 +2,11 @@
 # Copyright (c) 2026 윤주호. All rights reserved.
 # 무단 복제·배포·수정을 금합니다.
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
-import sqlite3, os
+import re, sqlite3, os
 from datetime import datetime as _dt
+
+# 검사자 비고의 표준 불량 문구 파싱 — app.py의 parse_defect_counts와 동일 패턴
+_DEFECT_RE = re.compile(r"검사\s*수량\s*(\d+)\s*개\s*중\s*(\d+)\s*개\s*불량")
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -2819,10 +2822,11 @@ def quality_report(start_date, end_date, period_type="monthly",
     if states:
         rows = [r for r in rows if _lot_state(r["status"], r["approval_type"]) in states]
 
+    ids = [r["id"] for r in rows]
+
     # 불량 항목 — 어떤 검사항목에서 많이 터지는지
     defect_items = []
-    if rows:
-        ids = [r["id"] for r in rows]
+    if ids:
         ph = ",".join("?" * len(ids))
         defect_items = [dict(r) for r in conn.execute(f"""
             SELECT ii.item_name, ii.result, ii.measured_value,
@@ -2849,18 +2853,36 @@ def quality_report(start_date, end_date, period_type="monthly",
     cp_sql += " ORDER BY change_date DESC"
     change_points = [dict(r) for r in conn.execute(cp_sql, cp_params).fetchall()]
 
+    # 실제 측정 표본수 — inspection_id별 measured_value 콤마수 최댓값
+    # (값이 3개면 콤마 2개 = 길이차 + 1 = 3)
+    sample_count_map = {}
+    if ids:
+        ph2 = ",".join("?" * len(ids))
+        for sc_row in conn.execute(f"""
+            SELECT inspection_id,
+                   MAX(LENGTH(measured_value) - LENGTH(REPLACE(measured_value, ',', '')) + 1) AS cnt
+              FROM inspection_items
+             WHERE inspection_id IN ({ph2})
+               AND measured_value IS NOT NULL AND TRIM(measured_value) != ''
+             GROUP BY inspection_id
+        """, ids).fetchall():
+            sample_count_map[sc_row[0]] = int(sc_row[1])
+
     conn.close()
 
     # ---- 집계 ----
     def blank():
         return {"로트": 0, "수량": 0, "합격수량": 0, "특채수량": 0,
-                "불합격수량": 0, "미결수량": 0, "불합격로트": 0}
+                "불합격수량": 0, "미결수량": 0, "불합격로트": 0,
+                "검사표본수": 0, "표본불량수": 0}
 
     def add(acc, r):
         qty = int(r["quantity"] or 0)
         state = _lot_state(r["status"], r["approval_type"])
         acc["로트"] += 1
         acc["수량"] += qty
+        acc["검사표본수"] += sample_count_map.get(r["id"], 0)
+        acc["표본불량수"] += sum(int(m[1]) for m in _DEFECT_RE.findall(r.get("remark_inspector") or ""))
         if state == "합격":
             acc["합격수량"] += qty
         elif state == "특채":
@@ -2879,6 +2901,10 @@ def quality_report(start_date, end_date, period_type="monthly",
         # 특채까지 포함한 '규격 이탈률' — 참고용
         out = acc["불합격수량"] + acc["특채수량"]
         acc["규격이탈률"] = round(out / confirmed * 100, 3) if confirmed else 0.0
+        # 표본 기준 불량률 (None = 표본데이터 없음, 0%와 구분)
+        samp = acc["검사표본수"]
+        acc["표본불량률"] = round(acc["표본불량수"] / samp * 100, 3) if samp else None
+        acc["표본PPM"] = int(round(acc["표본불량수"] / samp * 1_000_000)) if samp else None
         return acc
 
     summary = blank()
