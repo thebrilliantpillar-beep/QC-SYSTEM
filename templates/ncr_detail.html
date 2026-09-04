@@ -146,9 +146,7 @@
 
 <!-- 버튼 바 -->
 <div class="btn-bar no-print" style="max-width:780px; margin:0 auto 16px;">
-  <button onclick="window.print()" style="background:#1f2937; color:#fff;">🖨️ 인쇄 / PDF</button>
-
-  {% if 'ncr' in user_perms or 'ncr_confirm' in user_perms %}
+{% if 'ncr' in user_perms or 'ncr_confirm' in user_perms %}
   <a href="{{ url_for('ncr_excel', ncr_id=ncr['id']) }}"
      style="background:#059669; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
             border-radius:8px; text-decoration:none; cursor:pointer;">
