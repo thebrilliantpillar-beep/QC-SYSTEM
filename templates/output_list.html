@@ -66,10 +66,10 @@ function confirmBatch(btn) {
     ? document.querySelectorAll('.row-check').length
     : document.querySelectorAll('.row-check:checked').length;
   if (!isAll && cnt === 0) { alert('출력할 성적서를 선택해줘.'); return false; }
-  if (cnt > 20) {
+  if (cnt > 10) {
     return confirm(
-      cnt + '개를 한 번에 출력하면 서버 처리 시간이 매우 길어질 수 있어 (수 분 소요).\n\n' +
-      '20개 이하로 나눠서 출력하는 걸 권장해.\n\n계속 진행할까?'
+      cnt + '개를 한 번에 출력하면 서버 처리 시간이 길어질 수 있어 (1개씩 순차 처리돼).\n\n' +
+      '10개 이하로 나눠서 출력하는 걸 권장해.\n\n계속 진행할까?'
     );
   }
   return true;
