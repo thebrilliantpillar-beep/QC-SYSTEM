@@ -800,6 +800,12 @@ def build_ncr_excel(ncr, photo_paths=None):
         ws = wb[NCR_SHEET]
         ws._images.clear()   # 템플릿 안의 기존 이미지(로고 등) 제거
 
+        # 시트 이름 정리: "부적합통보서"로 변경, Sheet1 삭제
+        ws.title = "부적합통보서"
+        for sname in list(wb.sheetnames):
+            if sname == "Sheet1":
+                del wb[sname]
+
         issued_date   = ncr.get('issued_date') or ''
         supplier      = ncr.get('supplier') or ''
         cc            = ncr.get('cc_recipient') or ''
@@ -828,33 +834,22 @@ def build_ncr_excel(ncr, photo_paths=None):
         ws['B7'] = sample_qty
         ws['E7'] = defect_qty
         ws['H7'] = defect_rate
+        from openpyxl.styles import Font as _XLFont, Alignment as _Align, Border as _Border, Side as _Side
+
+        # A9:C17 — 템플릿에 이미 병합돼 있음. 값 쓰고 정렬만 명시
         ws['A9'] = defect_desc
-        # A9:C17 병합 유지 + 가운데 정렬 명시 (템플릿 의존 없이 코드로 보장)
-        try:
-            from openpyxl.styles import Alignment as _A9Align
-            if 'A9:C17' not in [str(m) for m in ws.merged_cells.ranges]:
-                ws.merge_cells('A9:C17')
-            ws['A9'].alignment = _A9Align(horizontal='center', vertical='center',
-                                           wrap_text=True)
-        except Exception:
-            pass
+        ws['A9'].alignment = _Align(horizontal='center', vertical='center', wrap_text=True)
+
         if special_note:
             ws['A18'] = f'※특기사항 : {special_note}'
 
-        # 결재득 박스: H3:I4 병합 후 텍스트 삽입
-        try:
-            from openpyxl.styles import Font as _XLFont, Alignment as _Align, Border as _Border, Side as _Side
-            ws.unmerge_cells('H3:H4')
-            ws.unmerge_cells('I3:I4')
-            ws.merge_cells('H3:I4')
-            _cell = ws['H3']
-            _cell.value = '결  재  득'
-            _cell.font = _XLFont(bold=True, size=12)
-            _cell.alignment = _Align(horizontal='center', vertical='center')
-            _thin = _Side(style='thin')
-            _cell.border = _Border(top=_thin, bottom=_thin, left=_thin, right=_thin)
-        except Exception:
-            pass  # 병합 셀 구조가 다를 경우 무시
+        # 결재득 박스 — 템플릿에 H3:I4가 이미 병합돼 있으므로 재병합 없이 값만 씀
+        _cell = ws['H3']
+        _cell.value = '결  재  득'
+        _cell.font = _XLFont(bold=True, size=12)
+        _cell.alignment = _Align(horizontal='center', vertical='center')
+        _thin = _Side(style='thin')
+        _cell.border = _Border(top=_thin, bottom=_thin, left=_thin, right=_thin)
 
         if photo_paths:
             _insert_ncr_photos(ws, photo_paths, PILImage)
