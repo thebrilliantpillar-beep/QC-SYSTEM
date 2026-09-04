@@ -5010,6 +5010,54 @@ def ncr_excel(ncr_id):
                      download_name=os.path.basename(out_path))
 
 
+@app.route("/ncr/<int:ncr_id>/eml")
+@perm_required("ncr", "ncr_confirm")
+def ncr_eml(ncr_id):
+    """부적합 통보서 .eml 파일 생성 — Outlook에서 열면 수신자·제목·본문·첨부 자동 채워짐."""
+    import json as _json
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("ncr_list"))
+
+    ncr_dict = dict(ncr)
+    photos_raw = _json.loads(ncr["photos"] or "[]")
+    photo_paths = [os.path.join(NCR_PHOTO_DIR, f) for f in photos_raw if f]
+
+    # lot_qty 보완
+    if not ncr_dict.get("lot_qty") and ncr_dict.get("inspection_id"):
+        try:
+            insp_h, _ = db.get_inspection(ncr_dict["inspection_id"])
+            if insp_h and insp_h.get("quantity"):
+                ncr_dict["lot_qty"] = str(insp_h["quantity"])
+        except Exception:
+            pass
+
+    # 엑셀 먼저 생성 (자동 첨부용)
+    out_path, err = report_builder.build_ncr_excel(ncr_dict, photo_paths)
+    if err:
+        flash(f"엑셀 생성 실패: {err}")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    supplier_info = db.get_supplier(ncr["supplier"]) if ncr["supplier"] else None
+    supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
+
+    eml_bytes = report_builder.build_ncr_eml(
+        ncr_dict, supplier_email, out_path, photo_paths
+    )
+
+    eml_name = re.sub(r'[\\/:"*?<>|]', '',
+                      f"{ncr['ncr_no']}_{ncr['supplier']}_부적합통보서.eml")
+    record_change("NCR EML 발행", "ncr", ncr_id, eml_name)
+
+    from flask import Response
+    return Response(
+        eml_bytes,
+        mimetype='message/rfc822',
+        headers={'Content-Disposition': f'attachment; filename*=UTF-8\'\'{eml_name}'},
+    )
+
+
 @app.route("/ncr/<int:ncr_id>/confirm", methods=["POST"])
 @perm_required("ncr_confirm")
 def ncr_confirm(ncr_id):

@@ -36,7 +36,7 @@
 .ncr-header .h-title h1 { font-size: 24px; font-weight: 900; letter-spacing: 2px; margin: 4px 0 2px; }
 .ncr-header .h-title .en { font-size: 12px; color: var(--muted); letter-spacing: 1px; }
 .ncr-header .h-signs {
-  display: grid; grid-template-columns: repeat(3, 78px); gap: 6px;
+  display: grid; grid-template-columns: 78px 1fr; gap: 6px;
 }
 .h-signs .h-sign {
   border: 1px solid #9ca3af; border-radius: 6px; height: 84px;
@@ -60,7 +60,7 @@
 @media (max-width: 640px) {
   .ncr-header { grid-template-columns: 1fr; text-align: center; }
   .ncr-header .h-logo { justify-self: center; }
-  .ncr-header .h-signs { justify-self: center; grid-template-columns: repeat(3, 72px); }
+  .ncr-header .h-signs { justify-self: center; grid-template-columns: 72px 1fr; }
 }
 
 .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; }
@@ -246,6 +246,12 @@
             border-radius:8px; text-decoration:none; cursor:pointer;">
     📥 엑셀 발행
   </a>
+  <a href="{{ url_for('ncr_eml', ncr_id=ncr['id']) }}"
+     style="background:#7c3aed; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
+            border-radius:8px; text-decoration:none; cursor:pointer;"
+     title="Outlook에서 바로 열리는 메일 파일 — 사진·엑셀 자동 첨부, 수신자·본문 자동 채워짐">
+    📨 메일 파일 발행 (.eml)
+  </a>
   {% endif %}
 
   {% if 'ncr_confirm' in user_perms %}
@@ -287,7 +293,7 @@
     </div>
     <div class="h-signs">
       <div class="h-sign">
-        <div class="role">검사 담당</div>
+        <div class="role">작&nbsp;&nbsp;&nbsp;성</div>
         <div class="body">
           <div>
             <div class="who">{{ ncr['issued_by'] or '' }}</div>
@@ -295,26 +301,19 @@
           </div>
         </div>
       </div>
-      <div class="h-sign">
-        <div class="role">최종결정권자</div>
-        <div class="body">
-          {% if ncr['confirmed_by'] %}
-            {% if confirm_signature_url %}
-              <img src="{{ confirm_signature_url }}" alt="승인 서명"
-                   class="{{ 'stamp-img' if is_stamp_sig else '' }}">
-            {% endif %}
-            <div style="position:absolute; bottom:2px; left:0; right:0;">
-              <div class="who">{{ ncr['confirmed_by'] }}</div>
-              <div class="when">{{ ncr['confirmed_at'][:10] if ncr['confirmed_at'] else '' }}</div>
-            </div>
-          {% else %}
-            <span style="color:#d1d5db;">(확인 대기)</span>
-          {% endif %}
+      <!-- 결재득 박스: 검토+승인 두 칸 병합 스타일 -->
+      <div class="h-sign" style="grid-column: span 2; border: 2px solid #1f2937; position:relative;">
+        <div class="role" style="display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid #d1d5db;">
+          <span style="border-right:1px solid #d1d5db; display:block; padding:3px 0; text-align:center;">검&nbsp;&nbsp;&nbsp;토</span>
+          <span style="display:block; padding:3px 0; text-align:center;">승&nbsp;&nbsp;&nbsp;인</span>
         </div>
-      </div>
-      <div class="h-sign">
-        <div class="role">업체 수령확인</div>
-        <div class="body"><span style="color:#d1d5db;">서명란</span></div>
+        <div class="body" style="justify-content:center; align-items:center;">
+          <div style="border: 2.5px solid #1f2937; border-radius: 4px;
+                      padding: 6px 18px; font-size: 16px; font-weight: 900;
+                      letter-spacing: 4px; color: #1f2937; white-space: nowrap;">
+            결&nbsp;&nbsp;재&nbsp;&nbsp;득
+          </div>
+        </div>
       </div>
     </div>
   </div>

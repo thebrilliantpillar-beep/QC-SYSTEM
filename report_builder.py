@@ -828,6 +828,21 @@ def build_ncr_excel(ncr, photo_paths=None):
         if special_note:
             ws['A18'] = f'※특기사항 : {special_note}'
 
+        # 결재득 박스: H3:I4 병합 후 텍스트 삽입
+        try:
+            from openpyxl.styles import Font as _XLFont, Alignment as _Align, Border as _Border, Side as _Side
+            ws.unmerge_cells('H3:H4')
+            ws.unmerge_cells('I3:I4')
+            ws.merge_cells('H3:I4')
+            _cell = ws['H3']
+            _cell.value = '결  재  득'
+            _cell.font = _XLFont(bold=True, size=12)
+            _cell.alignment = _Align(horizontal='center', vertical='center')
+            _thin = _Side(style='thin')
+            _cell.border = _Border(top=_thin, bottom=_thin, left=_thin, right=_thin)
+        except Exception:
+            pass  # 병합 셀 구조가 다를 경우 무시
+
         if photo_paths:
             _insert_ncr_photos(ws, photo_paths, PILImage)
 
@@ -884,29 +899,127 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
         ws.add_image(img)
 
 
-def ncr_mailto_url(ncr, supplier_email=''):
-    """부적합 통보서 mailto: URL 생성."""
-    import urllib.parse
-    subject = (f"[부적합 통보서] {ncr.get('ncr_no','')} — "
-               f"{ncr.get('material_no','')} ({ncr.get('supplier','')})")
-    lines = [
-        "안녕하세요, 샤든코리아㈜ 품질팀입니다.",
+def _ncr_mail_subject(ncr):
+    return (f"[부적합 통보서] {ncr.get('ncr_no','')} — "
+            f"{ncr.get('material_no','')} ({ncr.get('supplier','')})")
+
+
+def _ncr_mail_body_lines(ncr):
+    return [
+        f"{ncr.get('supplier','')} 담당자님.",
         "",
-        "아래 부적합 통보서를 첨부파일로 발송합니다.",
-        "첨부된 엑셀 파일을 확인하시고 개선 대책서를 작성하여 회신 부탁드립니다.",
+        "안녕하세요, 샤든코리아 품질팀, 윤주호 사원입니다.",
+        "항상 신경 써 주셔서 감사합니다.",
         "",
-        f"■ 통보서 번호  : {ncr.get('ncr_no','')}",
-        f"■ 자재번호     : {ncr.get('material_no','')}",
-        f"■ 제품명       : {ncr.get('material_name') or '-'}",
-        f"■ 발생일자     : {ncr.get('issued_date') or '-'}",
+        (f"이번 입고분 {ncr.get('material_no','')} {ncr.get('material_name','')}"
+         "에서 아래와 같은 불량이 확인되어 안내드립니다."),
         "",
         "■ 불량 내용",
         ncr.get('defect_description') or '-',
         "",
-        "접수일로부터 3일 이내 회신 바랍니다. (동일 불량 3회 지적 시 구상청구함)",
+        "아울러 부적합통보서를 첨부하오니,",
+        "하단에 내용 기재 후 첨부 부탁드리겠습니다.",
+        "파일 내 작성 방법이 있으니 내용에 따라 기재해주시면 감사하겠습니다.",
         "",
+        "궁금하신 점 있으시면 언제든 연락 주세요.",
         "감사합니다.",
-        "샤든코리아㈜ 품질팀",
+        "",
+        "---",
+        "윤주호 사원  |  Yoon Ju-ho, Staff",
+        "품질팀  |  Quality Team",
+        "샤든코리아  |  Chardon Korea",
+        "jhyoon@chardonkorea.com",
+        "+82-10-7485-7352",
     ]
-    params = urllib.parse.urlencode({'subject': subject, 'body': '\n'.join(lines)})
+
+
+def ncr_mailto_url(ncr, supplier_email=''):
+    """부적합 통보서 mailto: URL 생성."""
+    import urllib.parse
+    params = urllib.parse.urlencode({
+        'subject': _ncr_mail_subject(ncr),
+        'body': '\n'.join(_ncr_mail_body_lines(ncr)),
+    })
     return f"mailto:{supplier_email}?{params}"
+
+
+def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None):
+    """부적합 통보서 .eml 파일 생성.
+    불량 사진을 HTML 본문에 인라인 삽입하고, 엑셀 파일을 첨부해서 반환.
+    Outlook에서 .eml을 열면 수신자·제목·본문·첨부가 자동으로 채워진 채 바로 발송 가능.
+    """
+    import email.mime.multipart as _MMP
+    import email.mime.text as _MMT
+    import email.mime.base as _MMB
+    import email.mime.image as _MMI
+    import email.encoders as _ENC
+
+    subject = _ncr_mail_subject(ncr)
+    body_lines = _ncr_mail_body_lines(ncr)
+
+    # 유효한 사진 목록
+    valid_photos = [p for p in (photo_paths or []) if p and os.path.exists(p)]
+
+    # outer: mixed (본문 블록 + 엑셀 첨부)
+    outer = _MMP.MIMEMultipart('mixed')
+    outer['To'] = supplier_email
+    outer['Subject'] = subject
+
+    # inner: related (HTML + 인라인 이미지)
+    inner = _MMP.MIMEMultipart('related')
+
+    # HTML 본문 구성 — 사진을 두 단락 사이에 삽입
+    para1 = '<br>'.join(body_lines[:body_lines.index('아울러 부적합통보서를 첨부하오니,')])
+    para2 = '<br>'.join(body_lines[body_lines.index('아울러 부적합통보서를 첨부하오니,'):])
+
+    img_html = ''
+    cid_list = []
+    for i, p in enumerate(valid_photos):
+        cid = f'ncrphoto{i}'
+        cid_list.append((cid, p))
+        img_html += (f'<img src="cid:{cid}" '
+                     f'style="max-width:480px; width:100%; margin:6px 0; display:block; '
+                     f'border:1px solid #ddd; border-radius:4px;">')
+
+    html = (
+        '<html><body style="font-family:\'맑은 고딕\',\'Malgun Gothic\',sans-serif;'
+        'font-size:14px; line-height:1.7; color:#1f2937;">'
+        f'<p>{para1}</p>'
+        + (f'<div style="margin:14px 0;">{img_html}</div>' if img_html else '')
+        + f'<p>{para2}</p>'
+        '</body></html>'
+    )
+
+    inner.attach(_MMT.MIMEText(html, 'html', 'utf-8'))
+
+    # 인라인 이미지 파트
+    for cid, path in cid_list:
+        try:
+            with open(path, 'rb') as f:
+                img_part = _MMI.MIMEImage(f.read())
+            img_part.add_header('Content-ID', f'<{cid}>')
+            img_part.add_header('Content-Disposition', 'inline')
+            inner.attach(img_part)
+        except Exception:
+            pass
+
+    outer.attach(inner)
+
+    # 엑셀 첨부
+    if xlsx_path and os.path.exists(xlsx_path):
+        try:
+            with open(xlsx_path, 'rb') as f:
+                part = _MMB.MIMEBase(
+                    'application',
+                    'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+                part.set_payload(f.read())
+            _ENC.encode_base64(part)
+            fname = os.path.basename(xlsx_path)
+            part.add_header('Content-Disposition', 'attachment',
+                            filename=('utf-8', '', fname))
+            outer.attach(part)
+        except Exception:
+            pass
+
+    return outer.as_bytes()
