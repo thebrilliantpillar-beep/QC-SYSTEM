@@ -1285,23 +1285,24 @@ def list_inspections(status=None):
     return rows
 
 
-def list_output_history(q=""):
-    """이미 PDF/xlsx가 생성된 성적서 목록 (출력 이력). q로 자재번호·자재명·업체·승인자 검색."""
+def list_output_history(q="", date_from="", date_to=""):
+    """이미 PDF/xlsx가 생성된 성적서 목록 (출력 이력).
+    q로 자재번호·자재명·업체·승인자 검색, date_from/date_to로 승인일 범위 필터."""
     conn = get_conn()
+    sql = "SELECT * FROM inspections WHERE pdf_path IS NOT NULL"
+    params = []
     if q:
+        sql += " AND (material_no LIKE ? OR material_name LIKE ? OR supplier LIKE ? OR approver LIKE ?)"
         like = f"%{q}%"
-        rows = conn.execute("""
-            SELECT * FROM inspections
-            WHERE pdf_path IS NOT NULL
-              AND (material_no LIKE ? OR material_name LIKE ? OR supplier LIKE ? OR approver LIKE ?)
-            ORDER BY approved_at DESC, id DESC
-        """, (like, like, like, like)).fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT * FROM inspections
-            WHERE pdf_path IS NOT NULL
-            ORDER BY approved_at DESC, id DESC
-        """).fetchall()
+        params += [like, like, like, like]
+    if date_from:
+        sql += " AND DATE(approved_at) >= ?"
+        params.append(date_from)
+    if date_to:
+        sql += " AND DATE(approved_at) <= ?"
+        params.append(date_to)
+    sql += " ORDER BY approved_at DESC, id DESC"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return rows
 

@@ -4158,8 +4158,11 @@ def _custom_preview_data(template_id):
 @perm_required("output")
 def output_history():
     q = request.args.get("q", "").strip()
-    rows = db.list_output_history(q)
-    return render_template("output_history.html", rows=rows, q=q)
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    rows = db.list_output_history(q, date_from, date_to)
+    return render_template("output_history.html", rows=rows, q=q,
+                           date_from=date_from, date_to=date_to)
 
 
 @app.route("/output/history/export.xlsx")
@@ -4171,7 +4174,9 @@ def output_history_export():
     from openpyxl.styles import Font as XFont, Alignment as XAlign, PatternFill, Border, Side
 
     q = request.args.get("q", "").strip()
-    rows = [dict(r) for r in db.list_output_history(q)]
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    rows = [dict(r) for r in db.list_output_history(q, date_from, date_to)]
 
     selected_ids = _multi_arg("ids")
     if selected_ids:

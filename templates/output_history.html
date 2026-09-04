@@ -22,12 +22,20 @@
 
 <div class="card" style="padding:12px 16px; margin-bottom:14px;">
   <form method="get" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-    <div style="flex:1; min-width:200px;">
+    <div style="flex:2; min-width:180px;">
       <label style="margin:0 0 5px;">검색</label>
       <input type="text" name="q" value="{{ q }}" placeholder="자재번호 / 자재명 / 업체 / 승인자">
     </div>
+    <div style="min-width:140px;">
+      <label style="margin:0 0 5px;">승인일 시작</label>
+      <input type="date" name="date_from" value="{{ date_from }}">
+    </div>
+    <div style="min-width:140px;">
+      <label style="margin:0 0 5px;">승인일 종료</label>
+      <input type="date" name="date_to" value="{{ date_to }}">
+    </div>
     <button type="submit" style="margin-top:0; padding:11px 18px;">🔍 검색</button>
-    {% if q %}<a href="{{ url_for('output_history') }}" class="btn secondary" style="margin-top:0; padding:11px 14px;">✕ 초기화</a>{% endif %}
+    {% if q or date_from or date_to %}<a href="{{ url_for('output_history') }}" class="btn secondary" style="margin-top:0; padding:11px 14px;">✕ 초기화</a>{% endif %}
   </form>
 </div>
 
