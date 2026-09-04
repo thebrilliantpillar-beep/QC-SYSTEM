@@ -10,10 +10,9 @@
     <span id="ohSelCount" class="muted" style="font-size:12.5px; display:none;"></span>
     <button type="button" id="ohExportSelected" class="btn" disabled
             style="background:#059669; color:#fff; border-color:#059669; opacity:.5; padding:8px 14px; font-size:13px;"
-            onclick="ohExportSelected()">✅ 선택 다운로드</button>
+            onclick="ohDownloadPdf()">📄 선택 PDF 다운로드</button>
     <a href="{{ url_for('output_history_export') }}?{{ request.query_string.decode('utf-8') }}"
-       class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;"
-       onclick="return ohConfirmFull({{ rows|length }})">📊 전체 다운로드</a>
+       class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">📊 목록 엑셀</a>
     <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">
       🖨️ 출력 대기
     </a>
@@ -101,17 +100,15 @@ function ohToggleAll(cb) {
   document.querySelectorAll('.oh-chk').forEach(function(c){ c.checked = cb.checked; });
   ohUpdateSel();
 }
-function ohExportSelected() {
+function ohDownloadPdf() {
   var ids = Array.from(document.querySelectorAll('.oh-chk:checked')).map(function(c){ return c.value; });
   if (!ids.length) return;
-  var qs = new URLSearchParams(window.location.search);
-  qs.delete('ids');
-  ids.forEach(function(id){ qs.append('ids', id); });
-  window.location.href = "{{ url_for('output_history_export') }}?" + qs.toString();
-}
-function ohConfirmFull(total) {
-  if (total > 200) return confirm(total + '건을 전체 다운로드할까? 건수가 많으면 시간이 걸릴 수 있어.');
-  return true;
+  if (ids.length === 1) {
+    window.location.href = "{{ url_for('output_download', inspection_id=0) }}".replace('/0', '/' + ids[0]);
+  } else {
+    var qs = ids.map(function(id){ return 'id=' + id; }).join('&');
+    window.location.href = "{{ url_for('output_download_zip') }}?" + qs;
+  }
 }
 </script>
 {% endif %}
