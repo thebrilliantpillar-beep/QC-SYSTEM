@@ -277,6 +277,44 @@
     {% endif %}
   </div>
 
+  {% if is_admin %}
+  <div class="card" style="padding:12px; margin-top:10px; border-left:4px solid #f59e0b;">
+    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+      <input type="checkbox" name="recovery_mode" value="1" id="recoveryToggle"
+             onchange="document.getElementById('recoveryFields').style.display = this.checked ? 'flex' : 'none';"
+             style="width:auto;">
+      <span style="font-weight:700; color:#92400e;">🗄️ 복구 등록 — 이미 승인됐던 성적서를 데이터만 다시 등록 (서명 없이 바로 승인완료 처리)</span>
+    </label>
+    <div id="recoveryFields" style="display:none; gap:14px; flex-wrap:wrap; margin-top:12px;">
+      <div style="flex:1; min-width:160px;">
+        <label>원 승인자 <span style="color:#dc2626;">*</span></label>
+        <input type="text" name="recovery_approver" placeholder="예: 김부장">
+      </div>
+      <div style="flex:1; min-width:160px;">
+        <label>원 승인일</label>
+        <input type="date" name="recovery_approved_date">
+      </div>
+      <div style="flex:1; min-width:160px;">
+        <label>원래 판정 결과</label>
+        <select name="recovery_decision" id="recoveryDecision"
+                onchange="document.getElementById('recoveryReasonWrap').style.display = (this.value==='failed') ? 'block' : 'none';">
+          <option value="approve">합격 승인</option>
+          <option value="special">특채</option>
+          <option value="failed">불합격 확정</option>
+        </select>
+      </div>
+      <div id="recoveryReasonWrap" style="display:none; width:100%;">
+        <label>불합격 사유</label>
+        <input type="text" name="recovery_reason" placeholder="불합격 확정인 경우만 입력">
+      </div>
+      <div style="width:100%; font-size:12px; color:#92400e;">
+        측정값이 판정 근거(합격/불합격)와 안 맞으면 등록은 되지만 승인은 실패하고 성적서 상세에서
+        따로 처리해야 해. 원 승인자 이름은 감사 로그에 그대로 남아.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if full_inspect_config %}
   {# ── 전수검사 모드 ── 유닛별 전수표. 성적서 값(min/max/판정)은 서버가 자동 산출 #}
   <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;color:#0e7490;">

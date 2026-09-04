@@ -2090,22 +2090,30 @@ def set_setting(key, value):
     conn.close()
 
 
-def update_inspection_status(inspection_id, status, approver=None, reject_reason=None, approval_type=None):
+def update_inspection_status(inspection_id, status, approver=None, reject_reason=None,
+                             approval_type=None, approved_at=None):
+    """approved_at을 넘기면 그 값을 쓰고, 안 넘기면 현재시각(now, localtime)을 쓴다.
+    (복구 등록 — 원래 승인됐던 날짜를 그대로 기록하고 싶을 때 씀.)
+    """
     conn = get_conn()
+    approved_at_sql = "?" if approved_at else "datetime('now', 'localtime')"
+    params = [status, approver]
+    if approved_at:
+        params.append(approved_at)
     if approval_type is not None:
-        conn.execute("""
+        conn.execute(f"""
             UPDATE inspections
-            SET status = ?, approver = ?, approved_at = datetime('now', 'localtime'),
+            SET status = ?, approver = ?, approved_at = {approved_at_sql},
                 reject_reason = ?, approval_type = ?
             WHERE id = ?
-        """, (status, approver, reject_reason, approval_type, inspection_id))
+        """, (*params, reject_reason, approval_type, inspection_id))
     else:
-        conn.execute("""
+        conn.execute(f"""
             UPDATE inspections
-            SET status = ?, approver = ?, approved_at = datetime('now', 'localtime'),
+            SET status = ?, approver = ?, approved_at = {approved_at_sql},
                 reject_reason = ?
             WHERE id = ?
-        """, (status, approver, reject_reason, inspection_id))
+        """, (*params, reject_reason, inspection_id))
     conn.commit()
     conn.close()
 

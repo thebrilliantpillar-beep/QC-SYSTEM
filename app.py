@@ -2094,6 +2094,41 @@ def inspect_form(intake_id):
                                       inspect_date=request.form.get("inspect_date") or None)
             db.save_full_inspection_units(inspection_id, fi_units_to_save)
 
+        # ── 복구 등록 (Admin 전용) ──
+        # 이미 실제로 승인됐던 성적서를 데이터만 다시 등록하는 경우, 다시 서명받는 건
+        # 실제 상황과 안 맞는다 — 서명 없이 바로 approved 상태로 등록하고
+        # 감사로그에 원 승인자·등록자를 남긴다.
+        recovery_mode = request.form.get("recovery_mode") == "1"
+        if recovery_mode and "users" in _user_perms(g.user):
+            orig_approver = (request.form.get("recovery_approver") or "").strip()
+            orig_date = (request.form.get("recovery_approved_date") or "").strip()
+            recovery_decision = request.form.get("recovery_decision", "approve")  # approve/special/failed
+            recovery_reason = (request.form.get("recovery_reason") or "").strip()
+            if not orig_approver:
+                flash("복구 등록에는 원 승인자 이름이 필요해. 성적서는 저장됐으니 상세 화면에서 처리해줘.")
+                db.clear_inspection_progress(intake_id)
+                db.delete_inspection_draft(intake_id)
+                return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+            blocked = _final_decision_block_reason(inspection_id, recovery_decision, recovery_reason)
+            if blocked:
+                flash(f"복구 등록 실패: {blocked} (성적서는 저장됐으니 상세 화면에서 다시 처리해줘.)")
+                db.clear_inspection_progress(intake_id)
+                db.delete_inspection_draft(intake_id)
+                return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+            approval_type = ("special" if recovery_decision == "special"
+                            else "failed" if recovery_decision == "failed" else "normal")
+            approved_at = f"{orig_date} 09:00:00" if orig_date else None
+            db.update_inspection_status(inspection_id, "approved", approver=orig_approver,
+                                        approval_type=approval_type,
+                                        reject_reason=recovery_reason or None,
+                                        approved_at=approved_at)
+            db.set_report_files(inspection_id, signature_path=None, pdf_path=None, xlsx_path=None)
+            db.set_inspection_hashes(inspection_id, content_hash=compute_content_hash(inspection_id))
+            record_change("성적서 복구 등록 (서명 없음)", "inspection", inspection_id,
+                          f"원 승인자 {orig_approver}, 등록자 {g.user['display_name'] or g.user['username']}, "
+                          f"판정 {recovery_decision}")
+            flash(f"복구 등록 완료 — 원 승인자 '{orig_approver}' 명의로 승인 상태로 바로 등록했어.")
+
         db.clear_inspection_progress(intake_id)
         db.delete_inspection_draft(intake_id)
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
