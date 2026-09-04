@@ -767,11 +767,11 @@ NCR_SHEET    = "02.12.11"
 
 # 불량현상 사진 영역: D열(col 3, 0-indexed)~F열, 행 9(row 8, 0-indexed)~17
 # NCR 사진 영역: D9:F17 (0-indexed col 3~5, row 8~16)
-# NCR 사진 영역: D9:F20 (0-indexed col 3~5, row 8~19)
+# NCR 사진 영역: D9:F17 (0-indexed col 3~5, row 8~16)
 _NCR_PHOTO_COL_S = 3   # D열 시작
 _NCR_PHOTO_COL_E = 6   # G열 시작 (F열 끝)
 _NCR_PHOTO_ROW_S = 8   # 9행 (0-indexed)
-_NCR_PHOTO_ROW_E = 20  # 21행 시작 = 20행 끝 (D9:F20 커버)
+_NCR_PHOTO_ROW_E = 17  # 18행 시작 = 17행 끝 (D9:F17)
 
 
 def build_ncr_excel(ncr, photo_paths=None):
@@ -881,7 +881,7 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
     ]
     row_heights_emu = [
         int((ws.row_dimensions[r].height or 15) * 12700)
-        for r in range(9, 21)  # 9~20행 (D9:F20)
+        for r in range(9, 18)  # 9~17행 (D9:F17)
     ]
     total_w_emu = sum(col_widths_emu)
     total_h_emu = sum(row_heights_emu)
