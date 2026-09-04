@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: chardon-qms
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --timeout 120 --workers 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: iqc-data
+      mountPath: /data
+      sizeGB: 1
