@@ -853,30 +853,86 @@ def build_ncr_excel(ncr, photo_paths=None):
 
 
 def _insert_ncr_photos(ws, photo_paths, PILImage=None):
-    """불량현상 사진을 D9:F17 영역에 TwoCellAnchor로 셀 경계에 딱 맞게 배치.
-    사진 N장을 영역을 N등분해서 각각 해당 칸을 꽉 채운다.
+    """불량현상 사진을 D9:F17 영역에 비율 비례 너비로 좌우 나란히 배치.
+
+    방식 B: 모든 사진 높이 = 영역 높이로 통일, 각 사진 너비 = 높이 × 비율.
+    전체 너비가 영역을 초과하면 비례 축소. 가로 사진은 넓고 세로 사진은 좁게.
+    PIL 없이 비율 모를 땐 4:3 기본값 적용.
     """
     valid = [p for p in photo_paths if p and os.path.exists(p)]
     if not valid:
         return
 
-    n = len(valid)
-    # D9:F17 — 0-indexed: col 3(D)~5(F), row 8(9행)~16(17행)
-    # TwoCellAnchor의 to 마커는 "다음 셀 시작" = col 6(G), row 17(18행 시작=17행 끝)
-    COL_S, COL_E = _NCR_PHOTO_COL_S, _NCR_PHOTO_COL_E
-    ROW_S, ROW_E = _NCR_PHOTO_ROW_S, _NCR_PHOTO_ROW_E
-    SPAN = ROW_E - ROW_S  # 9행
+    CHAR_TO_EMU = 7 * 9525  # character width → EMU 근사값
 
+    # 영역 실측: D~F 열 너비, 9~17 행 높이
+    col_widths_emu = [
+        int((ws.column_dimensions[c].width or 8.43) * CHAR_TO_EMU)
+        for c in ('D', 'E', 'F')
+    ]
+    row_heights_emu = [
+        int((ws.row_dimensions[r].height or 15) * 12700)
+        for r in range(9, 18)
+    ]
+    total_w_emu = sum(col_widths_emu)
+    total_h_emu = sum(row_heights_emu)
+
+    COL_S = _NCR_PHOTO_COL_S  # D = 3
+    ROW_S = _NCR_PHOTO_ROW_S  # 9행 = 8 (0-indexed)
+
+    # 각 사진의 가로세로 비율 수집 (PIL 없으면 4:3 기본)
+    aspects = []
+    for path in valid:
+        ar = 4 / 3
+        if PILImage:
+            try:
+                with PILImage.open(path) as pil:
+                    ow, oh = pil.size
+                    if oh:
+                        ar = ow / oh
+            except Exception:
+                pass
+        aspects.append(ar)
+
+    # 모든 사진 높이 = total_h_emu, 너비 = total_h × aspect
+    natural_widths = [int(total_h_emu * ar) for ar in aspects]
+    sum_w = sum(natural_widths)
+
+    # 전체 너비가 영역 초과 시 비례 축소
+    if sum_w > total_w_emu:
+        scale = total_w_emu / sum_w
+        img_widths  = [int(w * scale) for w in natural_widths]
+        img_heights = [int(total_h_emu * scale)] * len(valid)
+    else:
+        img_widths  = natural_widths
+        img_heights = [total_h_emu] * len(valid)
+
+    def _resolve(abs_pos, offsets, base_idx):
+        """누적 오프셋 배열에서 abs_pos가 속한 인덱스와 내부 오프셋 반환."""
+        cum = 0
+        for j, size in enumerate(offsets):
+            if cum + size > abs_pos:
+                return base_idx + j, abs_pos - cum
+            cum += size
+        return base_idx + len(offsets) - 1, abs_pos - (cum - offsets[-1])
+
+    x_cursor = 0  # D열 왼쪽 기준 누적 x (EMU)
     for i, path in enumerate(valid):
-        r_from = ROW_S + round(i * SPAN / n)
-        r_to   = ROW_S + round((i + 1) * SPAN / n)
+        iw, ih = img_widths[i], img_heights[i]
+        # 수직 중앙 정렬
+        y_abs = (total_h_emu - ih) // 2
+
+        img_col, img_col_off = _resolve(x_cursor, col_widths_emu, COL_S)
+        img_row, img_row_off = _resolve(y_abs,    row_heights_emu, ROW_S)
 
         img = XLImage(path)
-        img.anchor = TwoCellAnchor(
-            _from=AnchorMarker(col=COL_S, colOff=0, row=r_from, rowOff=0),
-            to=AnchorMarker(col=COL_E, colOff=0, row=r_to,   rowOff=0),
+        img.anchor = OneCellAnchor(
+            _from=AnchorMarker(col=img_col, colOff=img_col_off,
+                               row=img_row, rowOff=img_row_off),
+            ext=XDRPositiveSize2D(iw, ih),
         )
         ws.add_image(img)
+        x_cursor += iw
 
 
 def _ncr_mail_subject(ncr):
