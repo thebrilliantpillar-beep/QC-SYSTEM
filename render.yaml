@@ -6,8 +6,8 @@ services:
     startCommand: gunicorn app:app --timeout 120 --workers 1
     envVars:
       - key: DATA_DIR
-        value: /data
+        value: /var/data
     disk:
       name: iqc-data
-      mountPath: /data
+      mountPath: /var/data
       sizeGB: 1
