@@ -4162,6 +4162,71 @@ def output_history():
     return render_template("output_history.html", rows=rows, q=q)
 
 
+@app.route("/output/history/export.xlsx")
+@perm_required("output")
+def output_history_export():
+    """출력기록 엑셀 내보내기 — ids= 파라미터로 선택 항목만, 없으면 전체(현재 검색 조건)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font as XFont, Alignment as XAlign, PatternFill, Border, Side
+
+    q = request.args.get("q", "").strip()
+    rows = [dict(r) for r in db.list_output_history(q)]
+
+    selected_ids = _multi_arg("ids")
+    if selected_ids:
+        wanted = {int(x) for x in selected_ids if x.isdigit()}
+        rows = [r for r in rows if r["id"] in wanted]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "출력기록"
+
+    ws["B1"] = "출력 기록"
+    ws["B1"].font = XFont(name="맑은 고딕", size=16, bold=True)
+    ws["B1"].alignment = XAlign(horizontal="center", vertical="center")
+    ws.merge_cells("B1:I1")
+    ws.row_dimensions[1].height = 28
+
+    headers = ["번호", "자재번호", "자재명", "업체", "로트번호", "결정", "승인자", "승인일시"]
+    thin = Side(style="thin", color="B7BEC9")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="E7EAF0")
+    for i, h in enumerate(headers):
+        c = ws.cell(row=2, column=2 + i, value=h)
+        c.font = XFont(name="맑은 고딕", bold=True)
+        c.alignment = XAlign(horizontal="center", vertical="center")
+        c.fill = header_fill
+        c.border = border
+    ws.row_dimensions[2].height = 22
+
+    state_label = {"normal": "합격", "special": "특채", "failed": "불합격"}
+    for row_i, r in enumerate(rows, start=3):
+        values = [
+            r["id"], r["material_no"], r["material_name"] or "",
+            r["supplier"] or "", r["po_number"] or "",
+            state_label.get(r["approval_type"] or "", "-"),
+            r["approver"] or "",
+            r["approved_at"] or "",
+        ]
+        for j, v in enumerate(values):
+            c = ws.cell(row=row_i, column=2 + j, value=v)
+            c.font = XFont(name="맑은 고딕")
+            c.border = border
+
+    col_widths = [8, 18, 30, 18, 18, 8, 12, 20]
+    for i, w in enumerate(col_widths, start=2):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from datetime import date as _date
+    fname = f"출력기록_{_date.today().isoformat()}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 @app.route("/output/history/<int:inspection_id>")
 @perm_required("output")
 def output_history_detail(inspection_id):

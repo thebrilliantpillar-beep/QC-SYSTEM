@@ -6,9 +6,18 @@
 {{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='output_history') }}
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
   <h2 style="margin:0;">출력 기록</h2>
-  <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:0; padding:8px 16px; font-size:13px;">
-    🖨️ 출력 대기
-  </a>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <span id="ohSelCount" class="muted" style="font-size:12.5px; display:none;"></span>
+    <button type="button" id="ohExportSelected" class="btn" disabled
+            style="background:#059669; color:#fff; border-color:#059669; opacity:.5; padding:8px 14px; font-size:13px;"
+            onclick="ohExportSelected()">✅ 선택 다운로드</button>
+    <a href="{{ url_for('output_history_export') }}?{{ request.query_string.decode('utf-8') }}"
+       class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;"
+       onclick="return ohConfirmFull({{ rows|length }})">📊 전체 다운로드</a>
+    <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">
+      🖨️ 출력 대기
+    </a>
+  </div>
 </div>
 
 <div class="card" style="padding:12px 16px; margin-bottom:14px;">
@@ -35,6 +44,7 @@
 <table>
   <thead>
     <tr>
+      <th style="width:34px;"><input type="checkbox" id="ohCheckAll" onchange="ohToggleAll(this)" title="전체 선택"></th>
       <th>번호</th>
       <th>자재번호</th>
       <th>자재명</th>
@@ -48,6 +58,9 @@
   {% for r in rows %}
   <tr class="clickable" data-admin-id="{{ r['id'] }}"
       onclick="location.href='{{ url_for('output_history_detail', inspection_id=r['id']) }}'">
+    <td onclick="event.stopPropagation();">
+      <input type="checkbox" class="oh-chk" value="{{ r['id'] }}" onchange="ohUpdateSel()">
+    </td>
     <td>{{ r['id'] }}</td>
     <td>{{ r['material_no'] }}</td>
     <td style="text-align:left;">{{ r['material_name'] or '-' }}</td>
@@ -64,5 +77,34 @@
   {% endfor %}
   </tbody>
 </table>
+
+<script>
+function ohUpdateSel() {
+  var n = document.querySelectorAll('.oh-chk:checked').length;
+  var btn = document.getElementById('ohExportSelected');
+  var cnt = document.getElementById('ohSelCount');
+  btn.disabled = n === 0; btn.style.opacity = n ? '1' : '.5';
+  cnt.style.display = n ? '' : 'none';
+  if (n) cnt.textContent = n + '건 선택됨';
+  var all = document.querySelectorAll('.oh-chk');
+  document.getElementById('ohCheckAll').checked = all.length > 0 && n === all.length;
+}
+function ohToggleAll(cb) {
+  document.querySelectorAll('.oh-chk').forEach(function(c){ c.checked = cb.checked; });
+  ohUpdateSel();
+}
+function ohExportSelected() {
+  var ids = Array.from(document.querySelectorAll('.oh-chk:checked')).map(function(c){ return c.value; });
+  if (!ids.length) return;
+  var qs = new URLSearchParams(window.location.search);
+  qs.delete('ids');
+  ids.forEach(function(id){ qs.append('ids', id); });
+  window.location.href = "{{ url_for('output_history_export') }}?" + qs.toString();
+}
+function ohConfirmFull(total) {
+  if (total > 200) return confirm(total + '건을 전체 다운로드할까? 건수가 많으면 시간이 걸릴 수 있어.');
+  return true;
+}
+</script>
 {% endif %}
 {% endblock %}
