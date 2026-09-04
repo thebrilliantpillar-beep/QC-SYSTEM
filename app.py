@@ -4775,18 +4775,25 @@ def ncr_new_manual():
             flash("자재번호와 업체는 필수야.")
             return redirect(url_for("ncr_new_manual"))
 
+        sample_qty = request.form.get("sample_qty", "").strip() or None
+        defect_qty = request.form.get("defect_qty", "").strip() or None
         ncr_id, ncr_no = db.create_ncr(
             inspection_id=None,
             material_no=material_no,
             material_name=material_name,
             supplier=supplier,
             defect_description=request.form.get("defect_description", "").strip(),
-            action_required=request.form.get("action_required", "").strip(),
+            action_required="",
             due_date=request.form.get("due_date", "").strip(),
             issued_by=g.user["display_name"] or g.user["username"],
             issued_date=request.form.get("issued_date", "").strip(),
             lot_number=request.form.get("lot_number", "").strip() or None,
             receive_date=request.form.get("receive_date", "").strip() or None,
+            cc_recipient=request.form.get("cc_recipient", "").strip() or None,
+            sample_qty=int(sample_qty) if sample_qty and sample_qty.isdigit() else None,
+            defect_qty=int(defect_qty) if defect_qty and defect_qty.isdigit() else None,
+            special_note=request.form.get("special_note", "").strip() or None,
+            lot_qty=request.form.get("lot_qty", "").strip() or None,
         )
         record_change("부적합 통보서 발행(수기입력)", "ncr", ncr_id,
                       f"{ncr_no} — {material_no} / {supplier}")
@@ -4832,16 +4839,23 @@ def ncr_new(inspection_id):
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
     if request.method == "POST":
+        sample_qty = request.form.get("sample_qty", "").strip() or None
+        defect_qty = request.form.get("defect_qty", "").strip() or None
         ncr_id, ncr_no = db.create_ncr(
             inspection_id=inspection_id,
             material_no=header["material_no"],
             material_name=header["material_name"],
             supplier=header["supplier"],
             defect_description=request.form.get("defect_description", "").strip(),
-            action_required=request.form.get("action_required", "").strip(),
+            action_required="",
             due_date=request.form.get("due_date", "").strip(),
             issued_by=g.user["display_name"] or g.user["username"],
             issued_date=request.form.get("issued_date", "").strip(),
+            cc_recipient=request.form.get("cc_recipient", "").strip() or None,
+            sample_qty=int(sample_qty) if sample_qty and sample_qty.isdigit() else None,
+            defect_qty=int(defect_qty) if defect_qty and defect_qty.isdigit() else None,
+            special_note=request.form.get("special_note", "").strip() or None,
+            lot_qty=request.form.get("lot_qty", "").strip() or None,
         )
         record_change("부적합 통보서 발행", "ncr", ncr_id,
                       f"{ncr_no} — {header['material_no']} / {header['supplier']}")
@@ -4946,6 +4960,10 @@ def ncr_detail(ncr_id):
     if sig_path and os.path.exists(sig_path):
         confirm_signature_url = "/static/signatures/" + os.path.basename(sig_path)
 
+    # mailto: URL (업체 이메일 자동 채워짐)
+    supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
+    mailto_url = report_builder.ncr_mailto_url(dict(ncr), supplier_email)
+
     return render_template("ncr_detail.html", ncr=ncr, photos=photos,
                            supplier_info=supplier_info,
                            can_confirm=can_confirm,
@@ -4954,7 +4972,42 @@ def ncr_detail(ncr_id):
                            po_number=po_number,
                            ncr_receive_date=receive_date,
                            is_stamp_sig=is_stamp_sig,
-                           logo_url=url_for("static", filename="logo.png"))
+                           logo_url=url_for("static", filename="logo.png"),
+                           mailto_url=mailto_url)
+
+
+@app.route("/ncr/<int:ncr_id>/excel")
+@perm_required("ncr", "ncr_confirm")
+def ncr_excel(ncr_id):
+    """부적합 통보서 엑셀 발행 & 다운로드."""
+    import json as _json
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("ncr_list"))
+
+    photos_raw = _json.loads(ncr["photos"] or "[]")
+    photo_paths = [os.path.join(NCR_PHOTO_DIR, f) for f in photos_raw if f]
+
+    ncr_dict = dict(ncr)
+    # 연결된 성적서에서 lot_qty 보완
+    if not ncr_dict.get("lot_qty") and ncr_dict.get("inspection_id"):
+        try:
+            insp_h, _ = db.get_inspection(ncr_dict["inspection_id"])
+            if insp_h and insp_h.get("quantity"):
+                ncr_dict["lot_qty"] = str(insp_h["quantity"])
+        except Exception:
+            pass
+
+    out_path, err = report_builder.build_ncr_excel(ncr_dict, photo_paths)
+    if err:
+        flash(f"엑셀 생성 실패: {err}")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    record_change("NCR 엑셀 발행", "ncr", ncr_id, os.path.basename(out_path))
+    from flask import send_file
+    return send_file(out_path, as_attachment=True,
+                     download_name=os.path.basename(out_path))
 
 
 @app.route("/ncr/<int:ncr_id>/confirm", methods=["POST"])
@@ -5037,67 +5090,24 @@ def ncr_add_photo(ncr_id):
 @app.route("/ncr/<int:ncr_id>/email", methods=["POST"])
 @perm_required("ncr_confirm")
 def ncr_send_email(ncr_id):
-    import smtplib, json
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    from email.mime.image import MIMEImage
-
+    """메일 직접 발송 대신, 발송 완료 표시만 처리 (mailto: 방식으로 변경됨)."""
     ncr = db.get_ncr(ncr_id)
     if ncr is None:
         flash("통보서를 찾을 수 없어.")
         return redirect(url_for("home"))
 
     if ncr["status"] == "draft":
-        flash("확인 완료 후에 발송할 수 있어. 먼저 '확인 완료' 버튼을 눌러줘.")
+        flash("확인 완료 후에 발송 완료로 표시할 수 있어. 먼저 '확인 완료' 버튼을 눌러줘.")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
     to_email = request.form.get("to_email", "").strip()
     if not to_email:
-        flash("받는 사람 이메일 주소를 입력해줘.")
+        flash("발송한 이메일 주소를 입력해줘.")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
-    smtp_host = db.get_setting("smtp_host", "")
-    smtp_port = int(db.get_setting("smtp_port", "587") or 587)
-    smtp_user = db.get_setting("smtp_user", "")
-    smtp_pass = db.get_setting("smtp_pass", "")
-    from_name = db.get_setting("smtp_from_name", "Chardon QMS")
-
-    if not smtp_host or not smtp_user:
-        flash("SMTP 설정이 없어. 설정 → 이메일 설정에서 먼저 입력해줘.")
-        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
-
-    photos = json.loads(ncr["photos"] or "[]")
-    body_html = render_template("ncr_email_body.html", ncr=ncr)
-
-    msg = MIMEMultipart("related")
-    msg["Subject"] = f"[부적합 통보서] {ncr['ncr_no']} — {ncr['material_no']} ({ncr['supplier']})"
-    msg["From"] = f"{from_name} <{smtp_user}>"
-    msg["To"] = to_email
-
-    alt = MIMEMultipart("alternative")
-    msg.attach(alt)
-    alt.attach(MIMEText(body_html, "html", "utf-8"))
-
-    for fname in photos:
-        fpath = os.path.join(NCR_PHOTO_DIR, fname)
-        if os.path.exists(fpath):
-            with open(fpath, "rb") as f:
-                img = MIMEImage(f.read())
-                img.add_header("Content-Disposition", "attachment", filename=fname)
-                msg.attach(img)
-
-    try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
-            s.ehlo()
-            s.starttls()
-            s.login(smtp_user, smtp_pass)
-            s.sendmail(smtp_user, [to_email], msg.as_string())
-        db.mark_ncr_email_sent(ncr_id, to_email)
-        record_change("NCR 이메일 발송", "ncr", ncr_id, f"→ {to_email}")
-        flash(f"{to_email} 으로 발송됐어.")
-    except Exception as e:
-        flash(f"이메일 발송 실패: {e}")
-
+    db.mark_ncr_email_sent(ncr_id, to_email)
+    record_change("NCR 발송 완료 표시", "ncr", ncr_id, f"→ {to_email}")
+    flash(f"발송 완료로 표시됐어. (수신: {to_email})")
     return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
 

@@ -445,6 +445,12 @@ def init_db():
         # 없으면(inspection_id NULL) 이 값을 대신 보여준다
         ("lot_number", "TEXT"),
         ("receive_date", "TEXT"),
+        # 새 양식 필드 (2026-09-04)
+        ("cc_recipient",  "TEXT"),
+        ("sample_qty",    "INTEGER"),
+        ("defect_qty",    "INTEGER"),
+        ("special_note",  "TEXT"),
+        ("lot_qty",       "TEXT"),
     ]:
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE ncr ADD COLUMN {col} {definition}")
@@ -1721,17 +1727,18 @@ def _next_ncr_no():
     return f"NCR-{today}-{count + 1:03d}"
 
 def create_ncr(inspection_id, material_no, material_name, supplier, defect_description,
-               action_required, due_date, issued_by, issued_date, lot_number=None, receive_date=None):
+               action_required, due_date, issued_by, issued_date, lot_number=None, receive_date=None,
+               cc_recipient=None, sample_qty=None, defect_qty=None, special_note=None, lot_qty=None):
     ncr_no = _next_ncr_no()
     conn = get_conn()
     cur = conn.execute("""
         INSERT INTO ncr (ncr_no, inspection_id, material_no, material_name, supplier,
             defect_description, action_required, due_date, issued_by, issued_date, status,
-            lot_number, receive_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+            lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
     """, (ncr_no, inspection_id, material_no, material_name, supplier,
           defect_description, action_required, due_date, issued_by, issued_date,
-          lot_number, receive_date))
+          lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty))
     conn.commit()
     ncr_id = cur.lastrowid
     conn.close()

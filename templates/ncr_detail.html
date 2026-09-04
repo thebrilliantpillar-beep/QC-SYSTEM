@@ -240,6 +240,14 @@
 <div class="btn-bar no-print" style="max-width:780px; margin:0 auto 16px;">
   <button onclick="window.print()" style="background:#1f2937; color:#fff;">🖨️ 인쇄 / PDF</button>
 
+  {% if 'ncr' in user_perms or 'ncr_confirm' in user_perms %}
+  <a href="{{ url_for('ncr_excel', ncr_id=ncr['id']) }}"
+     style="background:#059669; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
+            border-radius:8px; text-decoration:none; cursor:pointer;">
+    📥 엑셀 발행
+  </a>
+  {% endif %}
+
   {% if 'ncr_confirm' in user_perms %}
   {% if photos|length < 6 %}
   <button onclick="document.getElementById('photoModal').style.display='flex'"
@@ -252,14 +260,14 @@
   {% if status in ('confirmed', 'sent') %}
   <button onclick="document.getElementById('emailModal').style.display='flex'"
           style="background: var(--primary); color:#fff;">
-    ✉️ 이메일 발송
+    ✉️ 이메일 보내기
     {% if status == 'sent' %}<span style="background:#bbf7d0; color:#166534; font-size:11px;
       border-radius:999px; padding:2px 7px; margin-left:6px; font-weight:700;">발송됨</span>{% endif %}
   </button>
   {% else %}
   <button disabled title="확인 완료 후 발송 가능"
           style="background:#e5e7eb; color:#9ca3af; cursor:not-allowed;">
-    ✉️ 이메일 발송 (확인 후 활성화)
+    ✉️ 이메일 보내기 (확인 후 활성화)
   </button>
   {% endif %}
   {% endif %}
@@ -339,7 +347,23 @@
     </tr>
     <tr>
       <th>입고날짜</th><td>{{ (ncr_receive_date | date_korean) if ncr_receive_date else '-' }}</td>
-      <td colspan="2"></td>
+      <th>참조</th><td>{{ ncr['cc_recipient'] or '-' }}</td>
+    </tr>
+    <tr>
+      <th>LOT 수량</th><td>{{ ncr['lot_qty'] or '-' }}</td>
+      <td colspan="2">
+        {% if ncr['sample_qty'] is not none or ncr['defect_qty'] is not none %}
+          <span style="font-size:12.5px; color:#4b5563;">
+            시료수 <b>{{ ncr['sample_qty'] if ncr['sample_qty'] is not none else '-' }}</b>개 /
+            불량수 <b>{{ ncr['defect_qty'] if ncr['defect_qty'] is not none else '-' }}</b>개
+            {% if ncr['sample_qty'] and ncr['defect_qty'] and ncr['sample_qty'] > 0 %}
+              <span style="color:var(--fail); margin-left:6px; font-weight:700;">
+                ({{ "%.1f"|format(ncr['defect_qty']/ncr['sample_qty']*100) }}%)
+              </span>
+            {% endif %}
+          </span>
+        {% else %}-{% endif %}
+      </td>
     </tr>
     {% if ncr['due_date'] %}
     <tr>
@@ -352,8 +376,10 @@
   <div class="content-label">📌 불량 내용</div>
   <div class="content-box">{{ ncr['defect_description'] or '-' }}</div>
 
-  <div class="content-label">🔧 요구 조치사항</div>
-  <div class="content-box">{{ ncr['action_required'] or '-' }}</div>
+  {% if ncr['special_note'] %}
+  <div class="content-label">📝 특기사항</div>
+  <div class="content-box">{{ ncr['special_note'] }}</div>
+  {% endif %}
 
   {% if photos %}
   {% set photo_cols = {1: 1, 2: 2, 3: 3, 4: 2, 5: 3, 6: 3} %}
@@ -395,32 +421,93 @@
   </div>
 </div>
 
-<!-- 이메일 발송 모달 -->
+<!-- 이메일 발송 모달 (mailto: 반자동) -->
 <div id="emailModal" style="display:none; position:fixed; inset:0; z-index:9000;
      background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:14px; padding:24px; width:min(92vw,420px);
+  <div style="background:#fff; border-radius:14px; padding:24px; width:min(92vw,460px);
               box-shadow:0 8px 30px rgba(0,0,0,.3);">
-    <h3 style="margin:0 0 16px;">✉️ 이메일 발송</h3>
+    <h3 style="margin:0 0 12px;">✉️ 이메일 보내기</h3>
+
     {% if status == 'sent' %}
     <div style="background:#fef3c7; border:1px solid #fbbf24; border-radius:8px; padding:10px 12px;
                 font-size:13px; margin-bottom:14px;">
-      이전 발송: <strong>{{ ncr['sent_to'] }}</strong> · {{ ncr['email_sent_at'] }}
+      이전 발송: <strong>{{ ncr['sent_to'] }}</strong> · {{ ncr['email_sent_at'] | datetime_korean }}
     </div>
     {% endif %}
-    <form method="POST" action="{{ url_for('ncr_send_email', ncr_id=ncr['id']) }}">
-      <label>받는 사람 이메일 <span style="color:var(--fail);">*</span></label>
-      <input type="email" name="to_email" required
+
+    <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:12px;
+                font-size:13px; margin-bottom:16px; line-height:1.7;">
+      <b>📋 발송 절차</b><br>
+      1. 아래 버튼을 누르면 <b>메일 앱이 자동으로 열려</b> (수신자·제목·내용 자동 채워짐)<br>
+      2. 엑셀 발행 버튼으로 받은 파일을 <b>직접 첨부</b>해줘<br>
+      3. 메일을 보낸 후 아래 <b>"발송 완료로 표시"</b> 버튼을 눌러줘
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <label style="font-size:12px; font-weight:700; color:#4b5563; margin-bottom:6px; display:block;">
+        수신자 이메일
+      </label>
+      <input type="email" id="emailRecipient"
              value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else (ncr['sent_to'] or '') }}"
-             placeholder="supplier@example.com">
-      <div class="hint" style="margin-top:4px;">첨부된 사진 {{ photos|length }}장이 함께 발송돼.</div>
-      <div style="display:flex; gap:10px; margin-top:16px;">
-        <button type="submit" style="flex:1; padding:12px; font-size:14px;">발송</button>
-        <button type="button" onclick="document.getElementById('emailModal').style.display='none'"
-                class="btn secondary" style="flex:1; padding:12px; font-size:14px; margin-top:0;">취소</button>
+             placeholder="supplier@example.com"
+             style="width:100%; margin:0; font-size:14px; padding:9px 12px; border:1.5px solid #d1d5db;
+                    border-radius:8px; box-sizing:border-box;">
+    </div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a id="mailtoBtn" href="{{ mailto_url }}" target="_blank" rel="noopener"
+         style="flex:1; min-width:120px; background:var(--primary); color:#fff; padding:12px 14px;
+                font-size:14px; font-weight:700; border-radius:8px; text-decoration:none;
+                text-align:center; display:block;">
+        📧 메일 앱 열기
+      </a>
+      <button type="button" onclick="document.getElementById('emailModal').style.display='none'"
+              class="btn secondary" style="flex:1; padding:12px; font-size:14px; margin-top:0;">닫기</button>
+    </div>
+
+    <div style="border-top:1px solid #e5e7eb; margin-top:16px; padding-top:14px;">
+      <div style="font-size:12.5px; color:#6b7280; margin-bottom:10px;">
+        메일을 보낸 후 아래를 눌러 발송 완료로 기록해줘.
       </div>
-    </form>
+      <form method="POST" action="{{ url_for('ncr_send_email', ncr_id=ncr['id']) }}" id="markSentForm">
+        <input type="hidden" name="to_email" id="markSentEmail"
+               value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else (ncr['sent_to'] or '') }}">
+        <button type="submit" onclick="syncEmailToForm(); return confirm('발송 완료로 표시할까?')"
+                style="width:100%; background:#059669; color:#fff; padding:11px; font-size:14px;
+                       font-weight:700; border:none; border-radius:8px; cursor:pointer; margin:0;">
+          ✅ 발송 완료로 표시
+        </button>
+      </form>
+    </div>
   </div>
 </div>
+
+<script>
+(function () {
+  var recipientInput = document.getElementById('emailRecipient');
+  var mailtoBtn = document.getElementById('mailtoBtn');
+  var baseMailto = {{ mailto_url | tojson }};
+
+  function buildMailto() {
+    var email = (recipientInput ? recipientInput.value.trim() : '') || '';
+    if (!email) return baseMailto;
+    var idx = baseMailto.indexOf('?');
+    return 'mailto:' + encodeURIComponent(email) + (idx >= 0 ? baseMailto.slice(idx) : '');
+  }
+
+  window.syncEmailToForm = function () {
+    var v = recipientInput ? recipientInput.value.trim() : '';
+    var hidden = document.getElementById('markSentEmail');
+    if (hidden) hidden.value = v;
+  };
+
+  if (recipientInput && mailtoBtn) {
+    recipientInput.addEventListener('input', function () {
+      mailtoBtn.href = buildMailto();
+    });
+  }
+})();
+</script>
 
 <!-- 중앙 알림 모달 (도장/사인 미선택 등) -->
 <div id="ncrWarn" class="center-modal">

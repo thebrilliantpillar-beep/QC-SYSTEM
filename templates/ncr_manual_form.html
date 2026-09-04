@@ -41,17 +41,36 @@
     <label>발행일 <span style="color:var(--fail);">*</span></label>
     <input type="date" name="issued_date" value="{{ today }}" required>
 
+    <label>참조 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택 — 예: 구매팀)</span></label>
+    <input type="text" name="cc_recipient" placeholder="예: 구매팀">
+
     <label>불량 내용 <span style="color:var(--fail);">*</span></label>
     <textarea name="defect_description" rows="4" required
               placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛) — 2026년 3월경 발생분"
               style="resize:vertical;"></textarea>
 
-    <label>요구 조치사항 <span style="color:var(--fail);">*</span></label>
-    <textarea name="action_required" rows="3" required
-              placeholder="예: 불량 수량 전량 반품 후 재납품 요청. 원인 분석서 제출 요망."
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:4px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT 수량
+          <span style="color:#9ca3af; font-weight:400; font-size:12px;">(예: 12대, 1LOT)</span>
+        </label>
+        <input type="text" name="lot_qty" placeholder="예: 12대">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">시료수</label>
+        <input type="number" name="sample_qty" min="0" placeholder="검사 수량">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">불량수</label>
+        <input type="number" name="defect_qty" min="0" placeholder="불량 수량">
+      </div>
+    </div>
+
+    <label>특기사항 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+    <textarea name="special_note" rows="2" placeholder="예: 전수 검사 후 재납품 요청"
               style="resize:vertical;"></textarea>
 
-    <label>조치 기한</label>
+    <label>조치 기한 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
     <input type="date" name="due_date">
   </div>
 

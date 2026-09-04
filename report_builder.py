@@ -757,3 +757,155 @@ def append_pdf(base_pdf, extra_pdf, output_path):
     with open(output_path, "wb") as f:
         writer.write(f)
     return output_path, None
+
+
+# ─────────────────────────────────────────────
+# 부적합 통보서 엑셀 생성
+# ─────────────────────────────────────────────
+NCR_TEMPLATE = os.path.join(BASE_DIR, "ncr_template.xlsx")
+NCR_SHEET    = "02.12.11"
+
+# 불량현상 사진 영역: D열(col 3, 0-indexed)~F열, 행 9(row 8, 0-indexed)~17
+_NCR_PHOTO_COL  = 3   # D열
+_NCR_PHOTO_ROW  = 8   # 9행
+_NCR_PHOTO_W_CM = 5.7
+_NCR_PHOTO_H_CM = 5.7
+_NCR_ROW_HEIGHTS_PT = [18.95] * 5 + [17.1] * 4  # rows 9-13, 14-17
+
+
+def build_ncr_excel(ncr, photo_paths=None):
+    """부적합 통보서 엑셀 생성. ncr: dict, photo_paths: 사진 절대경로 리스트.
+    반환: (출력경로, 에러메시지)"""
+    try:
+        from PIL import Image as PILImage
+    except ImportError:
+        PILImage = None
+
+    out_dir = report_output_dir()
+    raw_name = f"{ncr.get('ncr_no','NCR')}_{ncr.get('supplier','')}_부적합통보서.xlsx"
+    safe = re.sub(r'[\\/:"*?<>|]', '', raw_name)
+    out_path = _dedupe_path(os.path.join(out_dir, safe))
+
+    try:
+        shutil.copy(NCR_TEMPLATE, out_path)
+    except Exception as e:
+        return None, f"템플릿 복사 실패: {e}"
+
+    try:
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb[NCR_SHEET]
+
+        issued_date   = ncr.get('issued_date') or ''
+        supplier      = ncr.get('supplier') or ''
+        cc            = ncr.get('cc_recipient') or ''
+        issued_by     = ncr.get('issued_by') or ''
+        material_name = ncr.get('material_name') or ''
+        material_no   = ncr.get('material_no') or ''
+        lot_qty       = ncr.get('lot_qty') or ''
+        sample_qty    = ncr.get('sample_qty')
+        defect_qty    = ncr.get('defect_qty')
+        defect_desc   = ncr.get('defect_description') or ''
+        special_note  = ncr.get('special_note') or ''
+
+        if sample_qty and defect_qty and int(sample_qty) > 0:
+            defect_rate = round(int(defect_qty) / int(sample_qty) * 100, 1)
+        else:
+            defect_rate = ''
+
+        ws['A2'] = f'수   신  : {supplier}'
+        ws['D2'] = f'발생일자 : {issued_date}'
+        ws['A3'] = f'참   조  : {cc}' if cc else '참   조  :'
+        ws['D3'] = f'작성일자 : {issued_date}'
+        ws['D4'] = f'작 성 자 : {issued_by}'
+        ws['A6'] = f'모 델 명 : {material_name}'
+        ws['D6'] = f'자재 번호 : {material_no}'
+        ws['G6'] = f'LOT 수량 : {lot_qty}'
+        ws['B7'] = sample_qty
+        ws['E7'] = defect_qty
+        ws['H7'] = defect_rate
+        ws['A9'] = defect_desc
+        if special_note:
+            ws['A18'] = f'※특기사항 : {special_note}'
+
+        if photo_paths:
+            _insert_ncr_photos(ws, photo_paths, PILImage)
+
+        wb.save(out_path)
+        return out_path, None
+    except Exception as e:
+        return None, f"엑셀 생성 중 오류: {e}"
+
+
+def _insert_ncr_photos(ws, photo_paths, PILImage=None):
+    """불량현상 사진을 D9:F17 영역에 세로로 배치."""
+    valid = [p for p in photo_paths if p and os.path.exists(p)]
+    if not valid:
+        return
+
+    n = len(valid)
+    per_h_cm = _NCR_PHOTO_H_CM / n
+
+    row_heights_emu = [int(h * 12700) for h in _NCR_ROW_HEIGHTS_PT]
+
+    for i, photo_path in enumerate(valid):
+        if PILImage:
+            try:
+                with PILImage.open(photo_path) as pil:
+                    orig_w, orig_h = pil.size
+            except Exception:
+                orig_w, orig_h = 1, 1
+        else:
+            orig_w, orig_h = 1, 1
+        aspect = orig_w / orig_h if orig_h > 0 else 1.0
+
+        avail_w, avail_h = _NCR_PHOTO_W_CM, per_h_cm
+        if aspect >= avail_w / avail_h:
+            final_w, final_h = avail_w, avail_w / aspect
+        else:
+            final_w, final_h = avail_h * aspect, avail_h
+
+        offset_emu  = int(cm_to_EMU(i * per_h_cm))
+        cumulative  = 0
+        target_row  = _NCR_PHOTO_ROW
+        row_off_emu = 0
+        for j, rh in enumerate(row_heights_emu):
+            if cumulative + rh > offset_emu:
+                target_row  = _NCR_PHOTO_ROW + j
+                row_off_emu = offset_emu - cumulative
+                break
+            cumulative += rh
+
+        img    = XLImage(photo_path)
+        size   = XDRPositiveSize2D(int(cm_to_EMU(final_w)), int(cm_to_EMU(final_h)))
+        marker = AnchorMarker(col=_NCR_PHOTO_COL, colOff=0,
+                              row=target_row, rowOff=row_off_emu)
+        img.anchor = OneCellAnchor(_from=marker, ext=size)
+        ws.add_image(img)
+
+
+def ncr_mailto_url(ncr, supplier_email=''):
+    """부적합 통보서 mailto: URL 생성."""
+    import urllib.parse
+    subject = (f"[부적합 통보서] {ncr.get('ncr_no','')} — "
+               f"{ncr.get('material_no','')} ({ncr.get('supplier','')})")
+    lines = [
+        "안녕하세요, 샤든코리아㈜ 품질팀입니다.",
+        "",
+        "아래 부적합 통보서를 첨부파일로 발송합니다.",
+        "첨부된 엑셀 파일을 확인하시고 개선 대책서를 작성하여 회신 부탁드립니다.",
+        "",
+        f"■ 통보서 번호  : {ncr.get('ncr_no','')}",
+        f"■ 자재번호     : {ncr.get('material_no','')}",
+        f"■ 제품명       : {ncr.get('material_name') or '-'}",
+        f"■ 발생일자     : {ncr.get('issued_date') or '-'}",
+        "",
+        "■ 불량 내용",
+        ncr.get('defect_description') or '-',
+        "",
+        "접수일로부터 3일 이내 회신 바랍니다. (동일 불량 3회 지적 시 구상청구함)",
+        "",
+        "감사합니다.",
+        "샤든코리아㈜ 품질팀",
+    ]
+    params = urllib.parse.urlencode({'subject': subject, 'body': '\n'.join(lines)})
+    return f"mailto:{supplier_email}?{params}"
