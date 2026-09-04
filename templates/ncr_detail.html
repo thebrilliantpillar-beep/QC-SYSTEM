@@ -16,82 +16,75 @@
 }
 .ncr-doc {
   background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.08);
-  padding: 28px 28px 32px; max-width: 780px; margin: 0 auto;
+  padding: 20px 20px 24px; max-width: 820px; margin: 0 auto;
 }
 
-/* ─ 상단 헤더: 좌측 로고 + 중앙 제목 + 우측 서명 3칸 ─ */
-.ncr-header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 16px;
-  align-items: center;
-  padding-bottom: 14px;
-  margin-bottom: 18px;
-  border-bottom: 3px solid #1f2937;
+/* ── 제목 행 ── */
+.ncr-title-row {
+  display: flex; align-items: center; gap: 10px;
+  border: 2px solid #1f2937; border-bottom: none;
+  padding: 8px 12px;
 }
-.ncr-header .h-logo { width: 84px; height: 84px; display:flex; align-items:center; justify-content:center; }
-.ncr-header .h-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.ncr-header .h-title { text-align: center; }
-.ncr-header .h-title .ncr-no { font-size: 12.5px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
-.ncr-header .h-title h1 { font-size: 24px; font-weight: 900; letter-spacing: 2px; margin: 4px 0 2px; }
-.ncr-header .h-title .en { font-size: 12px; color: var(--muted); letter-spacing: 1px; }
-.ncr-header .h-signs {
-  display: grid; grid-template-columns: 78px 1fr; gap: 6px;
-}
-.h-signs .h-sign {
-  border: 1px solid #9ca3af; border-radius: 6px; height: 84px;
-  display: flex; flex-direction: column;
-  font-size: 10.5px; overflow: hidden; background: #fff;
-}
-.h-signs .h-sign .role {
-  background: #f3f4f6; color: #4b5563; font-weight: 700; padding: 3px 0;
-  text-align: center; border-bottom: 1px solid #e5e7eb;
-  font-size: 10px; letter-spacing: -0.3px;
-}
-.h-signs .h-sign .body {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  padding: 3px; position: relative; text-align: center;
-}
-.h-signs .h-sign .body img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.h-signs .h-sign .body img.stamp-img { max-width: 100%; max-height: 100%; }
-.h-signs .h-sign .who { font-size: 10px; color: #374151; font-weight: 700; }
-.h-signs .h-sign .when { font-size: 9px; color: #9ca3af; margin-top: 2px; }
+.ncr-title-row .t-logo { flex-shrink:0; }
+.ncr-title-row .t-logo img { height: 48px; max-width: 100px; object-fit: contain; display: block; }
+.ncr-title-row .t-center { flex:1; text-align:center; }
+.ncr-title-row .t-main { font-size: 22px; font-weight: 900; letter-spacing: 5px; color:#1f2937; }
+.ncr-title-row .t-sub { font-size: 11px; color: #6b7280; letter-spacing: 2px; margin-top: 2px; }
+.ncr-title-row .t-no { font-size: 11px; color: #6b7280; font-weight: 600; white-space: nowrap; }
 
-@media (max-width: 640px) {
-  .ncr-header { grid-template-columns: 1fr; text-align: center; }
-  .ncr-header .h-logo { justify-self: center; }
-  .ncr-header .h-signs { justify-self: center; grid-template-columns: 72px 1fr; }
+/* ── 수신/참조/작성 + 결재득 ── */
+.ncr-head-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ncr-head-tbl td { border: 1px solid #9ca3af; padding: 5px 10px; vertical-align: middle; }
+.ncr-head-tbl .sign-td { padding: 0; vertical-align: stretch; }
+.sign-grid { display: flex; flex-direction: column; height: 100%; min-height: 70px; }
+.sign-grid .sg-head { display: flex; border-bottom: 1px solid #9ca3af; }
+.sign-grid .sg-head span { flex: 1; text-align: center; padding: 4px 0;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+.sign-grid .sg-head span:first-child { border-right: 1px solid #9ca3af; }
+.sign-grid .sg-body { flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 900; letter-spacing: 5px; color: #1f2937; }
+
+/* ── 안내문 ── */
+.ncr-notice {
+  border: 1px solid #9ca3af; border-top: none;
+  padding: 5px 12px; font-size: 12.5px; color: #374151;
+  background: #f9fafb;
 }
 
-.info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; }
-.info-table th, .info-table td { border: 1px solid #d1d5db; padding: 8px 10px; }
-.info-table th { background: #f3f4f6; font-weight: 700; width: 22%; text-align: left; color: #374151; }
-.content-box { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 14px;
-               font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; margin-bottom: 16px;
-               min-height: 70px; }
-.content-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; margin-top: 14px; }
+/* ── 모델명/자재번호 등 스펙 행 ── */
+.ncr-spec-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ncr-spec-tbl td { border: 1px solid #9ca3af; border-top: none; padding: 6px 10px; }
 
-/* 사진 그리드 — 실제 첨부된 장수만큼만, 정사각형 비율로 정중앙 배치.
-   빈 칸(placeholder)은 만들지 않는다 — 1장이면 1칸, 4장이면 2x2, 6장이면 3x2 식으로
-   장수에 맞춰 열 개수가 달라진다(app.py의 photo_cols가 계산). */
-.photo-grid {
-  display: grid;
-  gap: 10px;
-  margin-top: 8px;
-  justify-content: center;
+/* ── 불량현황 본문 테이블 ── */
+.ncr-body-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ncr-body-tbl td { border: 1px solid #9ca3af; border-top: none; vertical-align: top; }
+.body-head { text-align: center; font-weight: 700; padding: 5px;
+  letter-spacing: 2px; background: #f3f4f6; border-top: 1px solid #9ca3af !important; }
+.body-subhead { text-align: center; font-weight: 700; font-size: 12px; padding: 4px;
+  background: #f9fafb; letter-spacing: 1px; border-top: 1px solid #9ca3af !important; }
+.defect-desc-cell { padding: 10px 12px; white-space: pre-wrap; line-height: 1.75;
+  min-height: 170px; font-size: 13px; }
+.photo-td { padding: 8px; }
+.ncr-doc-photo-grid { display: grid; gap: 6px; }
+.ncr-doc-photo-grid img { width: 100%; aspect-ratio: 4/3; object-fit: cover;
+  border-radius: 4px; border: 1px solid #e5e7eb; display: block; }
+.action-td { padding: 0; border-top: 1px solid #9ca3af !important; }
+.action-rows { display: flex; flex-direction: column; height: 100%; }
+.ar-row { border-bottom: 1px solid #d1d5db; padding: 6px 8px;
+  font-size: 11.5px; font-weight: 700; color: #374151; text-align: center; }
+.ar-note { flex: 1; padding: 8px; font-size: 11px; color: #6b7280; line-height: 1.6; }
+.special-note-cell { padding: 8px 12px; min-height: 50px; font-size: 13px;
+  border-top: 1px solid #9ca3af !important; }
+.extra-meta { margin-top: 12px; display: flex; gap: 16px; flex-wrap: wrap;
+  font-size: 12.5px; color: #4b5563; padding: 8px 4px; }
+
+@media (max-width: 600px) {
+  .ncr-title-row { flex-wrap: wrap; }
+  .ncr-title-row .t-center { order: -1; width: 100%; }
+  .ncr-head-tbl, .ncr-spec-tbl { font-size: 12px; }
+  .ncr-body-tbl colgroup col:last-child { width: 0 !important; }
+  .action-td { display: none; }
 }
-.photo-grid .photo-cell {
-  width: 170px;
-  aspect-ratio: 1 / 1;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: #fafafa;
-  overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
-  color: #d1d5db; font-size: 11px;
-}
-.photo-grid .photo-cell img { width: 100%; height: 100%; object-fit: cover; }
-@media (max-width: 480px) { .photo-grid .photo-cell { width: 120px; } }
 
 /* 상태 배지 */
 .ncr-status { display:inline-flex; align-items:center; gap:6px; padding:6px 14px;
@@ -196,109 +189,118 @@
 
 <!-- 통보서 본문 -->
 <div class="ncr-doc">
-  <!-- 상단: 로고 · 제목 · 서명 3칸 -->
-  <div class="ncr-header">
-    <div class="h-logo">
-      <img src="{{ logo_url }}" alt="회사 로고">
+
+  <!-- ① 제목 행 -->
+  <div class="ncr-title-row">
+    <div class="t-logo"><img src="{{ logo_url }}" alt="로고"></div>
+    <div class="t-center">
+      <div class="t-main">부&nbsp;적&nbsp;합&nbsp;통&nbsp;보&nbsp;서</div>
+      <div class="t-sub">NON-CONFORMANCE REPORT</div>
     </div>
-    <div class="h-title">
-      <div class="ncr-no">{{ ncr['ncr_no'] }}</div>
-      <h1>부적합 통보서</h1>
-      <div class="en">NON-CONFORMANCE REPORT</div>
-    </div>
-    <div class="h-signs">
-      <div class="h-sign">
-        <div class="role">작&nbsp;&nbsp;&nbsp;성</div>
-        <div class="body">
-          <div>
-            <div class="who">{{ ncr['issued_by'] or '' }}</div>
-            <div class="when">{{ ncr['issued_date'] or '' }}</div>
-          </div>
-        </div>
-      </div>
-      <!-- 결재득 박스: 검토+승인 두 칸 병합 스타일 -->
-      <div class="h-sign" style="grid-column: span 2; border: 2px solid #1f2937; position:relative;">
-        <div class="role" style="display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid #d1d5db;">
-          <span style="border-right:1px solid #d1d5db; display:block; padding:3px 0; text-align:center;">검&nbsp;&nbsp;&nbsp;토</span>
-          <span style="display:block; padding:3px 0; text-align:center;">승&nbsp;&nbsp;&nbsp;인</span>
-        </div>
-        <div class="body" style="justify-content:center; align-items:center;">
-          <div style="border: 2.5px solid #1f2937; border-radius: 4px;
-                      padding: 6px 18px; font-size: 16px; font-weight: 900;
-                      letter-spacing: 4px; color: #1f2937; white-space: nowrap;">
-            결&nbsp;&nbsp;재&nbsp;&nbsp;득
-          </div>
-        </div>
-      </div>
-    </div>
+    <div class="t-no">{{ ncr['ncr_no'] }}</div>
   </div>
 
-  <table class="info-table">
+  <!-- ② 수신 / 참조 / 작성자 + 결재득 -->
+  <table class="ncr-head-tbl">
+    <colgroup>
+      <col style="width:36%"><col style="width:38%"><col style="width:26%">
+    </colgroup>
     <tr>
-      <th>발행일</th><td>{{ ncr['issued_date'] or '-' }}</td>
-      <th>발행자</th><td>{{ ncr['issued_by'] or '-' }}</td>
-    </tr>
-    <tr>
-      <th>자재번호</th><td>{{ ncr['material_no'] }}</td>
-      <th>제품명</th><td>{{ ncr['material_name'] or '-' }}</td>
-    </tr>
-    <tr>
-      <th>업체명</th>
-      <td>
-        {{ ncr['supplier'] or '-' }}
-        {% if supplier_info and supplier_info['contact'] %}
-          <span style="color:var(--muted); font-size:12.5px; margin-left:8px;">{{ supplier_info['contact'] }}</span>
-        {% endif %}
-      </td>
-      <th>로트번호</th><td style="white-space:pre-line;">{{ po_number or '-' }}</td>
-    </tr>
-    <tr>
-      <th>입고날짜</th><td>{{ (ncr_receive_date | date_korean) if ncr_receive_date else '-' }}</td>
-      <th>참조</th><td>{{ ncr['cc_recipient'] or '-' }}</td>
-    </tr>
-    <tr>
-      <th>LOT 수량</th><td>{{ ncr['lot_qty'] or '-' }}</td>
-      <td colspan="2">
-        {% if ncr['sample_qty'] is not none or ncr['defect_qty'] is not none %}
-          <span style="font-size:12.5px; color:#4b5563;">
-            시료수 <b>{{ ncr['sample_qty'] if ncr['sample_qty'] is not none else '-' }}</b>개 /
-            불량수 <b>{{ ncr['defect_qty'] if ncr['defect_qty'] is not none else '-' }}</b>개
-            {% if ncr['sample_qty'] and ncr['defect_qty'] and ncr['sample_qty'] > 0 %}
-              <span style="color:var(--fail); margin-left:6px; font-weight:700;">
-                ({{ "%.1f"|format(ncr['defect_qty']/ncr['sample_qty']*100) }}%)
-              </span>
-            {% endif %}
-          </span>
-        {% else %}-{% endif %}
+      <td>수&emsp;&emsp;신&ensp;:&ensp;{{ ncr['supplier'] or '-' }}</td>
+      <td>발 생 일 자&ensp;:&ensp;{{ ncr['issued_date'] or '-' }}</td>
+      <td rowspan="3" class="sign-td">
+        <div class="sign-grid">
+          <div class="sg-head">
+            <span>검&nbsp;&nbsp;토</span>
+            <span>승&nbsp;&nbsp;인</span>
+          </div>
+          <div class="sg-body">결&emsp;재&emsp;득</div>
+        </div>
       </td>
     </tr>
-    {% if ncr['due_date'] %}
     <tr>
-      <th>조치 기한</th>
-      <td colspan="3" style="font-weight:700; color:var(--fail);">{{ ncr['due_date'] }}</td>
+      <td>참&emsp;&emsp;조&ensp;:&ensp;{{ ncr['cc_recipient'] or '' }}</td>
+      <td>작 성 일 자&ensp;:&ensp;{{ ncr['issued_date'] or '-' }}</td>
     </tr>
-    {% endif %}
+    <tr>
+      <td></td>
+      <td>작&ensp;성&ensp;자&ensp;:&ensp;{{ ncr['issued_by'] or '-' }}</td>
+    </tr>
   </table>
 
-  <div class="content-label">📌 불량 내용</div>
-  <div class="content-box">{{ ncr['defect_description'] or '-' }}</div>
+  <!-- ③ 안내문 -->
+  <div class="ncr-notice">귀 업체( &nbsp;3&nbsp; )일 이내에 처리 책임을 회신 바랍니다.</div>
 
-  {% if ncr['special_note'] %}
-  <div class="content-label">📝 특기사항</div>
-  <div class="content-box">{{ ncr['special_note'] }}</div>
-  {% endif %}
+  <!-- ④ 모델명 / 자재번호 / LOT수량 -->
+  <table class="ncr-spec-tbl">
+    <tr>
+      <td>모&emsp;델&emsp;명&ensp;:&ensp;{{ ncr['material_name'] or '-' }}</td>
+      <td>자 재 번 호&ensp;:&ensp;{{ ncr['material_no'] }}</td>
+      <td>LOT 수량&ensp;:&ensp;{{ ncr['lot_qty'] or '-' }}</td>
+    </tr>
+    <tr>
+      <td>시&ensp;료&ensp;수&ensp;:&ensp;{{ ncr['sample_qty'] if ncr['sample_qty'] is not none else '-' }}&ensp;개</td>
+      <td>불&ensp;량&ensp;수&ensp;:&ensp;{{ ncr['defect_qty'] if ncr['defect_qty'] is not none else '-' }}&ensp;개</td>
+      <td>불&ensp;량&ensp;률&ensp;:&ensp;{% if ncr['sample_qty'] and ncr['defect_qty'] and ncr['sample_qty']|int > 0 %}{{ "%.1f"|format(ncr['defect_qty']|int / ncr['sample_qty']|int * 100) }}%{% else %}-{% endif %}</td>
+    </tr>
+  </table>
 
-  {% if photos %}
-  {% set photo_cols = {1: 1, 2: 2, 3: 3, 4: 2, 5: 3, 6: 3} %}
-  <div class="content-label">📷 불량 사진 ({{ photos|length }}/6)</div>
-  <div class="photo-grid" style="grid-template-columns: repeat({{ photo_cols.get(photos|length, 3) }}, 170px);">
-    {% for photo in photos %}
-    <div class="photo-cell">
-      <img src="{{ url_for('static', filename='ncr_photos/' ~ photo) }}" alt="불량 사진">
-    </div>
-    {% endfor %}
+  <!-- ⑤ 불량현황 본문 (불량내용 | 사진 | 조치현황) -->
+  <table class="ncr-body-tbl">
+    <colgroup>
+      <col style="width:33%"><col style="width:33%"><col style="width:34%">
+    </colgroup>
+    <!-- 섹션 헤더 -->
+    <tr>
+      <td colspan="2" class="body-head">불&emsp;&emsp;량&emsp;&emsp;현&emsp;&emsp;황</td>
+      <td class="body-head" style="font-size:11.5px; letter-spacing:0.5px;">조 치 현 황 &nbsp; 조 치 내 용</td>
+    </tr>
+    <!-- 서브헤더 -->
+    <tr>
+      <td class="body-subhead">불&emsp;량&emsp;내&emsp;용</td>
+      <td class="body-subhead">불&emsp;량&emsp;사&emsp;진</td>
+      <td rowspan="3" class="action-td">
+        <div class="action-rows">
+          <div class="ar-row">불 발 생 원 인</div>
+          <div class="ar-row">긴급시 및 재발 방지 대책</div>
+          <div class="ar-row">검&ensp;사&ensp;D A T A</div>
+          <div class="ar-row">검&ensp;사&ensp;결&ensp;과</div>
+          <div class="ar-row">기&emsp;&emsp;&emsp;타</div>
+          <div class="ar-note">1. 원인 및 대책을 수립하여 회신 바랍니다.<br><br>(불이행시 3회 경고후 공급자격취소)</div>
+        </div>
+      </td>
+    </tr>
+    <!-- 본문: 불량내용 텍스트 + 사진 -->
+    <tr>
+      <td class="defect-desc-cell">{{ ncr['defect_description'] or '-' }}</td>
+      <td class="photo-td">
+        {% if photos %}
+        {% set _cols = [1,1,2,2,2,3] %}
+        <div class="ncr-doc-photo-grid"
+             style="grid-template-columns: repeat({{ _cols[photos|length - 1] if photos|length <= 6 else 3 }}, 1fr);">
+          {% for photo in photos %}
+          <img src="{{ url_for('static', filename='ncr_photos/' ~ photo) }}" alt="불량사진">
+          {% endfor %}
+        </div>
+        {% endif %}
+      </td>
+    </tr>
+    <!-- 특기사항 -->
+    <tr>
+      <td colspan="2" class="special-note-cell">
+        ※ 특기사항&ensp;:&ensp;{{ ncr['special_note'] or '' }}
+      </td>
+    </tr>
+  </table>
+
+  <!-- 추가 정보 (화면 전용, 인쇄 제외) -->
+  <div class="extra-meta no-print">
+    {% if ncr_receive_date %}<span>입고일&ensp;{{ ncr_receive_date | date_korean }}</span>{% endif %}
+    {% if po_number %}<span>로트번호&ensp;{{ po_number }}</span>{% endif %}
+    {% if supplier_info and supplier_info['contact'] %}<span>담당자&ensp;{{ supplier_info['contact'] }}</span>{% endif %}
+    {% if ncr['due_date'] %}<span style="color:var(--fail); font-weight:700;">조치기한&ensp;{{ ncr['due_date'] }}</span>{% endif %}
   </div>
-  {% endif %}
+
 </div>
 
 <!-- 사진 첨부 모달 -->
