@@ -3786,6 +3786,92 @@ def full_inspect_pdf(inspection_id):
 
 # ---------- 성적서 출력 (승인된 것 중 선택/전체) ----------
 
+def _process_one_output(insp_id, incl_drawing, incl_standard, incl_report):
+    """성적서 1건 PDF 생성. {"id","material_no","pdf_path","error"} 반환."""
+    header, _ = db.get_inspection(insp_id)
+    if header is None or header["status"] != "approved":
+        return {"id": insp_id, "material_no": "-", "pdf_path": None,
+                "error": "승인된 성적서가 아니야(다시 확인해줘)."}
+
+    xlsx_path, pdf_path, error_msg, is_custom = _generate_report_files(
+        insp_id, header["approver"], header["signature_path"]
+    )
+
+    if pdf_path and not error_msg:
+        drawing_pdf = find_drawing_pdf(header["material_no"])
+
+        def _do_merge(src, drw, incl_d, incl_s, incl_r):
+            tmp = os.path.splitext(src)[0] + "_merged.pdf"
+            result, err = report_builder.merge_report_with_drawing(
+                src, drw, tmp,
+                incl_drawing=incl_d, incl_standard=incl_s, incl_report=incl_r,
+            )
+            if err:
+                return src, err
+            try:
+                os.replace(result, src)
+            except Exception:
+                return result, None
+            return src, None
+
+        if is_custom:
+            if incl_drawing and drawing_pdf:
+                pdf_path, merge_err = _do_merge(pdf_path, drawing_pdf, True, False, True)
+                if merge_err:
+                    error_msg = merge_err
+        else:
+            needs_merge = (incl_drawing and drawing_pdf) or not incl_standard or not incl_report
+            all_included = incl_drawing and incl_standard and incl_report
+            if needs_merge and not all_included:
+                pdf_path, merge_err = _do_merge(
+                    pdf_path, drawing_pdf, incl_drawing, incl_standard, incl_report)
+                if merge_err:
+                    error_msg = merge_err
+            elif incl_drawing and drawing_pdf:
+                pdf_path, merge_err = _do_merge(pdf_path, drawing_pdf, True, True, True)
+                if merge_err:
+                    error_msg = merge_err
+
+    if pdf_path and not error_msg:
+        fi_config = db.get_full_inspect_config(header["material_no"])
+        fi = db.get_full_inspection(insp_id) if fi_config else None
+        if fi and fi.get("status") == "complete":
+            try:
+                import tempfile as _tf
+                from custom_report import build_full_inspection_sheet
+                fi_units = db.list_full_inspection_units(insp_id)
+                hd2 = dict(header)
+                insp_hdr_data = {
+                    "material_name": hd2.get("material_name", ""),
+                    "quantity": hd2.get("quantity", 0),
+                    "intake_date": hd2.get("intake_date", ""),
+                    "inspector": hd2.get("inspector", ""),
+                }
+                fi_cols = _fi_columns_from_specs(header["material_no"])
+                fi_tmp = _tf.NamedTemporaryFile(delete=False, suffix="_fi.pdf")
+                fi_tmp.close()
+                build_full_inspection_sheet(dict(fi), fi_units, fi_cols,
+                                            fi_config, insp_hdr_data, fi_tmp.name)
+                merged_tmp = os.path.splitext(pdf_path)[0] + "_with_fi.pdf"
+                _, merge_fi_err = report_builder.append_pdf(pdf_path, fi_tmp.name, merged_tmp)
+                if not merge_fi_err and os.path.exists(merged_tmp):
+                    os.replace(merged_tmp, pdf_path)
+                try:
+                    os.unlink(fi_tmp.name)
+                except Exception:
+                    pass
+            except Exception as fi_ex:
+                error_msg = (error_msg or "") + f" (전수검사 병합 실패: {fi_ex})"
+
+    if pdf_path:
+        db.set_report_files(insp_id, signature_path=header["signature_path"],
+                            pdf_path=pdf_path, xlsx_path=xlsx_path)
+        db.set_inspection_hashes(insp_id, pdf_hash=compute_file_hash(pdf_path))
+
+    return {"id": insp_id, "material_no": header["material_no"],
+            "pdf_path": pdf_path, "error": error_msg}
+
+
 @app.route("/output")
 @perm_required("output")
 def output_list():
@@ -3809,111 +3895,56 @@ def output_generate():
     incl_drawing  = request.form.get("incl_drawing")  == "1"
     incl_standard = request.form.get("incl_standard") == "1"
     incl_report   = request.form.get("incl_report")   == "1"
-    # 전체 출력 버튼은 form에 체크박스 값을 포함하지 않으므로 기본값 True 처리
     if request.form.get("select_all") == "1":
         incl_drawing = incl_standard = incl_report = True
 
-    results = []  # {"id","material_no","pdf_path","error"}
-    for insp_id in target_ids:
-        header, _ = db.get_inspection(insp_id)
-        if header is None or header["status"] != "approved":
-            results.append({"id": insp_id, "material_no": "-", "pdf_path": None,
-                            "error": "승인된 성적서가 아니야(다시 확인해줘)."})
-            continue
+    # 단건: 바로 처리
+    if len(target_ids) == 1:
+        result = _process_one_output(target_ids[0], incl_drawing, incl_standard, incl_report)
+        record_change("성적서 출력", "inspection", None, "1건")
+        return render_template("output_result.html", results=[result])
 
-        xlsx_path, pdf_path, error_msg, is_custom = _generate_report_files(
-            insp_id, header["approver"], header["signature_path"]
-        )
+    # 다건: 1개씩 순차 처리하는 진행 페이지로 리다이렉트 (CPU 보호)
+    ids_str = ",".join(str(i) for i in target_ids)
+    return redirect(url_for("output_batch_progress",
+                            ids=ids_str,
+                            d="1" if incl_drawing else "0",
+                            s="1" if incl_standard else "0",
+                            r="1" if incl_report else "0"))
 
-        # 도면 포함 여부에 따라 PDF 병합
-        if pdf_path and not error_msg:
-            drawing_pdf = find_drawing_pdf(header["material_no"])
 
-            def _do_merge(src, drw, incl_d, incl_s, incl_r):
-                """병합 후 결과를 src(원본 PDF)에 덮어씌워 잔재 파일 없애기. 반환: (최종 경로, 에러)"""
-                tmp = os.path.splitext(src)[0] + "_merged.pdf"
-                result, err = report_builder.merge_report_with_drawing(
-                    src, drw, tmp,
-                    incl_drawing=incl_d, incl_standard=incl_s, incl_report=incl_r,
-                )
-                if err:
-                    return src, err
-                try:
-                    os.replace(result, src)   # tmp → src 덮어쓰기, tmp 자동 삭제
-                except Exception:
-                    return result, None       # 덮어쓰기 실패 시 _merged.pdf 그대로
-                return src, None
+@app.route("/output/batch-progress")
+@perm_required("output")
+def output_batch_progress():
+    ids_str = request.args.get("ids", "")
+    target_ids = [int(x) for x in ids_str.split(",") if x.strip().isdigit()]
+    if not target_ids:
+        flash("출력할 성적서를 선택해줘.")
+        return redirect(url_for("output_list"))
+    return render_template("output_batch_progress.html",
+                           target_ids=target_ids,
+                           incl_drawing=request.args.get("d", "1") == "1",
+                           incl_standard=request.args.get("s", "1") == "1",
+                           incl_report=request.args.get("r", "1") == "1")
 
-            if is_custom:
-                # 커스텀 성적서는 기준서 페이지가 없음 → 성적서/기준서 토글은 무시하고
-                # 도면만 옵션으로 앞에 붙인다.
-                if incl_drawing and drawing_pdf:
-                    pdf_path, merge_err = _do_merge(
-                        pdf_path, drawing_pdf, True, False, True)
-                    if merge_err:
-                        error_msg = merge_err
-            else:
-                needs_merge = (incl_drawing and drawing_pdf) or not incl_standard or not incl_report
-                all_included = incl_drawing and incl_standard and incl_report
-                if needs_merge and not all_included:
-                    pdf_path, merge_err = _do_merge(
-                        pdf_path, drawing_pdf, incl_drawing, incl_standard, incl_report)
-                    if merge_err:
-                        error_msg = merge_err
-                elif incl_drawing and drawing_pdf:
-                    pdf_path, merge_err = _do_merge(
-                        pdf_path, drawing_pdf, True, True, True)
-                    if merge_err:
-                        error_msg = merge_err
 
-        # 전수검사 기록지 — 완료된 전수검사가 있으면 성적서 뒤에 붙인다
-        if pdf_path and not error_msg:
-            fi_config = db.get_full_inspect_config(header["material_no"])
-            fi = db.get_full_inspection(insp_id) if fi_config else None
-            if fi and fi.get("status") == "complete":
-                try:
-                    import tempfile as _tf
-                    from custom_report import build_full_inspection_sheet
-                    fi_units = db.list_full_inspection_units(insp_id)
-                    hd2 = dict(header)
-                    insp_hdr_data = {
-                        "material_name": hd2.get("material_name", ""),
-                        "quantity": hd2.get("quantity", 0),
-                        "intake_date": hd2.get("intake_date", ""),
-                        "inspector": hd2.get("inspector", ""),
-                    }
-                    fi_cols = _fi_columns_from_specs(header["material_no"])
-                    fi_tmp = _tf.NamedTemporaryFile(delete=False, suffix="_fi.pdf")
-                    fi_tmp.close()
-                    build_full_inspection_sheet(dict(fi), fi_units, fi_cols,
-                                                fi_config, insp_hdr_data, fi_tmp.name)
-                    # 성적서 PDF + 전수검사 PDF 병합
-                    merged_tmp = os.path.splitext(pdf_path)[0] + "_with_fi.pdf"
-                    _, merge_fi_err = report_builder.append_pdf(
-                        pdf_path, fi_tmp.name, merged_tmp)
-                    if not merge_fi_err and os.path.exists(merged_tmp):
-                        os.replace(merged_tmp, pdf_path)
-                    try:
-                        os.unlink(fi_tmp.name)
-                    except Exception:
-                        pass
-                except Exception as fi_ex:
-                    error_msg = (error_msg or "") + f" (전수검사 병합 실패: {fi_ex})"
-
-        db.set_report_files(insp_id, signature_path=header["signature_path"],
-                            pdf_path=pdf_path, xlsx_path=xlsx_path)
-        # 발행된 PDF 파일 자체의 해시 — 나중에 파일이 덮어써졌는지 확인용
-        db.set_inspection_hashes(insp_id, pdf_hash=compute_file_hash(pdf_path))
-        results.append({
-            "id": insp_id, "material_no": header["material_no"],
-            "pdf_path": pdf_path, "error": error_msg,
-        })
-
-    success_count = sum(1 for r in results if r["pdf_path"] and not r["error"])
-    record_change("성적서 출력", "inspection", None,
-                  f"{len(target_ids)}건 중 {success_count}건 성공")
-
-    return render_template("output_result.html", results=results)
+@app.route("/output/generate-single", methods=["POST"])
+@perm_required("output")
+def output_generate_single():
+    """단건 PDF 생성 JSON API — 배치 진행 페이지에서 순차 호출."""
+    insp_id = request.form.get("inspection_id", "")
+    if not str(insp_id).isdigit():
+        return jsonify({"ok": False, "error": "잘못된 ID"})
+    incl_drawing  = request.form.get("incl_drawing")  == "1"
+    incl_standard = request.form.get("incl_standard") == "1"
+    incl_report   = request.form.get("incl_report")   == "1"
+    result = _process_one_output(int(insp_id), incl_drawing, incl_standard, incl_report)
+    return jsonify({
+        "ok": bool(result["pdf_path"] and not result["error"]),
+        "id": result["id"],
+        "material_no": result["material_no"],
+        "error": result["error"],
+    })
 
 
 @app.route("/output/download/<int:inspection_id>")

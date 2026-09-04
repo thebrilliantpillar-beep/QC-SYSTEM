@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}성적서 출력 진행 중{% endblock %}
+{% block content %}
+<style>
+  .prog-wrap { max-width:580px; margin:32px auto; }
+  .prog-bar-bg { background:#e5e7eb; border-radius:99px; height:20px; overflow:hidden; margin:10px 0; }
+  .prog-bar { background:#2563eb; height:100%; width:0%; transition:width .4s; border-radius:99px; }
+  .prog-bar.done { background:#16a34a; }
+  .prog-bar.error { background:#dc2626; }
+  .result-item { font-size:13px; padding:5px 0; border-bottom:1px solid var(--border); display:flex; gap:8px; align-items:center; }
+  .result-item:last-child { border-bottom:none; }
+</style>
+
+<div class="prog-wrap">
+  <h2 style="margin-bottom:6px;">성적서 출력 중...</h2>
+  <p class="muted" style="font-size:13px; margin-bottom:18px;">
+    서버에서 1개씩 순서대로 PDF를 만들고 있어. 창을 닫지 말고 기다려줘.
+  </p>
+
+  <div class="card" style="padding:20px 22px;">
+    <div id="prog-label" style="font-size:14px; font-weight:600; color:#374151; margin-bottom:8px;">준비 중...</div>
+    <div class="prog-bar-bg">
+      <div class="prog-bar" id="prog-bar"></div>
+    </div>
+    <div id="prog-count" class="muted" style="font-size:13px;">0 / {{ target_ids|length }}건</div>
+  </div>
+
+  <div id="result-box" class="card" style="padding:16px 20px; margin-top:14px; display:none;">
+    <div id="result-summary" style="font-size:15px; font-weight:700; margin-bottom:10px;"></div>
+    <div id="result-list"></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+      <a href="{{ url_for('output_history') }}" class="btn" style="margin:0;">📥 출력기록에서 다운로드</a>
+      <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin:0;">출력 대기 목록</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var ids = {{ target_ids | tojson }};
+  var total = ids.length;
+  var results = [];
+  var bar = document.getElementById('prog-bar');
+  var label = document.getElementById('prog-label');
+  var count = document.getElementById('prog-count');
+
+  function setProgress(done, text) {
+    var pct = Math.round(done / total * 100);
+    bar.style.width = pct + '%';
+    count.textContent = done + ' / ' + total + '건';
+    if (text) label.textContent = text;
+  }
+
+  async function processOne(idx) {
+    if (idx >= total) { finish(); return; }
+    var id = ids[idx];
+    setProgress(idx, (idx + 1) + '/' + total + ' 번째 생성 중 (성적서 #' + id + ')');
+    try {
+      var fd = new FormData();
+      fd.append('inspection_id', id);
+      fd.append('incl_drawing',  '{{ "1" if incl_drawing else "0" }}');
+      fd.append('incl_standard', '{{ "1" if incl_standard else "0" }}');
+      fd.append('incl_report',   '{{ "1" if incl_report else "0" }}');
+      var resp = await fetch('{{ url_for("output_generate_single") }}', { method: 'POST', body: fd });
+      var data = await resp.json();
+      results.push(data);
+    } catch (e) {
+      results.push({ ok: false, id: id, material_no: '-', error: '네트워크 오류' });
+    }
+    processOne(idx + 1);
+  }
+
+  function finish() {
+    var ok  = results.filter(function (r) { return r.ok; }).length;
+    var fail = results.filter(function (r) { return !r.ok; }).length;
+
+    setProgress(total, '완료!');
+    bar.className = 'prog-bar ' + (fail ? 'error' : 'done');
+
+    var summary = document.getElementById('result-summary');
+    if (fail === 0) {
+      summary.style.color = '#166534';
+      summary.textContent = '✅ ' + ok + '건 모두 출력 완료';
+    } else {
+      summary.style.color = fail === total ? '#dc2626' : '#92400e';
+      summary.textContent = '✅ ' + ok + '건 완료  /  ❌ ' + fail + '건 실패';
+    }
+
+    var listEl = document.getElementById('result-list');
+    var failItems = results.filter(function (r) { return !r.ok; });
+    if (failItems.length) {
+      listEl.innerHTML = failItems.map(function (r) {
+        return '<div class="result-item"><span style="color:#dc2626;">❌</span>' +
+               '성적서 #' + r.id + ' (' + (r.material_no || '-') + '): ' +
+               (r.error || '알 수 없는 오류') + '</div>';
+      }).join('');
+    }
+
+    document.getElementById('result-box').style.display = '';
+  }
+
+  processOne(0);
+})();
+</script>
+{% endblock %}
