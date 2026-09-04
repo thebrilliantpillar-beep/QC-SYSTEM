@@ -782,7 +782,11 @@ def build_ncr_excel(ncr, photo_paths=None):
         PILImage = None
 
     out_dir = report_output_dir()
-    raw_name = f"{ncr.get('ncr_no','NCR')}_{ncr.get('supplier','')}_부적합통보서.xlsx"
+    # 파일명: YYYYMMDD_업체_모델명_자재번호_부적합통보서.xlsx
+    _issued = (ncr.get('issued_date') or '')[:10].replace('-', '')  # YYYYMMDD
+    raw_name = (f"{_issued}_{ncr.get('supplier','')}_"
+                f"{ncr.get('material_name','')}_"
+                f"{ncr.get('material_no','')}_부적합통보서.xlsx")
     safe = re.sub(r'[\\/:"*?<>|]', '', raw_name)
     out_path = _dedupe_path(os.path.join(out_dir, safe))
 
@@ -825,6 +829,15 @@ def build_ncr_excel(ncr, photo_paths=None):
         ws['E7'] = defect_qty
         ws['H7'] = defect_rate
         ws['A9'] = defect_desc
+        # A9:C17 병합 유지 + 가운데 정렬 명시 (템플릿 의존 없이 코드로 보장)
+        try:
+            from openpyxl.styles import Alignment as _A9Align
+            if 'A9:C17' not in [str(m) for m in ws.merged_cells.ranges]:
+                ws.merge_cells('A9:C17')
+            ws['A9'].alignment = _A9Align(horizontal='center', vertical='center',
+                                           wrap_text=True)
+        except Exception:
+            pass
         if special_note:
             ws['A18'] = f'※특기사항 : {special_note}'
 
