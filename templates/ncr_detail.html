@@ -257,19 +257,12 @@
           style="background:#e5e7eb; color:#9ca3af; cursor:not-allowed;">📷 사진 6/6 (가득참)</button>
   {% endif %}
 
-  {% if status in ('confirmed', 'sent') %}
   <button onclick="document.getElementById('emailModal').style.display='flex'"
           style="background: var(--primary); color:#fff;">
     ✉️ 이메일 보내기
     {% if status == 'sent' %}<span style="background:#bbf7d0; color:#166534; font-size:11px;
       border-radius:999px; padding:2px 7px; margin-left:6px; font-weight:700;">발송됨</span>{% endif %}
   </button>
-  {% else %}
-  <button disabled title="확인 완료 후 발송 가능"
-          style="background:#e5e7eb; color:#9ca3af; cursor:not-allowed;">
-    ✉️ 이메일 보내기 (확인 후 활성화)
-  </button>
-  {% endif %}
   {% endif %}
 
   <a href="{{ url_for('ncr_list') }}"

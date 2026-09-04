@@ -5096,10 +5096,6 @@ def ncr_send_email(ncr_id):
         flash("통보서를 찾을 수 없어.")
         return redirect(url_for("home"))
 
-    if ncr["status"] == "draft":
-        flash("확인 완료 후에 발송 완료로 표시할 수 있어. 먼저 '확인 완료' 버튼을 눌러줘.")
-        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
-
     to_email = request.form.get("to_email", "").strip()
     if not to_email:
         flash("발송한 이메일 주소를 입력해줘.")

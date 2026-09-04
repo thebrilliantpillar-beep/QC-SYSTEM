@@ -794,6 +794,7 @@ def build_ncr_excel(ncr, photo_paths=None):
     try:
         wb = openpyxl.load_workbook(out_path)
         ws = wb[NCR_SHEET]
+        ws._images.clear()   # 템플릿 안의 기존 이미지(로고 등) 제거
 
         issued_date   = ncr.get('issued_date') or ''
         supplier      = ncr.get('supplier') or ''
