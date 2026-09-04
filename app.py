@@ -5012,6 +5012,45 @@ def ncr_excel(ncr_id):
                      download_name=os.path.basename(out_path))
 
 
+@app.route("/ncr/<int:ncr_id>/pdf")
+@perm_required("ncr", "ncr_confirm")
+def ncr_pdf(ncr_id):
+    """부적합 통보서 PDF 발행 — 엑셀 생성 후 LibreOffice로 변환."""
+    import json as _json
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("ncr_list"))
+
+    photos_raw = _json.loads(ncr["photos"] or "[]")
+    photo_paths = [os.path.join(NCR_PHOTO_DIR, f) for f in photos_raw if f]
+
+    ncr_dict = dict(ncr)
+    if not ncr_dict.get("lot_qty") and ncr_dict.get("inspection_id"):
+        try:
+            insp_h, _ = db.get_inspection(ncr_dict["inspection_id"])
+            if insp_h and insp_h.get("quantity"):
+                ncr_dict["lot_qty"] = str(insp_h["quantity"])
+        except Exception:
+            pass
+
+    xlsx_path, err = report_builder.build_ncr_excel(ncr_dict, photo_paths)
+    if err:
+        flash(f"엑셀 생성 실패: {err}")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    out_dir = os.path.dirname(xlsx_path)
+    pdf_path, pdf_err = report_builder._to_pdf(xlsx_path, out_dir)
+    if pdf_err:
+        flash(f"PDF 변환 실패: {pdf_err}")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    record_change("NCR PDF 발행", "ncr", ncr_id, os.path.basename(pdf_path))
+    from flask import send_file
+    return send_file(pdf_path, as_attachment=True,
+                     download_name=os.path.basename(pdf_path))
+
+
 @app.route("/ncr/<int:ncr_id>/eml")
 @perm_required("ncr", "ncr_confirm")
 def ncr_eml(ncr_id):

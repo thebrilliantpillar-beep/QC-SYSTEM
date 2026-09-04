@@ -152,6 +152,12 @@
             border-radius:8px; text-decoration:none; cursor:pointer;">
     📥 엑셀 발행
   </a>
+  <a href="{{ url_for('ncr_pdf', ncr_id=ncr['id']) }}"
+     style="background:#1f2937; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
+            border-radius:8px; text-decoration:none; cursor:pointer;"
+     title="엑셀 양식 그대로 PDF로 변환 (LibreOffice 변환, 수초 소요)">
+    🖨️ PDF 발행
+  </a>
   <a href="{{ url_for('ncr_eml', ncr_id=ncr['id']) }}"
      style="background:#7c3aed; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
             border-radius:8px; text-decoration:none; cursor:pointer;"
