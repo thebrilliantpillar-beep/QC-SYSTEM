@@ -20,7 +20,7 @@
 
 <!-- 상태 필터 -->
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-  {% for label, val in [('전체',''), ('초안','draft'), ('확인완료','confirmed'), ('발송됨','sent')] %}
+  {% for label, val in [('전체',''), ('초안','draft'), ('발송됨','sent')] %}
   <a href="{{ url_for('ncr_list', status=val) }}"
      style="padding:6px 14px; border-radius:999px; font-size:13px; font-weight:700; text-decoration:none;
             {% if status_filter == val %}background:var(--primary); color:#fff;
@@ -119,8 +119,7 @@
     <td>
       <span class="ncr-badge {{ status }}">
         {% if status == 'draft' %}초안
-        {% elif status == 'confirmed' %}확인완료
-        {% elif status == 'sent' %}발송됨
+        {% elif status in ('confirmed', 'sent') %}발송됨
         {% else %}발행됨{% endif %}
       </span>
     </td>

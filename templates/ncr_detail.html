@@ -139,23 +139,15 @@
 {% set status = ncr['status'] or 'draft' %}
 <div class="no-print" style="max-width:780px; margin:0 auto 0;">
   <span class="ncr-status {{ status }}">
-    {% if status == 'draft' %}📝 초안 (작성 완료, 확인 대기)
-    {% elif status == 'confirmed' %}✅ 확인 완료 (발송 대기)
+    {% if status == 'draft' %}📝 초안 (발송 전)
     {% elif status == 'sent' %}📤 발송 완료
     {% else %}📄 발행됨{% endif %}
   </span>
 </div>
 
-
-{% if status == 'confirmed' %}
-<div class="no-print" style="max-width:780px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
-  확인자: <strong>{{ ncr['confirmed_by'] }}</strong> · {{ ncr['confirmed_at'] | datetime_korean }}
-  {% if ncr['confirm_signature'] %}&nbsp;|&nbsp;승인 서명 첨부됨{% endif %}
-</div>
-{% elif status == 'sent' %}
+{% if status == 'sent' %}
 <div class="no-print" style="max-width:780px; margin:0 auto 14px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px 16px; font-size:13px; color:#15803d;">
   발송 완료: <strong>{{ ncr['sent_to'] }}</strong> · {{ ncr['email_sent_at'] | datetime_korean }}
-  &nbsp;|&nbsp; 확인자: {{ ncr['confirmed_by'] }}
 </div>
 {% endif %}
 
@@ -177,7 +169,7 @@
   </a>
   {% endif %}
 
-  {% if 'ncr_confirm' in user_perms %}
+  {% if 'ncr' in user_perms or 'ncr_confirm' in user_perms %}
   {% if photos|length < 6 %}
   <button onclick="document.getElementById('photoModal').style.display='flex'"
           style="background:#7c3aed; color:#fff;">📷 사진 첨부 ({{ photos|length }}/6)</button>
@@ -440,71 +432,5 @@
   </div>
 </div>
 
-{% if status == 'draft' and 'ncr_confirm' in user_perms and can_confirm %}
-<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
-<script>
-/* 부적합 통보서 최종결정권자 승인 서명 — 패드 구현은 static/signature_pad.js 공용 */
-(function () {
-  var pad = SignaturePad.attach('ncrSigPad');
-  if (!pad) return;
-
-  function showWarn(title, msg) {
-    document.getElementById('ncrWarnTitle').textContent = title;
-    document.getElementById('ncrWarnMsg').innerHTML = msg;
-    document.getElementById('ncrWarn').classList.add('show');
-  }
-
-  window.clearNcrSig = function () { pad.clear(); };
-  window.loadNcrDefaultSig = function () {
-    pad.loadDefault(function (ok) {
-      if (!ok) showWarn('저장된 서명이 없어',
-        '승인 화면에서 먼저 <b>기본 서명</b>을 저장해줘.');
-    });
-  };
-
-  window.switchSigMode = function (mode) {
-    document.getElementById('ncrDrawBox').style.display = (mode === 'draw') ? '' : 'none';
-    document.getElementById('ncrUploadBox').style.display = (mode === 'upload') ? '' : 'none';
-    document.getElementById('ncrSigSource').value = mode;
-  };
-
-  window.onNcrFile = function (input) {
-    var lbl = document.getElementById('ncrFileName');
-    if (input.files && input.files[0]) {
-      lbl.textContent = '📎 ' + input.files[0].name;
-      lbl.style.color = '#1d4ed8';
-    } else {
-      lbl.textContent = '파일이 선택되지 않았어.';
-      lbl.style.color = '#6b7280';
-    }
-  };
-
-  window.prepareNcrSubmit = function () {
-    var mode = document.getElementById('ncrSigSource').value;
-    if (mode === 'draw') {
-      if (pad.isEmpty()) {
-        showWarn('서명이 없어', '서명 패드에 <b>직접 서명</b>을 그려줘.');
-        return false;
-      }
-      document.getElementById('ncrSigData').value = pad.toDataURL();
-    } else {
-      var file = document.getElementById('ncrSigFile').files[0];
-      if (!file) {
-        showWarn('파일이 없어', '먼저 서명 <b>PNG/JPG 파일</b>을 선택해줘.');
-        return false;
-      }
-      var typeSel = document.querySelector('input[name="signature_stamp_type"]:checked');
-      if (!typeSel) {
-        showWarn('도장 / 사인 종류를 골라줘',
-          '업로드한 이미지가 <b>도장</b>인지 <b>사인</b>인지 골라야 해.<br>' +
-          '<span style="font-size:12.5px; color:#6b7280;">도장은 5×5cm로, 사인은 기본 크기로 문서에 들어가.</span>');
-        return false;
-      }
-    }
-    return confirm('부적합 통보서를 승인 서명하고 확인 완료 처리할까?\n이후 협력사로 이메일 발송이 가능해져.');
-  };
-})();
-</script>
-{% endif %}
 
 {% endblock %}

@@ -4945,33 +4945,14 @@ def ncr_detail(ncr_id):
     except Exception:
         pass
 
-    # 도장 여부(사이드카 .stamp 파일 유무) — 상세 화면에서 서명 크기를 다르게 표시
-    is_stamp_sig = False
-    sig_path_check = ncr["confirm_signature"] if "confirm_signature" in ncr.keys() else None
-    if sig_path_check and os.path.exists(sig_path_check + ".stamp"):
-        is_stamp_sig = True
-
-    # 확인·발송은 최종결정권자만 — 화면에서도 미리 알려준다
-    can_confirm, block_reason = _can_make_final_decision(g.user, "부적합 통보서 확인")
-
-    # 저장된 승인 서명을 문서에 띄우기 위한 URL (static/ 하위 상대경로로 변환)
-    confirm_signature_url = None
-    sig_path = ncr["confirm_signature"] if "confirm_signature" in ncr.keys() else None
-    if sig_path and os.path.exists(sig_path):
-        confirm_signature_url = "/static/signatures/" + os.path.basename(sig_path)
-
     # mailto: URL (업체 이메일 자동 채워짐)
     supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
     mailto_url = report_builder.ncr_mailto_url(dict(ncr), supplier_email)
 
     return render_template("ncr_detail.html", ncr=ncr, photos=photos,
                            supplier_info=supplier_info,
-                           can_confirm=can_confirm,
-                           confirm_block_reason=block_reason or "",
-                           confirm_signature_url=confirm_signature_url,
                            po_number=po_number,
                            ncr_receive_date=receive_date,
-                           is_stamp_sig=is_stamp_sig,
                            logo_url=url_for("static", filename="logo.png"),
                            mailto_url=mailto_url)
 
@@ -5015,6 +4996,7 @@ def ncr_excel(ncr_id):
 def ncr_eml(ncr_id):
     """부적합 통보서 .eml 파일 생성 — Outlook에서 열면 수신자·제목·본문·첨부 자동 채워짐."""
     import json as _json
+    from urllib.parse import quote as _urlquote
     ncr = db.get_ncr(ncr_id)
     if ncr is None:
         flash("통보서를 찾을 수 없어.")
@@ -5050,11 +5032,18 @@ def ncr_eml(ncr_id):
                       f"{ncr['ncr_no']}_{ncr['supplier']}_부적합통보서.eml")
     record_change("NCR EML 발행", "ncr", ncr_id, eml_name)
 
+    # EML 발행 = 발송 의도로 간주 → sent 처리
+    if ncr["status"] != "sent":
+        db.mark_ncr_email_sent(ncr_id, supplier_email or "(EML 발행)")
+        record_change("NCR 발송 완료 표시", "ncr", ncr_id, f"EML 발행 → {supplier_email or '수신자미지정'}")
+
     from flask import Response
+    # Content-Disposition filename*: RFC 5987 — 한글은 반드시 URL인코딩해야 함
+    encoded_name = _urlquote(eml_name, safe='')
     return Response(
         eml_bytes,
         mimetype='message/rfc822',
-        headers={'Content-Disposition': f'attachment; filename*=UTF-8\'\'{eml_name}'},
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_name}"},
     )
 
 
@@ -5114,7 +5103,7 @@ def ncr_confirm(ncr_id):
 
 
 @app.route("/ncr/<int:ncr_id>/photo", methods=["POST"])
-@perm_required("ncr_confirm")
+@perm_required("ncr", "ncr_confirm")
 def ncr_add_photo(ncr_id):
     ncr = db.get_ncr(ncr_id)
     if ncr is None:
@@ -5136,9 +5125,9 @@ def ncr_add_photo(ncr_id):
 
 
 @app.route("/ncr/<int:ncr_id>/email", methods=["POST"])
-@perm_required("ncr_confirm")
+@perm_required("ncr", "ncr_confirm")
 def ncr_send_email(ncr_id):
-    """메일 직접 발송 대신, 발송 완료 표시만 처리 (mailto: 방식으로 변경됨)."""
+    """발송 완료 표시 처리 (mailto: 방식으로 실제 발송, 여기선 상태만 기록)."""
     ncr = db.get_ncr(ncr_id)
     if ncr is None:
         flash("통보서를 찾을 수 없어.")
