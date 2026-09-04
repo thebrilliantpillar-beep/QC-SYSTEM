@@ -3,7 +3,7 @@ services:
     name: chardon-qms
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --timeout 120 --workers 1
+    startCommand: gunicorn app:app --timeout 600 --workers 1
     envVars:
       - key: DATA_DIR
         value: /var/data
