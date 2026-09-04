@@ -1924,6 +1924,10 @@ def inspect_form(intake_id):
     full_inspect_config = db.get_full_inspect_config(material_no)
 
     if request.method == "POST":
+        override_inspector = request.form.get("override_inspector", "").strip()
+        inspector_val = (override_inspector
+                         if (override_inspector and has_perm(g.user, "users"))
+                         else (g.user["display_name"] or g.user["username"]))
         header = {
             "material_no": material_no,
             "material_name": group_name if is_group else _resolve_material_name(material_no, specs),
@@ -1931,7 +1935,7 @@ def inspect_form(intake_id):
             "po_number": intake_row["po_number"],
             "receive_date": intake_row["receive_date"],
             "inspect_date": request.form.get("inspect_date"),
-            "inspector": g.user["display_name"] or g.user["username"],
+            "inspector": inspector_val,
             "quantity": intake_row["quantity"],
         }
 
@@ -2110,6 +2114,10 @@ def inspect_form(intake_id):
     change_points = db.recent_change_points_for(intake_row["supplier"], material_no)
 
     full_inspect_config = db.get_full_inspect_config(material_no)
+
+    is_admin = has_perm(g.user, "users")
+    all_users = db.list_users() if is_admin else []
+
     return render_template("inspect_form.html", intake=intake_row, specs=specs_with_sample,
                            is_group=is_group, group_name=group_name,
                            prior_defect_count=prior_defect_count, gauges=gauges,
@@ -2117,7 +2125,21 @@ def inspect_form(intake_id):
                            server_draft=server_draft, draft_info=draft_info,
                            change_points=change_points,
                            full_inspect_config=full_inspect_config,
-                           gauge_master_empty=(len(gauges) == 0))
+                           gauge_master_empty=(len(gauges) == 0),
+                           is_admin=is_admin, all_users=all_users)
+
+
+@app.route("/inspect/prev-values/<int:intake_id>")
+@perm_required("users")
+def inspect_prev_values(intake_id):
+    """Admin 전용: 같은 자재의 직전 성적서 측정값을 JSON으로 반환 (이전 검사값 불러오기)."""
+    intake_row = db.get_intake(intake_id)
+    if not intake_row:
+        return jsonify({"ok": False, "error": "없는 입고 건이야."})
+    data = db.get_prev_inspection_values(intake_row["material_no"])
+    if not data:
+        return jsonify({"ok": False, "error": "이 자재의 이전 검사 기록이 없어."})
+    return jsonify({"ok": True, **data})
 
 
 @app.route("/inspect/draft/<int:intake_id>", methods=["POST"])

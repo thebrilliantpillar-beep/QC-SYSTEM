@@ -1912,6 +1912,30 @@ def latest_inspection_for_material(material_no):
     return dict(row) if row else None
 
 
+def get_prev_inspection_values(material_no):
+    """이 자재의 가장 최근 성적서(superseded 제외)의 측정값을 반환. 없으면 None."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT id, inspector, inspect_date FROM inspections
+         WHERE material_no=? AND status != 'superseded'
+         ORDER BY id DESC LIMIT 1
+    """, (material_no,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+    items = conn.execute("""
+        SELECT item_name, measured_value FROM inspection_items
+         WHERE inspection_id=? ORDER BY id
+    """, (row["id"],)).fetchall()
+    conn.close()
+    return {
+        "inspection_id": row["id"],
+        "inspector": row["inspector"] or "",
+        "inspect_date": row["inspect_date"] or "",
+        "values": {r["item_name"]: r["measured_value"] for r in items},
+    }
+
+
 # ---------- 전수검사 ----------
 
 def get_full_inspect_config(material_no):

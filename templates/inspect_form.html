@@ -244,8 +244,20 @@
       </div>
       <div style="flex:1; min-width:160px;">
         <label>검사자</label>
+        {% if is_admin %}
+        <select name="override_inspector" id="inspectorSelect" style="width:100%;">
+          {% for u in all_users %}
+          {% set uname = u['display_name'] or u['username'] %}
+          <option value="{{ uname }}"
+            {{ 'selected' if uname == (g.user['display_name'] or g.user['username']) else '' }}>
+            {{ uname }}
+          </option>
+          {% endfor %}
+        </select>
+        {% else %}
         <input name="inspector" value="{{ g.user['display_name'] or g.user['username'] }}" readonly
                style="background:#f3f4f6; color:#374151;">
+        {% endif %}
       </div>
     </div>
     <div style="margin-top:8px; display:flex; align-items:center; justify-content:flex-end; gap:8px;">
@@ -395,6 +407,77 @@
   </script>
 
   {% else %}
+  {% if is_admin %}
+  {# 이전 검사값 불러오기 — Admin 전용 #}
+  <div id="prevValBar" style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;
+       padding:10px 14px; margin-bottom:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <span style="font-size:13px; color:#1e40af; font-weight:600;">🔁 이전 검사값</span>
+    <button type="button" id="btnLoadPrev"
+            onclick="loadPrevValues()"
+            style="background:#2563eb; color:#fff; border:none; padding:7px 16px;
+                   border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">
+      불러오기
+    </button>
+    <span id="prevValStatus" style="font-size:12px; color:#6b7280;"></span>
+  </div>
+  <script>
+  {# 항목명 → spec_id 매핑 #}
+  var _specNameToId = {
+    {% for s in specs %}"{{ s['item_name'] | e }}": {{ s['id'] }},{% endfor %}
+  };
+  var _prevValUrl = "{{ url_for('inspect_prev_values', intake_id=intake.id) }}";
+
+  async function loadPrevValues() {
+    var btn = document.getElementById('btnLoadPrev');
+    var st  = document.getElementById('prevValStatus');
+    btn.disabled = true;
+    st.textContent = '불러오는 중...';
+    try {
+      var resp = await fetch(_prevValUrl);
+      var data = await resp.json();
+      if (!data.ok) {
+        st.style.color = '#dc2626';
+        st.textContent = '❌ ' + data.error;
+        btn.disabled = false;
+        return;
+      }
+      var filled = 0;
+      Object.entries(data.values).forEach(function([itemName, measuredStr]) {
+        var sid = _specNameToId[itemName];
+        if (sid === undefined) return;
+        var vals = (measuredStr || '').split(',').map(function(v){ return v.trim(); });
+        vals.forEach(function(v, i) {
+          var slot = i + 1;
+          var el = document.querySelector('input[name="item_' + sid + '_' + slot + '"]');
+          if (el && v) {
+            el.value = v;
+            el.dispatchEvent(new Event('input', {bubbles:true}));
+            filled++;
+          }
+        });
+      });
+      if (data.inspector) {
+        var sel = document.getElementById('inspectorSelect');
+        if (sel) {
+          for (var i=0; i<sel.options.length; i++) {
+            if (sel.options[i].value === data.inspector) { sel.selectedIndex = i; break; }
+          }
+        }
+      }
+      if (data.inspect_date) {
+        var dEl = document.querySelector('input[name="inspect_date"]');
+        if (dEl) dEl.value = data.inspect_date;
+      }
+      st.style.color = '#166534';
+      st.textContent = '✅ 불러옴 (' + filled + '칸 채움, 성적서 #' + data.inspection_id + ')';
+    } catch(e) {
+      st.style.color = '#dc2626';
+      st.textContent = '❌ 네트워크 오류';
+    }
+    btn.disabled = false;
+  }
+  </script>
+  {% endif %}
   <div style="overflow-x:auto; margin-top:4px;">
     <table class="inspect-table">
       <thead>
