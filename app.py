@@ -4219,9 +4219,10 @@ def output_history_export():
             c.font = XFont(name="맑은 고딕")
             c.border = border
 
+    from openpyxl.utils import get_column_letter
     col_widths = [8, 18, 30, 18, 18, 8, 12, 20]
     for i, w in enumerate(col_widths, start=2):
-        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+        ws.column_dimensions[get_column_letter(i)].width = w
 
     buf = io.BytesIO()
     wb.save(buf)
