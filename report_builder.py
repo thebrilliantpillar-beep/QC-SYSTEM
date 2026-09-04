@@ -767,10 +767,11 @@ NCR_SHEET    = "02.12.11"
 
 # 불량현상 사진 영역: D열(col 3, 0-indexed)~F열, 행 9(row 8, 0-indexed)~17
 # NCR 사진 영역: D9:F17 (0-indexed col 3~5, row 8~16)
+# NCR 사진 영역: D9:F20 (0-indexed col 3~5, row 8~19)
 _NCR_PHOTO_COL_S = 3   # D열 시작
 _NCR_PHOTO_COL_E = 6   # G열 시작 (F열 끝)
-_NCR_PHOTO_ROW_S = 8   # 9행 시작
-_NCR_PHOTO_ROW_E = 17  # 18행 시작 (17행 끝)
+_NCR_PHOTO_ROW_S = 8   # 9행 (0-indexed)
+_NCR_PHOTO_ROW_E = 20  # 21행 시작 = 20행 끝 (D9:F20 커버)
 
 
 def build_ncr_excel(ncr, photo_paths=None):
@@ -843,8 +844,8 @@ def build_ncr_excel(ncr, photo_paths=None):
         if special_note:
             ws['A18'] = f'※특기사항 : {special_note}'
 
-        # 결재득 박스 — 템플릿에 H3:I4가 이미 병합돼 있으므로 재병합 없이 값만 씀
-        _cell = ws['H3']
+        # 결재득 박스 — 템플릿에 G3:I4가 병합돼 있으므로 재병합 없이 값만 씀
+        _cell = ws['G3']
         _cell.value = '결  재  득'
         _cell.font = _XLFont(bold=True, size=12)
         _cell.alignment = _Align(horizontal='center', vertical='center')
@@ -861,26 +862,26 @@ def build_ncr_excel(ncr, photo_paths=None):
 
 
 def _insert_ncr_photos(ws, photo_paths, PILImage=None):
-    """불량현상 사진을 D9:F17 영역에 비율 비례 너비로 좌우 나란히 배치.
+    """불량현상 사진을 D9:F20 영역에 균등 분할로 좌우 나란히 배치 (방식 A).
 
-    방식 B: 모든 사진 높이 = 영역 높이로 통일, 각 사진 너비 = 높이 × 비율.
-    전체 너비가 영역을 초과하면 비례 축소. 가로 사진은 넓고 세로 사진은 좁게.
-    PIL 없이 비율 모를 땐 4:3 기본값 적용.
+    N장을 총 너비 N등분 → 각 슬롯 안에서 비율 유지하며 최대 크기로 맞춤 →
+    수직 중앙 정렬. 가로/세로/혼합 모두 대응.
     """
     valid = [p for p in photo_paths if p and os.path.exists(p)]
     if not valid:
         return
 
+    n = len(valid)
     CHAR_TO_EMU = 7 * 9525  # character width → EMU 근사값
 
-    # 영역 실측: D~F 열 너비, 9~17 행 높이
+    # 영역 실측: D~F 열 너비 (9~20행), 20행은 거의 0이라 실질 영역은 9~19행
     col_widths_emu = [
         int((ws.column_dimensions[c].width or 8.43) * CHAR_TO_EMU)
         for c in ('D', 'E', 'F')
     ]
     row_heights_emu = [
         int((ws.row_dimensions[r].height or 15) * 12700)
-        for r in range(9, 18)
+        for r in range(9, 21)  # 9~20행 (D9:F20)
     ]
     total_w_emu = sum(col_widths_emu)
     total_h_emu = sum(row_heights_emu)
@@ -888,35 +889,9 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
     COL_S = _NCR_PHOTO_COL_S  # D = 3
     ROW_S = _NCR_PHOTO_ROW_S  # 9행 = 8 (0-indexed)
 
-    # 각 사진의 가로세로 비율 수집 (PIL 없으면 4:3 기본)
-    aspects = []
-    for path in valid:
-        ar = 4 / 3
-        if PILImage:
-            try:
-                with PILImage.open(path) as pil:
-                    ow, oh = pil.size
-                    if oh:
-                        ar = ow / oh
-            except Exception:
-                pass
-        aspects.append(ar)
-
-    # 모든 사진 높이 = total_h_emu, 너비 = total_h × aspect
-    natural_widths = [int(total_h_emu * ar) for ar in aspects]
-    sum_w = sum(natural_widths)
-
-    # 전체 너비가 영역 초과 시 비례 축소
-    if sum_w > total_w_emu:
-        scale = total_w_emu / sum_w
-        img_widths  = [int(w * scale) for w in natural_widths]
-        img_heights = [int(total_h_emu * scale)] * len(valid)
-    else:
-        img_widths  = natural_widths
-        img_heights = [total_h_emu] * len(valid)
+    slot_w = total_w_emu // n  # 슬롯 너비 (균등 분할)
 
     def _resolve(abs_pos, offsets, base_idx):
-        """누적 오프셋 배열에서 abs_pos가 속한 인덱스와 내부 오프셋 반환."""
         cum = 0
         for j, size in enumerate(offsets):
             if cum + size > abs_pos:
@@ -924,14 +899,29 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
             cum += size
         return base_idx + len(offsets) - 1, abs_pos - (cum - offsets[-1])
 
-    x_cursor = 0  # D열 왼쪽 기준 누적 x (EMU)
     for i, path in enumerate(valid):
-        iw, ih = img_widths[i], img_heights[i]
-        # 수직 중앙 정렬
-        y_abs = (total_h_emu - ih) // 2
+        # 각 사진 비율 (PIL 없으면 4:3 기본)
+        aspect = 4 / 3
+        if PILImage:
+            try:
+                with PILImage.open(path) as pil:
+                    ow, oh = pil.size
+                    if oh:
+                        aspect = ow / oh
+            except Exception:
+                pass
 
-        img_col, img_col_off = _resolve(x_cursor, col_widths_emu, COL_S)
-        img_row, img_row_off = _resolve(y_abs,    row_heights_emu, ROW_S)
+        # 슬롯(slot_w × total_h) 안에서 비율 유지하며 최대 크기
+        if aspect >= slot_w / total_h_emu:
+            iw, ih = slot_w, int(slot_w / aspect)
+        else:
+            iw, ih = int(total_h_emu * aspect), total_h_emu
+
+        x_abs = i * slot_w                    # D열 왼쪽 기준 x 오프셋
+        y_abs = (total_h_emu - ih) // 2       # 수직 중앙
+
+        img_col, img_col_off = _resolve(x_abs, col_widths_emu, COL_S)
+        img_row, img_row_off = _resolve(y_abs, row_heights_emu, ROW_S)
 
         img = XLImage(path)
         img.anchor = OneCellAnchor(
@@ -940,7 +930,6 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
             ext=XDRPositiveSize2D(iw, ih),
         )
         ws.add_image(img)
-        x_cursor += iw
 
 
 def _ncr_mail_subject(ncr):
