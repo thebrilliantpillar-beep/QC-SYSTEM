@@ -1310,6 +1310,15 @@ def intake():
             for e in errors:
                 flash(e)
         rows = _merge_duplicate_intake_rows(rows)
+        # 중복 체크 — 이미 등록된 항목은 건너뜀
+        if rows:
+            dups = db.find_duplicate_intakes(rows)
+            if dups:
+                dup_desc = ", ".join(
+                    f"{r['material_no']}(발주:{r.get('po_number') or r.get('receive_date','')})"
+                    for r in dups)
+                flash(f"⚠️ 이미 등록된 항목이 있어 건너뜀: {dup_desc}")
+                rows = [r for r in rows if r not in dups]
         if rows:
             db.add_intake_bulk(rows)
             flash(f"{len(rows)}건 등록 완료")
@@ -4987,6 +4996,74 @@ def ncr_send_email(ncr_id):
     return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
 
+BACKUP_EMAIL = "the.brilliant.pillar@gmail.com"
+
+def _send_db_backup(triggered_by="자동"):
+    """DB 파일을 이메일로 백업 전송."""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+    from datetime import datetime as _dt2
+
+    smtp_host = db.get_setting("smtp_host", "")
+    smtp_port = int(db.get_setting("smtp_port", "587") or 587)
+    smtp_user = db.get_setting("smtp_user", "")
+    smtp_pass = db.get_setting("smtp_pass", "")
+    from_name = db.get_setting("smtp_from_name", "Chardon QMS")
+
+    if not smtp_host or not smtp_user:
+        app.logger.warning("SMTP 설정 없음 — DB 백업 이메일 건너뜀")
+        return False, "SMTP 설정이 없어."
+
+    now_str = _dt2.now().strftime("%Y-%m-%d %H:%M")
+    fname   = f"iqc_backup_{_dt2.now().strftime('%Y%m%d_%H%M')}.db"
+
+    msg = MIMEMultipart()
+    msg["Subject"] = f"[Chardon QMS] DB 자동백업 — {now_str}"
+    msg["From"]    = f"{from_name} <{smtp_user}>"
+    msg["To"]      = BACKUP_EMAIL
+    msg["X-Priority"]        = "1"
+    msg["X-MSMail-Priority"] = "High"
+    msg["Importance"]        = "High"
+
+    body = (f"Chardon QMS 데이터베이스 자동 백업입니다.\n\n"
+            f"일시: {now_str}\n트리거: {triggered_by}\n\n"
+            f"첨부된 .db 파일을 안전한 곳에 보관해 주세요.")
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    if os.path.exists(db.DB_PATH):
+        with open(db.DB_PATH, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment", filename=fname)
+        msg.attach(part)
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as s:
+            s.ehlo(); s.starttls(); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [BACKUP_EMAIL], msg.as_string())
+        app.logger.info(f"DB 백업 이메일 발송 완료 → {BACKUP_EMAIL}")
+        return True, None
+    except Exception as e:
+        app.logger.error(f"DB 백업 이메일 발송 실패: {e}")
+        return False, str(e)
+
+
+@app.route("/admin/backup-now", methods=["POST"])
+@perm_required("users")
+def admin_backup_now():
+    """수동으로 DB 백업 이메일 즉시 전송."""
+    ok, err = _send_db_backup(triggered_by=f"수동({g.user['display_name'] or g.user['username']})")
+    if ok:
+        flash(f"✅ DB 백업을 {BACKUP_EMAIL} 으로 전송했어.")
+    else:
+        flash(f"❌ 백업 전송 실패: {err or 'SMTP 설정 확인 필요'}")
+    return redirect(url_for("smtp_settings"))
+
+
 @app.route("/settings/email", methods=["GET", "POST"])
 @perm_required("smtp")
 def smtp_settings():
@@ -5672,6 +5749,17 @@ db.init_db()
 ensure_default_admin()
 ensure_perm_migration()
 ensure_inspect_method_fill_20260825()
+
+# 매일 06:00 (KST) 자동 DB 백업 이메일
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+    _scheduler.add_job(_send_db_backup, "cron", hour=6, minute=0,
+                       kwargs={"triggered_by": "자동(매일 06:00)"})
+    _scheduler.start()
+    app.logger.info("DB 자동백업 스케줄러 시작 (매일 06:00 KST)")
+except Exception as _sch_err:
+    app.logger.warning(f"스케줄러 시작 실패: {_sch_err}")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

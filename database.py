@@ -1051,6 +1051,32 @@ def delete_materials_bulk(material_nos):
 
 # ---------- 입고 리스트 (붙여넣기 등록) ----------
 
+def find_duplicate_intakes(rows):
+    """이미 intake_list에 등록된 동일 항목 찾기.
+    po_number 있으면 material_no+po_number, 없으면 material_no+receive_date+supplier로 비교."""
+    if not rows:
+        return []
+    conn = get_conn()
+    dups = []
+    for r in rows:
+        mn  = r["material_no"]
+        po  = (r.get("po_number") or "").strip()
+        rd  = (r.get("receive_date") or "").strip()
+        sup = (r.get("supplier") or "").strip()
+        if po:
+            hit = conn.execute(
+                "SELECT id FROM intake_list WHERE material_no=? AND po_number=?",
+                (mn, po)).fetchone()
+        else:
+            hit = conn.execute(
+                "SELECT id FROM intake_list WHERE material_no=? AND receive_date=? AND supplier=?",
+                (mn, rd, sup)).fetchone()
+        if hit:
+            dups.append(r)
+    conn.close()
+    return dups
+
+
 def add_intake_bulk(rows):
     """
     rows: list of dict (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no)

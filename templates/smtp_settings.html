@@ -34,4 +34,19 @@
     <button type="submit" style="margin-top:16px; padding:12px 28px;">저장</button>
   </form>
 </div>
+
+<div class="card" style="margin-top:18px; border-left:4px solid #2563eb;">
+  <h3 style="margin:0 0 8px; font-size:15px;">🗄️ DB 백업 이메일</h3>
+  <p style="font-size:13px; color:#4b5563; margin:0 0 12px;">
+    매일 <b>06:00 (KST)</b>에 <b>the.brilliant.pillar@gmail.com</b>으로 DB 파일을 자동 전송해.
+    지금 바로 테스트 전송도 할 수 있어.
+  </p>
+  <form method="POST" action="{{ url_for('admin_backup_now') }}"
+        onsubmit="return confirm('지금 바로 DB 백업을 이메일로 전송할까?');">
+    <button type="submit" style="background:#2563eb; color:#fff; border:none;
+            padding:10px 22px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer;">
+      📤 지금 백업 전송
+    </button>
+  </form>
+</div>
 {% endblock %}

@@ -4,3 +4,4 @@ reportlab
 Pillow
 pypdf
 gunicorn
+APScheduler
