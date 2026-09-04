@@ -167,8 +167,8 @@
   {% endfor %}
 {% endcall %}
 
-{% call todo_sec('ncr_confirm', '✍️', '부적합 통보서 — 최종결정권자 확인 필요', t['통보서확인필요'],
-                 '작성은 끝났고, 최종결정권자가 서명해서 확인해야 발송할 수 있어.') %}
+{% call todo_sec('ncr_confirm', '📤', '부적합 통보서 — 발송 전', t['통보서확인필요'],
+                 '작성이 끝났어. 엑셀 파일 발행 또는 이메일 보내기로 협력사에 발송해줘.') %}
   {% for r in t['통보서확인필요'] %}
   <div class="item" onclick="location.href='{{ url_for('ncr_detail', ncr_id=r['id']) }}'">
     <span>
@@ -176,13 +176,13 @@
       <span class="sub"> · {{ r['material_no'] }} · {{ r['supplier'] or '-' }}
         · 작성 {{ r['issued_by'] or '-' }}</span>
     </span>
-    <span class="go">확인하러 가기 →</span>
+    <span class="go">발송하러 가기 →</span>
   </div>
   {% endfor %}
 {% endcall %}
 
 {% call todo_sec('ncr_send', '📤', '부적합 통보서 — 협력사 발송 필요', t['통보서발송필요'],
-                 '확인까지 끝났어. 이제 협력사로 보내면 돼.') %}
+                 '이제 협력사로 보내면 돼.') %}
   {% for r in t['통보서발송필요'] %}
   <div class="item" onclick="location.href='{{ url_for('ncr_detail', ncr_id=r['id']) }}'">
     <span>

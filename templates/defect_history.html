@@ -107,7 +107,7 @@
     🔴 통보서 미작성 <b>{{ data.ncr_write|length }}</b>건
   </div>
   <div class="s-chip {% if data.ncr_review %}violet{% else %}grey{% endif %}">
-    ✍️ 통보서 확인 대기 <b>{{ data.ncr_review|length }}</b>건
+    📤 통보서 발송 전 <b>{{ data.ncr_review|length }}</b>건
   </div>
   <div class="s-chip {% if data.ncr_send %}blue{% else %}grey{% endif %}">
     📤 발송 대기 <b>{{ data.ncr_send|length }}</b>건
@@ -163,10 +163,10 @@
   </div>
 </div>
 
-{# ── 레인 3: 통보서 확인 대기 ── #}
+{# ── 레인 3: 통보서 발송 전 ── #}
 <div class="lane lane-review">
   <div class="lane-head">
-    ✍️ 통보서 확인 대기
+    📤 통보서 발송 전
     <span class="lane-count">{{ data.ncr_review|length }}</span>
   </div>
   <div class="lane-body">
@@ -182,7 +182,7 @@
       </span>
     </a>
     {% else %}
-    <div class="fup-empty">확인 대기 통보서 없어. 👍</div>
+    <div class="fup-empty">발송 전 통보서 없어. 👍</div>
     {% endfor %}
   </div>
 </div>

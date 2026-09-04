@@ -37,10 +37,10 @@
 <div class="card" style="padding:14px 16px; margin-bottom:18px;
                          border:2px solid #fbbf24; background:linear-gradient(135deg,#fffbeb,#fef3c7);">
   <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-    <span style="font-size:18px;">⏳</span>
-    <b style="font-size:15px; color:#854d0e;">확인 대기 ({{ draft_ncrs|length }}건)</b>
+    <span style="font-size:18px;">📤</span>
+    <b style="font-size:15px; color:#854d0e;">발송 전 ({{ draft_ncrs|length }}건)</b>
     <span style="font-size:12.5px; color:#a16207; margin-left:6px;">
-      최종결정권자가 서명·확인해야 협력사로 발송할 수 있어.
+      엑셀 파일 발행 또는 이메일 보내기 버튼으로 협력사에 발송해줘.
     </span>
   </div>
   <div style="overflow-x:auto;">
@@ -71,7 +71,7 @@
       <td>
         <a href="{{ url_for('ncr_detail', ncr_id=n['id']) }}"
            onclick="event.stopPropagation()"
-           style="color:#b45309; font-weight:700; font-size:13px; white-space:nowrap;">확인 →</a>
+           style="color:#b45309; font-weight:700; font-size:13px; white-space:nowrap;">발송 →</a>
       </td>
     </tr>
     {% endfor %}
