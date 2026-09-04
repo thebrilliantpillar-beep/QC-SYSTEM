@@ -9,7 +9,7 @@ import database as db
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from openpyxl.drawing.image import Image as XLImage
-from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, TwoCellAnchor, AnchorMarker
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import cm_to_EMU
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -766,11 +766,11 @@ NCR_TEMPLATE = os.path.join(BASE_DIR, "ncr_template.xlsx")
 NCR_SHEET    = "02.12.11"
 
 # 불량현상 사진 영역: D열(col 3, 0-indexed)~F열, 행 9(row 8, 0-indexed)~17
-_NCR_PHOTO_COL  = 3   # D열
-_NCR_PHOTO_ROW  = 8   # 9행
-_NCR_PHOTO_W_CM = 5.7
-_NCR_PHOTO_H_CM = 5.7
-_NCR_ROW_HEIGHTS_PT = [18.95] * 5 + [17.1] * 4  # rows 9-13, 14-17
+# NCR 사진 영역: D9:F17 (0-indexed col 3~5, row 8~16)
+_NCR_PHOTO_COL_S = 3   # D열 시작
+_NCR_PHOTO_COL_E = 6   # G열 시작 (F열 끝)
+_NCR_PHOTO_ROW_S = 8   # 9행 시작
+_NCR_PHOTO_ROW_E = 17  # 18행 시작 (17행 끝)
 
 
 def build_ncr_excel(ncr, photo_paths=None):
@@ -853,49 +853,29 @@ def build_ncr_excel(ncr, photo_paths=None):
 
 
 def _insert_ncr_photos(ws, photo_paths, PILImage=None):
-    """불량현상 사진을 D9:F17 영역에 세로로 배치."""
+    """불량현상 사진을 D9:F17 영역에 TwoCellAnchor로 셀 경계에 딱 맞게 배치.
+    사진 N장을 영역을 N등분해서 각각 해당 칸을 꽉 채운다.
+    """
     valid = [p for p in photo_paths if p and os.path.exists(p)]
     if not valid:
         return
 
     n = len(valid)
-    per_h_cm = _NCR_PHOTO_H_CM / n
+    # D9:F17 — 0-indexed: col 3(D)~5(F), row 8(9행)~16(17행)
+    # TwoCellAnchor의 to 마커는 "다음 셀 시작" = col 6(G), row 17(18행 시작=17행 끝)
+    COL_S, COL_E = _NCR_PHOTO_COL_S, _NCR_PHOTO_COL_E
+    ROW_S, ROW_E = _NCR_PHOTO_ROW_S, _NCR_PHOTO_ROW_E
+    SPAN = ROW_E - ROW_S  # 9행
 
-    row_heights_emu = [int(h * 12700) for h in _NCR_ROW_HEIGHTS_PT]
+    for i, path in enumerate(valid):
+        r_from = ROW_S + round(i * SPAN / n)
+        r_to   = ROW_S + round((i + 1) * SPAN / n)
 
-    for i, photo_path in enumerate(valid):
-        if PILImage:
-            try:
-                with PILImage.open(photo_path) as pil:
-                    orig_w, orig_h = pil.size
-            except Exception:
-                orig_w, orig_h = 1, 1
-        else:
-            orig_w, orig_h = 1, 1
-        aspect = orig_w / orig_h if orig_h > 0 else 1.0
-
-        avail_w, avail_h = _NCR_PHOTO_W_CM, per_h_cm
-        if aspect >= avail_w / avail_h:
-            final_w, final_h = avail_w, avail_w / aspect
-        else:
-            final_w, final_h = avail_h * aspect, avail_h
-
-        offset_emu  = int(cm_to_EMU(i * per_h_cm))
-        cumulative  = 0
-        target_row  = _NCR_PHOTO_ROW
-        row_off_emu = 0
-        for j, rh in enumerate(row_heights_emu):
-            if cumulative + rh > offset_emu:
-                target_row  = _NCR_PHOTO_ROW + j
-                row_off_emu = offset_emu - cumulative
-                break
-            cumulative += rh
-
-        img    = XLImage(photo_path)
-        size   = XDRPositiveSize2D(int(cm_to_EMU(final_w)), int(cm_to_EMU(final_h)))
-        marker = AnchorMarker(col=_NCR_PHOTO_COL, colOff=0,
-                              row=target_row, rowOff=row_off_emu)
-        img.anchor = OneCellAnchor(_from=marker, ext=size)
+        img = XLImage(path)
+        img.anchor = TwoCellAnchor(
+            _from=AnchorMarker(col=COL_S, colOff=0, row=r_from, rowOff=0),
+            to=AnchorMarker(col=COL_E, colOff=0, row=r_to,   rowOff=0),
+        )
         ws.add_image(img)
 
 
