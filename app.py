@@ -4759,6 +4759,27 @@ NCR_PHOTO_DIR = os.path.join(db.DATA_DIR, "ncr_photos")
 os.makedirs(NCR_PHOTO_DIR, exist_ok=True)
 
 
+def _save_ncr_photo(file_storage, dest_dir, base_name):
+    """NCR 사진을 최대 1600px, JPEG 85%로 압축해 저장. 항상 .jpg로 저장."""
+    fname = base_name + '.jpg'
+    dest_path = os.path.join(dest_dir, fname)
+    try:
+        from PIL import Image as _PILImg
+        file_storage.stream.seek(0)
+        img = _PILImg.open(file_storage.stream)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        w, h = img.size
+        if max(w, h) > 1600:
+            scale = 1600 / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), _PILImg.LANCZOS)
+        img.save(dest_path, 'JPEG', quality=85, optimize=True)
+    except Exception:
+        file_storage.stream.seek(0)
+        file_storage.save(dest_path)
+    return fname
+
+
 @app.route("/ncr/new", methods=["GET", "POST"])
 @perm_required("ncr", "approve")
 def ncr_new_manual():
@@ -4806,9 +4827,9 @@ def ncr_new_manual():
             ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
             if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
                 continue
-            fname = f"{ncr_no}_{uuid.uuid4().hex[:8]}{ext}"
+            base = f"{ncr_no}_{uuid.uuid4().hex[:8]}"
             try:
-                file.save(os.path.join(NCR_PHOTO_DIR, fname))
+                fname = _save_ncr_photo(file, NCR_PHOTO_DIR, base)
                 db.add_ncr_photo(ncr_id, fname)
                 saved_photos += 1
             except Exception:
@@ -4869,9 +4890,9 @@ def ncr_new(inspection_id):
             ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
             if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
                 continue
-            fname = f"{ncr_no}_{uuid.uuid4().hex[:8]}{ext}"
+            base = f"{ncr_no}_{uuid.uuid4().hex[:8]}"
             try:
-                file.save(os.path.join(NCR_PHOTO_DIR, fname))
+                fname = _save_ncr_photo(file, NCR_PHOTO_DIR, base)
                 db.add_ncr_photo(ncr_id, fname)
                 saved_photos += 1
             except Exception:
@@ -5117,8 +5138,8 @@ def ncr_add_photo(ncr_id):
     if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
         flash("이미지 파일만 첨부할 수 있어.")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
-    fname = f"{ncr['ncr_no']}_{uuid.uuid4().hex[:8]}{ext}"
-    file.save(os.path.join(NCR_PHOTO_DIR, fname))
+    base = f"{ncr['ncr_no']}_{uuid.uuid4().hex[:8]}"
+    fname = _save_ncr_photo(file, NCR_PHOTO_DIR, base)
     db.add_ncr_photo(ncr_id, fname)
     record_change("NCR 사진 첨부", "ncr", ncr_id, fname)
     return redirect(url_for("ncr_detail", ncr_id=ncr_id))
