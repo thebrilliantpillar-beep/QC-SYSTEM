@@ -5045,10 +5045,13 @@ def ncr_pdf(ncr_id):
         flash(f"PDF 변환 실패: {pdf_err}")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
-    record_change("NCR PDF 발행", "ncr", ncr_id, os.path.basename(pdf_path))
+    inline = request.args.get("inline") == "1"
+    if not inline:
+        record_change("NCR PDF 발행", "ncr", ncr_id, os.path.basename(pdf_path))
     from flask import send_file
-    return send_file(pdf_path, as_attachment=True,
-                     download_name=os.path.basename(pdf_path))
+    return send_file(pdf_path, as_attachment=not inline,
+                     download_name=os.path.basename(pdf_path),
+                     mimetype="application/pdf")
 
 
 @app.route("/ncr/<int:ncr_id>/eml")

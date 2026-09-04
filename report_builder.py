@@ -855,6 +855,20 @@ def build_ncr_excel(ncr, photo_paths=None):
         if photo_paths:
             _insert_ncr_photos(ws, photo_paths, PILImage)
 
+        # A4 세로 1장 고정
+        ws.page_setup.paperSize  = ws.PAPERSIZE_A4
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.fitToWidth  = 1
+        ws.page_setup.fitToHeight = 1
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_margins.left   = 0.4
+        ws.page_margins.right  = 0.4
+        ws.page_margins.top    = 0.4
+        ws.page_margins.bottom = 0.4
+        ws.page_margins.header = 0.0
+        ws.page_margins.footer = 0.0
+        ws.print_options.horizontalCentered = True
+
         wb.save(out_path)
         return out_path, None
     except Exception as e:
