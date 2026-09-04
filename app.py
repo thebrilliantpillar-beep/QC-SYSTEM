@@ -1926,7 +1926,7 @@ def inspect_form(intake_id):
     if request.method == "POST":
         override_inspector = request.form.get("override_inspector", "").strip()
         inspector_val = (override_inspector
-                         if (override_inspector and has_perm(g.user, "users"))
+                         if (override_inspector and "users" in _user_perms(g.user))
                          else (g.user["display_name"] or g.user["username"]))
         header = {
             "material_no": material_no,
@@ -2115,7 +2115,7 @@ def inspect_form(intake_id):
 
     full_inspect_config = db.get_full_inspect_config(material_no)
 
-    is_admin = has_perm(g.user, "users")
+    is_admin = "users" in _user_perms(g.user)
     all_users = db.list_users() if is_admin else []
 
     return render_template("inspect_form.html", intake=intake_row, specs=specs_with_sample,
