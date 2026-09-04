@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}입고 중복 확인 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .dup-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .dup-table th { background:var(--table-head-bg,#f3f4f6); padding:7px 10px; text-align:left; font-weight:600; border-bottom:2px solid var(--border); }
+  .dup-table td { padding:7px 10px; border-bottom:1px solid var(--border); }
+  .badge-dup  { background:#fee2e2; color:#991b1b; border-radius:4px; padding:2px 7px; font-size:12px; font-weight:700; }
+  .badge-new  { background:#dcfce7; color:#166534; border-radius:4px; padding:2px 7px; font-size:12px; font-weight:700; }
+  .action-bar { display:flex; gap:12px; flex-wrap:wrap; margin-top:20px; }
+</style>
+
+<h2 style="margin-bottom:6px;">⚠️ 이미 등록된 항목이 있어</h2>
+<p class="muted" style="font-size:14px; margin-bottom:18px;">
+  어떻게 처리할지 선택해줘.
+</p>
+
+{% if dup_rows %}
+<div class="card" style="border-left:4px solid #ef4444; padding:16px 20px; margin-bottom:14px;">
+  <div style="font-weight:700; font-size:14px; color:#991b1b; margin-bottom:10px;">
+    🔴 이미 등록된 항목 {{ dup_rows|length }}건
+  </div>
+  <table class="dup-table">
+    <thead>
+      <tr><th>자재번호</th><th>제품명</th><th>업체</th><th>발주번호</th><th>입고일</th><th>입고수량</th></tr>
+    </thead>
+    <tbody>
+      {% for r in dup_rows %}
+      <tr>
+        <td><b>{{ r.material_no }}</b></td>
+        <td>{{ r.product_name or '-' }}</td>
+        <td>{{ r.supplier or '-' }}</td>
+        <td>{{ r.po_number or '-' }}</td>
+        <td>{{ r.receive_date or '-' }}</td>
+        <td>{{ r.quantity or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if new_rows %}
+<div class="card" style="border-left:4px solid #22c55e; padding:16px 20px; margin-bottom:14px;">
+  <div style="font-weight:700; font-size:14px; color:#166534; margin-bottom:10px;">
+    🟢 새로 등록될 항목 {{ new_rows|length }}건
+  </div>
+  <table class="dup-table">
+    <thead>
+      <tr><th>자재번호</th><th>제품명</th><th>업체</th><th>발주번호</th><th>입고일</th><th>입고수량</th></tr>
+    </thead>
+    <tbody>
+      {% for r in new_rows %}
+      <tr>
+        <td><b>{{ r.material_no }}</b></td>
+        <td>{{ r.product_name or '-' }}</td>
+        <td>{{ r.supplier or '-' }}</td>
+        <td>{{ r.po_number or '-' }}</td>
+        <td>{{ r.receive_date or '-' }}</td>
+        <td>{{ r.quantity or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card muted" style="padding:14px 18px; margin-bottom:14px; font-size:14px;">
+  중복이 아닌 새 항목이 없어.
+</div>
+{% endif %}
+
+<div class="action-bar">
+  {% if new_rows %}
+  <form method="POST">
+    <input type="hidden" name="action" value="skip">
+    <button type="submit" style="background:#2563eb; color:#fff; border:none; padding:11px 24px; border-radius:8px; font-size:14px; font-weight:700; cursor:pointer;">
+      중복 건너뛰고 새 {{ new_rows|length }}건만 등록
+    </button>
+  </form>
+  {% endif %}
+  <form method="POST"
+        onsubmit="return confirm('중복 항목을 포함해서 전부 {{ total }}건을 등록할까?\n이미 있는 항목이 중복 생성돼.');">
+    <input type="hidden" name="action" value="force">
+    <button type="submit" style="background:#f59e0b; color:#fff; border:none; padding:11px 24px; border-radius:8px; font-size:14px; font-weight:700; cursor:pointer;">
+      전부 {{ total }}건 등록 (중복 포함)
+    </button>
+  </form>
+  <a href="{{ url_for('intake') }}" class="btn secondary" style="padding:11px 22px; font-size:14px;">
+    취소
+  </a>
+</div>
+{% endblock %}

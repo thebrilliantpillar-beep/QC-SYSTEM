@@ -1310,15 +1310,14 @@ def intake():
             for e in errors:
                 flash(e)
         rows = _merge_duplicate_intake_rows(rows)
-        # 중복 체크 — 이미 등록된 항목은 건너뜀
+        # 중복 체크 — 이미 등록된 항목이 있으면 확인창으로
         if rows:
             dups = db.find_duplicate_intakes(rows)
             if dups:
-                dup_desc = ", ".join(
-                    f"{r['material_no']}(발주:{r.get('po_number') or r.get('receive_date','')})"
-                    for r in dups)
-                flash(f"⚠️ 이미 등록된 항목이 있어 건너뜀: {dup_desc}")
-                rows = [r for r in rows if r not in dups]
+                import json as _json
+                session["intake_pending_rows"] = _json.dumps(rows, ensure_ascii=False)
+                session["intake_pending_dups"] = _json.dumps(dups, ensure_ascii=False)
+                return redirect(url_for("intake_confirm_dups"))
         if rows:
             db.add_intake_bulk(rows)
             flash(f"{len(rows)}건 등록 완료")
@@ -1803,6 +1802,55 @@ def spec_import():
                                results=results, failures=failures, warnings=item_warnings)
 
     return render_template("spec_import.html")
+
+
+@app.route("/intake/confirm-dups", methods=["GET", "POST"])
+@perm_required("intake")
+def intake_confirm_dups():
+    import json as _json
+    if request.method == "POST":
+        action = request.form.get("action", "skip")
+        rows_json = session.pop("intake_pending_rows", None)
+        dups_json = session.pop("intake_pending_dups", None)
+        if not rows_json:
+            flash("세션이 만료됐어. 다시 붙여넣어줘.")
+            return redirect(url_for("intake"))
+        all_rows  = _json.loads(rows_json)
+        dup_rows  = _json.loads(dups_json) if dups_json else []
+        dup_keys  = {(r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))
+                     for r in dup_rows}
+        if action == "skip":
+            rows = [r for r in all_rows
+                    if (r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))
+                    not in dup_keys]
+        else:  # force — 전부 등록
+            rows = all_rows
+        if rows:
+            db.add_intake_bulk(rows)
+            flash(f"{len(rows)}건 등록 완료" + (" (중복 포함)" if action == "force" else ""))
+            material_list = ", ".join(r["material_no"] for r in rows[:10])
+            if len(rows) > 10:
+                material_list += " 외"
+            record_change("입고 리스트 등록", "intake", None, f"{len(rows)}건 ({material_list})")
+        else:
+            flash("등록할 항목이 없어 (전부 중복).")
+        return redirect(url_for("intake"))
+
+    # GET — 세션에 데이터 있어야 함
+    rows_json = session.get("intake_pending_rows")
+    dups_json = session.get("intake_pending_dups")
+    if not rows_json:
+        flash("세션이 만료됐어. 다시 붙여넣어줘.")
+        return redirect(url_for("intake"))
+    all_rows = _json.loads(rows_json)
+    dup_rows = _json.loads(dups_json) if dups_json else []
+    dup_keys = {(r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))
+                for r in dup_rows}
+    new_rows = [r for r in all_rows
+                if (r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))
+                not in dup_keys]
+    return render_template("intake_confirm_dups.html",
+                           dup_rows=dup_rows, new_rows=new_rows, total=len(all_rows))
 
 
 # ---------- 검사 입력 ----------
