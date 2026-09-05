@@ -1892,8 +1892,18 @@ def inspect_auto_batch():
     # 모달에서 넘어온 설정값
     inspector_val = request.form.get("inspector", "").strip() or (g.user["display_name"] or g.user["username"])
     inspect_date = request.form.get("inspect_date", "").strip() or _date.today().isoformat()
-    est_time_label = request.form.get("est_time_label", "").strip()
     today = inspect_date
+
+    # 개당 시간 범위 (초 단위 변환)
+    def _to_sec(m_key, s_key):
+        try:
+            return int(request.form.get(m_key, 0) or 0) * 60 + int(request.form.get(s_key, 0) or 0)
+        except (ValueError, TypeError):
+            return 0
+    time_min_sec = _to_sec("time_min_m", "time_min_s")
+    time_max_sec = _to_sec("time_max_m", "time_max_s")
+    if time_min_sec > time_max_sec:
+        time_min_sec, time_max_sec = time_max_sec, time_min_sec
     ok_cnt = skip_cnt = fail_cnt = 0
 
     for id_str in intake_id_strs:
@@ -1970,6 +1980,17 @@ def inspect_auto_batch():
             })
 
         overall_result = "합격" if overall_ok else "검토필요"
+
+        # 총 검사시간: 개당 랜덤 시간 × AQL 샘플수 합산
+        total_sample_count = sum(max(1, int(s.get("sample_qty") or 1)) for s in specs_with_sample)
+        if time_max_sec > 0:
+            per_item_sec = _rnd.randint(time_min_sec, time_max_sec) if time_min_sec < time_max_sec \
+                           else time_min_sec
+            actual_time_sec = per_item_sec * total_sample_count
+        else:
+            actual_time_sec = 0
+        est_time_label = format_duration(actual_time_sec) if actual_time_sec else ""
+
         header = {
             "material_no": material_no,
             "material_name": group_name if is_group else _resolve_material_name(material_no, specs),
@@ -1984,8 +2005,8 @@ def inspect_auto_batch():
             header, items_with_results, overall_result,
             intake_id=intake_id,
             est_time_label=est_time_label,
-            actual_time_sec=0,
-            total_time_sec=0,
+            actual_time_sec=actual_time_sec,
+            total_time_sec=actual_time_sec,
             created_by_user_id=g.user["id"],
         )
         record_change("자동 입력 (테스트)", "inspection", inspection_id,
