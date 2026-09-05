@@ -194,6 +194,27 @@ canvas#batchSigPad {
       서명 후 확인 버튼을 눌러줘.
     </p>
 
+    {# 관리자 전용: 승인자 선택 #}
+    {% if 'users' in user_perms and final_approvers %}
+    <div style="margin-bottom:16px; padding:12px 14px; background:#f0fdf4;
+                border:1px solid #bbf7d0; border-radius:8px;">
+      <label style="font-size:13px; font-weight:700; color:#166534; display:block; margin-bottom:6px;">
+        승인자 선택 <span style="font-weight:400; color:#6b7280;">(관리자 대리 처리)</span>
+      </label>
+      <select id="batchApproverSelect" style="margin:0; font-size:14px;">
+        <option value="">— 직접 승인 ({{ g.user['display_name'] or g.user['username'] }}) —</option>
+        {% for fa in final_approvers %}
+        <option value="{{ fa['display_name'] or fa['username'] }}">
+          {{ fa['display_name'] or fa['username'] }}
+        </option>
+        {% endfor %}
+      </select>
+      <p style="margin:6px 0 0; font-size:12px; color:#6b7280;">
+        선택하면 해당 최종결정권자 이름으로 승인이 기록돼. 서명은 그 사람의 서명을 받아야 해.
+      </p>
+    </div>
+    {% endif %}
+
     {# 서명 방식 선택 #}
     <div class="sig-method-row">
       <label class="sig-radio">
@@ -246,6 +267,7 @@ canvas#batchSigPad {
     <form id="batchForm" method="POST" action="{{ url_for('approve_batch') }}"
           enctype="multipart/form-data" style="display:none;">
       <input type="hidden" name="signature_data" id="batchHiddenSigData">
+      <input type="hidden" name="selected_approver" id="batchHiddenApprover">
       <div id="batchIdContainer"></div>
     </form>
   </div>
@@ -395,6 +417,10 @@ function submitBatchApprove() {
     inp.value = c.value;
     container.appendChild(inp);
   });
+
+  /* 승인자 선택값 폼에 반영 */
+  var approverSel = document.getElementById('batchApproverSelect');
+  document.getElementById('batchHiddenApprover').value = approverSel ? approverSel.value : '';
 
   if (method === 'draw') {
     document.getElementById('batchHiddenSigData').value = sigData;

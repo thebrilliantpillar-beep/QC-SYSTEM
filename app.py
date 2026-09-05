@@ -3265,17 +3265,27 @@ def approve_batch():
         flash("선택된 성적서가 없어.")
         return redirect(url_for("approve_list", tab="pending"))
 
-    allowed, why = _can_make_final_decision(g.user)
-    if not allowed:
-        flash(why)
-        return redirect(url_for("approve_list", tab="pending"))
+    # 관리자(users 권한)가 대리 승인자를 지정한 경우 — 지정된 사람이 최종결정권자인지 검증
+    selected_approver_name = request.form.get("selected_approver", "").strip()
+    user_perms = _user_perms(g.user)
+    if selected_approver_name and "users" in user_perms:
+        final_approvers = db.list_final_approvers()
+        fa_names = {(a["display_name"] or a["username"]) for a in final_approvers}
+        if final_approvers and selected_approver_name not in fa_names:
+            flash("선택한 승인자가 최종결정권자로 지정되지 않은 계정이야.")
+            return redirect(url_for("approve_list", tab="pending"))
+        approver = selected_approver_name
+    else:
+        allowed, why = _can_make_final_decision(g.user)
+        if not allowed:
+            flash(why)
+            return redirect(url_for("approve_list", tab="pending"))
+        approver = g.user["display_name"] or g.user["username"]
 
     signature_data = request.form.get("signature_data", "").strip()
     if not signature_data:
         flash("서명을 먼저 해줘.")
         return redirect(url_for("approve_list", tab="pending"))
-
-    approver = g.user["display_name"] or g.user["username"]
     success_ids = []
     errors = []
 
@@ -3436,8 +3446,9 @@ def approve_list():
         "rejected": len(db.list_inspections(status="rejected")),
     }
     time_labels = {r["id"]: total_time_label_for(r) for r in rows}
+    final_approvers = db.list_final_approvers()
     return render_template("approve_list.html", rows=rows, tab=tab, q=q, counts=counts,
-                           time_labels=time_labels)
+                           time_labels=time_labels, final_approvers=final_approvers)
 
 
 @app.route("/approve/<int:inspection_id>/revoke", methods=["POST"])
