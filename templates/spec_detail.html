@@ -191,6 +191,7 @@
 <div style="overflow-x:auto;">
   <table class="spec-edit-table">
     <tr>
+      <th style="width:20px;"></th>
       <th style="width:26px;"><input type="checkbox" id="checkAllSpecs" onclick="document.querySelectorAll('.spec-row-check').forEach(c=>c.checked=this.checked)"></th>
       <th>순서</th><th>항목</th><th style="min-width:150px;">규격표기</th><th>판정유형</th>
       <th>하한</th><th>상한</th><th>검사방법</th>
@@ -219,6 +220,7 @@
     <tbody id="specRowsBody">
     {% for s in specs %}
     <tr id="specRow_{{ s['id'] }}">
+      <td class="drag-handle" title="드래그해서 순서 변경">⠿</td>
       <td><input type="checkbox" class="spec-row-check" form="bulkDeleteForm" name="spec_ids" value="{{ s['id'] }}"></td>
       <td><input form="spec-row-{{ s['id'] }}" type="number" name="item_order" value="{{ s['item_order'] or 0 }}"></td>
       <td><input form="spec-row-{{ s['id'] }}" type="text" name="item_name" value="{{ s['item_name'] or '' }}"></td>
@@ -345,6 +347,19 @@
 
 <a href="{{ url_for('inspect_select') }}" class="btn secondary">검사 대기 목록에서 입력하기</a>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
+<style>
+.drag-handle {
+  cursor: grab;
+  color: #9ca3af;
+  font-size: 16px;
+  user-select: none;
+  text-align: center;
+  padding: 0 4px;
+}
+.drag-handle:active { cursor: grabbing; }
+.sortable-ghost { opacity: 0.4; background: #e0f2fe; }
+</style>
 <script>
 const MATERIAL_NO = {{ material_no | tojson }};
 
@@ -367,6 +382,7 @@ function buildRowHTML(spec) {
   const upper = (spec.upper_limit === null || spec.upper_limit === undefined) ? '' : spec.upper_limit;
 
   return `
+    <td class="drag-handle" title="드래그해서 순서 변경">⠿</td>
     <td><input type="checkbox" class="spec-row-check" form="bulkDeleteForm" name="spec_ids" value="${id}"></td>
     <td><input form="spec-row-${id}" type="number" name="item_order" value="${escapeAttr(spec.item_order || 0)}"></td>
     <td><input form="spec-row-${id}" type="text" name="item_name" value="${escapeAttr(spec.item_name)}"></td>
@@ -436,6 +452,9 @@ function addRowToTable(spec) {
   delForm.action = `/spec/${encodeURIComponent(MATERIAL_NO)}/item/${spec.id}/delete`;
   formsContainer.appendChild(updateForm);
   formsContainer.appendChild(delForm);
+
+  const newOrderInput = tr.querySelector('input[name="item_order"]');
+  if (newOrderInput) newOrderInput.addEventListener('blur', sortRowsByOrder);
 
   document.getElementById('noSpecsMsg').style.display = 'none';
   document.getElementById('specActionBar').style.display = 'flex';
@@ -513,6 +532,21 @@ async function deleteRow(id) {
   }
 }
 
+// 기존 행의 item_order 입력에 blur 이벤트 연결 (페이지 로드 시 1회)
+document.querySelectorAll('#specRowsBody input[name="item_order"]').forEach(inp => {
+  inp.addEventListener('blur', sortRowsByOrder);
+});
+
+// 드래그 앤 드롭으로 행 순서 변경 → 알파벳 자동 재배정
+if (typeof Sortable !== 'undefined') {
+  new Sortable(document.getElementById('specRowsBody'), {
+    animation: 150,
+    handle: '.drag-handle',
+    ghostClass: 'sortable-ghost',
+    onEnd: reassignAlphabets,
+  });
+}
+
 // 규격표기 조합형 빌더 — 기준값+부호(+,-,±,+%,-%,±%)+공차값으로 규격표기·하한·상한을 한번에 계산
 function computeTolerance(base, sign, tol) {
   base = parseFloat(base);
@@ -548,6 +582,46 @@ function applyTolerance(id) {
 // 각 행은 여전히 별개의 <form>이라(줄마다 규격이 달라서), 순서대로 하나씩 제출한다
 // (동시에 여러 개를 보내면 SQLite가 잠겨서 일부가 실패할 수 있어 순차 처리).
 // 페이지는 새로고침하지 않고 상태 문구로만 저장 완료를 알린다.
+// ── 순서 정렬 + 알파벳 자동 배정 ──────────────────────────────────────────────
+
+// 0→A, 1→B, ..., 25→Z, 26→AA, ...
+function indexToLabel(i) {
+  let s = '';
+  let n = i + 1;
+  while (n > 0) {
+    n--;
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  }
+  return s;
+}
+
+// DOM 순서대로 item_order=1,2,3... / item_name=A,B,C... 재배정 (저장은 안 함)
+function reassignAlphabets() {
+  document.querySelectorAll('#specRowsBody tr').forEach((tr, idx) => {
+    const o = tr.querySelector('input[name="item_order"]');
+    const n = tr.querySelector('input[name="item_name"]');
+    if (o) o.value = idx + 1;
+    if (n) n.value = indexToLabel(idx);
+  });
+}
+
+// item_order 입력값 기준으로 행을 정렬한 뒤 알파벳 재배정
+function sortRowsByOrder() {
+  const tbody = document.getElementById('specRowsBody');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  rows.sort((a, b) => {
+    const av = parseFloat(a.querySelector('input[name="item_order"]')?.value) || 0;
+    const bv = parseFloat(b.querySelector('input[name="item_order"]')?.value) || 0;
+    return av - bv;
+  });
+  rows.forEach(tr => tbody.appendChild(tr));
+  reassignAlphabets();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function saveAllSpecs() {
   const forms = document.querySelectorAll('form[id^="spec-row-"]');
   if (!forms.length) return;
