@@ -1981,12 +1981,12 @@ def inspect_auto_batch():
 
         overall_result = "합격" if overall_ok else "검토필요"
 
-        # 총 검사시간: 개당 랜덤 시간 × AQL 샘플수 합산
-        total_sample_count = sum(max(1, int(s.get("sample_qty") or 1)) for s in specs_with_sample)
+        # 총 검사시간: 개당 랜덤 시간으로 AQL 기준 시간 계산
+        # (가장 높은 AQL 기준 그룹 × 개당시간 + 초과 샘플 × EXTRA_SAMPLE_SEC)
         if time_max_sec > 0:
             per_item_sec = _rnd.randint(time_min_sec, time_max_sec) if time_min_sec < time_max_sec \
                            else time_min_sec
-            actual_time_sec = per_item_sec * total_sample_count
+            actual_time_sec = compute_total_time_sec(specs_with_sample, per_item_sec)
         else:
             actual_time_sec = 0
         est_time_label = format_duration(actual_time_sec) if actual_time_sec else ""
