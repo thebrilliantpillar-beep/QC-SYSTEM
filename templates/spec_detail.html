@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ material_no }} 자재{% endblock %}
 {% block content %}
+{% set can_edit = 'material_edit' in user_perms %}
 {# 측정 방식(계측기) 선택지 — 계측기 관리에 등록된 종류 + 육안/외관. 목록에 없으면 직접 입력 가능 #}
 <datalist id="methodOptions">
   {% for m in (method_options or []) %}<option value="{{ m }}">{% endfor %}
@@ -37,6 +38,7 @@
 <p class="hint">항목을 직접 수정하거나 삭제할 수 있어. 판정유형을 "육안"으로 바꾸면 하한/상한은 저장 시 자동으로 비워져.
   수치 항목은 규격표기 아래 "기준값·부호·공차값"으로 빠르게 조합해서 규격표기+하한/상한을 한번에 채울 수도 있어(직접 타이핑도 계속 가능).</p>
 
+{% if can_edit %}
 <div class="card">
   <h3 style="margin-top:0;">자재번호 / 자재명 수정</h3>
   <p class="hint" style="margin-top:0;">자재번호를 바꾸면 지금부터 이 번호로 취급돼. 이미 입고·검사된 과거 성적서는 그대로 옛 번호로 남아.</p>
@@ -49,6 +51,7 @@
     </div>
   </form>
 </div>
+{% endif %}
 
 <div class="card">
   <h3 style="margin-top:0;">기준서 정보</h3>
@@ -56,6 +59,7 @@
     성적서 PDF 출력 시 뒤에 자동으로 붙는 기준서(SAM 양식)에 들어가는 정보야.
     도면번호는 자재번호에서 자동 계산돼(<b>{{ drawing_no }}</b>) — 따로 입력 안 해도 돼.
   </p>
+  {% if can_edit %}
   <form method="POST" action="{{ url_for('spec_standard_info_update', material_no=material_no) }}">
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
       <div style="flex:1; min-width:100px;"><label>도면 버전</label><input type="text" name="drawing_version" value="{{ material['drawing_version'] if material else '1' }}"></div>
@@ -65,8 +69,17 @@
       <button type="submit" style="margin-top:0;">저장</button>
     </div>
   </form>
+  {% else %}
+  <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:13.5px;">
+    <div><span class="muted">도면 버전</span> {{ material['drawing_version'] if material else '1' }}</div>
+    <div><span class="muted">개정 날짜</span> {{ (material['revision_date'] if material else '') | date_korean }}</div>
+    <div><span class="muted">판수</span> 제{{ material['edition'] if material else 1 }}판</div>
+    <div><span class="muted">단위</span> {{ material['unit'] if material else 'mm' }}</div>
+  </div>
+  {% endif %}
 </div>
 
+{% if full_inspect_config or can_edit %}
 <div class="card">
   <h3 style="margin-top:0;">전수검사 설정</h3>
   <p class="hint" style="margin-top:0;">
@@ -82,6 +95,7 @@
   </div>
   {% endif %}
 
+  {% if can_edit %}
   <form method="POST" action="{{ url_for('full_inspect_config_save', material_no=material_no) }}">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
       <div style="flex:2;min-width:200px;">
@@ -102,16 +116,19 @@
       {% endif %}
     </div>
   </form>
+  {% endif %}
 </div>
+{% endif %}
 
 <div class="card">
   <h3 style="margin-top:0;">도면 파일</h3>
   {% if drawing_has_auto %}
   <p class="hint" style="margin-top:0;">자재번호와 일치하는 도면 파일(<b>{{ material_no }}.pdf</b>)이 자동으로 연결돼 있어.
-    다른 파일로 지정하고 싶으면 아래에서 선택해줘.</p>
+    {% if can_edit %}다른 파일로 지정하고 싶으면 아래에서 선택해줘.{% endif %}</p>
   {% else %}
-  <p class="hint" style="margin-top:0;">자재번호와 일치하는 도면 파일이 없어. 아래에서 직접 연결할 파일을 선택해줘.</p>
+  <p class="hint" style="margin-top:0;">자재번호와 일치하는 도면 파일이 없어.{% if can_edit %} 아래에서 직접 연결할 파일을 선택해줘.{% endif %}</p>
   {% endif %}
+  {% if can_edit %}
   <form method="POST" action="{{ url_for('spec_drawing_assign', material_no=material_no) }}"
         style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
     <div style="flex:1; min-width:200px;">
@@ -143,10 +160,19 @@
   </form>
   <p class="hint" style="margin:6px 0 0;">업로드하면 이 자재번호({{ material_no }}.pdf)로 저장되고 바로 자동 연결돼.
     다른 파일을 수동으로 지정해둔 게 있었다면 새로 올린 파일로 바뀌어.</p>
+  {% elif drawing_pdf %}
+  <a href="javascript:void(0)" onclick="openDrawingModal('{{ material_no }}')"
+     style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px;
+            background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:8px;
+            font-size:13.5px; font-weight:600; text-decoration:none; margin-top:0; cursor:pointer;">
+    📐 도면 보기
+  </a>
+  {% endif %}
 </div>
 <script>
 (function(){
   var sel = document.getElementById('drawingFileSelect');
+  if (!sel) return;
   var current = "{{ (material['drawing_file'] or '') if material else '' }}";
   fetch("{{ url_for('drawing_list_json') }}")
     .then(function(r){ return r.json(); })
@@ -167,6 +193,7 @@
 {# 각 행의 수정용 폼을 테이블 바깥에 미리 선언 — <tr> 안에 <form>을 직접 넣을 수 없어서
    input들은 form="spec-row-N" 속성으로 이 폼에 연결한다. AJAX로 새 행을 추가할 때도
    JS가 이 컨테이너 안에 같은 구조의 폼을 만들어 넣는다(specRowForms). #}
+{% if can_edit %}
 <div id="specRowForms">
 {% for s in specs %}
 <form id="spec-row-{{ s['id'] }}" method="POST"
@@ -275,7 +302,33 @@
   </table>
   <p id="noSpecsMsg" class="hint" style="{{ 'display:none;' if specs else '' }}">등록된 항목이 없어.</p>
 </div>
+{% else %}
+{% set judge_labels = {'numeric': '수치', 'visual': '육안', 'ok_ng': 'O,X'} %}
+<div style="overflow-x:auto;">
+  <table>
+    <tr>
+      <th>순서</th><th>항목</th><th>규격표기</th><th>판정유형</th>
+      <th>하한</th><th>상한</th><th>검사방법</th><th>AQL</th>
+    </tr>
+    {% for s in specs %}
+    <tr>
+      <td>{{ s['item_order'] or 0 }}</td>
+      <td>{{ s['item_name'] or '' }}</td>
+      <td>{{ s['spec_display'] or '' }}</td>
+      <td>{{ judge_labels.get(s['judge_type'], s['judge_type']) }}</td>
+      <td>{{ s['lower_limit'] if s['lower_limit'] is not none else '-' }}</td>
+      <td>{{ s['upper_limit'] if s['upper_limit'] is not none else '-' }}</td>
+      <td>{{ s['inspect_method'] or '' }}</td>
+      <td>{{ s['aql'] | aql_display }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8">등록된 항목이 없어.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
 
+{% if can_edit %}
 <div class="card" style="margin-top:20px;">
   <h3 style="margin-top:0;">새 항목 추가</h3>
   <form id="addItemForm" onsubmit="return submitAddItem(event)"
@@ -344,9 +397,11 @@
     <span id="addItemStatus" style="margin-left:10px; font-size:13px; color:#16a34a; font-weight:600;"></span>
   </form>
 </div>
+{% endif %}
 
 <a href="{{ url_for('inspect_select') }}" class="btn secondary">검사 대기 목록에서 입력하기</a>
 
+{% if can_edit %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
 <style>
 .drag-handle {
@@ -648,5 +703,6 @@ async function saveAllSpecs() {
   }
 }
 </script>
+{% endif %}
 {% include "_drawing_modal.html" %}
 {% endblock %}

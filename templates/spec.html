@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block title %}자재 관리{% endblock %}
 {% block content %}
+{% set can_edit = 'material_edit' in user_perms %}
+{% set can_import = 'material_import' in user_perms %}
 <h2>자재 관리</h2>
+{% if can_import or can_edit %}
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-  <a href="{{ url_for('spec_import') }}" class="btn" style="margin-top:0;">📄 성적서 양식 일괄 등록</a>
-  <a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 개별 등록</a>
+  {% if can_import %}<a href="{{ url_for('spec_import') }}" class="btn" style="margin-top:0;">📄 성적서 양식 일괄 등록</a>{% endif %}
+  {% if can_edit %}<a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 개별 등록</a>{% endif %}
 </div>
+{% endif %}
 
 <div class="card">
   <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
@@ -36,23 +40,27 @@
   <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
 </label>
 
+{% if can_edit %}
 <form id="materialBulkDeleteForm" method="POST" action="{{ url_for('spec_delete_bulk') }}"
       onsubmit="return confirm('선택한 자재의 규격을 전부 삭제할까? 되돌릴 수 없어.');"></form>
 
 {% if materials %}
 <button type="submit" form="materialBulkDeleteForm" style="margin:0 0 10px; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">선택 삭제</button>
 {% endif %}
+{% endif %}
 
 <table>
   <tr>
-    <th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>
+    {% if can_edit %}<th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>{% endif %}
     <th>자재번호</th><th>자재명</th><th>도면</th>
   </tr>
   {% for m in materials %}
   <tr>
+    {% if can_edit %}
     <td onclick="event.stopPropagation()">
       <input type="checkbox" class="material-check" form="materialBulkDeleteForm" name="material_nos" value="{{ m['material_no'] }}">
     </td>
+    {% endif %}
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
     <td onclick="event.stopPropagation()">
@@ -65,7 +73,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="4">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어. 위 버튼으로 추가해줘.{% endif %}</td></tr>
+  <tr><td colspan="{{ 4 if can_edit else 3 }}">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
   {% endfor %}
 </table>
 {% set p = pager %}{% include "_pager.html" %}
