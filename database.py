@@ -1610,7 +1610,7 @@ def distinct_inspect_methods():
 def list_gauges():
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM gauge_master ORDER BY gauge_no ASC NULLS LAST, id ASC"
+        "SELECT * FROM gauge_master ORDER BY CASE WHEN gauge_no IS NULL THEN 1 ELSE 0 END, gauge_no ASC, id ASC"
     ).fetchall()
     conn.close()
     return rows
