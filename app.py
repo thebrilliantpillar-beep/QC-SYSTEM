@@ -2566,6 +2566,35 @@ def inspection_detail(inspection_id):
                            value_flags=value_flags)
 
 
+@app.route("/inspection/<int:inspection_id>/ncr-waive", methods=["POST"])
+@perm_required("ncr", "approve")
+def inspection_ncr_waive(inspection_id):
+    """부적합 통보서 발행 불필요 처리 / 해제 토글."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("home"))
+    conn = db.get_conn()
+    action = request.form.get("action", "waive")
+    if action == "waive":
+        reason = request.form.get("reason", "").strip()
+        conn.execute(
+            "UPDATE inspections SET ncr_waived=1, ncr_waived_reason=? WHERE id=?",
+            (reason or None, inspection_id))
+        conn.commit()
+        record_change("NCR 생략", "inspection", inspection_id,
+                      f"사유: {reason}" if reason else "사유 미입력")
+        flash("부적합 통보서 생략 처리됐어.")
+    else:
+        conn.execute(
+            "UPDATE inspections SET ncr_waived=0, ncr_waived_reason=NULL WHERE id=?",
+            (inspection_id,))
+        conn.commit()
+        record_change("NCR 생략 취소", "inspection", inspection_id, "")
+        flash("생략 처리가 취소됐어. 통보서 발행 섹션이 다시 나타나.")
+    return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+
 @app.route("/inspection/<int:inspection_id>/remark", methods=["POST"])
 @perm_required("inspect_input", "inspect_edit_all", "approve")
 def inspection_remark(inspection_id):

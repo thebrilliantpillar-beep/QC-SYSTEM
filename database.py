@@ -237,6 +237,10 @@ def init_db():
         cur.execute("ALTER TABLE inspections ADD COLUMN content_hash TEXT")
     if "pdf_hash" not in existing_insp_cols:
         cur.execute("ALTER TABLE inspections ADD COLUMN pdf_hash TEXT")
+    if "ncr_waived" not in existing_insp_cols:
+        cur.execute("ALTER TABLE inspections ADD COLUMN ncr_waived INTEGER DEFAULT 0")
+    if "ncr_waived_reason" not in existing_insp_cols:
+        cur.execute("ALTER TABLE inspections ADD COLUMN ncr_waived_reason TEXT")
 
     # 4. 사용자 계정 — 고정 역할 대신 개별 권한(콤마구분 텍스트)을 admin이 하나하나 부여/회수
     # 권한 종류: intake(입고리스트) / spec(규격관리) / inspect(검사입력,본인것만수정) /
