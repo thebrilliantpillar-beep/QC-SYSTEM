@@ -1873,6 +1873,131 @@ def inspect_select():
                            drawing_materials=drawing_materials)
 
 
+@app.route("/inspect/auto-batch", methods=["POST"])
+@perm_required("inspect_input")
+def inspect_auto_batch():
+    """선택된 검사 대기 건들을 허용편차 내 랜덤값으로 자동 입력 후 일괄 제출.
+    numeric 항목 → 허용범위 중간 ±40% 구간에서 uniform 랜덤, ok_ng/visual → '적합'.
+    결과는 pending 상태(기존 승인 플로우 그대로 유지)."""
+    import random as _rnd
+    from datetime import date as _date
+
+    intake_id_strs = request.form.getlist("intake_ids")
+    if not intake_id_strs:
+        flash("항목을 선택해줘.")
+        return redirect(url_for("inspect_select"))
+
+    inspector_val = g.user["display_name"] or g.user["username"]
+    today = _date.today().isoformat()
+    ok_cnt = skip_cnt = fail_cnt = 0
+
+    for id_str in intake_id_strs:
+        try:
+            intake_id = int(id_str)
+        except ValueError:
+            fail_cnt += 1
+            continue
+
+        intake_row = db.get_intake(intake_id)
+        if not intake_row:
+            fail_cnt += 1
+            continue
+
+        # 이미 검사 등록된 건은 스킵
+        if db.active_inspection_for_intake(intake_id) is not None:
+            skip_cnt += 1
+            continue
+
+        material_no = intake_row["material_no"]
+        specs, is_group, group_name = _get_specs_for_material(material_no)
+        if not specs:
+            fail_cnt += 1
+            continue
+
+        specs_with_sample = build_specs_with_sample(specs, intake_row["quantity"])
+        items_with_results = []
+        overall_ok = True
+
+        for spec in specs_with_sample:
+            allowed = aql_ac_allowance(spec["aql"], spec["sample_qty"])
+            n_vals = max(1, min(int(spec.get("sample_qty") or 1), 6))
+
+            if spec["judge_type"] == "numeric":
+                lower = spec["lower_limit"]
+                upper = spec["upper_limit"]
+
+                if lower is not None and upper is not None:
+                    # 범위 중간 ±40% 구간 — 경계값 오판정 방지
+                    span = upper - lower
+                    lo_s = lower + span * 0.1
+                    hi_s = upper - span * 0.1
+                    if lo_s > hi_s:   # span이 극히 좁을 때
+                        lo_s = hi_s = (lower + upper) / 2
+                    vals = [str(round(_rnd.uniform(lo_s, hi_s), 3)) for _ in range(n_vals)]
+                elif lower is not None:
+                    margin = max(abs(lower) * 0.05, 0.5)
+                    vals = [str(round(_rnd.uniform(lower, lower + margin), 3)) for _ in range(n_vals)]
+                elif upper is not None:
+                    margin = max(abs(upper) * 0.05, 0.5)
+                    vals = [str(round(_rnd.uniform(upper - margin, upper), 3)) for _ in range(n_vals)]
+                else:
+                    vals = []  # 규격미입력 → judge_numeric이 NO_SPEC_RESULT 반환
+
+                raw_value = ",".join(vals)
+                result, max_v, min_v = judge_numeric(raw_value, lower, upper, allowed)
+            else:
+                # ok_ng / visual → "O" (judge_visual이 O를 합격으로 판정)
+                raw_value = ",".join(["O"] * n_vals)
+                result, max_v, min_v = judge_visual(raw_value, allowed)
+
+            if result != "합격":
+                overall_ok = False
+
+            items_with_results.append({
+                "item_name": spec["item_name"],
+                "measured_value": raw_value,
+                "max_value": max_v,
+                "min_value": min_v,
+                "result": result,
+                "gauge_expiry": None,
+                "gauge_name": None,
+                "part_material_no": spec["material_no"],
+            })
+
+        overall_result = "합격" if overall_ok else "검토필요"
+        header = {
+            "material_no": material_no,
+            "material_name": group_name if is_group else _resolve_material_name(material_no, specs),
+            "supplier": intake_row["supplier"],
+            "po_number": intake_row["po_number"],
+            "receive_date": intake_row["receive_date"],
+            "inspect_date": today,
+            "inspector": inspector_val,
+            "quantity": intake_row["quantity"],
+        }
+        inspection_id = db.create_inspection(
+            header, items_with_results, overall_result,
+            intake_id=intake_id,
+            est_time_label="",
+            actual_time_sec=0,
+            total_time_sec=0,
+            created_by_user_id=g.user["id"],
+        )
+        record_change("자동 입력 (테스트)", "inspection", inspection_id,
+                      f"자재 {material_no}, 업체 {intake_row['supplier']}, 판정 {overall_result}")
+        db.clear_inspection_progress(intake_id)
+        db.delete_inspection_draft(intake_id)
+        ok_cnt += 1
+
+    parts = [f"성공 {ok_cnt}건"]
+    if skip_cnt:
+        parts.append(f"이미 등록됨 {skip_cnt}건 스킵")
+    if fail_cnt:
+        parts.append(f"실패 {fail_cnt}건 (규격 미등록 등)")
+    flash("자동 입력 완료: " + ", ".join(parts))
+    return redirect(url_for("inspect_select"))
+
+
 @app.route("/inspect/delete_bulk", methods=["POST"])
 @perm_required("inspect_input", "intake")
 def inspect_delete_bulk():

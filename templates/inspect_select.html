@@ -17,10 +17,44 @@
 
 <form id="deleteForm" method="POST" action="{{ url_for('inspect_delete_bulk') }}"
       onsubmit="return confirm('선택한 대기 건을 삭제할까? 되돌릴 수 없어.');"></form>
+<form id="autoBatchForm" method="POST" action="{{ url_for('inspect_auto_batch') }}"></form>
 
 {% if pending %}
-<button type="submit" form="deleteForm" style="margin:14px 0 10px; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">선택 삭제</button>
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 10px; align-items:center;">
+  <button type="submit" form="deleteForm"
+          style="padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626; margin-top:0;">
+    선택 삭제
+  </button>
+  {% if 'inspect_input' in user_perms %}
+  <button type="button" onclick="submitAutoBatch()"
+          style="padding:9px 18px; background:#4f46e5; color:#fff; border:none;
+                 border-radius:8px; font-weight:700; cursor:pointer; font-size:14px; margin-top:0;">
+    🤖 자동입력 일괄제출
+  </button>
+  {% endif %}
+</div>
 {% endif %}
+
+<script>
+function submitAutoBatch() {
+  var checked = Array.from(document.querySelectorAll('.pending-check:checked'));
+  if (!checked.length) {
+    alert('자동입력할 항목을 먼저 선택해줘.');
+    return;
+  }
+  if (!confirm('선택한 ' + checked.length + '건을 허용편차 내 랜덤값으로 자동 입력할까?\n측정값이 자동으로 채워지고 검사 완료(승인 대기) 상태로 제출돼.')) return;
+  var form = document.getElementById('autoBatchForm');
+  form.querySelectorAll('input[name="intake_ids"]').forEach(function(e) { e.remove(); });
+  checked.forEach(function(c) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'intake_ids';
+    inp.value = c.value;
+    form.appendChild(inp);
+  });
+  form.submit();
+}
+</script>
 
 <label class="open-mode-toggle" style="margin:0 0 10px;">
   <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
