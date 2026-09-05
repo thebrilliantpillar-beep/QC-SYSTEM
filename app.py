@@ -1892,8 +1892,8 @@ def inspect_auto_batch_methods():
             continue
         specs, _, _ = _get_specs_for_material(row["material_no"])
         for s in specs:
-            m = (s.get("inspect_method") or "").strip()
-            if m and s.get("judge_type") == "numeric":
+            m = (s["inspect_method"] or "").strip() if s["inspect_method"] else ""
+            if m and s["judge_type"] == "numeric":
                 if m not in methods_seen:
                     methods_seen[m] = True
 
