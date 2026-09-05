@@ -1079,7 +1079,8 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
                 prefix = m.group(1)          # "A: "
                 spec_part = m.group(2).strip()  # "기준 80 ± 0.8"
                 meas_part = m.group(3)           # "실측 ☞88, 80.2" or None
-                line_html = f'{prefix}{spec_part}'
+                # 기준 줄: 굵게 + 청록색
+                line_html = f'<b style="color:#00897b">{prefix}{spec_part}</b>'
                 if meas_part:
                     # 실측 값에서 ☞ 부분만 빨간색
                     meas_label, _, meas_vals = meas_part.partition(' ')
@@ -1112,10 +1113,20 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
     # inner: related (HTML + 인라인 이미지)
     inner = _MMP.MIMEMultipart('related')
 
-    # HTML 본문 구성 — 사진을 두 단락 사이에 삽입
+    # HTML 본문 구성
+    # para1: 인사 ~ 불량 내용 (불량 사진은 여기 사이에)
+    # para2a: "아울러..." ~ "아래 이미지 노란색상..." (안내 이미지는 바로 아래)
+    # para2b: 빈 줄 ~ 서명까지
     split_idx = body_lines.index('아울러 부적합통보서를 첨부하오니,')
-    para1 = _lines_to_html(body_lines[:split_idx])
-    para2 = _lines_to_html(body_lines[split_idx:])
+    _GUIDE_ANCHOR = '아래 이미지 노란색상 부분에 따라서 기재해주시면 감사하겠습니다.'
+    try:
+        guide_split_idx = body_lines.index(_GUIDE_ANCHOR, split_idx) + 1
+    except ValueError:
+        guide_split_idx = len(body_lines)
+
+    para1   = _lines_to_html(body_lines[:split_idx])
+    para2a  = _lines_to_html(body_lines[split_idx:guide_split_idx])
+    para2b  = _lines_to_html(body_lines[guide_split_idx:])
 
     img_html = ''
     for cid, _bytes, dw, dh in processed_photos:
@@ -1124,28 +1135,28 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
                      f'style="display:block; margin:6px 0; '
                      f'border:1px solid #ddd; border-radius:4px;">')
 
-    # NCR 양식 안내 이미지 (static/ncr_guide.jpg) — 고정 사이즈로 삽입
+    # NCR 양식 안내 이미지 (static/ncr_guide.jpg) — 높이 13cm(492px) 고정, 비율 유지
     _GUIDE_PATH = os.path.join(os.path.dirname(__file__), 'static', 'ncr_guide.jpg')
+    _GUIDE_H_PX = 492   # 13cm @ 96dpi
     guide_img_html = ''
     guide_img_bytes = None
-    guide_display_w = guide_display_h = 0
     if os.path.exists(_GUIDE_PATH):
         try:
             with _PILImage.open(_GUIDE_PATH) as _gim:
                 _gim = _gim.convert('RGB')
                 _gw, _gh = _gim.width, _gim.height
-                # 6cm(226px) 제한, 비율 유지
-                _scale = min(226 / _gw, 226 / _gh, 1.0)
-                guide_display_w = max(1, int(_gw * _scale))
-                guide_display_h = max(1, int(_gh * _scale))
-                # 삽입용: 600px 이내로 압축
-                if max(_gw, _gh) > 600:
-                    _gim.thumbnail((600, 600), _PILImage.LANCZOS)
+                # 표시 크기: 높이 492px 고정, 비율로 너비 계산
+                guide_display_h = _GUIDE_H_PX
+                guide_display_w = max(1, int(_gw * _GUIDE_H_PX / _gh))
+                # 삽입용: 높이 기준으로 축소
+                _embed_h = min(_gh, _GUIDE_H_PX * 2)   # 2배까지만 유지 (용량 제한)
+                _embed_w = int(_gw * _embed_h / _gh)
+                _gim = _gim.resize((_embed_w, _embed_h), _PILImage.LANCZOS)
                 _gbuf = _io.BytesIO()
                 _gim.save(_gbuf, format='JPEG', quality=85, optimize=True)
                 guide_img_bytes = _gbuf.getvalue()
-            guide_img_html = (f'<img src="cid:ncrguide" width="{guide_display_w}" '
-                              f'height="{guide_display_h}" '
+            guide_img_html = (f'<img src="cid:ncrguide" '
+                              f'width="{guide_display_w}" height="{guide_display_h}" '
                               f'style="display:block; margin:10px 0;">')
         except Exception:
             pass
@@ -1155,8 +1166,9 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
         'font-size:14px; line-height:1.7; color:#1f2937;">'
         f'<p>{para1}</p>'
         + (f'<div style="margin:14px 0;">{img_html}</div>' if img_html else '')
-        + f'<p>{para2}</p>'
+        + f'<p>{para2a}</p>'
         + (f'<div style="margin:10px 0;">{guide_img_html}</div>' if guide_img_html else '')
+        + (f'<p>{para2b}</p>' if para2b else '')
         + '</body></html>'
     )
 
