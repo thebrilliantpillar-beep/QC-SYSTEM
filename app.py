@@ -5077,31 +5077,85 @@ def ncr_new(inspection_id):
         flash(f"부적합 통보서 {ncr_no} 발행됐어." + (f" 사진 {saved_photos}장 첨부." if saved_photos else ""))
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
+    import re as _re
     from datetime import date
     # 부적합 통보서에는 '협력사 귀책'인 항목만 올린다.
     # 규격미입력은 우리 쪽 데이터 누락이므로 업체에 보내는 통보서에 넣으면 안 됨.
     defect_items = [it for it in items
                     if it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT)]
-    # 불합격 항목 자동 조합 텍스트 — "B항목: 기준 10.0±0.3, 실측 11.2" 형식
+
+    def _mark_vals(val_str, lower, upper, judge_type):
+        """허용편차를 벗어난 수치에 ☞ 접두어를 붙인다. 수치 판정이 아니면 원문 그대로."""
+        if not val_str:
+            return ""
+        parts = [v.strip() for v in val_str.split(",") if v.strip()]
+        if judge_type not in ("numeric", "numeric_pair") or (lower is None and upper is None):
+            return ", ".join(parts)
+        result = []
+        for v in parts:
+            try:
+                fv = float(v)
+                bad = (lower is not None and fv < lower) or (upper is not None and fv > upper)
+                result.append(f"☞{v}" if bad else v)
+            except ValueError:
+                result.append(v)
+        return ", ".join(result)
+
+    # 불량 내용 자동 조합:
+    # 1) 검사자 비고 → 2) 줄바꿈 → 3) 불합격 항목 목록(벗어난 수치에 ☞)
+    remark = (header["remark_inspector"] or "").strip()
     auto_desc_lines = []
+    if remark:
+        auto_desc_lines.append(remark)
+        auto_desc_lines.append("")  # 빈 줄 구분
     for it in defect_items:
         name = it["item_name"] or ""
         spec = it["spec_display"] or ""
-        val = it["measured_value"] or ""
+        marked = _mark_vals(
+            it["measured_value"] or "",
+            it["lower_limit"] if "lower_limit" in it.keys() else None,
+            it["upper_limit"] if "upper_limit" in it.keys() else None,
+            it["judge_type"] if "judge_type" in it.keys() else "numeric",
+        )
         parts = []
         if spec:
             parts.append(f"기준 {spec}")
-        if val:
-            parts.append(f"실측 {val}")
+        if marked:
+            parts.append(f"실측 {marked}")
         line = name
         if parts:
             line += ": " + ", ".join(parts)
         auto_desc_lines.append(line)
     auto_defect_description = "\n".join(auto_desc_lines)
+
+    # LOT 수량 기본값: 입고수량
+    auto_lot_qty = str(header["quantity"]) if header["quantity"] else ""
+
+    # 시료수 기본값: 불합격 항목 중 첫 번째의 AQL 기반 샘플수
+    auto_sample_qty = ""
+    if defect_items:
+        first_aql = defect_items[0]["aql"] if "aql" in defect_items[0].keys() else None
+        sq = sample_size(first_aql, header["quantity"])
+        if sq is not None:
+            auto_sample_qty = str(sq)
+
+    # 불량수량 기본값: remark_inspector에서 숫자 파싱
+    # "불량 3" / "불량수: 3" / "NG 2" / "불량 3개" 등 패턴
+    auto_defect_qty = ""
+    if remark:
+        m = _re.search(
+            r'불량\s*수?[:\s]*(\d+)|NG\s*[:=]?\s*(\d+)|(\d+)\s*(?:개|pcs?|EA|ea)\s*불량',
+            remark, _re.IGNORECASE)
+        if m:
+            auto_defect_qty = str(next(g for g in m.groups() if g is not None))
+
     supplier_info = db.get_supplier(header["supplier"] or "")
     return render_template("ncr_form.html", header=header, items=defect_items,
                            today=date.today().isoformat(), supplier_info=supplier_info,
-                           auto_defect_description=auto_defect_description)
+                           auto_defect_description=auto_defect_description,
+                           auto_lot_qty=auto_lot_qty,
+                           auto_sample_qty=auto_sample_qty,
+                           auto_defect_qty=auto_defect_qty)
 
 
 @app.route("/ncr")

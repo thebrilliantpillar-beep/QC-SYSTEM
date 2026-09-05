@@ -68,15 +68,15 @@
         <label style="margin-bottom:4px; display:block;">LOT 수량
           <span style="color:#9ca3af; font-weight:400; font-size:12px;">(예: 12대, 1LOT)</span>
         </label>
-        <input type="text" name="lot_qty" placeholder="예: 12대">
+        <input type="text" name="lot_qty" value="{{ auto_lot_qty or '' }}" placeholder="예: 12대">
       </div>
       <div>
         <label style="margin-bottom:4px; display:block;">시료수</label>
-        <input type="number" name="sample_qty" min="0" placeholder="검사 수량">
+        <input type="number" name="sample_qty" min="0" value="{{ auto_sample_qty or '' }}" placeholder="검사 수량">
       </div>
       <div>
         <label style="margin-bottom:4px; display:block;">불량수</label>
-        <input type="number" name="defect_qty" min="0" placeholder="불량 수량">
+        <input type="number" name="defect_qty" min="0" value="{{ auto_defect_qty or '' }}" placeholder="불량 수량">
       </div>
     </div>
 
