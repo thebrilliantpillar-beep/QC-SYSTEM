@@ -24,6 +24,7 @@
   <input type="hidden" name="time_min_s" id="batchTimeMinS">
   <input type="hidden" name="time_max_m" id="batchTimeMaxM">
   <input type="hidden" name="time_max_s" id="batchTimeMaxS">
+  <input type="hidden" name="batch_gauge_id" id="batchGaugeId">
 </form>
 
 {% if pending %}
@@ -62,6 +63,24 @@
 
     <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">검사 날짜</label>
     <input type="date" id="modalDate" style="margin-bottom:14px;">
+
+    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">
+      계측기 <span style="color:#9ca3af; font-weight:400;">(수치 측정 항목에 일괄 적용)</span>
+    </label>
+    <select id="modalGauge" style="margin-bottom:14px;">
+      <option value="">— 선택 안 함 (미입력)</option>
+      {% for g in gauges %}
+      <option value="{{ g['id'] }}">
+        {{ g['name'] }}{% if g['model'] %} ({{ g['model'] }}){% endif %}
+        {% if g['expiry_date'] %} · 유효 {{ g['expiry_date'] }}{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    {% if not gauges %}
+    <p style="font-size:12px; color:#9ca3af; margin:-10px 0 14px;">
+      등록된 계측기가 없어. <a href="{{ url_for('gauge_list') }}" target="_blank">계측기 관리</a>에서 먼저 등록해줘.
+    </p>
+    {% endif %}
 
     <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">
       개당 검사 시간 범위
@@ -141,6 +160,7 @@
     document.getElementById('batchTimeMinS').value   = document.getElementById('modalMinS').value;
     document.getElementById('batchTimeMaxM').value   = document.getElementById('modalMaxM').value;
     document.getElementById('batchTimeMaxS').value   = document.getElementById('modalMaxS').value;
+    document.getElementById('batchGaugeId').value    = document.getElementById('modalGauge').value;
 
     var form = document.getElementById('autoBatchForm');
     form.querySelectorAll('input[name="intake_ids"]').forEach(function(e) { e.remove(); });

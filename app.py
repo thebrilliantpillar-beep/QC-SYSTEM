@@ -1868,11 +1868,12 @@ def inspect_select():
     progress_map = db.get_progress_by_intake_ids(intake_ids)
     drawing_materials = materials_with_drawings(r["material_no"] for r in pending)
     all_users = db.list_users()
+    gauges = db.list_gauges()
     return render_template("inspect_select.html", pending=pending, query=query,
                            registered=registered, group_nos=set(),
                            progress_map=progress_map, name_map=name_map,
                            drawing_materials=drawing_materials,
-                           all_users=all_users)
+                           all_users=all_users, gauges=gauges)
 
 
 @app.route("/inspect/auto-batch", methods=["POST"])
@@ -1893,6 +1894,19 @@ def inspect_auto_batch():
     inspector_val = request.form.get("inspector", "").strip() or (g.user["display_name"] or g.user["username"])
     inspect_date = request.form.get("inspect_date", "").strip() or _date.today().isoformat()
     today = inspect_date
+
+    # 계측기 설정 (선택 시 모든 계측이 필요한 항목에 일괄 적용)
+    batch_gauge_id = request.form.get("batch_gauge_id", "").strip()
+    batch_gauge_name = ""
+    batch_gauge_expiry = None
+    if batch_gauge_id:
+        try:
+            gm = db.get_gauge(int(batch_gauge_id))
+            if gm:
+                batch_gauge_name = gm["name"] or ""
+                batch_gauge_expiry = gm["expiry_date"] or None
+        except (ValueError, TypeError):
+            pass
 
     # 개당 시간 범위 (초 단위 변환)
     def _to_sec(m_key, s_key):
@@ -1968,14 +1982,16 @@ def inspect_auto_batch():
             if result != "합격":
                 overall_ok = False
 
+            # 계측이 필요한 항목(numeric)에만 계측기 적용, 육안검사 항목은 제외
+            use_gauge = spec["judge_type"] == "numeric" and batch_gauge_name
             items_with_results.append({
                 "item_name": spec["item_name"],
                 "measured_value": raw_value,
                 "max_value": max_v,
                 "min_value": min_v,
                 "result": result,
-                "gauge_expiry": None,
-                "gauge_name": None,
+                "gauge_expiry": batch_gauge_expiry if use_gauge else None,
+                "gauge_name": batch_gauge_name if use_gauge else None,
                 "part_material_no": spec["material_no"],
             })
 
