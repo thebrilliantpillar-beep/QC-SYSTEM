@@ -5826,7 +5826,12 @@ def import_assembly():
 @perm_required("material_view")
 def assembly_list():
     """조립품 목록. 입고 때 파츠 하나만 넣어도 전체가 펼쳐지는 기준이 되는 표."""
-    return render_template("assembly_list.html", assemblies=db.list_all_assemblies())
+    query = request.args.get("q", "").strip()
+    search_by = request.args.get("by", "all")
+    assemblies = list(db.list_all_assemblies(query, search_by))
+    pager = _paginate(assemblies)
+    return render_template("assembly_list.html", assemblies=pager["items"], query=query,
+                            search_by=search_by, pager=pager)
 
 
 @app.route("/assemblies/new", methods=["GET", "POST"])
@@ -6342,6 +6347,19 @@ def assembly_delete(assembly_id):
     db.delete_assembly(assembly_id)
     record_change("조립품 삭제", "assembly", assembly_id, master["assembly_no"])
     flash(f"'{master['assembly_no']}' 삭제됐어.")
+    return redirect(url_for("assembly_list"))
+
+
+@app.route("/assemblies/delete_bulk", methods=["POST"])
+@perm_required("material_edit")
+def assembly_delete_bulk():
+    assembly_ids = [int(x) for x in request.form.getlist("assembly_ids") if x.isdigit()]
+    if not assembly_ids:
+        flash("삭제할 조립품을 선택해줘.")
+        return redirect(url_for("assembly_list"))
+    db.delete_assemblies_bulk(assembly_ids)
+    flash(f"{len(assembly_ids)}개 조립품을 삭제했어.")
+    record_change("조립품 일괄 삭제", "assembly", None, ", ".join(str(i) for i in assembly_ids[:10]))
     return redirect(url_for("assembly_list"))
 
 

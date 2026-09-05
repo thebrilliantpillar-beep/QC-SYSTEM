@@ -23,17 +23,59 @@
   </p>
 </div>
 
+{% set can_edit = 'material_edit' in perms %}
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-  <a href="{{ url_for('assembly_new') }}" class="btn" style="margin-top:0;">+ 조립품 등록</a>
+  {% if can_edit %}<a href="{{ url_for('assembly_new') }}" class="btn" style="margin-top:0;">+ 조립품 등록</a>{% endif %}
   {% if 'users' in perms %}
   <a href="{{ url_for('import_assembly') }}" class="btn secondary" style="margin-top:0;">📄 MA 엑셀에서 가져오기</a>
   {% endif %}
 </div>
 
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:2; min-width:180px;">
+      <label>검색어</label>
+      <input type="text" name="q" value="{{ query }}" placeholder="조립품번호, 파츠번호...">
+    </div>
+    <div style="flex:1; min-width:130px;">
+      <label>검색 기준</label>
+      <select name="by">
+        <option value="all" {% if search_by=='all' %}selected{% endif %}>전체</option>
+        <option value="assembly_no" {% if search_by=='assembly_no' %}selected{% endif %}>조립품번호</option>
+        <option value="component_no" {% if search_by=='component_no' %}selected{% endif %}>파츠번호</option>
+      </select>
+    </div>
+    <button type="submit" style="margin-top:0;">검색</button>
+    {% if query or search_by != 'all' %}<a href="{{ url_for('assembly_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+  </form>
+</div>
+
+{% if can_edit %}
+<form id="assemblyBulkDeleteForm" method="POST" action="{{ url_for('assembly_delete_bulk') }}"
+      onsubmit="return confirm('선택한 조립품을 전부 삭제할까? 되돌릴 수 없어.');"></form>
+
+{% if assemblies %}
+<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+  <label style="font-size:13px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+    <input type="checkbox" id="checkAllAssemblies" onclick="document.querySelectorAll('.assembly-check').forEach(c=>c.checked=this.checked)">
+    전체 선택
+  </label>
+  <button type="submit" form="assemblyBulkDeleteForm" style="margin:0; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">선택 삭제</button>
+</div>
+{% endif %}
+{% endif %}
+
 {% for a in assemblies %}
 <div class="asm-card" onclick="location.href='{{ url_for('assembly_detail', assembly_id=a['id']) }}'">
   <div class="asm-head">
-    <span class="asm-name">{{ a['assembly_no'] }}</span>
+    <span style="display:flex; align-items:center; gap:10px;">
+      {% if can_edit %}
+      <span onclick="event.stopPropagation()">
+        <input type="checkbox" class="assembly-check" form="assemblyBulkDeleteForm" name="assembly_ids" value="{{ a['id'] }}">
+      </span>
+      {% endif %}
+      <span class="asm-name">{{ a['assembly_no'] }}</span>
+    </span>
     <span>
       <span class="pill">파츠 {{ a['part_count'] }}개</span>
       {% if a['missing_count'] %}
@@ -44,7 +86,8 @@
 </div>
 {% else %}
 <div style="text-align:center; padding:40px 0; color:var(--muted);">
-  등록된 조립품이 없어. 위 버튼으로 추가해줘.
+  {% if query %}검색 결과가 없어.{% else %}등록된 조립품이 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}
 </div>
 {% endfor %}
+{% set p = pager %}{% include "_pager.html" %}
 {% endblock %}

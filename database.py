@@ -2458,10 +2458,13 @@ def get_assembly_by_no(assembly_no):
     return assembly_id, [dict(c) for c in components]
 
 
-def list_all_assemblies():
-    """조립품 목록 + 각 조립품의 파츠 수. 자재 마스터에 없는 파츠 수(missing)도 같이 센다."""
+def list_all_assemblies(query=None, search_by="all"):
+    """조립품 목록 + 각 조립품의 파츠 수. 자재 마스터에 없는 파츠 수(missing)도 같이 센다.
+
+    query: 검색어. search_by: 'assembly_no'(조립품번호) / 'component_no'(파츠번호) / 'all'(둘 다).
+    """
     conn = get_conn()
-    rows = conn.execute("""
+    sql = """
         SELECT m.*,
                (SELECT COUNT(*) FROM assembly_components c WHERE c.assembly_id = m.id) AS part_count,
                (SELECT COUNT(*) FROM assembly_components c
@@ -2469,8 +2472,23 @@ def list_all_assemblies():
                    AND NOT EXISTS (SELECT 1 FROM materials mt WHERE mt.material_no = c.component_no)
                ) AS missing_count
           FROM assembly_masters m
-         ORDER BY m.assembly_no
-    """).fetchall()
+    """
+    params = []
+    if query:
+        like = f"%{query}%"
+        component_match = ("EXISTS (SELECT 1 FROM assembly_components c "
+                            "WHERE c.assembly_id = m.id AND c.component_no LIKE ?)")
+        if search_by == "component_no":
+            sql += f" WHERE {component_match}"
+            params.append(like)
+        elif search_by == "assembly_no":
+            sql += " WHERE m.assembly_no LIKE ?"
+            params.append(like)
+        else:
+            sql += f" WHERE m.assembly_no LIKE ? OR {component_match}"
+            params.extend([like, like])
+    sql += " ORDER BY m.assembly_no"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -2548,6 +2566,18 @@ def delete_assembly(assembly_id):
         conn.commit()
     finally:
         conn.close()
+
+
+def delete_assemblies_bulk(assembly_ids):
+    """조립품 여러 개를 한번에 삭제 — 조립품 관리 화면 선택삭제용."""
+    if not assembly_ids:
+        return
+    conn = get_conn()
+    placeholders = ",".join("?" for _ in assembly_ids)
+    conn.execute(f"DELETE FROM assembly_components WHERE assembly_id IN ({placeholders})", assembly_ids)
+    conn.execute(f"DELETE FROM assembly_masters WHERE id IN ({placeholders})", assembly_ids)
+    conn.commit()
+    conn.close()
 
 
 # ---------- 검사 입력 임시저장 (서버 보관) ----------
