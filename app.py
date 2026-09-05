@@ -1893,7 +1893,8 @@ def inspect_auto_batch_methods():
         specs, _, _ = _get_specs_for_material(row["material_no"])
         for s in specs:
             m = (s["inspect_method"] or "").strip() if s["inspect_method"] else ""
-            if m and s["judge_type"] == "numeric":
+            # numeric(수치측정)과 ok_ng(도통검사 등) 모두 포함 — visual(육안)만 제외
+            if m and s["judge_type"] in ("numeric", "ok_ng"):
                 if m not in methods_seen:
                     methods_seen[m] = True
 
@@ -2037,9 +2038,9 @@ def inspect_auto_batch():
             if result != "합격":
                 overall_ok = False
 
-            # inspect_method 기반으로 계측기 매핑 적용 (numeric 항목만)
+            # inspect_method 기반으로 계측기 매핑 적용 (numeric + ok_ng, visual 제외)
             gauge_info = None
-            if spec["judge_type"] == "numeric" and method_gauge_map:
+            if spec["judge_type"] in ("numeric", "ok_ng") and method_gauge_map:
                 item_method = (spec.get("inspect_method") or "").strip()
                 gauge_info = method_gauge_map.get(item_method)
             items_with_results.append({
