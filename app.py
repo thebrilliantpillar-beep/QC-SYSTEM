@@ -4668,7 +4668,7 @@ def gauge_save():
         return redirect(url_for("gauge_list"))
     db.upsert_gauge(
         gauge_id=gauge_id,
-        gauge_no=request.form.get("gauge_no", "").strip(),
+        gauge_no=request.form.get("gauge_no", "").strip() or None,
         name=name,
         model=request.form.get("model", "").strip(),
         location=request.form.get("location", "").strip(),
