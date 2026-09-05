@@ -1124,13 +1124,40 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
                      f'style="display:block; margin:6px 0; '
                      f'border:1px solid #ddd; border-radius:4px;">')
 
+    # NCR 양식 안내 이미지 (static/ncr_guide.jpg) — 고정 사이즈로 삽입
+    _GUIDE_PATH = os.path.join(os.path.dirname(__file__), 'static', 'ncr_guide.jpg')
+    guide_img_html = ''
+    guide_img_bytes = None
+    guide_display_w = guide_display_h = 0
+    if os.path.exists(_GUIDE_PATH):
+        try:
+            with _PILImage.open(_GUIDE_PATH) as _gim:
+                _gim = _gim.convert('RGB')
+                _gw, _gh = _gim.width, _gim.height
+                # 6cm(226px) 제한, 비율 유지
+                _scale = min(226 / _gw, 226 / _gh, 1.0)
+                guide_display_w = max(1, int(_gw * _scale))
+                guide_display_h = max(1, int(_gh * _scale))
+                # 삽입용: 600px 이내로 압축
+                if max(_gw, _gh) > 600:
+                    _gim.thumbnail((600, 600), _PILImage.LANCZOS)
+                _gbuf = _io.BytesIO()
+                _gim.save(_gbuf, format='JPEG', quality=85, optimize=True)
+                guide_img_bytes = _gbuf.getvalue()
+            guide_img_html = (f'<img src="cid:ncrguide" width="{guide_display_w}" '
+                              f'height="{guide_display_h}" '
+                              f'style="display:block; margin:10px 0;">')
+        except Exception:
+            pass
+
     html = (
         '<html><body style="font-family:\'맑은 고딕\',\'Malgun Gothic\',sans-serif;'
         'font-size:14px; line-height:1.7; color:#1f2937;">'
         f'<p>{para1}</p>'
         + (f'<div style="margin:14px 0;">{img_html}</div>' if img_html else '')
         + f'<p>{para2}</p>'
-        '</body></html>'
+        + (f'<div style="margin:10px 0;">{guide_img_html}</div>' if guide_img_html else '')
+        + '</body></html>'
     )
 
     inner.attach(_MMT.MIMEText(html, 'html', 'utf-8'))
@@ -1141,6 +1168,13 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
         img_part.add_header('Content-ID', f'<{cid}>')
         img_part.add_header('Content-Disposition', 'inline')
         inner.attach(img_part)
+
+    # NCR 안내 이미지 첨부
+    if guide_img_bytes:
+        gpart = _MMI.MIMEImage(guide_img_bytes, _subtype='jpeg')
+        gpart.add_header('Content-ID', '<ncrguide>')
+        gpart.add_header('Content-Disposition', 'inline')
+        inner.attach(gpart)
 
     outer.attach(inner)
 
