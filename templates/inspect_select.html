@@ -150,15 +150,15 @@
         var gauges = data.gauges;
         var optionsHtml = '<option value="">— 선택 안 함</option>' +
           gauges.map(function(g) {
-            var label = g.name + (g.model ? ' (' + g.model + ')' : '') + (g.expiry_date ? ' · 유효 ' + g.expiry_date : '');
+            var label = g.name + (g.expiry_date ? ' (' + g.expiry_date + ')' : '');
             return '<option value="' + g.id + '">' + label + '</option>';
           }).join('');
 
         var rows = data.methods.map(function(m, i) {
           var sel = optionsHtml.replace('value="' + m.suggested_gauge_id + '"', 'value="' + m.suggested_gauge_id + '" selected');
-          return '<div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; margin-bottom:8px;">' +
-            '<div style="font-size:13px; color:#374151; background:#f3f4f6; padding:6px 10px; border-radius:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + m.method + '">' + m.method + '</div>' +
-            '<select name="tmp_gauge_' + i + '" data-method-idx="' + i + '" style="min-width:160px; margin:0; font-size:12.5px;">' + sel + '</select>' +
+          return '<div style="margin-bottom:8px;">' +
+            '<div style="font-size:12px; color:#6b7280; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + m.method + '">' + m.method + '</div>' +
+            '<select name="tmp_gauge_' + i + '" data-method-idx="' + i + '" style="width:100%; margin:0; font-size:13px;">' + sel + '</select>' +
             '<input type="hidden" name="tmp_method_' + i + '" value="' + m.method + '">' +
             '</div>';
         }).join('');
