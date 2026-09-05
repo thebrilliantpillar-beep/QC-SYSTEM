@@ -5085,9 +5085,9 @@ def ncr_new(inspection_id):
     # 불합격 항목 자동 조합 텍스트 — "B항목: 기준 10.0±0.3, 실측 11.2" 형식
     auto_desc_lines = []
     for it in defect_items:
-        name = it.get("item_name") or ""
-        spec = it.get("spec_display") or ""
-        val = it.get("measured_value") or ""
+        name = it["item_name"] or ""
+        spec = it["spec_display"] or ""
+        val = it["measured_value"] or ""
         parts = []
         if spec:
             parts.append(f"기준 {spec}")
