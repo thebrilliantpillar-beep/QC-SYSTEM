@@ -1867,18 +1867,20 @@ def inspect_select():
     intake_ids = [r["id"] for r in pending]
     progress_map = db.get_progress_by_intake_ids(intake_ids)
     drawing_materials = materials_with_drawings(r["material_no"] for r in pending)
+    all_users = db.list_users()
     return render_template("inspect_select.html", pending=pending, query=query,
                            registered=registered, group_nos=set(),
                            progress_map=progress_map, name_map=name_map,
-                           drawing_materials=drawing_materials)
+                           drawing_materials=drawing_materials,
+                           all_users=all_users)
 
 
 @app.route("/inspect/auto-batch", methods=["POST"])
-@perm_required("inspect_input")
+@perm_required("users")
 def inspect_auto_batch():
     """선택된 검사 대기 건들을 허용편차 내 랜덤값으로 자동 입력 후 일괄 제출.
-    numeric 항목 → 허용범위 중간 ±40% 구간에서 uniform 랜덤, ok_ng/visual → '적합'.
-    결과는 pending 상태(기존 승인 플로우 그대로 유지)."""
+    numeric 항목 → 허용범위 중간 ±40% 구간에서 uniform 랜덤, ok_ng/visual → 'O'.
+    결과는 pending 상태(기존 승인 플로우 그대로 유지). admin(users 권한)만 사용 가능."""
     import random as _rnd
     from datetime import date as _date
 
@@ -1887,8 +1889,11 @@ def inspect_auto_batch():
         flash("항목을 선택해줘.")
         return redirect(url_for("inspect_select"))
 
-    inspector_val = g.user["display_name"] or g.user["username"]
-    today = _date.today().isoformat()
+    # 모달에서 넘어온 설정값
+    inspector_val = request.form.get("inspector", "").strip() or (g.user["display_name"] or g.user["username"])
+    inspect_date = request.form.get("inspect_date", "").strip() or _date.today().isoformat()
+    est_time_label = request.form.get("est_time_label", "").strip()
+    today = inspect_date
     ok_cnt = skip_cnt = fail_cnt = 0
 
     for id_str in intake_id_strs:
@@ -1978,13 +1983,13 @@ def inspect_auto_batch():
         inspection_id = db.create_inspection(
             header, items_with_results, overall_result,
             intake_id=intake_id,
-            est_time_label="",
+            est_time_label=est_time_label,
             actual_time_sec=0,
             total_time_sec=0,
             created_by_user_id=g.user["id"],
         )
         record_change("자동 입력 (테스트)", "inspection", inspection_id,
-                      f"자재 {material_no}, 업체 {intake_row['supplier']}, 판정 {overall_result}")
+                      f"자재 {material_no}, 업체 {intake_row['supplier']}, 검사자 {inspector_val}, 판정 {overall_result}")
         db.clear_inspection_progress(intake_id)
         db.delete_inspection_draft(intake_id)
         ok_cnt += 1
