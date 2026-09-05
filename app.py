@@ -1981,15 +1981,16 @@ def inspect_auto_batch():
 
         overall_result = "합격" if overall_ok else "검토필요"
 
-        # 총 검사시간: 개당 랜덤 시간으로 AQL 기준 시간 계산
-        # (가장 높은 AQL 기준 그룹 × 개당시간 + 초과 샘플 × EXTRA_SAMPLE_SEC)
+        # 개당 시간: 설정 범위 내 랜덤값
+        # 총 시간: 개당 시간 기반 AQL 계산 (기준 AQL 그룹 × 개당시간 + 초과샘플 × 10초)
         if time_max_sec > 0:
             per_item_sec = _rnd.randint(time_min_sec, time_max_sec) if time_min_sec < time_max_sec \
                            else time_min_sec
-            actual_time_sec = compute_total_time_sec(specs_with_sample, per_item_sec)
+            total_time_sec_val = compute_total_time_sec(specs_with_sample, per_item_sec)
         else:
-            actual_time_sec = 0
-        est_time_label = format_duration(actual_time_sec) if actual_time_sec else ""
+            per_item_sec = 0
+            total_time_sec_val = 0
+        est_time_label = format_duration(total_time_sec_val) if total_time_sec_val else ""
 
         header = {
             "material_no": material_no,
@@ -2005,8 +2006,8 @@ def inspect_auto_batch():
             header, items_with_results, overall_result,
             intake_id=intake_id,
             est_time_label=est_time_label,
-            actual_time_sec=actual_time_sec,
-            total_time_sec=actual_time_sec,
+            actual_time_sec=per_item_sec,
+            total_time_sec=total_time_sec_val,
             created_by_user_id=g.user["id"],
         )
         record_change("자동 입력 (테스트)", "inspection", inspection_id,
