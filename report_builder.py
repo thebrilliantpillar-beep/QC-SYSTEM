@@ -947,11 +947,15 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
 
 
 def _ncr_mail_subject(ncr):
+    from datetime import datetime as _dt
+    _DAYS_KO = ['월', '화', '수', '목', '금', '토', '일']
+    today = _dt.now()
+    date_str = today.strftime('%Y년 %m월 %d일') + f' ({_DAYS_KO[today.weekday()]})'
     name = (ncr.get('material_name') or '').strip()
     mat  = (ncr.get('material_no')   or '').strip()
     parts = [p for p in [name, mat] if p]
     suffix = ' '.join(parts)
-    return f"[샤든코리아] 부적합 통보서{' ' + suffix if suffix else ''}"
+    return f"{date_str} [샤든코리아] 부적합 통보서{' ' + suffix if suffix else ''}"
 
 
 def _ncr_mail_body_lines(ncr, contact_person=''):
@@ -1007,11 +1011,98 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
     import email.encoders as _ENC
 
     import re as _re
+    import io as _io
+    from PIL import Image as _PILImage
+
     subject = _ncr_mail_subject(ncr)
     body_lines = _ncr_mail_body_lines(ncr, contact_person=contact_person)
 
     # 유효한 사진 목록
     valid_photos = [p for p in (photo_paths or []) if p and os.path.exists(p)]
+
+    # ── 사진 전처리: PIL로 압축 + 표시 크기 계산 ──────────────────────────────
+    _MAX_DISPLAY = 226  # 아웃룩 기준 6cm (96dpi)
+    _MAX_EMBED   = 600  # 이메일에 실제 삽입할 최대 픽셀
+    _QUALITY     = 82   # JPEG 품질
+
+    processed_photos = []  # [(cid, img_bytes, display_w, display_h)]
+    for i, p in enumerate(valid_photos):
+        try:
+            with _PILImage.open(p) as im:
+                im = im.convert('RGB')
+                orig_w, orig_h = im.width, im.height
+                # 삽입용: _MAX_EMBED 이내로 축소
+                if max(orig_w, orig_h) > _MAX_EMBED:
+                    im.thumbnail((_MAX_EMBED, _MAX_EMBED), _PILImage.LANCZOS)
+                embed_w, embed_h = im.width, im.height
+                buf = _io.BytesIO()
+                im.save(buf, format='JPEG', quality=_QUALITY, optimize=True)
+                img_bytes = buf.getvalue()
+        except Exception:
+            # PIL 실패 시 원본 그대로, 크기 미지정
+            try:
+                with open(p, 'rb') as f:
+                    img_bytes = f.read()
+                embed_w, embed_h = _MAX_DISPLAY, _MAX_DISPLAY
+            except Exception:
+                continue
+
+        # 표시 크기: _MAX_DISPLAY 이내, 비율 유지
+        scale = min(_MAX_DISPLAY / embed_w, _MAX_DISPLAY / embed_h, 1.0)
+        display_w = max(1, int(embed_w * scale))
+        display_h = max(1, int(embed_h * scale))
+        processed_photos.append((f'ncrphoto{i}', img_bytes, display_w, display_h))
+
+    # ── HTML 변환 헬퍼 ────────────────────────────────────────────────────────
+    def _defect_to_html(text):
+        """defect_description 텍스트 → HTML.
+        - 항목 라인 (A: 기준 spec, 실측 val): 기준과 실측을 줄바꿈으로 분리
+        - ☞value: 빨간색 span으로 감싸기
+        """
+        def _redify(s):
+            """☞로 시작하는 토큰을 빨간색 span으로 감싸기."""
+            # 콤마로 구분된 각 토큰 처리
+            tokens = [t.strip() for t in s.split(',')]
+            result = []
+            for tok in tokens:
+                if tok.startswith('☞'):
+                    result.append(f'<span style="color:red">{tok}</span>')
+                else:
+                    result.append(tok)
+            return ', '.join(result)
+
+        html_lines = []
+        for ln in text.split('\n'):
+            # 항목 라인 감지: "A: ..." 또는 "*A: ..."
+            m = _re.match(r'^([A-Z\*]+:\s*)(기준\s*.+?)(?:,\s*(실측\s*.+))?$', ln.strip())
+            if m:
+                prefix = m.group(1)          # "A: "
+                spec_part = m.group(2).strip()  # "기준 80 ± 0.8"
+                meas_part = m.group(3)           # "실측 ☞88, 80.2" or None
+                line_html = f'{prefix}{spec_part}'
+                if meas_part:
+                    # 실측 값에서 ☞ 부분만 빨간색
+                    meas_label, _, meas_vals = meas_part.partition(' ')
+                    line_html += f'<br>{meas_label} {_redify(meas_vals)}'
+                html_lines.append(line_html)
+            else:
+                # 일반 텍스트: ☞가 있으면 빨간색
+                escaped = ln.replace('\n', '<br>')
+                if '☞' in escaped:
+                    escaped = _re.sub(r'☞[^,<\s]+', lambda m2: f'<span style="color:red">{m2.group(0)}</span>', escaped)
+                html_lines.append(escaped)
+        return '<br>'.join(html_lines)
+
+    def _lines_to_html(lines):
+        """body_lines 목록 → HTML 단락 문자열."""
+        # defect_description이 포함된 줄(한 줄이지만 내부에 \n 포함)은 별도 처리
+        html_parts = []
+        for ln in lines:
+            if '\n' in ln or '☞' in ln or _re.match(r'^[A-Z\*]+:\s*기준', ln):
+                html_parts.append(_defect_to_html(ln))
+            else:
+                html_parts.append(ln)
+        return '<br>'.join(html_parts)
 
     # outer: mixed (본문 블록 + 엑셀 첨부)
     outer = _MMP.MIMEMultipart('mixed')
@@ -1021,29 +1112,16 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
     # inner: related (HTML + 인라인 이미지)
     inner = _MMP.MIMEMultipart('related')
 
-    def _lines_to_html(lines):
-        """줄 목록 → HTML. 각 줄 내부의 \n도 <br>로 변환. 항목 라인은 기준 뒤 줄바꿈 추가."""
-        html_parts = []
-        for ln in lines:
-            # 항목 라인: "A: 기준 spec, 실측 val" → "A: 기준<br>spec, 실측 val"
-            ln = _re.sub(r'([A-Z\*]+:\s*기준)\s+', r'\1<br>', ln)
-            html_parts.append(ln.replace('\n', '<br>'))
-        return '<br>'.join(html_parts)
-
     # HTML 본문 구성 — 사진을 두 단락 사이에 삽입
     split_idx = body_lines.index('아울러 부적합통보서를 첨부하오니,')
     para1 = _lines_to_html(body_lines[:split_idx])
     para2 = _lines_to_html(body_lines[split_idx:])
 
     img_html = ''
-    cid_list = []
-    for i, p in enumerate(valid_photos):
-        cid = f'ncrphoto{i}'
-        cid_list.append((cid, p))
-        # 6cm 기준 (아웃룩 96dpi ≈ 226px), 가로/세로 모두 제한
-        img_html += (f'<img src="cid:{cid}" '
-                     f'style="max-width:226px; max-height:226px; width:auto; height:auto; '
-                     f'margin:6px 0; display:block; '
+    for cid, _bytes, dw, dh in processed_photos:
+        # Outlook은 CSS max-width 무시 → width/height HTML 속성으로 직접 지정
+        img_html += (f'<img src="cid:{cid}" width="{dw}" height="{dh}" '
+                     f'style="display:block; margin:6px 0; '
                      f'border:1px solid #ddd; border-radius:4px;">')
 
     html = (
@@ -1057,35 +1135,12 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
 
     inner.attach(_MMT.MIMEText(html, 'html', 'utf-8'))
 
-    # 인라인 이미지 파트 — PIL로 리사이즈+JPEG 압축 후 첨부
-    _MAX_PX = 600   # 원본 저장용 최대 픽셀 (6cm@96dpi=226px는 CSS로 제어, 여기선 화질 여유)
-    _QUALITY = 82   # JPEG 품질 (80~85 = 용량/화질 균형)
-    for cid, path in cid_list:
-        try:
-            from PIL import Image as _PILImage
-            import io as _io
-            with _PILImage.open(path) as im:
-                im = im.convert('RGB')
-                # 가로·세로 중 큰 쪽이 _MAX_PX를 넘으면 비율 유지해서 축소
-                if max(im.width, im.height) > _MAX_PX:
-                    im.thumbnail((_MAX_PX, _MAX_PX), _PILImage.LANCZOS)
-                buf = _io.BytesIO()
-                im.save(buf, format='JPEG', quality=_QUALITY, optimize=True)
-                img_data = buf.getvalue()
-            img_part = _MMI.MIMEImage(img_data, _subtype='jpeg')
-            img_part.add_header('Content-ID', f'<{cid}>')
-            img_part.add_header('Content-Disposition', 'inline')
-            inner.attach(img_part)
-        except Exception:
-            # PIL 실패 시 원본 그대로 첨부
-            try:
-                with open(path, 'rb') as f:
-                    img_part = _MMI.MIMEImage(f.read())
-                img_part.add_header('Content-ID', f'<{cid}>')
-                img_part.add_header('Content-Disposition', 'inline')
-                inner.attach(img_part)
-            except Exception:
-                pass
+    # 인라인 이미지 파트 첨부
+    for cid, img_bytes, _dw, _dh in processed_photos:
+        img_part = _MMI.MIMEImage(img_bytes, _subtype='jpeg')
+        img_part.add_header('Content-ID', f'<{cid}>')
+        img_part.add_header('Content-Disposition', 'inline')
+        inner.attach(img_part)
 
     outer.attach(inner)
 
