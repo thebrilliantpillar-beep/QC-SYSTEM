@@ -1876,6 +1876,51 @@ def inspect_select():
                            all_users=all_users, gauges=gauges)
 
 
+@app.route("/inspect/auto-batch/methods")
+@perm_required("users")
+def inspect_auto_batch_methods():
+    """선택된 intake_ids의 검사항목에서 측정방식(inspect_method) 목록 반환 (AJAX용)."""
+    intake_id_strs = request.args.getlist("intake_ids")
+    methods_seen = {}  # method_str → True (중복 제거, 순서 유지)
+    for id_str in intake_id_strs:
+        try:
+            intake_id = int(id_str)
+        except ValueError:
+            continue
+        row = db.get_intake(intake_id)
+        if not row:
+            continue
+        specs, _, _ = _get_specs_for_material(row["material_no"])
+        for s in specs:
+            m = (s.get("inspect_method") or "").strip()
+            if m and s.get("judge_type") == "numeric":
+                if m not in methods_seen:
+                    methods_seen[m] = True
+
+    gauges = db.list_gauges()
+    # 각 method에 대해 계측기 이름으로 자동매칭 시도
+    norm_gauges = []
+    for g in gauges:
+        nk = _norm_method(g["name"])
+        if nk:
+            norm_gauges.append((nk, g["id"]))
+
+    result_methods = []
+    for method in methods_seen:
+        norm_m = _norm_method(method)
+        suggested_id = None
+        for nk, gid in norm_gauges:
+            if nk in norm_m or norm_m in nk:
+                suggested_id = gid
+                break
+        result_methods.append({"method": method, "suggested_gauge_id": suggested_id})
+
+    gauge_list = [{"id": g["id"], "name": g["name"],
+                   "model": g["model"] or "", "expiry_date": g["expiry_date"] or ""}
+                  for g in gauges]
+    return jsonify({"methods": result_methods, "gauges": gauge_list})
+
+
 @app.route("/inspect/auto-batch", methods=["POST"])
 @perm_required("users")
 def inspect_auto_batch():
@@ -1895,18 +1940,28 @@ def inspect_auto_batch():
     inspect_date = request.form.get("inspect_date", "").strip() or _date.today().isoformat()
     today = inspect_date
 
-    # 계측기 설정 (선택 시 모든 계측이 필요한 항목에 일괄 적용)
-    batch_gauge_id = request.form.get("batch_gauge_id", "").strip()
-    batch_gauge_name = ""
-    batch_gauge_expiry = None
-    if batch_gauge_id:
-        try:
-            gm = db.get_gauge(int(batch_gauge_id))
-            if gm:
-                batch_gauge_name = gm["name"] or ""
-                batch_gauge_expiry = gm["expiry_date"] or None
-        except (ValueError, TypeError):
-            pass
+    # 측정방식별 계측기 매핑 수신 (method_0=..., gauge_id_0=... 형태로 전송)
+    gauge_master_cache = {g["id"]: g for g in db.list_gauges()}
+    method_gauge_map = {}  # inspect_method → {"name": ..., "expiry": ...}
+    idx = 0
+    while True:
+        method_key = f"method_{idx}"
+        gauge_key = f"gauge_id_{idx}"
+        method_val = request.form.get(method_key)
+        if method_val is None:
+            break
+        gauge_id_val = request.form.get(gauge_key, "").strip()
+        if gauge_id_val:
+            try:
+                gm = gauge_master_cache.get(int(gauge_id_val))
+                if gm:
+                    method_gauge_map[method_val.strip()] = {
+                        "name": gm["name"] or "",
+                        "expiry": gm["expiry_date"] or None,
+                    }
+            except (ValueError, TypeError):
+                pass
+        idx += 1
 
     # 개당 시간 범위 (초 단위 변환)
     def _to_sec(m_key, s_key):
@@ -1982,16 +2037,19 @@ def inspect_auto_batch():
             if result != "합격":
                 overall_ok = False
 
-            # 계측이 필요한 항목(numeric)에만 계측기 적용, 육안검사 항목은 제외
-            use_gauge = spec["judge_type"] == "numeric" and batch_gauge_name
+            # inspect_method 기반으로 계측기 매핑 적용 (numeric 항목만)
+            gauge_info = None
+            if spec["judge_type"] == "numeric" and method_gauge_map:
+                item_method = (spec.get("inspect_method") or "").strip()
+                gauge_info = method_gauge_map.get(item_method)
             items_with_results.append({
                 "item_name": spec["item_name"],
                 "measured_value": raw_value,
                 "max_value": max_v,
                 "min_value": min_v,
                 "result": result,
-                "gauge_expiry": batch_gauge_expiry if use_gauge else None,
-                "gauge_name": batch_gauge_name if use_gauge else None,
+                "gauge_expiry": gauge_info["expiry"] if gauge_info else None,
+                "gauge_name": gauge_info["name"] if gauge_info else None,
                 "part_material_no": spec["material_no"],
             })
 
