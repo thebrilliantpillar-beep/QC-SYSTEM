@@ -947,13 +947,18 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
 
 
 def _ncr_mail_subject(ncr):
-    return (f"[부적합 통보서] {ncr.get('ncr_no','')} — "
-            f"{ncr.get('material_no','')} ({ncr.get('supplier','')})")
+    name = (ncr.get('material_name') or '').strip()
+    mat  = (ncr.get('material_no')   or '').strip()
+    parts = [p for p in [name, mat] if p]
+    suffix = ' '.join(parts)
+    return f"[샤든코리아] 부적합 통보서{' ' + suffix if suffix else ''}"
 
 
-def _ncr_mail_body_lines(ncr):
+def _ncr_mail_body_lines(ncr, contact_person=''):
+    recipient = (contact_person or ncr.get('supplier') or '').strip()
+    defect_raw = (ncr.get('defect_description') or '-').strip()
     return [
-        f"{ncr.get('supplier','')} 담당자님.",
+        f"{recipient} 담당자님.",
         "",
         "안녕하세요, 샤든코리아 품질팀, 윤주호 사원입니다.",
         "항상 신경 써 주셔서 감사합니다.",
@@ -962,11 +967,11 @@ def _ncr_mail_body_lines(ncr):
          "에서 아래와 같은 불량이 확인되어 안내드립니다."),
         "",
         "■ 불량 내용",
-        ncr.get('defect_description') or '-',
+        defect_raw,
         "",
         "아울러 부적합통보서를 첨부하오니,",
         "하단에 내용 기재 후 첨부 부탁드리겠습니다.",
-        "파일 내 작성 방법이 있으니 내용에 따라 기재해주시면 감사하겠습니다.",
+        "아래 이미지 노란색상 부분에 따라서 기재해주시면 감사하겠습니다.",
         "",
         "궁금하신 점 있으시면 언제든 연락 주세요.",
         "감사합니다.",
@@ -980,17 +985,17 @@ def _ncr_mail_body_lines(ncr):
     ]
 
 
-def ncr_mailto_url(ncr, supplier_email=''):
+def ncr_mailto_url(ncr, supplier_email='', contact_person=''):
     """부적합 통보서 mailto: URL 생성."""
     import urllib.parse
     params = urllib.parse.urlencode({
         'subject': _ncr_mail_subject(ncr),
-        'body': '\n'.join(_ncr_mail_body_lines(ncr)),
+        'body': '\n'.join(_ncr_mail_body_lines(ncr, contact_person=contact_person)),
     })
     return f"mailto:{supplier_email}?{params}"
 
 
-def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None):
+def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, contact_person=''):
     """부적합 통보서 .eml 파일 생성.
     불량 사진을 HTML 본문에 인라인 삽입하고, 엑셀 파일을 첨부해서 반환.
     Outlook에서 .eml을 열면 수신자·제목·본문·첨부가 자동으로 채워진 채 바로 발송 가능.
@@ -1001,8 +1006,9 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None):
     import email.mime.image as _MMI
     import email.encoders as _ENC
 
+    import re as _re
     subject = _ncr_mail_subject(ncr)
-    body_lines = _ncr_mail_body_lines(ncr)
+    body_lines = _ncr_mail_body_lines(ncr, contact_person=contact_person)
 
     # 유효한 사진 목록
     valid_photos = [p for p in (photo_paths or []) if p and os.path.exists(p)]
@@ -1015,17 +1021,29 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None):
     # inner: related (HTML + 인라인 이미지)
     inner = _MMP.MIMEMultipart('related')
 
+    def _lines_to_html(lines):
+        """줄 목록 → HTML. 각 줄 내부의 \n도 <br>로 변환. 항목 라인은 기준 뒤 줄바꿈 추가."""
+        html_parts = []
+        for ln in lines:
+            # 항목 라인: "A: 기준 spec, 실측 val" → "A: 기준<br>spec, 실측 val"
+            ln = _re.sub(r'([A-Z\*]+:\s*기준)\s+', r'\1<br>', ln)
+            html_parts.append(ln.replace('\n', '<br>'))
+        return '<br>'.join(html_parts)
+
     # HTML 본문 구성 — 사진을 두 단락 사이에 삽입
-    para1 = '<br>'.join(body_lines[:body_lines.index('아울러 부적합통보서를 첨부하오니,')])
-    para2 = '<br>'.join(body_lines[body_lines.index('아울러 부적합통보서를 첨부하오니,'):])
+    split_idx = body_lines.index('아울러 부적합통보서를 첨부하오니,')
+    para1 = _lines_to_html(body_lines[:split_idx])
+    para2 = _lines_to_html(body_lines[split_idx:])
 
     img_html = ''
     cid_list = []
     for i, p in enumerate(valid_photos):
         cid = f'ncrphoto{i}'
         cid_list.append((cid, p))
+        # 6cm 기준 (아웃룩 96dpi ≈ 226px), 가로/세로 모두 제한
         img_html += (f'<img src="cid:{cid}" '
-                     f'style="max-width:480px; width:100%; margin:6px 0; display:block; '
+                     f'style="max-width:226px; max-height:226px; width:auto; height:auto; '
+                     f'margin:6px 0; display:block; '
                      f'border:1px solid #ddd; border-radius:4px;">')
 
     html = (

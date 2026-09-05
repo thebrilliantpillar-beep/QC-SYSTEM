@@ -5355,7 +5355,8 @@ def ncr_detail(ncr_id):
 
     # mailto: URL (업체 이메일 자동 채워짐)
     supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
-    mailto_url = report_builder.ncr_mailto_url(dict(ncr), supplier_email)
+    contact_person = supplier_info["contact_name"] if supplier_info and supplier_info.get("contact_name") else ""
+    mailto_url = report_builder.ncr_mailto_url(dict(ncr), supplier_email, contact_person=contact_person)
 
     return render_template("ncr_detail.html", ncr=ncr, photos=photos,
                            supplier_info=supplier_info,
@@ -5473,9 +5474,10 @@ def ncr_eml(ncr_id):
 
     supplier_info = db.get_supplier(ncr["supplier"]) if ncr["supplier"] else None
     supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
+    contact_person = supplier_info["contact_name"] if supplier_info and supplier_info.get("contact_name") else ""
 
     eml_bytes = report_builder.build_ncr_eml(
-        ncr_dict, supplier_email, out_path, photo_paths
+        ncr_dict, supplier_email, out_path, photo_paths, contact_person=contact_person
     )
 
     eml_name = re.sub(r'[\\/:"*?<>|]', '',
