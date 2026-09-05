@@ -4780,6 +4780,40 @@ def _save_ncr_photo(file_storage, dest_dir, base_name):
     return fname
 
 
+@app.route("/ncr/search-intake")
+@perm_required("ncr", "approve")
+def ncr_search_intake():
+    """입고/검사 이력 검색 API — ncr/new 폼 자동입력용."""
+    q = request.args.get("q", "").strip()
+    if not q or len(q) < 1:
+        return {"results": []}
+    like = f"%{q}%"
+    con = db.get_conn()
+    rows = con.execute("""
+        SELECT
+            i.id            AS inspection_id,
+            i.material_no,
+            COALESCE(i.material_name, il.product_name, m.material_name) AS material_name,
+            i.supplier,
+            i.receive_date,
+            i.po_number     AS lot_number,
+            i.quantity
+        FROM inspections i
+        LEFT JOIN intake_list il ON il.id = i.intake_id
+        LEFT JOIN materials   m  ON m.material_no = i.material_no
+        WHERE i.material_no  LIKE :q
+           OR i.material_name LIKE :q
+           OR il.product_name  LIKE :q
+           OR i.supplier        LIKE :q
+           OR i.po_number       LIKE :q
+           OR i.receive_date    LIKE :q
+        ORDER BY i.receive_date DESC, i.id DESC
+        LIMIT 30
+    """, {"q": like}).fetchall()
+    results = [dict(r) for r in rows]
+    return {"results": results}
+
+
 @app.route("/ncr/new", methods=["GET", "POST"])
 @perm_required("ncr", "approve")
 def ncr_new_manual():

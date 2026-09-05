@@ -15,24 +15,38 @@
   해당 성적서 상세 화면의 "부적합 통보서" 버튼을 쓰는 게 더 편해.
 </p>
 
+<!-- 🔍 입고·검사 이력 검색 -->
+<div class="ncr-section" style="border:2px solid var(--primary); position:relative;">
+  <h3 style="color:var(--primary);">🔍 입고·검사 이력에서 불러오기 <span style="font-weight:400; color:#6b7280; font-size:12px;">(선택 — 직접 입력해도 돼)</span></h3>
+  <div style="position:relative;">
+    <input type="text" id="intakeSearch" autocomplete="off"
+           placeholder="업체명, 자재번호, 제품명, 로트번호, 입고날짜로 검색..."
+           style="padding-right:40px;"
+           oninput="searchIntake(this.value)">
+    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); color:#9ca3af; font-size:16px;">🔍</span>
+  </div>
+  <div id="intakeResults" style="display:none; margin-top:8px; border:1px solid var(--border);
+       border-radius:8px; overflow:hidden; max-height:320px; overflow-y:auto;"></div>
+</div>
+
 <form method="POST" enctype="multipart/form-data">
   <div class="ncr-section">
     <h3>📦 자재·업체 정보</h3>
 
     <label>자재번호 <span style="color:var(--fail);">*</span></label>
-    <input type="text" name="material_no" required placeholder="예: 600005P086">
+    <input type="text" name="material_no" id="f_material_no" required placeholder="예: 600005P086">
 
     <label>제품명</label>
-    <input type="text" name="material_name" placeholder="예: 둥근머리 볼트(M4*16L,STS304)">
+    <input type="text" name="material_name" id="f_material_name" placeholder="예: 둥근머리 볼트(M4*16L,STS304)">
 
     <label>업체 <span style="color:var(--fail);">*</span></label>
-    <input type="text" name="supplier" required placeholder="예: ACE">
+    <input type="text" name="supplier" id="f_supplier" required placeholder="예: ACE">
 
     <label>로트번호</label>
-    <input type="text" name="lot_number" placeholder="예: CK2608-001">
+    <input type="text" name="lot_number" id="f_lot_number" placeholder="예: CK2608-001">
 
     <label>입고날짜</label>
-    <input type="date" name="receive_date">
+    <input type="date" name="receive_date" id="f_receive_date">
   </div>
 
   <div class="ncr-section">
@@ -133,4 +147,58 @@
     부적합 통보서 발행
   </button>
 </form>
+
+<script>
+var _searchTimer = null;
+function searchIntake(val) {
+  clearTimeout(_searchTimer);
+  var box = document.getElementById('intakeResults');
+  if (!val || val.length < 1) { box.style.display = 'none'; return; }
+  _searchTimer = setTimeout(function () {
+    fetch('/ncr/search-intake?q=' + encodeURIComponent(val))
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        var rows = data.results;
+        if (!rows || rows.length === 0) {
+          box.innerHTML = '<div style="padding:14px; color:#9ca3af; font-size:13px; text-align:center;">검색 결과 없음</div>';
+          box.style.display = 'block';
+          return;
+        }
+        box.innerHTML = rows.map(function(r) {
+          return '<div onclick="fillForm(' + JSON.stringify(r).replace(/"/g, '&quot;') + ')" ' +
+            'style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); ' +
+            'font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;" ' +
+            'onmouseover="this.style.background=\'var(--bg-alt)\'" ' +
+            'onmouseout="this.style.background=\'\'">' +
+            '<strong style="color:var(--primary); min-width:100px;">' + (r.material_no || '') + '</strong>' +
+            '<span style="color:#374151; flex:1;">' + (r.material_name || '') + '</span>' +
+            '<span style="color:#6b7280; font-size:12px;">' + (r.supplier || '') + '</span>' +
+            '<span style="color:#9ca3af; font-size:12px; white-space:nowrap;">' + (r.receive_date || '') + '</span>' +
+            (r.lot_number ? '<span style="background:#f3f4f6; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + r.lot_number + '</span>' : '') +
+            '</div>';
+        }).join('');
+        box.style.display = 'block';
+      });
+  }, 250);
+}
+
+function fillForm(r) {
+  document.getElementById('f_material_no').value   = r.material_no   || '';
+  document.getElementById('f_material_name').value = r.material_name || '';
+  document.getElementById('f_supplier').value      = r.supplier      || '';
+  document.getElementById('f_lot_number').value    = r.lot_number    || '';
+  document.getElementById('f_receive_date').value  = r.receive_date  || '';
+  document.getElementById('intakeResults').style.display = 'none';
+  document.getElementById('intakeSearch').value = (r.material_no || '') + ' — ' + (r.supplier || '');
+  // 스크롤을 폼 쪽으로
+  document.getElementById('f_material_no').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+// 검색창 외부 클릭 시 닫기
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#intakeResults') && e.target.id !== 'intakeSearch') {
+    document.getElementById('intakeResults').style.display = 'none';
+  }
+});
+</script>
 {% endblock %}
