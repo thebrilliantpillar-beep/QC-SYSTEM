@@ -1057,16 +1057,35 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
 
     inner.attach(_MMT.MIMEText(html, 'html', 'utf-8'))
 
-    # 인라인 이미지 파트
+    # 인라인 이미지 파트 — PIL로 리사이즈+JPEG 압축 후 첨부
+    _MAX_PX = 600   # 원본 저장용 최대 픽셀 (6cm@96dpi=226px는 CSS로 제어, 여기선 화질 여유)
+    _QUALITY = 82   # JPEG 품질 (80~85 = 용량/화질 균형)
     for cid, path in cid_list:
         try:
-            with open(path, 'rb') as f:
-                img_part = _MMI.MIMEImage(f.read())
+            from PIL import Image as _PILImage
+            import io as _io
+            with _PILImage.open(path) as im:
+                im = im.convert('RGB')
+                # 가로·세로 중 큰 쪽이 _MAX_PX를 넘으면 비율 유지해서 축소
+                if max(im.width, im.height) > _MAX_PX:
+                    im.thumbnail((_MAX_PX, _MAX_PX), _PILImage.LANCZOS)
+                buf = _io.BytesIO()
+                im.save(buf, format='JPEG', quality=_QUALITY, optimize=True)
+                img_data = buf.getvalue()
+            img_part = _MMI.MIMEImage(img_data, _subtype='jpeg')
             img_part.add_header('Content-ID', f'<{cid}>')
             img_part.add_header('Content-Disposition', 'inline')
             inner.attach(img_part)
         except Exception:
-            pass
+            # PIL 실패 시 원본 그대로 첨부
+            try:
+                with open(path, 'rb') as f:
+                    img_part = _MMI.MIMEImage(f.read())
+                img_part.add_header('Content-ID', f'<{cid}>')
+                img_part.add_header('Content-Disposition', 'inline')
+                inner.attach(img_part)
+            except Exception:
+                pass
 
     outer.attach(inner)
 
