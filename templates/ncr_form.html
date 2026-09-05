@@ -53,15 +53,15 @@
     <input type="text" name="cc_recipient" placeholder="예: 구매팀">
 
     <label>불량 내용 <span style="color:var(--fail);">*</span>
-      {% if header['remark_inspector'] %}
+      {% if auto_defect_description %}
       <span style="color:#6b7280; font-weight:400; font-size:12px; margin-left:6px;">
-        (검사자 비고를 기본값으로 채웠어. 필요하면 수정해줘)
+        (불합격 항목을 자동으로 채웠어. 필요하면 수정해줘)
       </span>
       {% endif %}
     </label>
     <textarea name="defect_description" rows="4" required
               placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛)"
-              style="resize:vertical;">{{ header['remark_inspector'] or '' }}</textarea>
+              style="resize:vertical;">{{ auto_defect_description or '' }}</textarea>
 
     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:4px;">
       <div>

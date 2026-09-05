@@ -98,19 +98,13 @@
 {% include "_list_search.html" %}
 
 {# ── 상단 미결 건수 요약 ── #}
-{% set total_pending = data.recheck|length + data.ncr_write|length + data.ncr_review|length + data.ncr_send|length %}
+{% set total_pending = data.recheck|length + data.ncr_write|length %}
 <div class="summary-strip">
   <div class="s-chip {% if data.recheck %}amber{% else %}grey{% endif %}">
     ↩️ 재검사 대기 <b>{{ data.recheck|length }}</b>건
   </div>
   <div class="s-chip {% if data.ncr_write %}red{% else %}grey{% endif %}">
     🔴 통보서 미작성 <b>{{ data.ncr_write|length }}</b>건
-  </div>
-  <div class="s-chip {% if data.ncr_review %}violet{% else %}grey{% endif %}">
-    📤 통보서 발송 전 <b>{{ data.ncr_review|length }}</b>건
-  </div>
-  <div class="s-chip {% if data.ncr_send %}blue{% else %}grey{% endif %}">
-    📤 발송 대기 <b>{{ data.ncr_send|length }}</b>건
   </div>
   {% if total_pending == 0 %}
   <span style="margin-left:4px; color:var(--pass); font-weight:700; font-size:13px;">✅ 미결 없음</span>
@@ -159,54 +153,6 @@
     </a>
     {% else %}
     <div class="fup-empty">통보서 작성 필요 건 없어. 👍</div>
-    {% endfor %}
-  </div>
-</div>
-
-{# ── 레인 3: 통보서 발송 전 ── #}
-<div class="lane lane-review">
-  <div class="lane-head">
-    📤 통보서 발송 전
-    <span class="lane-count">{{ data.ncr_review|length }}</span>
-  </div>
-  <div class="lane-body">
-    {% for r in data.ncr_review %}
-    <a class="fup-row" href="{{ url_for('ncr_detail', ncr_id=r.ncr_id) }}">
-      <span class="fup-mat">{{ r.material_no }}</span>
-      <span class="fup-name">{{ r.material_name or '-' }}</span>
-      <span class="fup-sup">{{ r.supplier or '-' }}</span>
-      <span class="fup-date">통보서 {{ r.created_at[:10] | date_korean if r.created_at else '-' }}</span>
-      <span class="fup-note note-violet">
-        {{ r.ncr_no }} · 작성: {{ r.issued_by or '-' }}
-        {% if r.due_date %} · 기한 {{ r.due_date | date_korean }}{% endif %}
-      </span>
-    </a>
-    {% else %}
-    <div class="fup-empty">발송 전 통보서 없어. 👍</div>
-    {% endfor %}
-  </div>
-</div>
-
-{# ── 레인 4: 통보서 발송 대기 ── #}
-<div class="lane lane-send">
-  <div class="lane-head">
-    📤 통보서 발송 대기
-    <span class="lane-count">{{ data.ncr_send|length }}</span>
-  </div>
-  <div class="lane-body">
-    {% for r in data.ncr_send %}
-    <a class="fup-row" href="{{ url_for('ncr_detail', ncr_id=r.ncr_id) }}">
-      <span class="fup-mat">{{ r.material_no }}</span>
-      <span class="fup-name">{{ r.material_name or '-' }}</span>
-      <span class="fup-sup">{{ r.supplier or '-' }}</span>
-      <span class="fup-date">확인 {{ r.confirmed_at[:10] | date_korean if r.confirmed_at else '-' }}</span>
-      <span class="fup-note note-blue">
-        {{ r.ncr_no }} · 확인자: {{ r.confirmed_by or '-' }}
-        {% if r.due_date %} · 기한 {{ r.due_date | date_korean }}{% endif %}
-      </span>
-    </a>
-    {% else %}
-    <div class="fup-empty">발송 대기 통보서 없어. 👍</div>
     {% endfor %}
   </div>
 </div>

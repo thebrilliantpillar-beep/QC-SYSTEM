@@ -1467,14 +1467,18 @@ def get_defect_followup(completed_start=None, completed_end=None):
          ORDER BY i.inspect_date DESC, i.id DESC
     """)
 
-    # 2. 통보서 작성 필요 — 불합격 확정, NCR 없음
+    # 2. 통보서 작성 필요 — 불합격 항목 하나라도 있는 성적서(상태 무관) + NCR 없음 + 대체 아님
+    #    B안: 승인 여부와 무관하게 fail 항목이 있으면 통보서 대상(pending 포함)
     ncr_write = q("""
-        SELECT i.id, i.material_no, m.material_name, i.supplier, i.inspector,
-               i.inspect_date, i.receive_date, i.remark_approver
+        SELECT DISTINCT i.id, i.material_no, m.material_name, i.supplier, i.inspector,
+               i.inspect_date, i.receive_date, i.remark_approver, i.status, i.overall_result
           FROM inspections i
           LEFT JOIN materials m ON m.material_no = i.material_no
-         WHERE i.status = 'approved' AND i.approval_type = 'failed'
+         INNER JOIN inspection_items ii ON ii.inspection_id = i.id
+         WHERE ii.result NOT IN ('합격', '미측정', '', '규격미입력')
+           AND ii.result IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM ncr n WHERE n.inspection_id = i.id)
+           AND i.status != 'superseded'
          ORDER BY i.inspect_date DESC, i.id DESC
     """)
 
@@ -1610,7 +1614,7 @@ def distinct_inspect_methods():
 def list_gauges():
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM gauge_master ORDER BY CASE WHEN gauge_no IS NULL THEN 1 ELSE 0 END, gauge_no ASC, id ASC"
+        "SELECT * FROM gauge_master"
     ).fetchall()
     conn.close()
     return rows

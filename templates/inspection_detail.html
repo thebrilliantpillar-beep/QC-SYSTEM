@@ -327,18 +327,18 @@
 </div>
 {% endif %}
 
-{# ===== 부적합 통보서 버튼 — 승인 확정 후 표시(불합격은 물론, 합격·특채도 나중에 문제가
-   발견되면 사후에 쓸 수 있음) ===== #}
-{% if header['status'] == 'approved' and ('ncr' in user_perms or 'approve' in user_perms) %}
+{# ===== 부적합 통보서 버튼 — 불합격 항목이 하나라도 있으면 승인 여부와 무관하게 표시 ===== #}
+{% if has_fail_items and header['status'] != 'superseded' and ('ncr' in user_perms or 'approve' in user_perms) %}
 <div class="approve-box" style="border-left:4px solid #dc2626; margin-top:20px; margin-bottom:0;">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <div>
       <b style="color:var(--fail);">📋 부적합 통보서</b>
-      {% if header['approval_type'] == 'failed' %}
-      <p class="muted" style="margin:4px 0 0;">불합격 판정에 대한 업체 통보서를 발행하고 이메일로 발송할 수 있어.</p>
+      {% if header['status'] == 'approved' and header['approval_type'] == 'failed' %}
+      <p class="muted" style="margin:4px 0 0;">불합격 확정 — 업체 통보서를 발행하고 이메일로 발송할 수 있어.</p>
+      {% elif header['status'] == 'approved' %}
+      <p class="muted" style="margin:4px 0 0;">이 건은 합격·특채로 승인됐지만 불합격 항목이 있어. 사후 통보서를 발행할 수 있어.</p>
       {% else %}
-      <p class="muted" style="margin:4px 0 0;">이 건은 합격·특채로 승인됐지만, 나중에 문제가 발견되면
-        사후에 통보서를 발행할 수 있어.</p>
+      <p class="muted" style="margin:4px 0 0;">불합격 항목이 있어. 성적서 승인 전에도 통보서를 미리 작성할 수 있어.</p>
       {% endif %}
     </div>
     <a href="{{ url_for('ncr_new', inspection_id=header['id']) }}"

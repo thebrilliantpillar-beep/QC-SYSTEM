@@ -188,6 +188,11 @@ function fillForm(r) {
   document.getElementById('f_supplier').value      = r.supplier      || '';
   document.getElementById('f_lot_number').value    = r.lot_number    || '';
   document.getElementById('f_receive_date').value  = r.receive_date  || '';
+  // remark_inspector → defect_description 자동채우기 (비어 있을 때만)
+  var descEl = document.querySelector('textarea[name="defect_description"]');
+  if (descEl && !descEl.value && r.remark_inspector) {
+    descEl.value = r.remark_inspector;
+  }
   document.getElementById('intakeResults').style.display = 'none';
   document.getElementById('intakeSearch').value = (r.material_no || '') + ' — ' + (r.supplier || '');
   // 스크롤을 폼 쪽으로

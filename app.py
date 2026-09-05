@@ -2418,6 +2418,8 @@ def inspection_detail(inspection_id):
     return_requests = db.get_return_requests_by_inspection(inspection_id)
     prior_defect_count = db.get_defect_count_for(header["supplier"], header["material_no"])
     is_failed = header["overall_result"] not in ("합격", "", None)
+    has_fail_items = any(it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT, None)
+                         for it in items)
     # 전수검사 — 자재에 설정이 있으면 현황 같이 넘긴다
     full_inspect_config = db.get_full_inspect_config(header["material_no"])
     full_inspect = db.get_full_inspection(inspection_id) if full_inspect_config else None
@@ -2432,6 +2434,7 @@ def inspection_detail(inspection_id):
                            return_requests=return_requests,
                            prior_defect_count=prior_defect_count,
                            specs_map=specs_map, is_failed=is_failed,
+                           has_fail_items=has_fail_items,
                            full_inspect_config=full_inspect_config,
                            full_inspect=full_inspect,
                            stale_spec_items=stale_spec_items,
@@ -4641,7 +4644,13 @@ def gauge_list():
     today = today_dt.isoformat()
     d15 = (today_dt + timedelta(days=15)).isoformat()
     d30 = (today_dt + timedelta(days=30)).isoformat()
-    raw = db.list_gauges()
+    import re as _re
+    def _natural_key(row):
+        val = row["gauge_no"] or ""
+        parts = _re.split(r"(\d+)", val)
+        return [int(p) if p.isdigit() else p.lower() for p in parts]
+
+    raw = sorted(db.list_gauges(), key=_natural_key)
     gauges = []
     for row in raw:
         g = dict(row)
@@ -4797,7 +4806,8 @@ def ncr_search_intake():
             i.supplier,
             i.receive_date,
             i.po_number     AS lot_number,
-            i.quantity
+            i.quantity,
+            i.remark_inspector
         FROM inspections i
         LEFT JOIN intake_list il ON il.id = i.intake_id
         LEFT JOIN materials   m  ON m.material_no = i.material_no
@@ -4886,11 +4896,16 @@ def ncr_new(inspection_id):
         flash("성적서를 찾을 수 없어.")
         return redirect(url_for("home"))
 
-    # 불합격 확정 건은 물론, 합격·특채로 이미 승인된 건도 나중에 문제가 발견되면
-    # 사후에 부적합 통보서를 쓸 수 있어야 한다(2026-08-30 사용자 요청) — 승인 자체가
-    # 안 된 건(대기중·반려)은 아직 판정이 확정 안 된 상태라 통보서 대상이 아니다.
-    if header["status"] != "approved":
-        flash("승인이 확정된 성적서만 부적합 통보서를 작성할 수 있어.")
+    # B안: 불합격 항목이 하나라도 있으면 승인 여부와 무관하게 통보서를 작성할 수 있다.
+    # superseded(대체됨) 상태만 차단 — 재검사된 구 성적서에 통보서를 붙이면 안 됨.
+    if header["status"] == "superseded":
+        flash("대체된 성적서에는 부적합 통보서를 작성할 수 없어.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    # 불합격 항목 없으면 차단 (규격미입력·미측정 제외)
+    has_fail = any(it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT, None)
+                   for it in items)
+    if not has_fail:
+        flash("불합격 항목이 없는 성적서에는 부적합 통보서를 작성할 수 없어.")
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
     if request.method == "POST":
@@ -4942,9 +4957,26 @@ def ncr_new(inspection_id):
     # 규격미입력은 우리 쪽 데이터 누락이므로 업체에 보내는 통보서에 넣으면 안 됨.
     defect_items = [it for it in items
                     if it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT)]
+    # 불합격 항목 자동 조합 텍스트 — "B항목: 기준 10.0±0.3, 실측 11.2" 형식
+    auto_desc_lines = []
+    for it in defect_items:
+        name = it.get("item_name") or ""
+        spec = it.get("spec_display") or ""
+        val = it.get("measured_value") or ""
+        parts = []
+        if spec:
+            parts.append(f"기준 {spec}")
+        if val:
+            parts.append(f"실측 {val}")
+        line = name
+        if parts:
+            line += ": " + ", ".join(parts)
+        auto_desc_lines.append(line)
+    auto_defect_description = "\n".join(auto_desc_lines)
     supplier_info = db.get_supplier(header["supplier"] or "")
     return render_template("ncr_form.html", header=header, items=defect_items,
-                           today=date.today().isoformat(), supplier_info=supplier_info)
+                           today=date.today().isoformat(), supplier_info=supplier_info,
+                           auto_defect_description=auto_defect_description)
 
 
 @app.route("/ncr")
