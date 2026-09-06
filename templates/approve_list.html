@@ -3,7 +3,7 @@
 {% block title %}승인 목록{% endblock %}
 {% block content %}
 
-{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='approve_list', show=('history_delete' in user_perms)) }}
+{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='approve_list', show=is_admin) }}
 <style>
 .tab-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
 .tab-btn {

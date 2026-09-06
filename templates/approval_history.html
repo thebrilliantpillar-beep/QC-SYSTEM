@@ -3,7 +3,7 @@
 {% block title %}승인 이력{% endblock %}
 {% block content %}
 
-{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='approval_history', show=('history_delete' in user_perms)) }}
+{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='approval_history', show=is_admin) }}
 <style>
   .filter-card { background:#fff; border-radius:12px; padding:16px 18px; margin-bottom:14px;
                  box-shadow:0 1px 3px rgba(0,0,0,.06); }
