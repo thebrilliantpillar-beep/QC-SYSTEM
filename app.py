@@ -281,6 +281,62 @@ def ensure_supplier_contacts_migration_20260907():
                      "supplier_contacts", None, f"{migrated}건 이관됨 (대상 {len(candidates)}건)")
 
 
+def ensure_material_category_import_20260907():
+    """자재코드_통합목록.xlsx(시트 '통합목록', B열=자재번호/C열=자재 분류, 691행)를 1회 반영.
+    - DB에 이미 있는 자재번호만 갱신. 엑셀에만 있고 DB에 없는 번호는 새로 만들지 않고 건너뜀.
+    - DB에는 있지만 엑셀에 없으면 category NULL 유지.
+    - 같은 자재번호가 엑셀 내 여러 행에 다른 값이면 마지막 행 값 사용, 로그에 남김.
+    - 파일 없으면 조용히 건너뛰고 버전 플래그 세우지 않음(나중에 파일 추가되면 재실행되게).
+    """
+    if db.get_setting("material_category_imported_20260907", "0") == "1":
+        return
+    xlsx_path = os.path.join(os.path.dirname(__file__), "자재코드_통합목록.xlsx")
+    if not os.path.exists(xlsx_path):
+        app.logger.info("[migration] 자재코드_통합목록.xlsx 없음 — 자재 분류 일괄 반영 건너뜀")
+        return
+
+    import openpyxl
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    ws = wb["통합목록"]
+
+    existing_material_nos = {m["material_no"] for m in db.get_materials()}
+    seen = {}
+    dup_conflicts = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or len(row) < 3:
+            continue
+        material_no = str(row[1]).strip() if row[1] is not None else ""
+        category = str(row[2]).strip() if row[2] is not None else ""
+        if not material_no:
+            continue
+        if material_no in seen and seen[material_no] != category:
+            dup_conflicts.append(material_no)
+        seen[material_no] = category
+    wb.close()
+
+    matched = 0
+    skipped_not_in_db = []
+    empty_category = 0
+    for material_no, category in seen.items():
+        if material_no not in existing_material_nos:
+            skipped_not_in_db.append(material_no)
+            continue
+        if not category:
+            empty_category += 1
+            continue
+        db.update_material_category(material_no, category)
+        matched += 1
+
+    db.set_setting("material_category_imported_20260907", "1")
+    detail = (f"매칭 반영 {matched}건 / DB에 없어 건너뜀 {len(skipped_not_in_db)}건 / "
+              f"분류값 빈칸 {empty_category}건 / 엑셀 내 중복행(값 다름) {len(dup_conflicts)}건")
+    app.logger.info(f"[migration] 자재 분류 일괄 반영: {detail}")
+    if skipped_not_in_db:
+        app.logger.warning(f"[migration] DB에 없어 건너뛴 자재번호(최대 50개): {skipped_not_in_db[:50]}")
+    db.log_activity(None, "system", "system", "자재 분류 일괄 반영 (배포 마이그레이션)",
+                     "material_category", None, detail)
+
+
 def record_change(action, target_type=None, target_id=None, detail=None):
     """
     데이터가 새로 생기거나 수정될 때마다 호출:
@@ -1428,15 +1484,17 @@ def intake():
 def spec_list():
     query = request.args.get("q", "").strip()
     search_by = request.args.get("by", "all")
+    category = request.args.get("category", "").strip()
     # 검사방식 미입력(method_empty)은 검색어가 없어도 조회한다.
-    if query or search_by == "method_empty":
-        materials = db.search_materials(query, search_by)
+    if query or search_by == "method_empty" or category:
+        materials = db.search_materials(query, search_by, category=category or None)
     else:
         materials = db.get_materials()
     materials = list(materials)
     pager = _paginate(materials)
     drawing_materials = materials_with_drawings(m["material_no"] for m in pager["items"])
     return render_template("spec.html", materials=pager["items"], query=query, search_by=search_by,
+                            category=category, categories=db.list_material_categories(),
                             drawing_materials=drawing_materials, pager=pager)
 
 
@@ -1464,17 +1522,21 @@ def spec_quick_add():
         rows_items = []  # rows와 같은 순서로 매칭되는 항목 리스트
         for idx, cols in enumerate(grid_rows):
             cols = [(c or "").strip() for c in cols]
-            while len(cols) < 2:
+            while len(cols) < 3:
                 cols.append("")
             material_no, material_name = cols[:2]
+            category = cols[2] if len(cols) > 2 else ""
             if not material_no:
                 continue
-            rows.append({"material_no": material_no, "material_name": material_name})
+            rows.append({"material_no": material_no, "material_name": material_name, "category": category})
             rows_items.append(items_per_row[idx] if idx < len(items_per_row) else [])
 
         item_count_total = 0
         if rows:
             db.upsert_materials_bulk(rows)
+            for r in rows:
+                if r.get("category"):
+                    db.update_material_category(r["material_no"], r["category"])
             for r, raw_items in zip(rows, rows_items):
                 parsed_items = []
                 for order, raw_it in enumerate(raw_items, start=1):
@@ -1542,7 +1604,8 @@ def spec_quick_add():
             flash("등록할 내용이 없어.")
         return redirect(url_for("spec_quick_add"))
 
-    return render_template("spec_quick_add.html", method_options=gauge_method_options())
+    return render_template("spec_quick_add.html", method_options=gauge_method_options(),
+                            categories=db.list_material_categories())
 
 
 @app.route("/spec/delete_bulk", methods=["POST"])
@@ -1589,7 +1652,8 @@ def spec_detail(material_no):
                            material_name=material_name, material=material, drawing_no=drawing_no,
                            drawing_pdf=drawing_pdf, drawing_has_auto=drawing_has_auto,
                            full_inspect_config=full_inspect_config,
-                           method_options=gauge_method_options())
+                           method_options=gauge_method_options(),
+                           categories=db.list_material_categories())
 
 
 @app.route("/spec/<material_no>/full-inspect-config", methods=["POST"])
@@ -1624,6 +1688,38 @@ def spec_standard_info_update(material_no):
     flash("기준서 정보가 저장됐어.")
     record_change("기준서 정보 수정", "material", material_no,
                   f"버전{drawing_version}/{revision_date}/제{edition}판/{unit}")
+    return redirect(url_for("spec_detail", material_no=material_no))
+
+
+@app.route("/materials/categories/add", methods=["POST"])
+@perm_required("material_edit")
+def material_category_add():
+    name = request.form.get("name", "").strip()
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if not name:
+        msg = "분류명을 입력해줘."
+        if is_ajax:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg)
+        return redirect(url_for("spec_list"))
+    canonical = db.add_material_category(name)
+    record_change("자재 분류 등록", "material_category", None, canonical)
+    if is_ajax:
+        return jsonify({"ok": True, "name": canonical})
+    flash(f"분류 '{canonical}' 등록됐어.")
+    return redirect(url_for("spec_list"))
+
+
+@app.route("/spec/<material_no>/category", methods=["POST"])
+@perm_required("material_edit")
+def spec_material_category_update(material_no):
+    category = request.form.get("category", "").strip()
+    if category == "__new__":
+        flash("새 분류를 먼저 등록해줘.")
+        return redirect(url_for("spec_detail", material_no=material_no))
+    canonical = db.update_material_category(material_no, category)
+    record_change("자재 분류 지정", "material", material_no, canonical or "(미지정으로 해제)")
+    flash(f"분류가 '{canonical}'(으)로 저장됐어." if canonical else "분류를 미지정으로 해제했어.")
     return redirect(url_for("spec_detail", material_no=material_no))
 
 
@@ -6485,6 +6581,7 @@ ensure_default_admin()
 ensure_perm_migration()
 ensure_inspect_method_fill_20260825()
 ensure_supplier_contacts_migration_20260907()
+ensure_material_category_import_20260907()
 
 # 매일 06:00 (KST) 자동 DB 백업 이메일
 try:

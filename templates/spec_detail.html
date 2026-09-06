@@ -54,6 +54,41 @@
 {% endif %}
 
 <div class="card">
+  <h3 style="margin-top:0;">자재 분류</h3>
+  {% if can_edit %}
+  <form method="POST" action="{{ url_for('spec_material_category_update', material_no=material_no) }}" id="categoryForm">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:1; min-width:180px;">
+        <label>분류</label>
+        <select id="categorySelect" name="category">
+          <option value="">(미지정)</option>
+          {% set current_category = material['category'] if material else None %}
+          {% for c in (categories or []) %}
+          <option value="{{ c }}" {% if current_category==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+          {% if current_category and current_category not in (categories or []) %}
+          <option value="{{ current_category }}" selected>{{ current_category }}</option>
+          {% endif %}
+          <option value="__new__">+ 새 분류 등록...</option>
+        </select>
+      </div>
+      <div id="newCategoryArea" style="display:none; flex:1; min-width:200px; gap:6px; align-items:flex-end;">
+        <div style="flex:1;">
+          <label>새 분류명</label>
+          <input type="text" id="newCategoryInput" placeholder="새 분류명">
+        </div>
+        <button type="button" id="registerCategoryBtn" style="margin-top:0;">등록</button>
+        <span id="categoryAddStatus" style="font-size:12.5px; color:#16a34a; font-weight:600; margin-left:6px;"></span>
+      </div>
+      <button type="submit" style="margin-top:0;">저장</button>
+    </div>
+  </form>
+  {% else %}
+  <div style="font-size:13.5px;"><span class="muted">자재 분류</span> {{ (material['category'] if material else None) or '미지정' }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
   <h3 style="margin-top:0;">기준서 정보</h3>
   <p class="hint" style="margin-top:0;">
     성적서 PDF 출력 시 뒤에 자동으로 붙는 기준서(SAM 양식)에 들어가는 정보야.
@@ -417,6 +452,64 @@
 </style>
 <script>
 const MATERIAL_NO = {{ material_no | tojson }};
+
+// ===== 자재 분류: 드롭다운에서 "+ 새 분류 등록..." 선택 시 인라인 등록 =====
+(function () {
+  const categorySelect = document.getElementById('categorySelect');
+  const newCategoryArea = document.getElementById('newCategoryArea');
+  const newCategoryInput = document.getElementById('newCategoryInput');
+  const registerBtn = document.getElementById('registerCategoryBtn');
+  const status = document.getElementById('categoryAddStatus');
+  const categoryForm = document.getElementById('categoryForm');
+  if (!categorySelect) return;
+
+  categorySelect.addEventListener('change', function () {
+    if (categorySelect.value === '__new__') {
+      newCategoryArea.style.display = 'flex';
+      newCategoryInput.focus();
+    } else {
+      newCategoryArea.style.display = 'none';
+    }
+  });
+
+  if (categoryForm) {
+    categoryForm.addEventListener('submit', function (e) {
+      if (categorySelect.value === '__new__') {
+        e.preventDefault();
+        alert('새 분류를 먼저 등록해줘.');
+      }
+    });
+  }
+
+  registerBtn.addEventListener('click', async function () {
+    const name = newCategoryInput.value.trim();
+    if (!name) { alert('새 분류명을 입력해줘.'); return; }
+    registerBtn.disabled = true;
+    try {
+      const res = await fetch("{{ url_for('material_category_add') }}", {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new URLSearchParams({ name: name }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || '등록 중 문제가 생겼어. 다시 시도해줘.');
+      const opt = document.createElement('option');
+      opt.value = data.name;
+      opt.textContent = data.name;
+      const newOpt = categorySelect.querySelector('option[value="__new__"]');
+      categorySelect.insertBefore(opt, newOpt);
+      categorySelect.value = data.name;
+      newCategoryArea.style.display = 'none';
+      newCategoryInput.value = '';
+      status.textContent = '✓ 등록됨';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    } catch (err) {
+      alert(err.message || '등록 중 문제가 생겼어. 다시 시도해줘.');
+    } finally {
+      registerBtn.disabled = false;
+    }
+  });
+})();
 
 // 항목 추가/수정/삭제를 페이지 새로고침 없이 처리하기 위한 헬퍼들.
 // 서버는 요청 헤더에 X-Requested-With: XMLHttpRequest가 있으면 리다이렉트 대신 JSON을 돌려준다.

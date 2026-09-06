@@ -28,8 +28,17 @@
         <option value="method_empty" {% if search_by=='method_empty' %}selected{% endif %}>검사방식 미입력</option>
       </select>
     </div>
+    <div style="flex:1; min-width:130px;">
+      <label>자재 분류</label>
+      <select name="category">
+        <option value="">전체</option>
+        {% for c in (categories or []) %}
+        <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or search_by != 'all' %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or search_by != 'all' or category %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
   </form>
   <p class="muted" style="margin:8px 0 0; font-size:12px;">
     '검사방식 미입력'을 고르면 검색어 없이도 검사방식이 비어 있는 항목을 가진 자재만 모아 보여줘.
@@ -52,7 +61,7 @@
 <table>
   <tr>
     {% if can_edit %}<th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>{% endif %}
-    <th>자재번호</th><th>자재명</th><th>도면</th>
+    <th>자재번호</th><th>자재명</th><th>분류</th><th>도면</th>
   </tr>
   {% for m in materials %}
   <tr>
@@ -63,6 +72,7 @@
     {% endif %}
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
+    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['category'] or '-' }}</td>
     <td onclick="event.stopPropagation()">
       {% if m['material_no'] in drawing_materials %}
       <a href="javascript:void(0)" onclick="openDrawingModal('{{ m['material_no'] }}')"
@@ -73,7 +83,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="{{ 4 if can_edit else 3 }}">{% if query or search_by=='method_empty' %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
+  <tr><td colspan="{{ 5 if can_edit else 4 }}">{% if query or search_by=='method_empty' or category %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
   {% endfor %}
 </table>
 {% set p = pager %}{% include "_pager.html" %}

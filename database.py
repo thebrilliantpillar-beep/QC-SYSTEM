@@ -93,6 +93,17 @@ def init_db():
     # 전수검사 — NULL이면 전수검사 없음. 열 정의는 JSON {"note":"...", "columns":[...]}
     if "full_inspect_config" not in existing_material_cols:
         cur.execute("ALTER TABLE materials ADD COLUMN full_inspect_config TEXT DEFAULT NULL")
+    # 자재 분류(어셈블리/하우징/PCB 등) — FK 없이 문자열 그대로 저장(intake_list.supplier와 동일 관례)
+    if "category" not in existing_material_cols:
+        cur.execute("ALTER TABLE materials ADD COLUMN category TEXT")
+
+    # 0-0-1. 자재 분류 마스터 — suppliers/gauges와 같은 독립 마스터 테이블
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS material_categories (
+            name TEXT PRIMARY KEY,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
 
     # 0-1. 커스텀 성적서 템플릿 — 드래그앤드롭 디자이너로 만든 자유 배치 양식
     #      layout_json = 요소 배열 [{kind,x,y,w,h,field?,text?,size,bold,align}, ...]
@@ -819,63 +830,111 @@ def upsert_materials_bulk(rows):
     conn.close()
 
 
-def search_materials(query=None, search_by="all"):
+def list_material_categories():
+    """등록된 자재 분류명 전체 (가나다순)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT name FROM material_categories ORDER BY name").fetchall()
+    conn.close()
+    return [r["name"] for r in rows]
+
+
+def add_material_category(name):
+    """분류명을 마스터에 등록. 이미 있으면(공백/대소문자 무시) 기존 정본 표기를 반환.
+    name이 빈 값이면 None."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    conn = get_conn()
+    for row in conn.execute("SELECT name FROM material_categories").fetchall():
+        if row["name"].strip().casefold() == name.casefold():
+            conn.close()
+            return row["name"]
+    conn.execute("INSERT INTO material_categories (name) VALUES (?)", (name,))
+    conn.commit()
+    conn.close()
+    return name
+
+
+def update_material_category(material_no, category):
+    """자재 하나의 분류 저장. category가 비어있지 않으면 마스터에 자동 등록 후 정본
+    표기로 저장. 빈 값이면 NULL로 해제. 반환값: 실제 저장된 분류명(또는 None)."""
+    canonical = add_material_category(category) if (category or "").strip() else None
+    conn = get_conn()
+    conn.execute("UPDATE materials SET category = ? WHERE material_no = ?", (canonical, material_no))
+    conn.commit()
+    conn.close()
+    return canonical
+
+
+def search_materials(query=None, search_by="all", category=None):
     """
     query: 검색어. search_by: 'material_no' / 'material_name' / 'method' / 'spec' / 'all'
     'method'(검사방식)는 specs.inspect_method에서, 'spec'(규격 표기)는 specs.spec_display에서 매칭.
     'all'(전체)은 자재번호·자재명·규격 표기·검사방식을 모두 훑는다.
+    category: 지정하면 그 분류(정확일치)로만 추가 필터링. search_by(어디서 찾을지)와는
+    별개 축이라 AND 조건으로 얹는다.
     """
     conn = get_conn()
+    category = (category or "").strip() or None
+    cat_sql = " AND m.category = ?" if category else ""
+    cat_params = (category,) if category else ()
+
     if search_by == "method_empty":
         # 검사방식(inspect_method)이 비어 있는 항목을 가진 자재. 검색어와 무관하게 동작한다.
-        rows = conn.execute("""
-            SELECT DISTINCT m.material_no, m.material_name FROM materials m
+        rows = conn.execute(f"""
+            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''
+            WHERE (s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''){cat_sql}
             ORDER BY m.material_no
-        """).fetchall()
+        """, cat_params).fetchall()
         conn.close()
         return rows
     if not query:
-        rows = conn.execute("SELECT material_no, material_name FROM materials ORDER BY material_no").fetchall()
+        rows = conn.execute(f"""
+            SELECT m.material_no, m.material_name, m.category FROM materials m
+            WHERE 1=1{cat_sql}
+            ORDER BY m.material_no
+        """, cat_params).fetchall()
         conn.close()
         return rows
 
     like = f"%{query}%"
     if search_by == "material_no":
-        rows = conn.execute(
-            "SELECT material_no, material_name FROM materials WHERE material_no LIKE ? ORDER BY material_no",
-            (like,)
-        ).fetchall()
+        rows = conn.execute(f"""
+            SELECT m.material_no, m.material_name, m.category FROM materials m
+            WHERE m.material_no LIKE ?{cat_sql}
+            ORDER BY m.material_no
+        """, (like, *cat_params)).fetchall()
     elif search_by == "material_name":
-        rows = conn.execute(
-            "SELECT material_no, material_name FROM materials WHERE material_name LIKE ? ORDER BY material_no",
-            (like,)
-        ).fetchall()
+        rows = conn.execute(f"""
+            SELECT m.material_no, m.material_name, m.category FROM materials m
+            WHERE m.material_name LIKE ?{cat_sql}
+            ORDER BY m.material_no
+        """, (like, *cat_params)).fetchall()
     elif search_by == "method":
-        rows = conn.execute("""
-            SELECT DISTINCT m.material_no, m.material_name FROM materials m
+        rows = conn.execute(f"""
+            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.inspect_method LIKE ?
+            WHERE s.inspect_method LIKE ?{cat_sql}
             ORDER BY m.material_no
-        """, (like,)).fetchall()
+        """, (like, *cat_params)).fetchall()
     elif search_by == "spec":
-        rows = conn.execute("""
-            SELECT DISTINCT m.material_no, m.material_name FROM materials m
+        rows = conn.execute(f"""
+            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.spec_display LIKE ?
+            WHERE s.spec_display LIKE ?{cat_sql}
             ORDER BY m.material_no
-        """, (like,)).fetchall()
+        """, (like, *cat_params)).fetchall()
     else:
         # 전체: 자재번호·자재명·규격 표기·검사방식 어디에 있든 잡는다.
         # (규격 표기 spec_display를 빠뜨려서 규격에만 있는 검색어가 안 걸리던 버그 수정)
-        rows = conn.execute("""
-            SELECT DISTINCT m.material_no, m.material_name FROM materials m
+        rows = conn.execute(f"""
+            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             LEFT JOIN specs s ON s.material_no = m.material_no
-            WHERE m.material_no LIKE ? OR m.material_name LIKE ?
-               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?
+            WHERE (m.material_no LIKE ? OR m.material_name LIKE ?
+               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?){cat_sql}
             ORDER BY m.material_no
-        """, (like, like, like, like)).fetchall()
+        """, (like, like, like, like, *cat_params)).fetchall()
     conn.close()
     return rows
 
