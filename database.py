@@ -3287,6 +3287,101 @@ def quality_report(start_date, end_date, period_type="monthly",
     }
 
 
+_HL_DEVIATION_MIN = 5.0     # 규격이탈률(%) 이 이상이어야 특이사항 후보로 본다
+_HL_MIN_CONFIRMED = 10      # 확정수량이 이 미만이면 표본이 너무 작아 노이즈로 보고 제외한다
+_HL_SUPPLIER_SLOTS = 3      # 특이사항 중 업체 몫(수량 영향이 큰 순)
+_HL_MATERIAL_SLOTS = 2      # 특이사항 중 자재 몫
+
+
+def quality_highlights(report):
+    """quality_report() 결과를 임원도 바로 읽을 수 있는 문장으로 요약한다(규칙 기반 — AI 아님).
+
+    대시보드 화면과 JSON/엑셀 내보내기가 이 함수 하나만 쓴다(집계는 한 곳에서만 하는
+    quality_report()의 원칙을 요약 문장에도 그대로 적용) — 화면과 발표자료가 서로
+    다른 이야기를 하지 않게 하기 위함이다.
+
+    특이사항은 '규격이탈률이 높은 것'이 아니라 '실제 영향 수량(특채+불합격)이 큰 것'을
+    우선 노출한다 — 작은 로트 하나가 100% 이탈인 것보다, 큰 로트에서 이탈이 반복되는
+    업체가 경영진에게 더 중요한 신호이기 때문. 업체 몫과 자재 몫을 미리 나눠서(3+2),
+    업체 단위 이슈가 개별 부품 이슈에 전부 밀려나지 않게 한다.
+    """
+    s = report["요약"]
+    confirmed = s["확정수량"]
+    if confirmed == 0:
+        if s["로트"] == 0:
+            headline = "이 조건에 해당하는 검사 기록이 없습니다."
+        else:
+            headline = f"이 기간 {s['로트']}개 로트 중 판정이 확정된 건이 아직 없습니다(전부 승인 대기·반려)."
+        return {"headline": headline, "톤": "정보없음", "특이사항": [], "표본참고": None}
+
+    def _candidates(rows, kind, name_key):
+        out = []
+        for r in rows:
+            if r["확정수량"] < _HL_MIN_CONFIRMED or r["규격이탈률"] < _HL_DEVIATION_MIN:
+                continue
+            name = r[name_key]
+            if kind == "자재" and r.get("자재명"):
+                name = f"{name} ({r['자재명']})"
+            impact = r["특채수량"] + r["불합격수량"]
+            out.append({
+                "구분": kind, "이름": name, "규격이탈률": r["규격이탈률"], "불량률": r["불량률"],
+                "특채수량": r["특채수량"], "불합격수량": r["불합격수량"], "확정수량": r["확정수량"],
+                "_impact": impact,
+            })
+        out.sort(key=lambda x: (-x["_impact"], -x["규격이탈률"]))
+        return out
+
+    sup_cands = _candidates(report["업체별"], "업체", "업체")
+    mat_cands = _candidates(report["자재별"], "자재", "자재번호")
+
+    top = sup_cands[:_HL_SUPPLIER_SLOTS] + mat_cands[:_HL_MATERIAL_SLOTS]
+    total_slots = _HL_SUPPLIER_SLOTS + _HL_MATERIAL_SLOTS
+    remaining = total_slots - len(top)
+    if remaining > 0:
+        used_sup = min(len(sup_cands), _HL_SUPPLIER_SLOTS)
+        used_mat = min(len(mat_cands), _HL_MATERIAL_SLOTS)
+        top += sup_cands[used_sup:used_sup + remaining]
+        remaining = total_slots - len(top)
+        if remaining > 0:
+            top += mat_cands[used_mat:used_mat + remaining]
+    top.sort(key=lambda x: (-x["_impact"], -x["규격이탈률"]))
+
+    for c in top:
+        parts = []
+        if c["불합격수량"]:
+            parts.append(f"불합격 {c['불합격수량']:,}개")
+        if c["특채수량"]:
+            parts.append(f"특채 {c['특채수량']:,}개")
+        detail = ", ".join(parts) if parts else "규격 이탈"
+        c["메시지"] = f"{c['이름']} — 규격이탈률 {c['규격이탈률']}%(확정 {c['확정수량']:,}개 중 {detail})"
+        c.pop("_impact", None)
+
+    pass_rate = round(s["합격수량"] / confirmed * 100, 1)
+    headline = (f"이번 기간 판정 확정 {confirmed:,}개 중 합격 {s['합격수량']:,}개({pass_rate}%), "
+                f"불합격 {s['불합격수량']:,}개, 특채 {s['특채수량']:,}개입니다.")
+    if top:
+        names = ", ".join(c["이름"] for c in top[:3])
+        suffix = " 등" if len(top) > 3 else ""
+        headline += f" 다만 {names}{suffix}에서 규격을 반복적으로 벗어나 특채·불합격 처리된 사례가 있어 확인이 필요합니다."
+    else:
+        headline += " 규격 이탈이 두드러지는 업체·자재는 없습니다."
+
+    sample_note = None
+    if s["표본불량률"] is not None and (s["표본불량률"] - s["불량률"]) >= 2:
+        sample_note = (f"참고: 개별 표본 기준으로는 불량 표본 비율이 {s['표본불량률']}%로 나타납니다. "
+                        "이 수치는 특채로 넘어간 물량의 표본 불량까지 포함하며, "
+                        "위 불량률·PPM에는 특채가 들어가지 않습니다.")
+
+    if s["불량률"] >= 3 or any(c["규격이탈률"] >= 20 for c in top):
+        tone = "경고"
+    elif top or s["불량률"] >= 1:
+        tone = "주의"
+    else:
+        tone = "양호"
+
+    return {"headline": headline, "톤": tone, "특이사항": top, "표본참고": sample_note}
+
+
 def upsert_supplier_report(supplier, period, start_date, end_date, payload_json, created_by):
     """업체 월간 성적표 생성/갱신. 이미 승인·발송된 건은 덮어쓰지 않는다."""
     conn = get_conn()

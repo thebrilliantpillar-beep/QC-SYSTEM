@@ -184,6 +184,30 @@
 </div>
 {% else %}
 
+{% set h = highlights %}
+<div class="card" style="border-left:4px solid
+    {{ '#dc2626' if h['톤']=='경고' else ('#d97706' if h['톤']=='주의' else ('#16a34a' if h['톤']=='양호' else '#9ca3af')) }};">
+  <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+    <span style="font-size:18px;">
+      {{ '🔴' if h['톤']=='경고' else ('🟠' if h['톤']=='주의' else ('🟢' if h['톤']=='양호' else '⚪')) }}
+    </span>
+    <b style="font-size:15px;">핵심 요약</b>
+  </div>
+  <p style="margin:0; font-size:14.5px; line-height:1.7; color:#374151;">{{ h['headline'] }}</p>
+  {% if h['표본참고'] %}
+  <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">{{ h['표본참고'] }}</p>
+  {% endif %}
+  {% if h['특이사항'] %}
+  <div style="display:flex; gap:7px; flex-wrap:wrap; margin-top:10px;">
+    {% for c in h['특이사항'] %}
+    <span class="rate-pill r-bad" title="{{ c['메시지'] }}" style="font-weight:600; cursor:default;">
+      {{ c['이름'] }} {{ c['규격이탈률'] }}%
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
 {# ───────── KPI ───────── #}
 <div class="kpi-grid">
   <div class="kpi">
@@ -217,7 +241,7 @@
 </p>
 
 {# ───────── 기간별 추이 ───────── #}
-<details class="sec" open data-sec="trend">
+<details class="sec" data-sec="trend">
   <summary>📈 기간별 추이 <span class="sec-count">{{ report['기간별']|length }}구간</span><span class="arrow">▶</span></summary>
   <div class="sec-body">
     {% set periods = report['기간별'] %}
@@ -267,7 +291,7 @@
 </details>
 
 {# ───────── 업체별 ───────── #}
-<details class="sec" open data-sec="supplier">
+<details class="sec" data-sec="supplier">
   <summary>🏭 업체별 <span class="sec-count">{{ report['업체별']|length }}개 업체</span><span class="arrow">▶</span></summary>
   <div class="sec-body" style="padding:0;">
     <div class="tbl-wrap">
@@ -297,7 +321,7 @@
 
 {# ───────── 자재별 ───────── #}
 {% set mat_rows = report['자재별'] if p.row_limit == 0 else report['자재별'][:p.row_limit] %}
-<details class="sec" open data-sec="material">
+<details class="sec" data-sec="material">
   <summary>📦 자재별
     <span class="sec-count">{{ mat_rows|length }}/{{ report['자재별']|length }} · 행을 누르면 상세</span>
     <span class="arrow">▶</span></summary>
@@ -330,7 +354,7 @@
 {# ───────── 불량 항목 ───────── #}
 {% if report['불량항목순위'] %}
 {% set item_rows = report['불량항목순위'] if p.row_limit == 0 else report['불량항목순위'][:p.row_limit] %}
-<details class="sec" open data-sec="items">
+<details class="sec" data-sec="items">
   <summary>🔧 불량 많이 나는 항목
     <span class="sec-count">{{ item_rows|length }}/{{ report['불량항목순위']|length }}</span><span class="arrow">▶</span></summary>
   <div class="sec-body" style="padding:0;">
@@ -402,7 +426,7 @@
 
 {# ───────── 성적서 목록 ───────── #}
 {% set insp_rows = report['성적서목록'] if p.row_limit == 0 else report['성적서목록'][:p.row_limit] %}
-<details class="sec" open data-sec="list">
+<details class="sec" data-sec="list">
   <summary>📋 성적서
     <span class="sec-count">{{ insp_rows|length }}/{{ report['성적서목록']|length }} · 행을 누르면 팝업</span>
     <span class="arrow">▶</span></summary>

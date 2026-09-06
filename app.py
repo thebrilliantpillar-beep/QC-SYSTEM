@@ -6175,10 +6175,12 @@ def quality_dashboard():
     """품질 현황 대시보드 — 기간·업체·발주번호·자재로 걸러서 보고, 팝업으로 근거 문서까지 본다."""
     p = _dashboard_params()
     report = _build_quality_report(p)
+    highlights = db.quality_highlights(report)
     # 발주번호 후보 — 지금 조회 범위 안에 실제로 있는 것만 골라준다
     po_options = sorted({r["po_number"] for r in report["성적서목록"] if r["po_number"]})
     return render_template("dashboard.html",
                            p=p, report=report,
+                           highlights=highlights,
                            period_types=db.PERIOD_TYPES,
                            suppliers=db.list_suppliers(),
                            po_options=po_options,
@@ -6195,8 +6197,10 @@ def dashboard_export_json():
     import json
     p = _dashboard_params()
     report = _build_quality_report(p)
+    highlights = db.quality_highlights(report)
     report.pop("성적서목록", None)      # 원본 행은 너무 길어서 요약 내보내기에선 뺀다
-    body = json.dumps(report, ensure_ascii=False, indent=2, default=str)
+    export = {"핵심요약": highlights, **report}
+    body = json.dumps(export, ensure_ascii=False, indent=2, default=str)
     fname = f"품질현황_{p['start']}_{p['end']}.json"
     return send_file(io.BytesIO(body.encode("utf-8")), mimetype="application/json",
                      as_attachment=True, download_name=fname)
@@ -6249,6 +6253,15 @@ def dashboard_export_xlsx():
         ws0.append([k, v])
     ws0.column_dimensions["A"].width = 18
     ws0.column_dimensions["B"].width = 46
+
+    highlights = db.quality_highlights(report)
+    ws0.append([])
+    ws0.append(["핵심 요약", highlights["headline"]])
+    ws0.cell(row=ws0.max_row, column=1).font = head_font
+    if highlights["표본참고"]:
+        ws0.append(["표본 참고", highlights["표본참고"]])
+    for c in highlights["특이사항"]:
+        ws0.append([f"특이사항({c['구분']})", c["메시지"]])
 
     sheet("기간별", ["구간", "로트", "수량", "검사표본수", "합격수량", "특채수량", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
           report["기간별"])
