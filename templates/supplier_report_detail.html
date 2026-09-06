@@ -79,9 +79,18 @@
         onsubmit="return confirm('이 성적표를 협력사에 발송 처리할까?');">
     <div style="flex:1; min-width:210px;">
       <label>받는 사람 이메일</label>
-      <input type="email" name="to_email" required
-             value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else '' }}"
+      <input type="email" name="to_email" id="reportToEmail" required
+             value="{{ default_contact_email if default_contact_email else (supplier_info['email'] if supplier_info and supplier_info['email'] else '') }}"
              placeholder="supplier@example.com">
+      {% if supplier_contacts %}
+      <select onchange="if(this.value){document.getElementById('reportToEmail').value=this.value;}"
+              style="width:100%; margin-top:6px; font-size:12.5px; padding:6px 8px;">
+        <option value="">— 다른 담당자로 바꾸기 —</option>
+        {% for c in supplier_contacts %}
+        {% if c['email'] %}<option value="{{ c['email'] }}">{{ c['role'] }} · {{ c['contact_name'] or '이름없음' }} ({{ c['email'] }})</option>{% endif %}
+        {% endfor %}
+      </select>
+      {% endif %}
     </div>
     <button type="submit" style="margin:0;">발송</button>
   </form>

@@ -414,6 +414,24 @@ def init_db():
     if "items" not in existing_supplier_cols:
         cur.execute("ALTER TABLE suppliers ADD COLUMN items TEXT")
 
+    # 8-1. 업체 담당자 — 역할(영업/품질/구매/기타)별로 여러 명 등록 가능(2026-09-07).
+    #      suppliers의 contact_name/contact/contact2/email은 옛 단일 담당자 필드로,
+    #      호환을 위해 그대로 남겨두고 폴백용으로 쓴다(get_default_contact 참고).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT '기타',
+            contact_name TEXT,
+            phone TEXT,
+            email TEXT,
+            notes TEXT,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_supplier_contacts_name ON supplier_contacts(supplier_name)")
+
     # 9. 부적합 통보서 (NCR)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ncr (
@@ -1736,9 +1754,107 @@ def upsert_supplier(name, email, contact, notes, address="", biz_no="", contact_
 
 def delete_supplier(name):
     conn = get_conn()
+    conn.execute("DELETE FROM supplier_contacts WHERE supplier_name = ?", (name,))
     conn.execute("DELETE FROM suppliers WHERE name = ?", (name,))
     conn.commit()
     conn.close()
+
+
+def search_suppliers(query=None):
+    """업체 검색 — 단일 자유텍스트로 업체명·주소·취급품목·(레거시)연락처 필드·
+    담당자(역할/이름/전화/이메일)까지 전부 훑는다. 필드 지정 없이 아무 정보로나
+    찾는 게 비개발자 사용자에게 더 직관적이라 spec.html의 by= 드롭다운과는 다르게
+    필드 선택 없이 만들었다."""
+    conn = get_conn()
+    if not query:
+        rows = conn.execute("SELECT * FROM suppliers ORDER BY name").fetchall()
+        conn.close()
+        return rows
+    like = f"%{query}%"
+    rows = conn.execute("""
+        SELECT DISTINCT s.* FROM suppliers s
+        LEFT JOIN supplier_contacts c ON c.supplier_name = s.name
+        WHERE s.name LIKE ? OR s.items LIKE ? OR s.address LIKE ?
+           OR s.contact_name LIKE ? OR s.contact LIKE ? OR s.contact2 LIKE ? OR s.email LIKE ?
+           OR c.role LIKE ? OR c.contact_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ?
+        ORDER BY s.name
+    """, (like,) * 11).fetchall()
+    conn.close()
+    return rows
+
+
+# ---------- 업체 담당자 (역할별 다중 등록) ----------
+
+def list_supplier_contacts(supplier_name):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM supplier_contacts WHERE supplier_name = ? ORDER BY sort_order, id",
+        (supplier_name,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def add_supplier_contact(supplier_name, role, contact_name, phone, email, notes):
+    conn = get_conn()
+    max_order = conn.execute(
+        "SELECT MAX(sort_order) FROM supplier_contacts WHERE supplier_name = ?", (supplier_name,)
+    ).fetchone()[0]
+    sort_order = (max_order or 0) + 1
+    cur = conn.execute("""
+        INSERT INTO supplier_contacts (supplier_name, role, contact_name, phone, email, notes, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (supplier_name, role or "기타", contact_name, phone, email, notes, sort_order))
+    conn.commit()
+    contact_id = cur.lastrowid
+    conn.close()
+    return contact_id
+
+
+def update_supplier_contact(contact_id, role, contact_name, phone, email, notes):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE supplier_contacts SET role=?, contact_name=?, phone=?, email=?, notes=?
+        WHERE id=?
+    """, (role or "기타", contact_name, phone, email, notes, contact_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_supplier_contact(contact_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM supplier_contacts WHERE id = ?", (contact_id,))
+    conn.commit()
+    conn.close()
+
+
+_CONTACT_ROLE_PRIORITY = {
+    "ncr": ["품질", "영업", "구매"],
+    "report": ["영업", "품질", "구매"],
+}
+
+
+def get_default_contact(supplier_name, purpose):
+    """문서 종류(purpose: 'ncr' 또는 'report')에 맞는 기본 발송 대상 담당자를 고른다.
+
+    role 우선순위에 맞는 담당자 중 sort_order가 가장 빠른 사람 → 없으면 등록된
+    담당자 중 첫 번째 → 그마저 없으면 suppliers의 옛 단일 필드(email/contact_name)로
+    폴백한다. 반환 형식은 기존 supplier_info["email"] 사용부와 호환되는 dict.
+    """
+    contacts = list_supplier_contacts(supplier_name)
+    if contacts:
+        priority = _CONTACT_ROLE_PRIORITY.get(purpose, [])
+        for role in priority:
+            for c in contacts:
+                if c["role"] == role and c["email"]:
+                    return {"email": c["email"], "contact_name": c["contact_name"], "role": c["role"]}
+        for c in contacts:
+            if c["email"]:
+                return {"email": c["email"], "contact_name": c["contact_name"], "role": c["role"]}
+    supplier = get_supplier(supplier_name)
+    if supplier:
+        return {"email": supplier["email"] or "", "contact_name": supplier["contact_name"] or "", "role": None}
+    return {"email": "", "contact_name": "", "role": None}
 
 
 # ---------- 부적합 통보서 (NCR) ----------

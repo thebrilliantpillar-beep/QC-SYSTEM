@@ -275,10 +275,19 @@
         수신자 이메일
       </label>
       <input type="email" id="emailRecipient"
-             value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else (ncr['sent_to'] or '') }}"
+             value="{{ default_contact_email if default_contact_email else (ncr['sent_to'] or '') }}"
              placeholder="supplier@example.com"
              style="width:100%; margin:0; font-size:14px; padding:9px 12px; border:1.5px solid #d1d5db;
                     border-radius:8px; box-sizing:border-box;">
+      {% if supplier_contacts %}
+      <select id="contactPicker" onchange="if(this.value){document.getElementById('emailRecipient').value=this.value; document.getElementById('emailRecipient').dispatchEvent(new Event('input'));}"
+              style="width:100%; margin-top:6px; font-size:12.5px; padding:6px 8px;">
+        <option value="">— 다른 담당자로 바꾸기 —</option>
+        {% for c in supplier_contacts %}
+        {% if c['email'] %}<option value="{{ c['email'] }}">{{ c['role'] }} · {{ c['contact_name'] or '이름없음' }} ({{ c['email'] }})</option>{% endif %}
+        {% endfor %}
+      </select>
+      {% endif %}
     </div>
 
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -298,7 +307,7 @@
       </div>
       <form method="POST" action="{{ url_for('ncr_send_email', ncr_id=ncr['id']) }}" id="markSentForm">
         <input type="hidden" name="to_email" id="markSentEmail"
-               value="{{ supplier_info['email'] if supplier_info and supplier_info['email'] else (ncr['sent_to'] or '') }}">
+               value="{{ default_contact_email if default_contact_email else (ncr['sent_to'] or '') }}">
         <button type="submit" onclick="syncEmailToForm(); return confirm('발송 완료로 표시할까?')"
                 style="width:100%; background:#059669; color:#fff; padding:11px; font-size:14px;
                        font-weight:700; border:none; border-radius:8px; cursor:pointer; margin:0;">

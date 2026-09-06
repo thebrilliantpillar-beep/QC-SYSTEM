@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}{{ supplier['name'] }} 담당자 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .contact-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
+                   overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:13px; }
+  .contact-table th { background:#f3f4f6; color:#4b5563; padding:8px 6px; font-size:12px; }
+  .contact-table td { border-bottom:1px solid #e5e7eb; padding:7px 6px; text-align:center; vertical-align:middle; }
+  .contact-table input, .contact-table select {
+    width:100%; padding:6px 5px; font-size:12.5px; border:1px solid #d1d5db; border-radius:5px; min-width:70px;
+  }
+  .row-actions { display:flex; gap:4px; justify-content:center; }
+  .row-actions button { padding:5px 8px; font-size:11.5px; margin-top:0; border-radius:5px; }
+  .btn-del { background:#fff; color:#dc2626; border:1px solid #dc2626; }
+  .btn-del:hover { background:#fee2e2; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+  <h2 style="margin:0;">🏭 {{ supplier['name'] }} — 담당자 관리</h2>
+  <a href="{{ url_for('supplier_list') }}" class="btn secondary" style="margin-top:0;">목록으로</a>
+</div>
+<p class="hint">역할(영업/품질/구매/기타)별로 담당자를 여러 명 등록할 수 있어. 부적합 통보서·업체 성적표를
+  발송할 때 문서 종류에 맞는 담당자 이메일이 자동으로 기본값으로 채워져(품질 관련은 품질 담당자 우선,
+  성적표는 영업 담당자 우선 — 해당 역할이 없으면 등록된 다른 담당자로, 그마저 없으면 예전에 입력해둔
+  단일 연락처로 채워짐).</p>
+
+<div class="card" style="margin-bottom:16px;">
+  <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:13.5px;">
+    <div><span class="muted">주소</span> {{ supplier['address'] or '-' }}</div>
+    <div><span class="muted">사업자번호</span> {{ supplier['biz_no'] or '-' }}</div>
+    <div><span class="muted">취급품목</span> {{ supplier['items'] or '-' }}</div>
+  </div>
+  <p class="hint" style="margin:8px 0 0;">업체 기본정보는 <a href="{{ url_for('supplier_list') }}">업체 관리 목록</a>에서 수정해줘.</p>
+</div>
+
+<div id="contactRowForms">
+{% for c in contacts %}
+<form id="contact-row-{{ c['id'] }}" method="POST"
+      action="{{ url_for('supplier_contact_update', name=supplier['name'], contact_id=c['id']) }}"></form>
+<form id="contact-del-{{ c['id'] }}" method="POST"
+      action="{{ url_for('supplier_contact_delete', name=supplier['name'], contact_id=c['id']) }}"></form>
+{% endfor %}
+</div>
+
+<div style="overflow-x:auto;">
+  <table class="contact-table">
+    <tr>
+      <th style="min-width:90px;">역할</th><th>담당자명</th><th>전화</th><th>이메일</th><th>비고</th><th>관리</th>
+    </tr>
+    <tbody id="contactRowsBody">
+    {% for c in contacts %}
+    <tr id="contactRow_{{ c['id'] }}">
+      <td>
+        <select form="contact-row-{{ c['id'] }}" name="role">
+          {% for r in role_options %}
+          <option value="{{ r }}" {% if c['role']==r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </td>
+      <td><input form="contact-row-{{ c['id'] }}" type="text" name="contact_name" value="{{ c['contact_name'] or '' }}"></td>
+      <td><input form="contact-row-{{ c['id'] }}" type="text" name="phone" value="{{ c['phone'] or '' }}"></td>
+      <td><input form="contact-row-{{ c['id'] }}" type="email" name="email" value="{{ c['email'] or '' }}"></td>
+      <td><input form="contact-row-{{ c['id'] }}" type="text" name="notes" value="{{ c['notes'] or '' }}"></td>
+      <td>
+        <div class="row-actions">
+          <button type="button" onclick="saveRow({{ c['id'] }})">저장</button>
+          <button type="button" class="btn-del" onclick="deleteRow({{ c['id'] }})">삭제</button>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p id="noContactsMsg" class="hint" style="{{ 'display:none;' if contacts else '' }}">등록된 담당자가 없어. 아래에서 추가해줘.</p>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h3 style="margin-top:0;">담당자 추가</h3>
+  <form id="addContactForm" onsubmit="return submitAddContact(event)"
+        data-action="{{ url_for('supplier_contact_add', name=supplier['name']) }}">
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:100px;">
+        <label>역할</label>
+        <select name="role">
+          {% for r in role_options %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="flex:1; min-width:120px;"><label>담당자명</label><input type="text" name="contact_name" placeholder="예: 홍길동 과장"></div>
+      <div style="flex:1; min-width:120px;"><label>전화</label><input type="text" name="phone" placeholder="010-0000-0000"></div>
+      <div style="flex:1; min-width:160px;"><label>이메일</label><input type="email" name="email" placeholder="example@supplier.com"></div>
+      <div style="flex:1; min-width:120px;"><label>비고</label><input type="text" name="notes"></div>
+    </div>
+    <button type="submit" id="addContactBtn" style="margin-top:12px;">담당자 추가</button>
+    <span id="addContactStatus" style="margin-left:10px; font-size:13px; color:#16a34a; font-weight:600;"></span>
+  </form>
+</div>
+
+<script>
+const SUPPLIER_NAME = {{ supplier['name'] | tojson }};
+const ROLE_OPTIONS = {{ role_options | tojson }};
+
+function escapeAttr(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function roleOptionsHTML(selected) {
+  return ROLE_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === selected ? 'selected' : ''}>${escapeAttr(r)}</option>`).join('');
+}
+
+function buildRowHTML(c) {
+  const id = c.id;
+  return `
+    <td>
+      <select form="contact-row-${id}" name="role">${roleOptionsHTML(c.role)}</select>
+    </td>
+    <td><input form="contact-row-${id}" type="text" name="contact_name" value="${escapeAttr(c.contact_name)}"></td>
+    <td><input form="contact-row-${id}" type="text" name="phone" value="${escapeAttr(c.phone)}"></td>
+    <td><input form="contact-row-${id}" type="email" name="email" value="${escapeAttr(c.email)}"></td>
+    <td><input form="contact-row-${id}" type="text" name="notes" value="${escapeAttr(c.notes)}"></td>
+    <td>
+      <div class="row-actions">
+        <button type="button" onclick="saveRow(${id})">저장</button>
+        <button type="button" class="btn-del" onclick="deleteRow(${id})">삭제</button>
+      </div>
+    </td>
+  `;
+}
+
+function addRowToTable(c) {
+  const tr = document.createElement('tr');
+  tr.id = `contactRow_${c.id}`;
+  tr.innerHTML = buildRowHTML(c);
+  document.getElementById('contactRowsBody').appendChild(tr);
+
+  const formsContainer = document.getElementById('contactRowForms');
+  const updateForm = document.createElement('form');
+  updateForm.id = `contact-row-${c.id}`;
+  updateForm.method = 'POST';
+  updateForm.action = `/suppliers/${encodeURIComponent(SUPPLIER_NAME)}/contacts/${c.id}/update`;
+  const delForm = document.createElement('form');
+  delForm.id = `contact-del-${c.id}`;
+  delForm.method = 'POST';
+  delForm.action = `/suppliers/${encodeURIComponent(SUPPLIER_NAME)}/contacts/${c.id}/delete`;
+  formsContainer.appendChild(updateForm);
+  formsContainer.appendChild(delForm);
+
+  document.getElementById('noContactsMsg').style.display = 'none';
+}
+
+async function submitAddContact(e) {
+  e.preventDefault();
+  const form = document.getElementById('addContactForm');
+  const btn = document.getElementById('addContactBtn');
+  const status = document.getElementById('addContactStatus');
+
+  btn.disabled = true;
+  status.textContent = '추가 중...';
+  try {
+    const res = await fetch(form.dataset.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(form),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || '담당자 추가 중 문제가 생겼어.');
+    addRowToTable(data.contact);
+    form.reset();
+    status.textContent = '✓ 추가됨';
+    setTimeout(() => { status.textContent = ''; }, 2000);
+  } catch (err) {
+    alert(err.message || '담당자 추가 중 문제가 생겼어. 다시 시도해줘.');
+  } finally {
+    btn.disabled = false;
+  }
+  return false;
+}
+
+async function saveRow(id) {
+  const form = document.getElementById(`contact-row-${id}`);
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(form),
+    });
+    if (!res.ok) throw new Error();
+  } catch (e) {
+    alert('저장 중 문제가 생겼어. 다시 시도해줘.');
+  }
+}
+
+async function deleteRow(id) {
+  if (!confirm('이 담당자를 삭제할까?')) return;
+  const delForm = document.getElementById(`contact-del-${id}`);
+  try {
+    const res = await fetch(delForm.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(delForm),
+    });
+    if (!res.ok) throw new Error();
+    const tr = document.getElementById(`contactRow_${id}`);
+    if (tr) tr.remove();
+    delForm.remove();
+    const updateForm = document.getElementById(`contact-row-${id}`);
+    if (updateForm) updateForm.remove();
+    if (!document.querySelectorAll('#contactRowsBody tr').length) {
+      document.getElementById('noContactsMsg').style.display = '';
+    }
+  } catch (e) {
+    alert('삭제 중 문제가 생겼어. 다시 시도해줘.');
+  }
+}
+</script>
+{% endblock %}

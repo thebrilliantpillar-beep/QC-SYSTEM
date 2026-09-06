@@ -239,6 +239,48 @@ def ensure_inspect_method_fill_20260825():
                      "specs", None, f"{filled}건을 육안으로 자동 설정 (numeric 미입력 항목은 개별 확인 후 수동 처리)")
 
 
+def ensure_supplier_contacts_migration_20260907():
+    """업체 담당자를 역할별 다중 등록(supplier_contacts)으로 옮기는 1회 마이그레이션
+    (2026-09-07, 버전 플래그로 멱등 보장).
+
+    기존 suppliers.contact_name/contact/contact2/email(단일 텍스트, 로컬 확인 결과
+    "차장/대표/사장/상무" 같은 직급이 대부분이라 특정 부서로 단정할 수 없음)이 있는
+    업체마다 role="기타" 담당자 1건만 만든다. "김준범 사장, 장진우 대리"처럼 한 칸에
+    여러 명이 섞인 경우도 자동으로 쪼개지 않고 원문 그대로 담당자명에 넣는다(잘못
+    분리해서 이름-전화번호가 엉뚱하게 매칭되는 사고 방지 — 사용자 확인 후 결정된 방식).
+    contact2(보조연락처)는 새 담당자를 만들지 않고 비고에 그대로 옮겨 적는다.
+    레거시 컬럼은 지우지 않고 폴백용으로 남겨둔다."""
+    if db.get_setting("supplier_contacts_migrated_20260907", "0") == "1":
+        return
+    conn = db.get_conn()
+    candidates = conn.execute("""
+        SELECT name, contact_name, contact, contact2, email, notes FROM suppliers
+        WHERE IFNULL(contact_name,'')<>'' OR IFNULL(contact,'')<>'' OR IFNULL(email,'')<>''
+    """).fetchall()
+    app.logger.info(f"[migration] supplier_contacts 이관 대상 dry-run: {len(candidates)}건")
+
+    migrated = 0
+    for s in candidates:
+        already = conn.execute(
+            "SELECT COUNT(*) FROM supplier_contacts WHERE supplier_name=?", (s["name"],)
+        ).fetchone()[0]
+        if already:
+            continue
+        notes = s["notes"] or ""
+        if s["contact2"]:
+            notes = (notes + "\n" if notes else "") + f"보조연락처: {s['contact2']}"
+        conn.execute("""
+            INSERT INTO supplier_contacts (supplier_name, role, contact_name, phone, email, notes, sort_order)
+            VALUES (?, '기타', ?, ?, ?, ?, 1)
+        """, (s["name"], s["contact_name"] or "", s["contact"] or "", s["email"] or "", notes))
+        migrated += 1
+    conn.commit()
+    conn.close()
+    db.set_setting("supplier_contacts_migrated_20260907", "1")
+    db.log_activity(None, "system", "system", "업체 담당자 다중화 이관 (배포 마이그레이션)",
+                     "supplier_contacts", None, f"{migrated}건 이관됨 (대상 {len(candidates)}건)")
+
+
 def record_change(action, target_type=None, target_id=None, detail=None):
     """
     데이터가 새로 생기거나 수정될 때마다 호출:
@@ -389,6 +431,7 @@ def _approval_status_label(status, overall_result, approval_type):
 
 APPROVAL_STATUS_LABELS = ["대기중", "검토필요", "반려", "재검사 진행됨", "특채 승인", "불합격 확정", "합격 승인"]
 OVERALL_RESULT_OPTIONS = ["합격", "검토필요", "불합격", "규격미입력"]
+SUPPLIER_CONTACT_ROLES = ["영업", "품질", "구매", "기타"]
 
 
 def status_display(insp):
@@ -5023,8 +5066,75 @@ def supplier_list():
             record_change("업체 등록/수정", "supplier", name, name)
             flash(f"업체 '{name}' 저장됐어.")
         return redirect(url_for("supplier_list"))
-    suppliers = db.list_suppliers()
-    return render_template("suppliers.html", suppliers=suppliers)
+    query = request.args.get("q", "").strip()
+    suppliers = db.search_suppliers(query) if query else db.list_suppliers()
+    pager = _paginate(list(suppliers))
+    return render_template("suppliers.html", suppliers=pager["items"], query=query, pager=pager)
+
+
+@app.route("/suppliers/<name>")
+@perm_required("supplier")
+def supplier_detail(name):
+    supplier = db.get_supplier(name)
+    if supplier is None:
+        flash("존재하지 않는 업체야.")
+        return redirect(url_for("supplier_list"))
+    contacts = db.list_supplier_contacts(name)
+    return render_template("supplier_detail.html", supplier=supplier, contacts=contacts,
+                           role_options=SUPPLIER_CONTACT_ROLES)
+
+
+@app.route("/suppliers/<name>/contacts/add", methods=["POST"])
+@perm_required("supplier")
+def supplier_contact_add(name):
+    role = request.form.get("role", "").strip() or "기타"
+    contact_name = request.form.get("contact_name", "").strip()
+    phone = request.form.get("phone", "").strip()
+    email = request.form.get("email", "").strip()
+    notes = request.form.get("notes", "").strip()
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if not (contact_name or phone or email):
+        msg = "담당자명·전화·이메일 중 하나는 입력해줘."
+        if is_ajax:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg)
+        return redirect(url_for("supplier_detail", name=name))
+    contact_id = db.add_supplier_contact(name, role, contact_name, phone, email, notes)
+    record_change("업체 담당자 추가", "supplier_contact", contact_id, f"{name} / {role} {contact_name}")
+    if is_ajax:
+        return jsonify({"ok": True, "contact": {
+            "id": contact_id, "role": role, "contact_name": contact_name,
+            "phone": phone, "email": email, "notes": notes,
+        }})
+    flash("담당자가 추가됐어.")
+    return redirect(url_for("supplier_detail", name=name))
+
+
+@app.route("/suppliers/<name>/contacts/<int:contact_id>/update", methods=["POST"])
+@perm_required("supplier")
+def supplier_contact_update(name, contact_id):
+    role = request.form.get("role", "").strip() or "기타"
+    contact_name = request.form.get("contact_name", "").strip()
+    phone = request.form.get("phone", "").strip()
+    email = request.form.get("email", "").strip()
+    notes = request.form.get("notes", "").strip()
+    db.update_supplier_contact(contact_id, role, contact_name, phone, email, notes)
+    record_change("업체 담당자 수정", "supplier_contact", contact_id, f"{name} / {role} {contact_name}")
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash("담당자 정보가 저장됐어.")
+    return redirect(url_for("supplier_detail", name=name))
+
+
+@app.route("/suppliers/<name>/contacts/<int:contact_id>/delete", methods=["POST"])
+@perm_required("supplier")
+def supplier_contact_delete(name, contact_id):
+    db.delete_supplier_contact(contact_id)
+    record_change("업체 담당자 삭제", "supplier_contact", contact_id, name)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash("담당자가 삭제됐어.")
+    return redirect(url_for("supplier_detail", name=name))
 
 
 # =========================================================================
@@ -5340,6 +5450,7 @@ def ncr_detail(ncr_id):
     # 사진은 최대 6장까지만 표시(그 이상은 무시)
     photos = photos[:6]
     supplier_info = db.get_supplier(ncr["supplier"] or "")
+    supplier_contacts = db.list_supplier_contacts(ncr["supplier"] or "")
 
     # 연결된 성적서에서 로트번호(po_number)·입고날짜를 가져온다 — 성적서 연결이 없는
     # 수기입력 통보서는 ncr 테이블에 직접 저장된 lot_number/receive_date로 대신한다.
@@ -5353,13 +5464,16 @@ def ncr_detail(ncr_id):
     except Exception:
         pass
 
-    # mailto: URL (업체 이메일 자동 채워짐)
-    supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
-    contact_person = supplier_info["contact_name"] if supplier_info and supplier_info.get("contact_name") else ""
+    # mailto: URL (문서 종류에 맞는 담당자 — 품질 우선 — 이메일이 자동으로 채워짐)
+    default_contact = db.get_default_contact(ncr["supplier"] or "", "ncr")
+    supplier_email = default_contact["email"]
+    contact_person = default_contact["contact_name"]
     mailto_url = report_builder.ncr_mailto_url(dict(ncr), supplier_email, contact_person=contact_person)
 
     return render_template("ncr_detail.html", ncr=ncr, photos=photos,
                            supplier_info=supplier_info,
+                           supplier_contacts=supplier_contacts,
+                           default_contact_email=supplier_email,
                            po_number=po_number,
                            ncr_receive_date=receive_date,
                            logo_url=url_for("static", filename="logo.png"),
@@ -5472,9 +5586,9 @@ def ncr_eml(ncr_id):
         flash(f"엑셀 생성 실패: {err}")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
-    supplier_info = db.get_supplier(ncr["supplier"]) if ncr["supplier"] else None
-    supplier_email = supplier_info["email"] if supplier_info and supplier_info.get("email") else ""
-    contact_person = supplier_info["contact_name"] if supplier_info and supplier_info.get("contact_name") else ""
+    default_contact = db.get_default_contact(ncr["supplier"] or "", "ncr")
+    supplier_email = default_contact["email"]
+    contact_person = default_contact["contact_name"]
 
     eml_bytes = report_builder.build_ncr_eml(
         ncr_dict, supplier_email, out_path, photo_paths, contact_person=contact_person
@@ -6132,9 +6246,12 @@ def supplier_report_detail(report_id):
     sig_url = None
     if row["approve_signature"] and os.path.exists(row["approve_signature"]):
         sig_url = "/static/signatures/" + os.path.basename(row["approve_signature"])
+    default_contact = db.get_default_contact(row["supplier"] or "", "report")
     return render_template("supplier_report_detail.html",
                            r=row, payload=payload,
                            supplier_info=db.get_supplier(row["supplier"] or ""),
+                           supplier_contacts=db.list_supplier_contacts(row["supplier"] or ""),
+                           default_contact_email=default_contact["email"],
                            can_approve=can_approve,
                            approve_block_reason=block_reason or "",
                            signature_url=sig_url)
@@ -6367,6 +6484,7 @@ db.init_db()
 ensure_default_admin()
 ensure_perm_migration()
 ensure_inspect_method_fill_20260825()
+ensure_supplier_contacts_migration_20260907()
 
 # 매일 06:00 (KST) 자동 DB 백업 이메일
 try:

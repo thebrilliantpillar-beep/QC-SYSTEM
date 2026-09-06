@@ -66,6 +66,17 @@
   </form>
 </div>
 
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:2; min-width:200px;">
+      <label>검색어</label>
+      <input type="text" name="q" value="{{ query }}" placeholder="업체명, 담당자, 연락처, 취급품목...">
+    </div>
+    <button type="submit" style="margin-top:0;">검색</button>
+    {% if query %}<a href="{{ url_for('supplier_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+  </form>
+</div>
+
 {% if suppliers %}
 <div style="overflow-x:auto;">
 <table id="supplierTable">
@@ -103,6 +114,8 @@
     <td>{{ ml(s['email']) }}</td>
     <td style="color:var(--muted);">{{ s['notes'] or '-' }}</td>
     <td>
+      <a href="{{ url_for('supplier_detail', name=s['name']) }}" style="color:var(--primary);
+         font-size:13px; text-decoration:none; padding:4px 8px;">담당자</a>
       <button type="button" onclick="startEdit(this)" style="background:none; border:none; color:var(--primary);
               font-size:13px; cursor:pointer; padding:4px 8px; margin-top:0;">수정</button>
       <form method="POST" style="display:inline;" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
@@ -117,9 +130,10 @@
   </tbody>
 </table>
 </div>
+{% set p = pager %}{% include "_pager.html" %}
 {% else %}
 <div style="text-align:center; padding:40px 0; color:var(--muted);">
-  등록된 업체가 없어. 위에서 추가해줘.
+  {% if query %}검색 결과가 없어.{% else %}등록된 업체가 없어. 위에서 추가해줘.{% endif %}
 </div>
 {% endif %}
 
