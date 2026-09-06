@@ -241,16 +241,8 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
   {% set p = pager %}{% include "_pager.html" %}
 </details>
 
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
 <script>
-document.querySelectorAll('details.lane').forEach(function (d) {
-  var key = 'defects-lane-' + d.dataset.sec;
-  try {
-    var saved = localStorage.getItem(key);
-    if (saved !== null) d.open = (saved === '1');
-  } catch (e) {}
-  d.addEventListener('toggle', function () {
-    try { localStorage.setItem(key, d.open ? '1' : '0'); } catch (e) {}
-  });
-});
+CollapsibleSections.init('details.lane', 'defects-lane-');
 </script>
 {% endblock %}

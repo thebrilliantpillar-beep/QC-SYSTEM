@@ -197,7 +197,7 @@
 
 {# ───────── 오늘 검사자별 실적 ───────── #}
 <h3 style="margin:22px 0 0; font-size:15px;">👥 오늘 검사자별 실적</h3>
-<details class="sec" open>
+<details class="sec" data-sec="today-staff" open>
   <summary>인원별 처리량 <span class="cnt gray">{{ s['인원별']|length }}명</span><span class="arrow">▶</span></summary>
   <div class="body">
     {% if s['인원별'] %}
@@ -309,4 +309,9 @@
     {% endif %}
   </div>
 </details>
+
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
+<script>
+CollapsibleSections.init('details.sec[data-sec]', 'daily-sec-');
+</script>
 {% endblock %}

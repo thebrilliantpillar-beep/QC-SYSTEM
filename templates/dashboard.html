@@ -460,6 +460,7 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
 <script>
 /* ───────── 선택 칩 (업체 / 로트번호) ───────── */
 var CHIPS = {
@@ -511,16 +512,7 @@ renderChips('supplier');
 renderChips('po_number');
 
 /* ───────── 구역 접기/펼치기 상태 기억 ───────── */
-document.querySelectorAll('details.sec').forEach(function (d) {
-  var key = 'dash-sec-' + d.dataset.sec;
-  try {
-    var saved = localStorage.getItem(key);
-    if (saved !== null) d.open = (saved === '1');
-  } catch (e) {}
-  d.addEventListener('toggle', function () {
-    try { localStorage.setItem(key, d.open ? '1' : '0'); } catch (e) {}
-  });
-});
+CollapsibleSections.init('details.sec', 'dash-sec-');
 
 /* ───────── 상세 팝업 ───────── */
 var modal = document.getElementById('modal');
