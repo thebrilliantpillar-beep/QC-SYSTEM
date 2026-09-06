@@ -1,16 +1,28 @@
 {% extends "base.html" %}
 {% block title %}{{ supplier['name'] }} 담당자 — Chardon QMS{% endblock %}
+{% set role_class_map = {'영업': 'role-sales', '품질': 'role-quality', '구매': 'role-purchase', '기타': 'role-etc'} %}
 {% block content %}
 <style>
   .contact-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
-                   overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:13px; }
-  .contact-table th { background:#f3f4f6; color:#4b5563; padding:8px 6px; font-size:12px; }
-  .contact-table td { border-bottom:1px solid #e5e7eb; padding:7px 6px; text-align:center; vertical-align:middle; }
+                   overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:13.5px; }
+  .contact-table th { background:#f3f4f6; color:#4b5563; padding:10px 8px; font-size:12.5px; font-weight:700; }
+  .contact-table td { border-bottom:1px solid #e5e7eb; padding:9px 8px; text-align:center; vertical-align:middle; }
+  .contact-table tr:last-child td { border-bottom:none; }
   .contact-table input, .contact-table select {
-    width:100%; padding:6px 5px; font-size:12.5px; border:1px solid #d1d5db; border-radius:5px; min-width:70px;
+    width:100%; padding:8px 7px; font-size:13px; border:1px solid #d1d5db; border-radius:6px; min-width:76px;
   }
-  .row-actions { display:flex; gap:4px; justify-content:center; }
-  .row-actions button { padding:5px 8px; font-size:11.5px; margin-top:0; border-radius:5px; }
+  .contact-table td:nth-child(1) select { min-width:84px; }
+  .contact-table td:nth-child(2) input { min-width:96px; }
+  .contact-table td:nth-child(3) input { min-width:104px; }
+  .contact-table td:nth-child(4) input { min-width:148px; }
+  .contact-table td:nth-child(5) input { min-width:96px; }
+  /* 역할 select 색상 — base.html 배지 팔레트 재사용(pass/special/review/muted) */
+  select.role-sales    { background:#ffedd5; color:#ea580c; border-color:#fdba74; font-weight:700; }
+  select.role-quality  { background:#dcfce7; color:#16a34a; border-color:#86efac; font-weight:700; }
+  select.role-purchase { background:#ede9fe; color:#7c3aed; border-color:#c4b5fd; font-weight:700; }
+  select.role-etc      { background:#f3f4f6; color:#6b7280; border-color:#d1d5db; font-weight:700; }
+  .row-actions { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
+  .row-actions button { padding:7px 11px; font-size:12px; margin-top:0; border-radius:6px; }
   .btn-del { background:#fff; color:#dc2626; border:1px solid #dc2626; }
   .btn-del:hover { background:#fee2e2; }
 </style>
@@ -24,14 +36,16 @@
   성적표는 영업 담당자 우선 — 해당 역할이 없으면 등록된 다른 담당자로, 그마저 없으면 예전에 입력해둔
   단일 연락처로 채워짐).</p>
 
-<div class="card" style="margin-bottom:16px;">
-  <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:13.5px;">
+<div class="card" style="margin-bottom:18px;">
+  <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:13.5px;">
     <div><span class="muted">주소</span> {{ supplier['address'] or '-' }}</div>
     <div><span class="muted">사업자번호</span> {{ supplier['biz_no'] or '-' }}</div>
     <div><span class="muted">취급품목</span> {{ supplier['items'] or '-' }}</div>
   </div>
   <p class="hint" style="margin:8px 0 0;">업체 기본정보는 <a href="{{ url_for('supplier_list') }}">업체 관리 목록</a>에서 수정해줘.</p>
 </div>
+
+<h3 style="margin:0 0 8px;">담당자 목록</h3>
 
 <div id="contactRowForms">
 {% for c in contacts %}
@@ -45,13 +59,30 @@
 <div style="overflow-x:auto;">
   <table class="contact-table">
     <tr>
-      <th style="min-width:90px;">역할</th><th>담당자명</th><th>전화</th><th>이메일</th><th>비고</th><th>관리</th>
+      <th style="min-width:96px;">
+        역할
+        <span class="info-anchor">
+          <button class="info-btn" data-pop="pop-role-legend" type="button">i</button>
+          <div id="pop-role-legend" class="info-pop" style="left:auto; right:0; top:22px;">
+            <button class="info-pop-close">×</button>
+            <b>역할 색상 구분</b>
+            <div style="margin-top:6px; line-height:1.9; text-align:left;">
+              <span style="color:#ea580c;">●</span> 영업<br>
+              <span style="color:#16a34a;">●</span> 품질<br>
+              <span style="color:#7c3aed;">●</span> 구매<br>
+              <span style="color:#6b7280;">●</span> 기타
+            </div>
+          </div>
+        </span>
+      </th>
+      <th>담당자명</th><th>전화</th><th>이메일</th><th>비고</th><th style="min-width:100px;">관리</th>
     </tr>
     <tbody id="contactRowsBody">
     {% for c in contacts %}
     <tr id="contactRow_{{ c['id'] }}">
       <td>
-        <select form="contact-row-{{ c['id'] }}" name="role">
+        <select form="contact-row-{{ c['id'] }}" name="role"
+                class="{{ role_class_map.get(c['role'], 'role-etc') }}" onchange="applyRoleColor(this)">
           {% for r in role_options %}
           <option value="{{ r }}" {% if c['role']==r %}selected{% endif %}>{{ r }}</option>
           {% endfor %}
@@ -74,14 +105,14 @@
   <p id="noContactsMsg" class="hint" style="{{ 'display:none;' if contacts else '' }}">등록된 담당자가 없어. 아래에서 추가해줘.</p>
 </div>
 
-<div class="card" style="margin-top:20px;">
-  <h3 style="margin-top:0;">담당자 추가</h3>
+<div class="card" style="margin-top:22px; border-top:3px solid var(--primary);">
+  <h3 style="margin-top:0;">➕ 담당자 추가</h3>
   <form id="addContactForm" onsubmit="return submitAddContact(event)"
         data-action="{{ url_for('supplier_contact_add', name=supplier['name']) }}">
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <div style="flex:1; min-width:100px;">
         <label>역할</label>
-        <select name="role">
+        <select name="role" class="role-sales" onchange="applyRoleColor(this)">
           {% for r in role_options %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
         </select>
       </div>
@@ -108,11 +139,20 @@ function roleOptionsHTML(selected) {
   return ROLE_OPTIONS.map(r => `<option value="${escapeAttr(r)}" ${r === selected ? 'selected' : ''}>${escapeAttr(r)}</option>`).join('');
 }
 
+/* 역할 select 배경색 — base.html 배지 팔레트(pass/special/review/muted) 재사용.
+   서버 렌더링 행(Jinja)과 AJAX로 추가된 행 양쪽에서 같이 쓴다. */
+const ROLE_COLOR_CLASS = { '영업': 'role-sales', '품질': 'role-quality', '구매': 'role-purchase', '기타': 'role-etc' };
+function roleClass(r) { return ROLE_COLOR_CLASS[r] || 'role-etc'; }
+function applyRoleColor(select) {
+  select.classList.remove('role-sales', 'role-quality', 'role-purchase', 'role-etc');
+  select.classList.add(roleClass(select.value));
+}
+
 function buildRowHTML(c) {
   const id = c.id;
   return `
     <td>
-      <select form="contact-row-${id}" name="role">${roleOptionsHTML(c.role)}</select>
+      <select form="contact-row-${id}" name="role" class="${roleClass(c.role)}" onchange="applyRoleColor(this)">${roleOptionsHTML(c.role)}</select>
     </td>
     <td><input form="contact-row-${id}" type="text" name="contact_name" value="${escapeAttr(c.contact_name)}"></td>
     <td><input form="contact-row-${id}" type="text" name="phone" value="${escapeAttr(c.phone)}"></td>

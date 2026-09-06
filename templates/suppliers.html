@@ -14,6 +14,18 @@
   #editingNotice { display:none; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8;
                    font-size:13px; padding:8px 14px; border-radius:8px; margin-bottom:10px; }
   #editingNotice a { color:#dc2626; font-weight:700; cursor:pointer; margin-left:8px; }
+  .card-eyebrow { font-size:12.5px; font-weight:700; color:var(--muted); text-transform:uppercase;
+                  letter-spacing:.03em; margin:0 0 10px; }
+  .action-links { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
+  .action-links .link-btn { display:inline-flex; align-items:center; padding:6px 10px; font-size:12.5px;
+                             font-weight:600; border-radius:6px; text-decoration:none; cursor:pointer;
+                             border:none; background:none; margin-top:0; white-space:nowrap; }
+  .action-links .link-btn.contact { color:var(--primary); background:#eff6ff; }
+  .action-links .link-btn.contact:hover { background:#dbeafe; }
+  .action-links .link-btn.edit { color:var(--primary); }
+  .action-links .link-btn.edit:hover { background:#eff6ff; }
+  .action-links .link-btn.del { color:var(--fail); }
+  .action-links .link-btn.del:hover { background:#fee2e2; }
 </style>
 
 <div id="editingNotice">
@@ -22,6 +34,7 @@
 </div>
 
 <div class="card" style="margin-bottom:16px;">
+  <p class="card-eyebrow">🆕 업체 등록 / 수정</p>
   <form method="POST" id="addForm">
     <input type="hidden" name="action" value="add">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
@@ -67,7 +80,8 @@
 </div>
 
 <div class="card">
-  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+  <p class="card-eyebrow">🔍 업체 검색</p>
+  <form method="GET" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
     <div style="flex:2; min-width:200px;">
       <label>검색어</label>
       <input type="text" name="q" value="{{ query }}" placeholder="업체명, 담당자, 연락처, 취급품목...">
@@ -89,7 +103,7 @@
       <th>연락처2</th>
       <th>이메일</th>
       <th>메모</th>
-      <th style="width:110px;"></th>
+      <th style="width:150px;">관리</th>
     </tr>
   </thead>
   <tbody>
@@ -114,16 +128,15 @@
     <td>{{ ml(s['email']) }}</td>
     <td style="color:var(--muted);">{{ s['notes'] or '-' }}</td>
     <td>
-      <a href="{{ url_for('supplier_detail', name=s['name']) }}" style="color:var(--primary);
-         font-size:13px; text-decoration:none; padding:4px 8px;">담당자</a>
-      <button type="button" onclick="startEdit(this)" style="background:none; border:none; color:var(--primary);
-              font-size:13px; cursor:pointer; padding:4px 8px; margin-top:0;">수정</button>
-      <form method="POST" style="display:inline;" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="name" value="{{ s['name'] }}">
-        <button type="submit" style="background:none; border:none; color:var(--fail);
-                font-size:13px; cursor:pointer; padding:4px 8px; margin-top:0;">삭제</button>
-      </form>
+      <div class="action-links">
+        <a href="{{ url_for('supplier_detail', name=s['name']) }}" class="link-btn contact">👤 담당자</a>
+        <button type="button" class="link-btn edit" onclick="startEdit(this)">수정</button>
+        <form method="POST" style="display:inline;" onsubmit="return confirm('{{ s['name'] }} 업체를 삭제할까?')">
+          <input type="hidden" name="action" value="delete">
+          <input type="hidden" name="name" value="{{ s['name'] }}">
+          <button type="submit" class="link-btn del">삭제</button>
+        </form>
+      </div>
     </td>
   </tr>
   {% endfor %}
