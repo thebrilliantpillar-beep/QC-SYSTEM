@@ -66,7 +66,7 @@
         {% if n['material_name'] %}<div style="font-size:12px; color:var(--muted);">{{ n['material_name'] }}</div>{% endif %}
       </td>
       <td>{{ n['supplier'] or '-' }}</td>
-      <td style="font-size:13px;">{{ n['issued_date'] or '-' }}</td>
+      <td style="font-size:13px;">{{ (n['issued_date'] | date_korean) if n['issued_date'] else '-' }}</td>
       <td style="font-size:13px;">{{ n['issued_by'] or '-' }}</td>
       <td>
         <a href="{{ url_for('ncr_detail', ncr_id=n['id']) }}"
@@ -111,10 +111,10 @@
       {% if n['material_name'] %}<div style="font-size:12px; color:var(--muted);">{{ n['material_name'] }}</div>{% endif %}
     </td>
     <td>{{ n['supplier'] or '-' }}</td>
-    <td style="font-size:13px;">{{ n['issued_date'] or '-' }}</td>
+    <td style="font-size:13px;">{{ (n['issued_date'] | date_korean) if n['issued_date'] else '-' }}</td>
     <td style="font-size:13px;">{{ n['issued_by'] or '-' }}</td>
     <td style="font-size:13px; {% if n['due_date'] and n['due_date'] < today %}color:var(--fail); font-weight:700;{% endif %}">
-      {{ n['due_date'] or '-' }}
+      {{ (n['due_date'] | date_korean) if n['due_date'] else '-' }}
     </td>
     <td>
       <span class="ncr-badge {{ status }}">

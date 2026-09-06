@@ -215,7 +215,7 @@
     {% if ncr_receive_date %}<span>입고일&ensp;{{ ncr_receive_date | date_korean }}</span>{% endif %}
     {% if po_number %}<span>로트번호&ensp;{{ po_number }}</span>{% endif %}
     {% if supplier_info and supplier_info['contact'] %}<span>담당자&ensp;{{ supplier_info['contact'] }}</span>{% endif %}
-    {% if ncr['due_date'] %}<span style="color:var(--fail); font-weight:700;">조치기한&ensp;{{ ncr['due_date'] }}</span>{% endif %}
+    {% if ncr['due_date'] %}<span style="color:var(--fail); font-weight:700;">조치기한&ensp;{{ ncr['due_date'] | date_korean }}</span>{% endif %}
   </div>
 </div>
 

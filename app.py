@@ -3601,6 +3601,29 @@ def ncr_delete_selected():
     return redirect(url_for("ncr_list"))
 
 
+@app.route("/return/delete-selected", methods=["POST"])
+def return_delete_selected():
+    """admin 전용 반품 요청 일괄 삭제."""
+    guard = _admin_only()
+    if guard: return guard
+    ids_raw = request.form.getlist("return_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 반품 건을 선택해줘.")
+        return redirect(url_for("return_list"))
+    for rid in ids:
+        record_change("반품 요청 삭제(admin)", "return_request", rid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    db.delete_return_requests(ids)
+    flash(f"반품 {len(ids)}건 삭제됐어.")
+    return redirect(url_for("return_list"))
+
+
 @app.route("/supplier-reports/delete-selected", methods=["POST"])
 def supplier_report_delete_selected():
     """admin 전용 업체 성적표 일괄 삭제 (상태 불문)."""
@@ -6144,6 +6167,7 @@ def _dashboard_params():
         "material": request.args.get("material", "").strip(),
         "states": [s for s in multi("state") if s in db.LOT_STATES],
         "row_limit": row_limit,
+        "category": request.args.get("category", "").strip(),
     }
 
 
@@ -6152,6 +6176,7 @@ def _build_quality_report(p):
         start_date=p["start"], end_date=p["end"], period_type=p["period_type"],
         supplier=p["suppliers"], po_number=p["po_numbers"],
         material=p["material"] or None, states=p["states"],
+        category=p["category"] or None,
     )
 
 
@@ -6159,7 +6184,7 @@ def _dashboard_query(p, **override):
     """현재 필터를 URL 쿼리 문자열로 다시 만든다(내보내기 링크·업체 드릴다운에 사용)."""
     from urllib.parse import urlencode
     data = {"period": p["period_type"], "start": p["start"], "end": p["end"],
-            "material": p["material"], "rows": p["row_limit"]}
+            "material": p["material"], "rows": p["row_limit"], "category": p["category"]}
     data.update({k: v for k, v in override.items() if k not in ("supplier", "po_number", "state")})
     pairs = [(k, v) for k, v in data.items() if v not in ("", None)]
     for key, values in (("supplier", override.get("supplier", p["suppliers"])),
@@ -6186,6 +6211,7 @@ def quality_dashboard():
                            po_options=po_options,
                            lot_states=db.LOT_STATES,
                            row_choices=ROW_LIMIT_CHOICES,
+                           categories=db.list_material_categories(),
                            qs=_dashboard_query(p))
 
 

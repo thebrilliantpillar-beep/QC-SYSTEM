@@ -9,8 +9,8 @@
    admin 계정이 아니면 아무것도 렌더링하지 않는다.
 ───────────────────────────────────────────── #}
 
-{% macro admin_delete_bar(action, id_field, label, return_to='') -%}
-{% if is_admin %}
+{% macro admin_delete_bar(action, id_field, label, return_to='', show=none) -%}
+{% if (show if show is not none else is_admin) %}
 <style>
   .admin-del-bar {
     display:flex; align-items:center; gap:10px; flex-wrap:wrap;

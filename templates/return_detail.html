@@ -21,7 +21,7 @@
     <div><span style="color:var(--muted); font-size:12px;">자재번호</span><br><strong>{{ rr['material_no'] }}</strong></div>
     <div><span style="color:var(--muted); font-size:12px;">제품명</span><br>{{ rr['material_name'] or '-' }}</div>
     <div><span style="color:var(--muted); font-size:12px;">업체</span><br>{{ rr['supplier'] or '-' }}</div>
-    <div><span style="color:var(--muted); font-size:12px;">반품 날짜</span><br>{{ rr['return_date'] or '-' }}</div>
+    <div><span style="color:var(--muted); font-size:12px;">반품 날짜</span><br>{{ (rr['return_date'] | date_korean) if rr['return_date'] else '-' }}</div>
     <div><span style="color:var(--muted); font-size:12px;">수량</span><br>{{ rr['quantity'] or '-' }}</div>
     <div><span style="color:var(--muted); font-size:12px;">등록자</span><br>{{ rr['created_by'] or '-' }}</div>
   </div>

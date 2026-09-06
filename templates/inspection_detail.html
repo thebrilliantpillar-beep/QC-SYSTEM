@@ -312,7 +312,7 @@
         {% for rr in return_requests %}
         <a href="{{ url_for('return_detail', return_id=rr['id']) }}"
            style="font-size:13px; color:var(--primary); font-weight:600;">
-          반품 #{{ rr['id'] }} — {{ rr['status'] }} ({{ rr['return_date'] or '-' }})
+          반품 #{{ rr['id'] }} — {{ rr['status'] }} ({{ (rr['return_date'] | date_korean) if rr['return_date'] else '-' }})
         </a>
         {% endfor %}
       </div>
@@ -366,7 +366,7 @@
     <div style="margin-top:6px;">
       <a href="{{ url_for('ncr_detail', ncr_id=n['id']) }}"
          style="font-size:13px; color:var(--primary); font-weight:600;">{{ n['ncr_no'] }}</a>
-      <span style="font-size:12px; color:var(--muted); margin-left:8px;">{{ n['issued_date'] }}</span>
+      <span style="font-size:12px; color:var(--muted); margin-left:8px;">{{ (n['issued_date'] | date_korean) if n['issued_date'] else '-' }}</span>
       {% if n['email_sent_at'] %}
       <span style="font-size:11px; background:#dcfce7; color:#16a34a; padding:2px 7px;
                    border-radius:999px; margin-left:6px; font-weight:700;">이메일 발송됨</span>
@@ -439,7 +439,7 @@
          style="font-size:13px; color:var(--primary); font-weight:600;">
         {{ n['ncr_no'] }}
       </a>
-      <span style="font-size:12px; color:var(--muted); margin-left:8px;">{{ n['issued_date'] }}</span>
+      <span style="font-size:12px; color:var(--muted); margin-left:8px;">{{ (n['issued_date'] | date_korean) if n['issued_date'] else '-' }}</span>
       {% if n['email_sent_at'] %}
       <span style="font-size:11px; background:#dcfce7; color:#16a34a; padding:2px 7px;
                    border-radius:999px; margin-left:6px; font-weight:700;">이메일 발송됨</span>

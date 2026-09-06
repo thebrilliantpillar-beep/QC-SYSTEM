@@ -98,6 +98,15 @@
       <div style="max-width:150px;"><label>종료일</label><input type="date" name="end" value="{{ p.end }}"></div>
       <div><label>자재번호 / 제품명</label>
         <input type="text" name="material" value="{{ p.material }}" placeholder="일부만 입력해도 돼"></div>
+      <div style="max-width:170px;">
+        <label>자재 분류</label>
+        <select name="category">
+          <option value="">전체</option>
+          {% for c in categories %}
+          <option value="{{ c }}" {% if p.category==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
     </div>
 
     {# 업체 — 골라서 쌓는 방식 #}

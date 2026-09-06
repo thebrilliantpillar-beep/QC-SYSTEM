@@ -3,7 +3,7 @@
 {% block title %}출력 기록{% endblock %}
 {% block content %}
 
-{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='output_history') }}
+{{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='output_history', show=('history_delete' in user_perms)) }}
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
   <h2 style="margin:0;">출력 기록</h2>
   <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">

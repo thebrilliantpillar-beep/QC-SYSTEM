@@ -225,7 +225,7 @@
   </div>
   <div style="text-align:right;">
     <span style="font-weight:800; color:{% if dl <= 0 %}var(--fail){% elif dl <= 15 %}var(--fail){% else %}#f59e0b{% endif %};">
-      {{ g['expiry_date'] }}
+      {{ (g['expiry_date'] | date_korean) if g['expiry_date'] else '-' }}
     </span>
     <span style="display:block; font-size:11px; font-weight:700; color:{% if dl <= 0 %}var(--fail){% elif dl <= 15 %}var(--fail){% else %}#f59e0b{% endif %};">
       {% if dl <= 0 %}만료됨{% else %}D-{{ dl }}{% endif %}

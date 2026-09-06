@@ -2494,6 +2494,17 @@ def get_return_requests_by_inspection(inspection_id):
     return rows
 
 
+def delete_return_requests(return_ids):
+    """반품 요청 일괄 삭제 (admin 전용)."""
+    if not return_ids:
+        return
+    conn = get_conn()
+    placeholders = ",".join("?" * len(return_ids))
+    conn.execute(f"DELETE FROM return_requests WHERE id IN ({placeholders})", return_ids)
+    conn.commit()
+    conn.close()
+
+
 def delete_inspections(inspection_ids):
     """성적서 복수 삭제 (inspection_items 포함). pending/rejected 건은 연결 intake를 대기로 되돌림."""
     if not inspection_ids:
@@ -3064,7 +3075,7 @@ def daily_status(day=None):
 
 
 def quality_report(start_date, end_date, period_type="monthly",
-                   supplier=None, po_number=None, material=None, states=None):
+                   supplier=None, po_number=None, material=None, states=None, category=None):
     """품질 현황 집계 — 대시보드·보고서·내보내기가 전부 이 함수 하나를 쓴다.
 
     불량률은 **수량 기준**이다(사용자 확정):
@@ -3096,6 +3107,7 @@ def quality_report(start_date, end_date, period_type="monthly",
                     (SELECT n.id FROM ncr n WHERE n.inspection_id = i.id
                       ORDER BY n.id DESC LIMIT 1) AS ncr_id
                FROM inspections i
+               LEFT JOIN materials mt ON mt.material_no = i.material_no
               WHERE 1=1"""
     params = []
     if start_date:
@@ -3109,6 +3121,8 @@ def quality_report(start_date, end_date, period_type="monthly",
     if material:
         sql += " AND (i.material_no LIKE ? OR i.material_name LIKE ?)"
         params += [f"%{material}%", f"%{material}%"]
+    if category:
+        sql += " AND mt.category = ?"; params.append(category)
     # 재검사로 대체된 옛 성적서는 집계에서 제외 (같은 로트가 두 번 잡히는 것 방지)
     sql += " AND i.status != 'superseded'"
     sql += " ORDER BY i.inspect_date DESC, i.id DESC"

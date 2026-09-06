@@ -51,9 +51,9 @@
     <td style="text-align:left; padding-left:12px; font-weight:700;">{{ g['name'] }}</td>
     <td style="font-size:12.5px;">{{ g['model'] or '-' }}</td>
     <td style="font-size:12.5px;">{{ g['location'] or '-' }}</td>
-    <td style="font-size:13px;">{{ g['last_calibrated'] or '-' }}</td>
+    <td style="font-size:13px;">{{ (g['last_calibrated'] | date_korean) if g['last_calibrated'] else '-' }}</td>
     <td style="font-size:13px; font-weight:{% if g['expiry_date'] and g['expiry_date'] <= d15 %}700{% else %}400{% endif %};">
-      {{ g['expiry_date'] or '-' }}
+      {{ (g['expiry_date'] | date_korean) if g['expiry_date'] else '-' }}
     </td>
     <td>
       {% if not g['expiry_date'] %}

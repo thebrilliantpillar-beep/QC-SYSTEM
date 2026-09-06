@@ -12,7 +12,7 @@
   <table style="width:100%; border-collapse:collapse; font-size:14px; margin-bottom:20px;">
     <tr>
       <td style="padding:8px; background:#f3f4f6; font-weight:700; width:28%; border:1px solid #e5e7eb;">발행일</td>
-      <td style="padding:8px; border:1px solid #e5e7eb;">{{ ncr['issued_date'] }}</td>
+      <td style="padding:8px; border:1px solid #e5e7eb;">{{ (ncr['issued_date'] | date_korean) if ncr['issued_date'] else '-' }}</td>
       <td style="padding:8px; background:#f3f4f6; font-weight:700; width:28%; border:1px solid #e5e7eb;">발행자</td>
       <td style="padding:8px; border:1px solid #e5e7eb;">{{ ncr['issued_by'] }}</td>
     </tr>
@@ -25,7 +25,7 @@
     {% if ncr['due_date'] %}
     <tr>
       <td style="padding:8px; background:#f3f4f6; font-weight:700; border:1px solid #e5e7eb;">조치 기한</td>
-      <td colspan="3" style="padding:8px; border:1px solid #e5e7eb; font-weight:700; color:#dc2626;">{{ ncr['due_date'] }}</td>
+      <td colspan="3" style="padding:8px; border:1px solid #e5e7eb; font-weight:700; color:#dc2626;">{{ ncr['due_date'] | date_korean }}</td>
     </tr>
     {% endif %}
   </table>
