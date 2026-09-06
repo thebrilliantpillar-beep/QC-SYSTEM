@@ -18,11 +18,18 @@
 .lane-review    .lane-head { background: #ede9fe; color: #5b21b6; border-left: 4px solid #8b5cf6; }
 .lane-send      .lane-head { background: #dbeafe; color: #1e40af; border-left: 4px solid #3b82f6; }
 .lane-done      .lane-head { background: #f0fdf4; color: #166534; border-left: 4px solid #16a34a; }
+.lane-waived    .lane-head { background: #f3f4f6; color: #4b5563; border-left: 4px solid #9ca3af; }
 
 .lane-count {
   margin-left: auto; font-size: 13px; font-weight: 800;
   background: rgba(0,0,0,.08); border-radius: 999px; padding: 2px 10px;
 }
+
+/* ── 레인 접기/펼치기 (details/summary) ── */
+details.lane > summary.lane-head { cursor: pointer; list-style: none; user-select: none; }
+details.lane > summary.lane-head::-webkit-details-marker { display: none; }
+.lane-arrow { font-size: 12px; opacity: .6; margin-left: 8px; transition: transform .18s; }
+details.lane[open] .lane-arrow { transform: rotate(90deg); }
 
 /* 카드 한 줄 */
 .fup-row {
@@ -44,6 +51,7 @@
 .note-violet{ background: #f5f3ff; color: #5b21b6; border-left: 3px solid #8b5cf6; }
 .note-blue  { background: #eff6ff; color: #1e40af; border-left: 3px solid #3b82f6; }
 .note-green { background: #f0fdf4; color: #166534; border-left: 3px solid #16a34a; }
+.note-grey  { background: #f9fafb; color: #4b5563; border-left: 3px solid #9ca3af; }
 
 .fup-empty { padding: 20px 16px; color: var(--muted); font-size: 13px; background:#fff; }
 
@@ -106,17 +114,23 @@
   <div class="s-chip {% if data.ncr_write %}red{% else %}grey{% endif %}">
     🔴 통보서 미작성 <b>{{ data.ncr_write|length }}</b>건
   </div>
+  {% if data.ncr_waived %}
+  <div class="s-chip grey">
+    ⚪ 통보서 불필요 <b>{{ data.ncr_waived|length }}</b>건
+  </div>
+  {% endif %}
   {% if total_pending == 0 %}
   <span style="margin-left:4px; color:var(--pass); font-weight:700; font-size:13px;">✅ 미결 없음</span>
   {% endif %}
 </div>
 
 {# ── 레인 1: 재검사 대기 ── #}
-<div class="lane lane-recheck">
-  <div class="lane-head">
+<details class="lane lane-recheck" open data-sec="recheck">
+  <summary class="lane-head">
     ↩️ 재검사 대기
     <span class="lane-count">{{ data.recheck|length }}</span>
-  </div>
+    <span class="lane-arrow">▶</span>
+  </summary>
   <div class="lane-body">
     {% for r in data.recheck %}
     <a class="fup-row" href="{{ url_for('inspection_detail', inspection_id=r.id) }}">
@@ -132,14 +146,15 @@
     <div class="fup-empty">재검사 대기 건 없어. 👍</div>
     {% endfor %}
   </div>
-</div>
+</details>
 
 {# ── 레인 2: 통보서 작성 필요 ── #}
-<div class="lane lane-write">
-  <div class="lane-head">
+<details class="lane lane-write" open data-sec="write">
+  <summary class="lane-head">
     🔴 통보서 {{ term('ncr') }} 작성 필요
     <span class="lane-count">{{ data.ncr_write|length }}</span>
-  </div>
+    <span class="lane-arrow">▶</span>
+  </summary>
   <div class="lane-body">
     {% for r in data.ncr_write %}
     <a class="fup-row" href="{{ url_for('inspection_detail', inspection_id=r.id) }}">
@@ -155,14 +170,39 @@
     <div class="fup-empty">통보서 작성 필요 건 없어. 👍</div>
     {% endfor %}
   </div>
-</div>
+</details>
+
+{# ── 레인 3: 통보서 불필요 처리됨 — 작성 대기열에서 빠졌을 뿐 계속 추적할 수 있게 별도로 뺌 ── #}
+<details class="lane lane-waived" data-sec="waived">
+  <summary class="lane-head">
+    ⚪ 통보서 불필요 처리됨
+    <span class="lane-count">{{ data.ncr_waived|length }}</span>
+    <span class="lane-arrow">▶</span>
+  </summary>
+  <div class="lane-body">
+    {% for r in data.ncr_waived %}
+    <a class="fup-row" href="{{ url_for('inspection_detail', inspection_id=r.id) }}">
+      <span class="fup-mat">{{ r.material_no }}</span>
+      <span class="fup-name">{{ r.material_name or '-' }}</span>
+      <span class="fup-sup">{{ r.supplier or '-' }}</span>
+      <span class="fup-date">검사 {{ r.inspect_date | date_korean }}</span>
+      <span class="fup-note note-grey">
+        {% if r.ncr_waived_reason %}생략 사유: {{ r.ncr_waived_reason }}{% else %}통보서 발행 불필요 처리됨{% endif %}
+      </span>
+    </a>
+    {% else %}
+    <div class="fup-empty">통보서 불필요 처리된 건 없어.</div>
+    {% endfor %}
+  </div>
+</details>
 
 {# ── 완료 archive ── #}
-<div class="lane lane-done">
-  <div class="lane-head">
+<details class="lane lane-done" open data-sec="done">
+  <summary class="lane-head">
     ✅ 완료 (통보서 발송됨)
     <span class="lane-count">{{ data.completed|length }}</span>
-  </div>
+    <span class="lane-arrow">▶</span>
+  </summary>
 
   {# 기간 필터 #}
   <div style="padding: 10px 14px; background: #f9fdf9; border: 1.5px solid var(--border); border-top: none;">
@@ -199,6 +239,18 @@
     {% endfor %}
   </div>
   {% set p = pager %}{% include "_pager.html" %}
-</div>
+</details>
 
+<script>
+document.querySelectorAll('details.lane').forEach(function (d) {
+  var key = 'defects-lane-' + d.dataset.sec;
+  try {
+    var saved = localStorage.getItem(key);
+    if (saved !== null) d.open = (saved === '1');
+  } catch (e) {}
+  d.addEventListener('toggle', function () {
+    try { localStorage.setItem(key, d.open ? '1' : '0'); } catch (e) {}
+  });
+});
+</script>
 {% endblock %}

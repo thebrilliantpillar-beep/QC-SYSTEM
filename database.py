@@ -1473,6 +1473,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
 
     # 2. 통보서 작성 필요 — 불합격 항목 하나라도 있는 성적서(상태 무관) + NCR 없음 + 대체 아님
     #    B안: 승인 여부와 무관하게 fail 항목이 있으면 통보서 대상(pending 포함)
+    #    ncr_waived=1(통보서 불필요 처리)인 건은 제외 — 대신 아래 6번 버킷으로 따로 뺀다.
     ncr_write = q("""
         SELECT DISTINCT i.id, i.material_no, m.material_name, i.supplier, i.inspector,
                i.inspect_date, i.receive_date, i.remark_approver, i.status, i.overall_result
@@ -1483,6 +1484,23 @@ def get_defect_followup(completed_start=None, completed_end=None):
            AND ii.result IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM ncr n WHERE n.inspection_id = i.id)
            AND i.status != 'superseded'
+           AND (i.ncr_waived IS NULL OR i.ncr_waived = 0)
+         ORDER BY i.inspect_date DESC, i.id DESC
+    """)
+
+    # 6. 통보서 불필요 처리됨 — 위 2번과 조건은 같지만 ncr_waived=1인 건만. 작성 대기열에서
+    #    빠졌다고 사라진 게 아니라 여기로 옮겨져서 계속 추적 가능하게 한다.
+    ncr_waived = q("""
+        SELECT DISTINCT i.id, i.material_no, m.material_name, i.supplier, i.inspector,
+               i.inspect_date, i.receive_date, i.ncr_waived_reason, i.status, i.overall_result
+          FROM inspections i
+          LEFT JOIN materials m ON m.material_no = i.material_no
+         INNER JOIN inspection_items ii ON ii.inspection_id = i.id
+         WHERE ii.result NOT IN ('합격', '미측정', '', '규격미입력')
+           AND ii.result IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM ncr n WHERE n.inspection_id = i.id)
+           AND i.status != 'superseded'
+           AND i.ncr_waived = 1
          ORDER BY i.inspect_date DESC, i.id DESC
     """)
 
@@ -1538,6 +1556,7 @@ def get_defect_followup(completed_start=None, completed_end=None):
         "ncr_review": ncr_review,
         "ncr_send": ncr_send,
         "completed": completed,
+        "ncr_waived": ncr_waived,
     }
 
 
