@@ -8,11 +8,14 @@
              text-decoration:none; margin-bottom:14px; }
 .back-link:hover { color:#2563eb; }
 
-/* ── ① 신호등 배너 ── */
+/* ── ① 신호등 배너 ──
+   합격/불합격/보류 3색은 base.html의 --pass/--fail/--pending·.badge 색상표와 톤을 맞춘다
+   (그라데이션 제거 — 2026-09-07 디자인 감사 반영, 화려함보다 명확함 우선). */
 .verdict-banner { border-radius:16px; padding:22px 26px; margin-bottom:18px;
                   display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-.verdict-banner.all-pass  { background:linear-gradient(135deg,#dcfce7,#bbf7d0); border:2px solid #16a34a; }
-.verdict-banner.has-issue { background:linear-gradient(135deg,#fee2e2,#fecaca); border:2px solid #dc2626; }
+.verdict-banner.all-pass    { background:#dcfce7; border:2px solid var(--pass); }
+.verdict-banner.has-fail    { background:#fee2e2; border:2px solid var(--fail); }
+.verdict-banner.has-pending { background:#fef3c7; border:2px solid var(--pending); }
 .verdict-icon { font-size:54px; line-height:1; flex-shrink:0; }
 .verdict-text h2 { margin:0 0 4px; font-size:21px; }
 .verdict-text p  { margin:0; font-size:14px; color:#374151; }
@@ -78,9 +81,8 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
 .submit-final.s-special { background:#ea580c; color:#fff; }
 .submit-final.s-reject  { background:#dc2626; color:#fff; }
 
-/* ── 계측기·기타 ── */
-.gauge-warn { background:#fef3c7; border:1px solid #fbbf24; border-radius:10px;
-              padding:11px 16px; font-size:13px; margin-bottom:14px; }
+/* ── 서명 패드 보조 버튼 (지우기/저장/불러오기) — 반복되는 sm 사이즈 지정을 한 곳으로 ── */
+.btn.secondary.sm { padding:6px 14px; font-size:13px; margin-top:0; }
 </style>
 
 <a href="{{ url_for('approve_list') }}" class="back-link">← 승인 대기 목록</a>
@@ -123,7 +125,7 @@ function showApproveWarn(title, msg){
 {% set pending_count = pending_items|length %}
 {% set pass_count    = pass_items|length %}
 
-<div class="verdict-banner {{ 'has-issue' if problem_count > 0 else ('has-issue' if pending_count > 0 else 'all-pass') }}">
+<div class="verdict-banner {{ 'has-fail' if problem_count > 0 else ('has-pending' if pending_count > 0 else 'all-pass') }}">
   <div class="verdict-icon">{{ '🔴' if problem_count > 0 else ('🟡' if pending_count > 0 else '🟢') }}</div>
   <div class="verdict-text">
     {% if problem_count > 0 %}
@@ -140,16 +142,16 @@ function showApproveWarn(title, msg){
   <div class="verdict-counts">
     <b>{{ total_count }}</b>전체 항목
     {% if problem_count > 0 %}
-    <br><span style="color:#dc2626; font-weight:700;">{{ problem_count }}개 주의</span>
+    <br><span style="color:var(--fail); font-weight:700;">{{ problem_count }}개 주의</span>
     {% endif %}
     {% if pending_count > 0 %}
-    <br><span style="color:#b45309; font-weight:700;">{{ pending_count }}개 미측정</span>
+    <br><span style="color:var(--pending); font-weight:700;">{{ pending_count }}개 미측정</span>
     {% endif %}
   </div>
 </div>
 
 {# ───────── 기본 정보 ───────── #}
-<div class="card" style="padding:16px 18px; margin-bottom:14px;">
+<div class="card" style="padding:16px 18px;">
   <div class="info-grid">
     <div><div class="lbl">자재번호</div><div class="val">{{ header['material_no'] }}</div></div>
     <div><div class="lbl">자재명</div><div class="val">{{ header['material_name'] or '-' }}</div></div>
@@ -166,7 +168,7 @@ function showApproveWarn(title, msg){
 
 {# ───────── 도면 확인 배너 ───────── #}
 <div id="drawingBanner" class="card"
-     style="padding:12px 18px; margin-bottom:14px; display:flex; align-items:center;
+     style="padding:12px 18px; display:flex; align-items:center;
             justify-content:space-between; flex-wrap:wrap; gap:10px;
             border-left:4px solid #d1d5db;">
   <div>
@@ -182,7 +184,7 @@ function showApproveWarn(title, msg){
 
 {# ───────── AQL·샘플 요약 ───────── #}
 {% if aql_groups %}
-<div class="card" style="padding:12px 18px; margin-bottom:14px;">
+<div class="card" style="padding:12px 18px;">
   <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
     <span style="font-size:12px; color:#6b7280; font-weight:700;">AQL별 샘플수
       <span class="info-anchor">
@@ -229,44 +231,46 @@ function showApproveWarn(title, msg){
 
 {# ───────── 계측기 경고 ───────── #}
 {% if gauge_alerts %}
-<div class="gauge-warn">
-  ⏰ <b>계측기 유효기간 임박:</b>
-  {% for a in gauge_alerts %}
-  {{ a['item_name'] }}
-  ({% if a['days_left'] < 0 %}만료 D+{{ -a['days_left'] }}{% elif a['days_left'] == 0 %}오늘 만료{% else %}D-{{ a['days_left'] }}{% endif %}){% if not loop.last %},{% endif %}
-  {% endfor %}
+<div class="notice notice-warning">
+  <span style="font-size:18px; line-height:1.2;">⏰</span>
+  <span>
+    <b>계측기 유효기간 임박:</b>
+    {% for a in gauge_alerts %}
+    {{ a['item_name'] }}
+    ({% if a['days_left'] < 0 %}만료 D+{{ -a['days_left'] }}{% elif a['days_left'] == 0 %}오늘 만료{% else %}D-{{ a['days_left'] }}{% endif %}){% if not loop.last %},{% endif %}
+    {% endfor %}
+  </span>
 </div>
 {% endif %}
 
 {# ───────── 비고 — 내용이 있으면 눈에 띄게 강조 ───────── #}
 {% if header['remark_inspector'] or header['remark_manager'] or header['remark_approver'] %}
-<div style="background:#fffbeb; border:2px solid #f59e0b; border-left-width:6px;
-            border-radius:12px; padding:16px 20px; margin-bottom:14px; font-size:14px;
-            box-shadow:0 2px 10px rgba(245,158,11,.2);">
-  <b style="font-size:13px; color:#92400e; font-weight:800; letter-spacing:0.5px;">
-    💬 비고 — 결정 전 반드시 확인해줘
-  </b>
-  {% if header['remark_inspector'] %}
-  <div style="margin-top:10px; background:#fff; border:1px solid #fde68a; border-radius:8px;
-              padding:9px 12px; font-weight:600; color:#1f2937;">
-    <span style="color:#b45309; font-weight:700; margin-right:4px;">🔎 검사자</span>
-    {{ header['remark_inspector'] }}
+<div class="notice notice-warning" style="border-left-width:6px; padding:16px 20px; font-size:14px;">
+  <span style="font-size:20px; line-height:1.2;">💬</span>
+  <div style="flex:1;">
+    <b style="font-weight:800; letter-spacing:0.5px;">비고 — 결정 전 반드시 확인해줘</b>
+    {% if header['remark_inspector'] %}
+    <div style="margin-top:10px; background:#fff; border:1px solid #fde68a; border-radius:8px;
+                padding:9px 12px; font-weight:600; color:#1f2937;">
+      <span style="color:#b45309; font-weight:700; margin-right:4px;">🔎 검사자</span>
+      {{ header['remark_inspector'] }}
+    </div>
+    {% endif %}
+    {% if header['remark_manager'] %}
+    <div style="margin-top:8px; background:#fff; border:1px solid #86efac; border-radius:8px;
+                padding:9px 12px; font-weight:600; color:#166534;">
+      <span style="font-weight:700; margin-right:4px;">🧑‍💼 관리자</span>
+      {{ header['remark_manager'] }}
+    </div>
+    {% endif %}
+    {% if header['remark_approver'] %}
+    <div style="margin-top:8px; background:#fff; border:1px solid #c4b5fd; border-radius:8px;
+                padding:9px 12px; font-weight:600; color:#4B0082;">
+      <span style="font-weight:700; margin-right:4px;">👑 결정권자</span>
+      {{ header['remark_approver'] }}
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
-  {% if header['remark_manager'] %}
-  <div style="margin-top:8px; background:#fff; border:1px solid #86efac; border-radius:8px;
-              padding:9px 12px; font-weight:600; color:#166534;">
-    <span style="font-weight:700; margin-right:4px;">🧑‍💼 관리자</span>
-    {{ header['remark_manager'] }}
-  </div>
-  {% endif %}
-  {% if header['remark_approver'] %}
-  <div style="margin-top:8px; background:#fff; border:1px solid #c4b5fd; border-radius:8px;
-              padding:9px 12px; font-weight:600; color:#4B0082;">
-    <span style="font-weight:700; margin-right:4px;">👑 결정권자</span>
-    {{ header['remark_approver'] }}
-  </div>
-  {% endif %}
 </div>
 {% endif %}
 
@@ -427,7 +431,7 @@ function showApproveWarn(title, msg){
 {% endif %}
 
 {# ───────── ④ 최종결정권자 비고란 ───────── #}
-<div class="card" style="padding:16px 18px; margin-bottom:14px;">
+<div class="card" style="padding:16px 18px;">
   <b style="font-size:13px; color:#4B0082; font-weight:700;">👑 최종결정권자 비고</b>
   {% if header['remark_approver'] %}
   <div style="color:#4B0082; font-size:13.5px; margin:6px 0 10px;">{{ header['remark_approver'] }}</div>
@@ -452,7 +456,7 @@ function showApproveWarn(title, msg){
   <input type="hidden" name="from_approve"     value="1">
 
   {# 서명 패드 #}
-  <div class="card" style="padding:18px; margin-bottom:14px;">
+  <div class="card">
     <b style="font-size:14px; color:#374151;">✍️ 서명 (승인·특채·불합격 확정 시 필수)</b>
     <p class="muted" style="margin:4px 0 12px; font-size:13px;">
       최종 결정 세 가지(승인·특채·불합격 확정)는 <b>서명이 반드시 있어야</b> 처리돼.
@@ -476,12 +480,10 @@ function showApproveWarn(title, msg){
               style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%;"></canvas>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-        <button type="button" onclick="clearSig()" class="btn secondary"
-                style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
-        <button type="button" onclick="saveDefaultSig()" class="btn secondary"
-                style="padding:6px 14px; font-size:13px; margin-top:0;">💾 서명 저장</button>
-        <button type="button" onclick="loadDefaultSig()" id="loadSigBtn" class="btn secondary"
-                style="padding:6px 14px; font-size:13px; margin-top:0; display:none;">📂 저장된 서명 불러오기</button>
+        <button type="button" onclick="clearSig()" class="btn secondary sm">지우기</button>
+        <button type="button" onclick="saveDefaultSig()" class="btn secondary sm">💾 서명 저장</button>
+        <button type="button" onclick="loadDefaultSig()" id="loadSigBtn" class="btn secondary sm"
+                style="display:none;">📂 저장된 서명 불러오기</button>
       </div>
       {# 저장된 서명 미리보기 #}
       <div id="savedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#f9fafb;
@@ -731,6 +733,7 @@ window.addEventListener('load', () => {
         label.textContent = '📐 도면 있음 — 승인 전 꼭 확인해줘';
         label.style.color = '#1d4ed8';
         banner.style.borderLeftColor = '#1d4ed8';
+        banner.style.background = '#eff6ff';
         desc.textContent = '이 자재에 도면 파일이 등록되어 있어. 승인 전 확인을 권장해.';
         btn.style.display = 'block';
         if (fab) fab.style.display = 'flex';
@@ -739,6 +742,7 @@ window.addEventListener('load', () => {
         label.style.color = '#9ca3af';
         desc.textContent = '이 자재에 등록된 도면 파일이 없어.';
         banner.style.borderLeftColor = '#e5e7eb';
+        banner.style.background = '';
         if (fab) fab.style.display = 'none';
       }
     }).catch(function(){
