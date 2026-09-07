@@ -101,24 +101,34 @@ ITEM_COLS = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "N", "O", "P", "Q
 
 ITEM_ROW_HEIGHT = 39.0   # 항목표 한 행 기본 높이(템플릿 원본 값) — 대략 2줄까지 여유 있게 잡혀 있음
 _ITEM_ROW_CHARS_PER_LINE = 16  # B열 폭(약 18.7) 기준, 한글 위주 텍스트가 한 줄에 대략 들어가는 양
+_AQL_COL_CHARS_PER_LINE = 7    # C열 폭(약 8.4, B열의 약 45%) 기준 — AQL 칸("샘플 N개/Ac1 이내 합격")이
+                               # B열 기준 추정치로는 안 잘리는 걸로 잘못 계산돼 행 높이가 안 늘어나고
+                               # 글자가 잘려 보이던 문제(2026-09-08) 대응
 
 
 def _estimate_wrapped_lines(text, chars_per_line=_ITEM_ROW_CHARS_PER_LINE):
-    """검사항목(B열) 텍스트가 셀 폭 안에서 대략 몇 줄로 접힐지 추정한다.
+    """텍스트가 셀 폭 안에서 대략 몇 줄로 접힐지 추정한다.
     실제 폰트 폭 측정은 아니라서 정확하진 않지만, "규격 설명이 길어서 줄이 넘치는데
     행 높이는 그대로라 글자가 뭉개져 보인다"는 실사용자 피드백에 대응하기 위한
-    근사치 — 한글/전각 문자는 라틴 문자의 약 2배 폭으로 가중치를 준다."""
+    근사치 — 한글/전각 문자는 라틴 문자의 약 2배 폭으로 가중치를 준다.
+    명시적 줄바꿈(\\n)이 있으면 그 지점에서 강제로 줄이 나뉘고, 각 줄 안에서 다시
+    폭 기준으로 접히는 만큼을 더한다(AQL 칸처럼 '기준\\n샘플 N개/...' 형태에 필요)."""
     if not text:
         return 1
-    width = sum(2 if ord(ch) > 0x1100 else 1 for ch in text)
-    return max(1, -(-width // (chars_per_line * 2)))  # 올림 나눗셈
+    total = 0
+    for line in str(text).split("\n"):
+        width = sum(2 if ord(ch) > 0x1100 else 1 for ch in line)
+        total += max(1, -(-width // (chars_per_line * 2)))  # 올림 나눗셈
+    return max(1, total)
 
 
-def _grow_row_for_text(ws, row, text, base_height=ITEM_ROW_HEIGHT):
-    """긴 검사항목 설명 때문에 줄바꿈이 2줄을 넘어가면, 그만큼 행 높이를 늘려서
-    글자가 눌려 보이지 않게 한다. 페이지 전체는 fitToPage(1페이지 강제)로 스케일이
-    자동 조정되므로, 이렇게 특정 행만 키워도 A4 1장 안에 그대로 들어간다."""
-    lines = _estimate_wrapped_lines(text)
+def _grow_row_for_text(ws, row, text, base_height=ITEM_ROW_HEIGHT, chars_per_line=_ITEM_ROW_CHARS_PER_LINE):
+    """긴 텍스트 때문에 줄바꿈이 2줄을 넘어가면, 그만큼 행 높이를 늘려서 글자가
+    잘리거나 눌려 보이지 않게 한다. 페이지 전체는 fitToPage(1페이지 강제)로 스케일이
+    자동 조정되므로, 이렇게 특정 행만 키워도 A4 1장 안에 그대로 들어간다.
+    같은 행에 폭이 다른 여러 열(B열 검사항목, C열 AQL 등)을 각각 이 함수로 검사할 수
+    있고, 행 높이는 절대 줄어들지 않고 더 큰 요구치 쪽으로만 커진다(호출 순서 무관)."""
+    lines = _estimate_wrapped_lines(text, chars_per_line)
     if lines <= 2:
         return
     new_height = base_height / 2 * lines * 1.1  # 기본 높이가 2줄 기준이라 줄당 높이로 환산 후 여유 10%
@@ -371,9 +381,12 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
                 else:
                     aql_text = f"{aql_text}\n샘플 {measured_n}개/무결점"
             ws[f"C{row}"] = aql_text
-        # ※ wrap_text 없으면 LibreOffice가 PDF 변환할 때 줄바꿈을 무시하고 한 줄로 뭉갠다
-        ws[f"C{row}"].alignment = Alignment(horizontal="center", vertical="center",
-                                            wrap_text=True, shrink_to_fit=True)
+            _grow_row_for_text(ws, row, aql_text, chars_per_line=_AQL_COL_CHARS_PER_LINE)
+        # ※ wrap_text 없으면 LibreOffice가 PDF 변환할 때 줄바꿈을 무시하고 한 줄로 뭉갠다.
+        # shrink_to_fit은 일부러 안 씀 — wrap_text와 같이 쓰면 렌더러마다 우선순위가 달라서
+        # (엑셀은 wrap_text가 이기지만 LibreOffice는 글자를 억지로 욱여넣다 잘라먹는 경우가 있었음,
+        # 2026-09-08 실사용자 피드백) 행 높이를 늘리는 쪽으로 통일했다.
+        ws[f"C{row}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         if r.get("sample_qty") is not None:
             ws[f"D{row}"] = r["sample_qty"]
         ws[f"D{row}"].alignment = center  # 샘플 수량
