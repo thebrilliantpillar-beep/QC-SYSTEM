@@ -142,12 +142,20 @@
 
   {# 📦 입고 #}
   {% if 'intake' in perms %}
-  <a href="{{ url_for('intake') }}" style="position:relative;">
-    📦 입고
-    {% if nav_counts.get('inspect', 0) > 0 %}
-    <span style="position:absolute;top:-6px;right:-8px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['inspect'] }}</span>
-    {% endif %}
-  </a>
+  <div class="nav-dropdown">
+    <button type="button" onclick="toggleNav(this)" style="position:relative;">
+      📦 입고 ▾
+      {% if nav_counts.get('inspect', 0) > 0 %}
+      <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['inspect'] }}</span>
+      {% endif %}
+    </button>
+    <div class="menu">
+      <a href="{{ url_for('intake') }}">입고 리스트 등록
+        {% if nav_counts.get('inspect', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['inspect'] }})</span>{% endif %}
+      </a>
+      <a href="{{ url_for('intake_history_list') }}">과거 입고 이력</a>
+    </div>
+  </div>
   {% endif %}
 
   {# 🔍 검사 #}

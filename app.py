@@ -1477,6 +1477,165 @@ def intake():
                            registered=registered, group_nos=set(), name_map=name_map)
 
 
+# ---------- 과거 입고 이력 (검사/승인과 무관한 순수 조회 전용) ----------
+
+@app.route("/intake-history")
+@perm_required("intake")
+def intake_history_list():
+    """검사/승인 워크플로우와 무관한 과거 입고 이력 조회. intake_list가 아니라
+    intake_history 테이블을 본다 — 절대 검사 대기 큐나 품질현황에 영향 없음."""
+    query = request.args.get("q", "").strip()
+    search_by = request.args.get("by", "all")
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    d_from = _parse_any_date(date_from) if date_from else None
+    d_to = _parse_any_date(date_to) if date_to else None
+
+    rows = db.search_intake_history(
+        query, search_by,
+        date_from=d_from.isoformat() if d_from else None,
+        date_to=d_to.isoformat() if d_to else None,
+    )
+    pager = _paginate(list(rows))
+
+    mats = db.get_materials()
+    registered = {m["material_no"] for m in mats}
+
+    return render_template("intake_history.html",
+                           pager=pager, query=query, search_by=search_by,
+                           date_from=date_from, date_to=date_to,
+                           registered=registered)
+
+
+@app.route("/intake-history/import", methods=["GET", "POST"])
+@perm_required("intake")
+def intake_history_import():
+    """과거 입고 이력을 엑셀로 한 번에 등록. 1행은 머리글로 취급해 무조건 건너뛴다.
+    열 순서(A~F): 입고날짜, 업체명, 발주번호, 제품명, 자재번호, 입고수량
+    — intake() 라우트의 붙여넣기 그리드와 동일한 순서."""
+    if request.method == "GET":
+        return render_template("intake_history_import.html")
+
+    file = request.files.get("history_file")
+    if not file or not file.filename:
+        flash("엑셀 파일을 선택해줘.")
+        return redirect(url_for("intake_history_import"))
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        flash(".xlsx/.xlsm 파일만 올릴 수 있어.")
+        return redirect(url_for("intake_history_import"))
+
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file.read()), data_only=True)
+    except Exception as e:
+        flash(f"파일을 읽는 중 오류: {e}")
+        return redirect(url_for("intake_history_import"))
+    ws = wb.worksheets[0]
+
+    def _cell_str(v):
+        if v is None:
+            return ""
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d")
+        return str(v).strip()
+
+    mats = db.get_materials()
+    registered = {m["material_no"] for m in mats}
+
+    parsed = []
+    skipped = []
+    unregistered = []
+    unparsed_dates = []
+
+    for idx, row in enumerate(ws.iter_rows(min_row=2, max_col=6, values_only=True), start=2):
+        cols = list(row) + [None] * (6 - len(row))
+        raw_date, supplier, po_number, product_name, material_no, quantity = cols[:6]
+        raw_date_s = _cell_str(raw_date)
+        supplier_s = _cell_str(supplier)
+        po_s = _cell_str(po_number)
+        product_s = _cell_str(product_name)
+        material_s = _cell_str(material_no)
+        qty_raw = _cell_str(quantity)
+
+        if not any([raw_date_s, supplier_s, po_s, product_s, material_s, qty_raw]):
+            continue
+
+        if not material_s:
+            skipped.append({"row": idx, "reason": "자재번호가 비어 있음"})
+            continue
+
+        if hasattr(raw_date, "strftime"):
+            receive_date = raw_date.strftime("%Y-%m-%d")
+        else:
+            d = _parse_any_date(raw_date_s)
+            if d:
+                receive_date = d.isoformat()
+            else:
+                receive_date = raw_date_s or None
+                if raw_date_s:
+                    unparsed_dates.append({"row": idx, "raw": raw_date_s})
+
+        qty_match = re.search(r"\d+", qty_raw)
+        quantity_val = int(qty_match.group()) if qty_match else None
+
+        if material_s not in registered and material_s not in unregistered:
+            unregistered.append(material_s)
+
+        parsed.append({
+            "material_no": material_s,
+            "product_name": product_s or None,
+            "supplier": supplier_s or None,
+            "receive_date": receive_date,
+            "po_number": po_s or None,
+            "quantity": quantity_val,
+        })
+
+    dup_rows = db.find_duplicate_intake_history(parsed) if parsed else []
+    force = request.form.get("force_duplicates") == "1"
+    to_insert = parsed if (force or not dup_rows) else [r for r in parsed if r not in dup_rows]
+
+    source = f"{file.filename} ({_dt.now():%Y-%m-%d %H:%M:%S})"
+    if to_insert:
+        db.add_intake_history_bulk(to_insert, source=source, imported_by=g.user["username"])
+        record_change("과거 입고 이력 일괄 등록", "intake_history", None,
+                       f"{len(to_insert)}건 (파일: {file.filename})")
+
+    return render_template("intake_history_import_result.html",
+                           total_rows=len(parsed) + len(skipped),
+                           inserted=len(to_insert),
+                           skipped=skipped,
+                           unregistered=unregistered,
+                           unparsed_dates=unparsed_dates,
+                           duplicate_count=(len(dup_rows) if not force else 0),
+                           source=(source if to_insert else None))
+
+
+@app.route("/intake-history/delete", methods=["POST"])
+@perm_required("intake")
+def intake_history_delete():
+    ids = [int(i) for i in request.form.getlist("ids") if i.isdigit()]
+    deleted = db.delete_intake_history_bulk(ids)
+    if deleted:
+        record_change("과거 입고 이력 선택 삭제", "intake_history", None, f"{deleted}건")
+        flash(f"{deleted}건 삭제했어.")
+    else:
+        flash("삭제할 항목을 선택해줘.")
+    return redirect(url_for("intake_history_list"))
+
+
+@app.route("/intake-history/undo", methods=["POST"])
+@perm_required("intake")
+def intake_history_undo():
+    source = request.form.get("source", "").strip()
+    if not source:
+        flash("되돌릴 등록 건을 찾을 수 없어.")
+        return redirect(url_for("intake_history_list"))
+    deleted = db.delete_intake_history_by_source(source)
+    flash(f"방금 등록한 {deleted}건을 삭제했어.")
+    record_change("과거 입고 이력 등록 되돌리기", "intake_history", None, f"{deleted}건 (출처: {source})")
+    return redirect(url_for("intake_history_list"))
+
+
 # ---------- 규격 관리 ----------
 
 @app.route("/spec")

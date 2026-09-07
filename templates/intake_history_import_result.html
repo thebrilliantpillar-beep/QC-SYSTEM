@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}과거 입고 이력 등록 결과{% endblock %}
+{% block content %}
+<h2>과거 입고 이력 등록 결과</h2>
+
+<div class="card" style="display:flex; gap:20px; flex-wrap:wrap;">
+  <div>전체 <b>{{ total_rows }}</b>행</div>
+  <div><b style="color:#16a34a;">등록 {{ inserted }}건</b></div>
+  <div><b style="color:#dc2626;">건너뜀 {{ skipped|length }}건</b></div>
+  {% if duplicate_count %}
+  <div><b style="color:#d97706;">중복으로 건너뜀 {{ duplicate_count }}건</b></div>
+  {% endif %}
+</div>
+
+{% if source %}
+<form method="POST" action="{{ url_for('intake_history_undo') }}" style="margin:14px 0;"
+      onsubmit="return confirm('방금 등록한 {{ inserted }}건을 전부 삭제할까?');">
+  <input type="hidden" name="source" value="{{ source }}">
+  <button type="submit" style="background:#fff; color:#dc2626; border:1px solid #dc2626;">🔙 방금 등록한 {{ inserted }}건 되돌리기</button>
+</form>
+{% endif %}
+
+{% if skipped %}
+<h3 style="margin-top:20px;">건너뛴 행</h3>
+<table>
+  <tr><th>행 번호</th><th>사유</th></tr>
+  {% for s in skipped %}
+  <tr>
+    <td>{{ s['row'] }}행</td>
+    <td style="text-align:left; padding-left:14px;">{{ s['reason'] }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if unregistered %}
+<div class="card" style="border-left:4px solid #d97706; margin-top:16px;">
+  <b style="color:#d97706;">규격이 아직 등록되지 않은 자재번호 ({{ unregistered|length }}건)</b>
+  <p style="margin:6px 0; font-size:12.5px; color:#6b7280;">
+    검사 워크플로우와 무관한 이력이라 등록은 그대로 됐습니다. 참고용 안내입니다.
+  </p>
+  <ul style="margin:6px 0 0; padding-left:20px; font-size:13.5px; color:#374151;">
+    {% for u in unregistered %}
+    <li>{{ u }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if unparsed_dates %}
+<div class="card" style="border-left:4px solid #dc2626; margin-top:16px;">
+  <b style="color:#dc2626;">입고날짜 인식 실패 ({{ unparsed_dates|length }}건)</b>
+  <p style="margin:6px 0; font-size:12.5px; color:#6b7280;">
+    원문 그대로 저장했습니다. 필요하면 목록 화면에서 직접 확인해줘.
+  </p>
+  <ul style="margin:6px 0 0; padding-left:20px; font-size:13.5px; color:#374151;">
+    {% for u in unparsed_dates %}
+    <li>{{ u['row'] }}행: "{{ u['raw'] }}"</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div style="margin-top:20px; display:flex; gap:8px;">
+  <a href="{{ url_for('intake_history_import') }}" class="btn secondary">추가로 더 올리기</a>
+  <a href="{{ url_for('intake_history_list') }}" class="btn">목록 보기</a>
+</div>
+{% endblock %}

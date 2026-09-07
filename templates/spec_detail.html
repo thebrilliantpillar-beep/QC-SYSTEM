@@ -34,6 +34,12 @@
      class="btn secondary" style="margin-top:0; padding:8px 16px; font-size:13px;">
     📈 검사 이력 추적
   </a>
+  {% if 'intake' in user_perms %}
+  <a href="{{ url_for('intake_history_list', q=material_no, by='material_no') }}"
+     class="btn secondary" style="margin-left:8px;">
+    📜 과거 입고 이력
+  </a>
+  {% endif %}
 </div>
 <p class="hint">항목을 직접 수정하거나 삭제할 수 있어. 판정유형을 "육안"으로 바꾸면 하한/상한은 저장 시 자동으로 비워져.
   수치 항목은 규격표기 아래 "기준값·부호·공차값"으로 빠르게 조합해서 규격표기+하한/상한을 한번에 채울 수도 있어(직접 타이핑도 계속 가능).</p>

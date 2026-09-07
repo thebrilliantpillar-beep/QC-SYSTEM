@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}과거 입고 이력 대량 등록{% endblock %}
+{% block content %}
+<h2>과거 입고 이력 대량 등록</h2>
+
+<div class="card">
+  <p class="hint">
+    엑셀 파일 1행은 제목줄로 보고 자동으로 건너뜁니다. 2행부터 아래 순서로 채워주세요(A~F열).<br>
+    <b>입고날짜, 업체명, 발주번호, 제품명, 자재번호, 입고수량</b><br>
+    이 이력은 검사·승인 워크플로우와 무관한 조회 전용 기록으로만 저장됩니다.
+  </p>
+
+  <form method="POST" enctype="multipart/form-data">
+    <label>엑셀 파일(.xlsx, .xlsm)</label>
+    <input type="file" name="history_file" accept=".xlsx,.xlsm" required>
+
+    <label style="display:flex; align-items:center; gap:6px; margin-top:14px; font-weight:normal;">
+      <input type="checkbox" name="force_duplicates" value="1">
+      완전히 같은 내용이 이미 있어도 다시 등록
+    </label>
+
+    <button type="submit" style="margin-top:14px; padding:12px 28px;">📥 업로드</button>
+  </form>
+</div>
+
+<p style="margin-top:16px;"><a href="{{ url_for('intake_history_list') }}">← 과거 입고 이력 목록으로</a></p>
+{% endblock %}

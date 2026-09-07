@@ -169,6 +169,29 @@ def init_db():
         #  " - "가 들어간 일반 자재까지 "MA 파츠"로 잘못 표시되는 오판정이 있었다 — 이제 이 컬럼으로 실제 출처를 기록한다.)
         cur.execute("ALTER TABLE intake_list ADD COLUMN assembly_no TEXT")
 
+    # 1-2. 과거 입고 이력 — 일일보고 엑셀 등에서 옮겨온 "이미 끝난" 입고 기록 조회 전용.
+    # intake_list와 절대 혼동하지 말 것: 여기 등록해도 검사 대기 큐(상태='대기')에 안 뜨고
+    # 품질현황(quality_report)에도 안 잡힌다 — 검사/승인 워크플로우와 완전히 무관한 순수 로그다.
+    # FK를 일부러 안 건다(materials/intake_list/inspections 어디와도 조인 강제 없음).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS intake_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            material_no TEXT NOT NULL,
+            product_name TEXT,
+            supplier TEXT,
+            receive_date TEXT,      -- 가능하면 'YYYY-MM-DD'로 정규화해서 저장(정렬/기간검색 위해)
+            po_number TEXT,
+            quantity INTEGER,
+            source TEXT,            -- 이 행이 어느 등록(파일+시각)에서 왔는지 — 배치 단위 되돌리기 키로도 씀
+            imported_by TEXT,       -- 등록한 계정의 username
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_intake_history_material ON intake_history(material_no)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_intake_history_supplier ON intake_history(supplier)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_intake_history_date ON intake_history(receive_date)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_intake_history_source ON intake_history(source)")
+
     # 2. 검사(성적서) 헤더 — 자재 입고 1건 = 성적서 1건
     cur.execute("""
         CREATE TABLE IF NOT EXISTS inspections (
@@ -1240,6 +1263,108 @@ def delete_intake_bulk(intake_ids):
         f"DELETE FROM intake_list WHERE id IN ({placeholders}) AND status = '대기'",
         intake_ids
     )
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ---------- 과거 입고 이력 (검사/승인과 무관한 순수 조회용 — intake_list와 별개 테이블) ----------
+
+def add_intake_history_bulk(rows, source, imported_by):
+    """rows: list of dict(material_no, product_name, supplier, receive_date, po_number, quantity)
+    검사/승인 큐에 절대 올라가지 않는다 — 그냥 intake_history 테이블에 그대로 적재만 한다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    for r in rows:
+        cur.execute("""
+            INSERT INTO intake_history
+                (material_no, product_name, supplier, receive_date, po_number, quantity, source, imported_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (r["material_no"], r.get("product_name"), r.get("supplier"),
+              r.get("receive_date"), r.get("po_number"), r.get("quantity"),
+              source, imported_by))
+    conn.commit()
+    conn.close()
+
+
+def find_duplicate_intake_history(rows):
+    """material_no+supplier+receive_date+po_number+quantity가 전부 같은 행이 이미
+    intake_history에 있으면 그 rows만 골라 돌려준다. 같은 엑셀 파일을 실수로 두 번
+    올렸을 때 감지하기 위함. 값이 같은 게 실제로 반복 입고일 수도 있어서 자동으로
+    막지는 않고(등록 여부는 호출부가 결정), 감지만 한다."""
+    if not rows:
+        return []
+    conn = get_conn()
+    dups = []
+    for r in rows:
+        hit = conn.execute("""
+            SELECT id FROM intake_history
+            WHERE material_no = ?
+              AND IFNULL(supplier, '') = IFNULL(?, '')
+              AND IFNULL(receive_date, '') = IFNULL(?, '')
+              AND IFNULL(po_number, '') = IFNULL(?, '')
+              AND IFNULL(quantity, -1) = IFNULL(?, -1)
+        """, (r["material_no"], r.get("supplier"), r.get("receive_date"),
+              r.get("po_number"), r.get("quantity"))).fetchone()
+        if hit:
+            dups.append(r)
+    conn.close()
+    return dups
+
+
+def search_intake_history(query=None, search_by="all", date_from=None, date_to=None):
+    """자재번호/제품명/업체명/발주번호 기준 검색 + 입고일 범위(ISO 'YYYY-MM-DD') 필터.
+    intake_list.search_intake()의 자매 함수지만 완전히 별개 테이블을 조회한다."""
+    conn = get_conn()
+    sql = "SELECT * FROM intake_history WHERE 1=1"
+    params = []
+    q = (query or "").strip()
+    if q:
+        col_map = {
+            "material_no": "material_no",
+            "product_name": "product_name",
+            "supplier": "supplier",
+            "po_number": "po_number",
+        }
+        if search_by in col_map:
+            sql += f" AND {col_map[search_by]} LIKE ?"
+            params.append(f"%{q}%")
+        else:
+            sql += " AND (material_no LIKE ? OR product_name LIKE ? OR supplier LIKE ? OR po_number LIKE ?)"
+            params.extend([f"%{q}%"] * 4)
+    if date_from:
+        sql += " AND receive_date >= ?"
+        params.append(date_from)
+    if date_to:
+        sql += " AND receive_date <= ?"
+        params.append(date_to)
+    sql += " ORDER BY receive_date DESC, id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return rows
+
+
+def delete_intake_history_bulk(ids):
+    """목록 화면에서 선택 삭제. 이 테이블엔 상태 개념이 없으니 그냥 지운다."""
+    if not ids:
+        return 0
+    conn = get_conn()
+    placeholders = ",".join("?" for _ in ids)
+    cur = conn.execute(f"DELETE FROM intake_history WHERE id IN ({placeholders})", ids)
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def delete_intake_history_by_source(source):
+    """대량 등록 직후 "방금 등록한 것 전체 되돌리기" 용 — source 문자열은 그 등록
+    액션(파일명+시각)마다 고유하게 만들어지므로 이걸로 배치 단위 삭제가 된다."""
+    if not source:
+        return 0
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM intake_history WHERE source = ?", (source,))
     deleted = cur.rowcount
     conn.commit()
     conn.close()

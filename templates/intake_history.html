@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}과거 입고 이력{% endblock %}
+{% block content %}
+<h2>과거 입고 이력</h2>
+<p class="muted" style="margin:-6px 0 14px; font-size:13px;">
+  검사·승인과 무관한 조회 전용 기록입니다. 여기서 등록해도 검사 대기 목록에 뜨지 않습니다.
+</p>
+
+{% if 'intake' in user_perms %}
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+  <a href="{{ url_for('intake_history_import') }}" class="btn" style="margin-top:0;">+ 대량 등록(엑셀 업로드)</a>
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:2; min-width:180px;">
+      <label>검색어</label>
+      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 제품명, 업체명, 발주번호...">
+    </div>
+    <div style="flex:1; min-width:130px;">
+      <label>검색 기준</label>
+      <select name="by">
+        <option value="all" {% if search_by=='all' %}selected{% endif %}>전체</option>
+        <option value="material_no" {% if search_by=='material_no' %}selected{% endif %}>자재번호</option>
+        <option value="product_name" {% if search_by=='product_name' %}selected{% endif %}>제품명</option>
+        <option value="supplier" {% if search_by=='supplier' %}selected{% endif %}>업체명</option>
+        <option value="po_number" {% if search_by=='po_number' %}selected{% endif %}>발주번호</option>
+      </select>
+    </div>
+    <div>
+      <label>입고일 시작</label>
+      <input type="date" name="date_from" value="{{ date_from }}">
+    </div>
+    <div>
+      <label>입고일 종료</label>
+      <input type="date" name="date_to" value="{{ date_to }}">
+    </div>
+    <button type="submit" style="margin-top:0;">검색</button>
+    {% if query or search_by != 'all' or date_from or date_to %}
+    <a href="{{ url_for('intake_history_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>
+    {% endif %}
+  </form>
+</div>
+
+{% if 'intake' in user_perms %}
+<form id="intakeHistoryDeleteForm" method="POST" action="{{ url_for('intake_history_delete') }}"
+      onsubmit="return confirm('선택한 과거 입고 이력을 삭제할까? 되돌릴 수 없어.');"></form>
+
+{% if pager['items'] %}
+<button type="submit" form="intakeHistoryDeleteForm" style="margin:0 0 10px; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">선택 삭제</button>
+{% endif %}
+{% endif %}
+
+<table>
+  <tr>
+    {% if 'intake' in user_perms %}
+    <th style="width:26px;"><input type="checkbox" id="checkAllHistory" onclick="document.querySelectorAll('.history-check').forEach(c=>c.checked=this.checked)"></th>
+    {% endif %}
+    <th>입고일</th><th>업체명</th><th>자재번호</th><th>제품명</th><th>발주번호</th><th>수량</th>
+  </tr>
+  {% for r in pager['items'] %}
+  <tr>
+    {% if 'intake' in user_perms %}
+    <td>
+      <input type="checkbox" class="history-check" form="intakeHistoryDeleteForm" name="ids" value="{{ r['id'] }}">
+    </td>
+    {% endif %}
+    <td>{{ r['receive_date'] | date_korean }}</td>
+    <td>{{ r['supplier'] or '-' }}</td>
+    <td>
+      {% if r['material_no'] in registered %}
+      <a href="{{ url_for('spec_detail', material_no=r['material_no']) }}">{{ r['material_no'] }}</a>
+      {% else %}
+      {{ r['material_no'] }}
+      <span style="font-size:11px; color:#dc2626; border:1px solid #dc2626; border-radius:999px; padding:1px 6px; margin-left:4px;">규격 미등록</span>
+      {% endif %}
+    </td>
+    <td>{{ r['product_name'] or '-' }}</td>
+    <td>{{ r['po_number'] or '-' }}</td>
+    <td>{{ r['quantity'] if r['quantity'] is not none else '-' }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="{{ 7 if 'intake' in user_perms else 6 }}">조회된 이력이 없어.</td></tr>
+  {% endfor %}
+</table>
+{% set p = pager %}{% include "_pager.html" %}
+{% endblock %}
