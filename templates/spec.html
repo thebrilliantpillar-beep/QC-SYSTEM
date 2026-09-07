@@ -2,15 +2,33 @@
 {% block title %}자재 관리{% endblock %}
 {% block content %}
 {% set can_edit = 'material_edit' in user_perms %}
-<h2>자재 관리</h2>
-{% if can_edit %}
-<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-  <a href="{{ url_for('spec_new') }}" class="btn" style="margin-top:0;">+ 개별 등록</a>
-  <a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 일괄 등록</a>
+
+<style>
+  .card-eyebrow { font-size:12.5px; font-weight:700; color:var(--muted); text-transform:uppercase;
+                  letter-spacing:.03em; margin:0 0 10px; }
+  .spec-header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .spec-header h2 { margin:0; }
+  .spec-header .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .spec-header .actions .btn { margin-top:0; }
+  .spec-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin:14px 0 10px; }
+  .spec-toolbar .btn.danger-outline { margin-top:0; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626; }
+  #spec-table td.mono { font-variant-numeric: tabular-nums; }
+  #spec-table td.name-cell { text-align:left; padding-left:14px; font-weight:600; }
+  .drawing-empty { color:#9ca3af; font-size:12px; }
+</style>
+
+<div class="spec-header">
+  <h2>자재 관리</h2>
+  {% if can_edit %}
+  <div class="actions">
+    <a href="{{ url_for('spec_new') }}" class="btn">+ 개별 등록</a>
+    <a href="{{ url_for('spec_quick_add') }}" class="btn secondary">+ 일괄 등록</a>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
 
 <div class="card">
+  <p class="card-eyebrow">🔍 자재 검색</p>
   <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
     <div style="flex:2; min-width:180px;">
       <label>검색어</label>
@@ -39,28 +57,27 @@
     <button type="submit" style="margin-top:0;">검색</button>
     {% if query or search_by != 'all' or category %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
   </form>
-  <p class="muted" style="margin:8px 0 0; font-size:12px;">
-    '검사방식 미입력'을 고르면 검색어 없이도 검사방식이 비어 있는 항목을 가진 자재만 모아 보여줘.
-  </p>
+  <p class="hint">'검사방식 미입력'을 고르면 검색어 없이도 검사방식이 비어 있는 항목을 가진 자재만 모아 보여줘.</p>
 </div>
 
-<label class="open-mode-toggle" style="margin-bottom:10px;">
-  <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
-</label>
-
+<div class="spec-toolbar">
+  <label class="open-mode-toggle" style="margin:0;">
+    <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
+  </label>
+  {% if can_edit and materials %}
+  <button type="submit" form="materialBulkDeleteForm" class="btn danger-outline">선택 삭제</button>
+  {% endif %}
+</div>
 {% if can_edit %}
 <form id="materialBulkDeleteForm" method="POST" action="{{ url_for('spec_delete_bulk') }}"
       onsubmit="return confirm('선택한 자재의 규격을 전부 삭제할까? 되돌릴 수 없어.');"></form>
-
-{% if materials %}
-<button type="submit" form="materialBulkDeleteForm" style="margin:0 0 10px; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">선택 삭제</button>
-{% endif %}
 {% endif %}
 
-<table>
+<div style="overflow-x:auto;">
+<table id="spec-table">
   <tr>
     {% if can_edit %}<th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>{% endif %}
-    <th>자재번호</th><th>자재명</th><th>분류</th><th>도면</th>
+    <th style="text-align:left; padding-left:14px;">자재번호</th><th>자재명</th><th>분류</th><th>도면</th>
   </tr>
   {% for m in materials %}
   <tr>
@@ -69,22 +86,25 @@
       <input type="checkbox" class="material-check" form="materialBulkDeleteForm" name="material_nos" value="{{ m['material_no'] }}">
     </td>
     {% endif %}
-    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
+    <td class="name-cell mono" onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
-    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['category'] or '-' }}</td>
+    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">
+      {% if m['category'] %}<span class="badge muted">{{ m['category'] }}</span>{% else %}<span class="muted">-</span>{% endif %}
+    </td>
     <td onclick="event.stopPropagation()">
       {% if m['material_no'] in drawing_materials %}
       <a href="javascript:void(0)" onclick="openDrawingModal('{{ m['material_no'] }}')"
          class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
       {% else %}
-      <span style="color:#d1d5db; font-size:12px;">-</span>
+      <span class="drawing-empty">미등록</span>
       {% endif %}
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="{{ 5 if can_edit else 4 }}">{% if query or search_by=='method_empty' or category %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
+  <tr><td colspan="{{ 5 if can_edit else 4 }}" style="text-align:center; padding:32px 0; color:var(--muted);">{% if query or search_by=='method_empty' or category %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
   {% endfor %}
 </table>
+</div>
 {% set p = pager %}{% include "_pager.html" %}
 {% include "_drawing_modal.html" %}
 {% endblock %}
