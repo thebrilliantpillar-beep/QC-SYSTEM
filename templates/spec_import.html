@@ -1,7 +1,9 @@
 {% extends "base.html" %}
-{% block title %}자재 일괄 등록{% endblock %}
+{# 2026-09-07: 이 화면은 메뉴에서 제거됨(spec_quick_add가 이제 "자재 일괄등록"을 맡음).
+   라우트는 남겨두되 제목을 바꿔 새 "자재 일괄등록" 메뉴와 혼동되지 않게 함 — CLAUDE.md 참고. #}
+{% block title %}자재 규격 엑셀 일괄 업로드{% endblock %}
 {% block content %}
-<h2>자재 일괄 등록</h2>
+<h2>자재 규격 엑셀 일괄 업로드</h2>
 <div class="card">
   <p class="muted" style="margin-top:0;">
     자재별로 항목/규격만 채워진 빈 성적서 양식(.xlsx) 파일들을 한 번에 올리면

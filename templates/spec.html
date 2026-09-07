@@ -2,12 +2,10 @@
 {% block title %}자재 관리{% endblock %}
 {% block content %}
 {% set can_edit = 'material_edit' in user_perms %}
-{% set can_import = 'material_import' in user_perms %}
 <h2>자재 관리</h2>
-{% if can_import or can_edit %}
+{% if can_edit %}
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-  {% if can_import %}<a href="{{ url_for('spec_import') }}" class="btn" style="margin-top:0;">📄 성적서 양식 일괄 등록</a>{% endif %}
-  {% if can_edit %}<a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 개별 등록</a>{% endif %}
+  <a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 일괄 등록</a>
 </div>
 {% endif %}
 

@@ -168,8 +168,8 @@ PERM_GROUPS = [
     ]),
     ("자재", [
         ("material_view",   "자재 열람"),
-        ("material_edit",   "자재 등록·수정·삭제(개별등록 포함)"),
-        ("material_import", "자재 일괄 등록"),
+        ("material_edit",   "자재 등록·수정·삭제(일괄등록 포함)"),
+        ("material_import", "자재 규격 엑셀 업로드(메뉴 미노출, URL 직접 접근용)"),
     ]),
     ("마스터", [
         ("gauge",    "계측기 관리"),

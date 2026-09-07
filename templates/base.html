@@ -253,13 +253,17 @@
   {% endif %}
 
   {# 📋 자재 #}
-  {% if 'material_view' in perms or 'material_edit' in perms or 'material_import' in perms or 'supplier' in perms %}
+  {% if 'material_view' in perms or 'material_edit' in perms or 'supplier' in perms %}
   <div class="nav-dropdown">
     <button type="button" onclick="toggleNav(this)">📋 자재 ▾</button>
     <div class="menu">
+      {# 2026-09-07: 자재 메뉴 재구성 — "자재 관리"(spec_list)는 그대로 두고(그 안에서 자재를
+         클릭해 들어가는 spec_detail 수정화면이 "자재 개별등록" 역할을 함, 별도 메뉴 없음),
+         "자재 개별 등록"(spec_quick_add)만 "자재 일괄등록"으로 이름을 바꿨다(기능은 그대로).
+         엑셀 자동파싱 방식이던 옛 spec_import("자재 일괄 등록")는 메뉴에서만 제거했다
+         (라우트는 그대로 살아있음, material_import 권한 있으면 URL로 직접 접근 가능). #}
       {% if 'material_view' in perms %}<a href="{{ url_for('spec_list') }}">자재 관리</a>{% endif %}
-      {% if 'material_edit' in perms %}<a href="{{ url_for('spec_quick_add') }}">자재 개별 등록</a>{% endif %}
-      {% if 'material_import' in perms %}<a href="{{ url_for('spec_import') }}">자재 일괄 등록</a>{% endif %}
+      {% if 'material_edit' in perms %}<a href="{{ url_for('spec_quick_add') }}">자재 일괄등록</a>{% endif %}
       {% if 'material_view' in perms %}<a href="{{ url_for('assembly_list') }}">조립품 관리</a>{% endif %}
       {% if 'supplier' in perms %}<a href="{{ url_for('supplier_list') }}">업체 관리</a>{% endif %}
       {% if 'supplier' in perms or 'material_edit' in perms %}<a href="{{ url_for('change_point_list') }}">4M 변경점</a>{% endif %}
