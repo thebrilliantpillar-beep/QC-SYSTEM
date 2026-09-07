@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block title %}계정 설정 — {{ u['username'] }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('user_management') }}" class="muted" style="text-decoration:none; font-size:13px;">← 계정 목록</a>
-
-<h2 style="margin-top:8px;">👤 {{ u['display_name'] or u['username'] }}
-  <span class="muted" style="font-size:14px; font-weight:400;">({{ u['username'] }})</span>
-</h2>
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+  <h2 style="margin:0;">👤 {{ u['display_name'] or u['username'] }}
+    <span class="muted" style="font-size:14px; font-weight:400;">({{ u['username'] }})</span>
+  </h2>
+  <a href="{{ url_for('user_management') }}" class="btn secondary" style="margin-top:0;">← 계정 목록</a>
+</div>
 
 {% set is_self = (u['id'] == current_user_id) %}
 
@@ -79,7 +80,10 @@
     {% if is_self %}
     {# 본인 'users' 권한은 스스로 못 뺌 — disabled라 전송 안 되니 hidden으로 유지 #}
     <input type="hidden" name="permissions" value="users">
-    <p class="hint">⚠️ 본인 계정의 '계정 관리' 권한은 스스로 회수할 수 없어(잠김 방지).</p>
+    <div class="notice notice-warning" style="margin:12px 0 0;">
+      <span style="font-size:16px; line-height:1.2;">⚠️</span>
+      <span>본인 계정의 '계정 관리' 권한은 스스로 회수할 수 없어(잠김 방지).</span>
+    </div>
     {% endif %}
 
     {# ── 최종결정권자 ── #}
@@ -102,20 +106,27 @@
             셋 다 서명이 반드시 있어야 처리돼.
           </div>
           {% if slots_full and not is_final %}
-          <div style="color:#b45309; font-size:12.5px; margin-top:6px;">
-            이미 {{ max_final_approvers }}명이 지정돼 있어
-            ({% for f in other_finals %}{{ f['display_name'] or f['username'] }}{% if not loop.last %}, {% endif %}{% endfor %}).
-            먼저 한 명의 체크를 풀어줘.
+          <div class="notice notice-warning" style="margin:8px 0 0; padding:8px 10px; font-size:12.5px;">
+            <span style="font-size:15px; line-height:1.2;">⚠️</span>
+            <span>
+              이미 {{ max_final_approvers }}명이 지정돼 있어
+              ({% for f in other_finals %}{{ f['display_name'] or f['username'] }}{% if not loop.last %}, {% endif %}{% endfor %}).
+              먼저 한 명의 체크를 풀어줘.
+            </span>
           </div>
           {% elif 'approve' not in u_perms %}
-          <div style="color:#b45309; font-size:12.5px; margin-top:6px;">
-            ⚠️ 이 계정에 <b>'승인'</b> 권한이 없어. 위에서 승인 권한을 같이 체크해야 지정돼.
+          <div class="notice notice-warning" style="margin:8px 0 0; padding:8px 10px; font-size:12.5px;">
+            <span style="font-size:15px; line-height:1.2;">⚠️</span>
+            <span>이 계정에 <b>'승인'</b> 권한이 없어. 위에서 승인 권한을 같이 체크해야 지정돼.</span>
           </div>
           {% endif %}
           {% if not final_approvers %}
-          <div style="color:#1d4ed8; font-size:12.5px; margin-top:6px;">
-            아직 최종결정권자가 아무도 없어서, 지금은 '승인' 권한만 있으면 승인할 수 있어.
-            <b>한 명이라도 지정되는 순간부터</b> 최종결정권자만 승인할 수 있게 돼.
+          <div class="notice notice-info" style="margin:8px 0 0; padding:8px 10px; font-size:12.5px;">
+            <span style="font-size:15px; line-height:1.2;">ℹ️</span>
+            <span>
+              아직 최종결정권자가 아무도 없어서, 지금은 '승인' 권한만 있으면 승인할 수 있어.
+              <b>한 명이라도 지정되는 순간부터</b> 최종결정권자만 승인할 수 있게 돼.
+            </span>
           </div>
           {% endif %}
         </span>

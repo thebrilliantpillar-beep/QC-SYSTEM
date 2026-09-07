@@ -1,21 +1,24 @@
 {% extends "base.html" %}
 {% block title %}계정 관리{% endblock %}
 {% block content %}
-<h2>계정 관리</h2>
-<p class="hint">계정을 클릭하면 상세·권한 설정 페이지가 열려. 권한은 계정마다 기능별로 하나하나 부여해.</p>
+<style>
+  /* 최종결정권자 배지 — base.html의 .badge 팔레트에 없는 톤이라 modifier로 추가
+     (계측기 관리의 .badge.gauge-warn30과 같은 방식, 2026-09-07 디자인 감사) */
+  .badge.final { color:#92400e; background:#fef3c7; }
+  .users-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:4px; }
+  .users-header h2 { margin:0; }
+</style>
 
-<div style="margin-bottom:18px;">
-  <a href="{{ url_for('download_db') }}"
-     style="display:inline-flex; align-items:center; gap:8px; background:#2563eb; color:#fff;
-            padding:12px 20px; border-radius:10px; font-size:15px; font-weight:700;
-            text-decoration:none; box-shadow:0 2px 8px rgba(37,99,235,.25);">
-    💾 DB 백업 다운로드
-  </a>
-  <span class="muted" style="font-size:12px; margin-left:10px;">클릭하면 iqc_backup_날짜.db 파일로 저장돼.</span>
+<div class="users-header">
+  <h2>계정 관리</h2>
+  <a href="{{ url_for('download_db') }}" class="btn secondary" style="margin:0;">💾 DB 백업 다운로드</a>
 </div>
+<p class="hint">계정을 클릭하면 상세·권한 설정 페이지가 열려. 권한은 계정마다 기능별로 하나하나 부여해.<br>
+  DB 백업 버튼을 누르면 iqc_backup_날짜.db 파일로 저장돼.</p>
 
+<div style="overflow-x:auto;">
 <table>
-  <tr><th>아이디 / 이름</th><th>권한 수</th><th>생성일</th><th>설정</th></tr>
+  <tr><th style="text-align:left; padding-left:14px;">아이디 / 이름</th><th>권한 수</th><th>생성일</th><th style="width:110px;"></th></tr>
   {% for u in users %}
   {% set u_perm_count = (u['permissions'] or '').split(',')|select|list|length %}
   <tr class="clickable" onclick="location.href='{{ url_for('user_detail', user_id=u['id']) }}'">
@@ -23,16 +26,17 @@
       <b>{{ u['username'] }}</b>
       {% if u['display_name'] %}<span class="muted"> · {{ u['display_name'] }}</span>{% endif %}
       {% if u['id'] == current_user_id %}<span class="badge muted" style="margin-left:6px;">본인</span>{% endif %}
-      {% if u['is_final_approver'] %}<span class="badge" style="margin-left:6px; background:#fef3c7; color:#92400e;">⭐ 최종결정권자</span>{% endif %}
+      {% if u['is_final_approver'] %}<span class="badge final" style="margin-left:6px;">⭐ 최종결정권자</span>{% endif %}
     </td>
     <td>{{ u_perm_count }}개</td>
-    <td style="font-size:12px; color:#6b7280;">{{ u['created_at'] | datetime_korean }}</td>
+    <td class="muted" style="font-size:12px;">{{ u['created_at'] | datetime_korean }}</td>
     <td><a href="{{ url_for('user_detail', user_id=u['id']) }}"
            onclick="event.stopPropagation()"
            class="btn secondary" style="margin:0; padding:6px 12px; font-size:12.5px;">⚙️ 상세·권한</a></td>
   </tr>
   {% endfor %}
 </table>
+</div>
 
 <div class="card" style="margin-top:20px;">
   <h3 style="margin-top:0;">새 계정 만들기</h3>
