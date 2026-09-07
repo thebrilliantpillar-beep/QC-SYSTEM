@@ -6476,19 +6476,22 @@ def _avg_time_report_group(material_name, supplier, category):
     """이번 리포트 전용 구분 규칙(2026-09-08 사용자 확정, materials.category와는 별개):
     - 자재명에 "TANK"가 들어가면 "단상" 포함 여부로 갈라서 본다(단상 TANK와
       그 외 TANK는 작업시간이 다를 걸로 보여서 따로 봐야 함).
-    - 재원코리아 납품 자재는 "케이블" / "RECEPTACLE(리셉터클)" / 그 외 셋으로 갈라서
-      본다(사용자가 케이블 다음에 리셉터클도 따로 보고 싶다고 추가 요청).
+    - 재원코리아 납품 자재는 "CABLE(케이블)" / "RECEPTACLE(리셉터클)" / 그 외 셋으로
+      갈라서 본다(사용자가 케이블 다음에 리셉터클도 따로 보고 싶다고 추가 요청).
+      실제 자재명 표기가 "케이블"이 아니라 영문 "CABLE"이라 영문 기준으로 확인한다
+      (2026-09-08 사용자 확인 — 처음엔 한글 "케이블"로만 찾아서 0건으로 잡혔었음).
     - 둘 다 해당 안 되면 기존 자재 분류(materials.category)로 묶고, 분류가
       없으면 "(미분류)".
     TANK 규칙을 재원코리아 규칙보다 먼저 본다 — 실제로 겹칠 일은 없어 보이지만
     (탱크 자재가 재원코리아산 케이블/리셉터클일 수는 없으니) 순서를 명시해둔다."""
     name = material_name or ""
-    if "TANK" in name.upper():
+    name_upper = name.upper()
+    if "TANK" in name_upper:
         return "TANK(단상)" if "단상" in name else "TANK(단상 아님)"
     if supplier == "재원코리아":
-        if "케이블" in name:
+        if "CABLE" in name_upper or "케이블" in name:
             return "재원코리아(케이블)"
-        if "RECEPTACLE" in name.upper() or "리셉터클" in name:
+        if "RECEPTACLE" in name_upper or "리셉터클" in name:
             return "재원코리아(리셉터클)"
         return "재원코리아(그 외)"
     return category or "(미분류)"
