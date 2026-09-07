@@ -46,20 +46,27 @@
   .tol-builder .tol-val { width:42px; }
   .tol-apply-btn { background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:4px;
                    font-size:10px; padding:3px 5px; cursor:pointer; white-space:nowrap; }
+
+  /* 버튼 여러 개를 한 줄에 나열하는 도구모음 — 화면 곳곳의 margin-top:0 반복을 정리 */
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .toolbar > button, .toolbar > .btn { margin-top:0; }
 </style>
 
 <h2>자재 일괄등록</h2>
-<p class="hint">
-  자재번호와 제품명을 입력하고, "측정조건" 버튼을 눌러 팝업에서 검사 항목까지 바로 입력할 수 있어.
-  팝업 안 "이전 자재 불러오기"로 앞서 입력한 자재의 항목을 그대로 복사해와서 빠르게 채울 수도 있어.
-  엑셀에서 자재번호·제품명 두 열을 복사해서 표 첫 칸에 붙여넣기(Ctrl+V)해도 여러 줄이 한 번에 채워져.
-</p>
+<div class="notice notice-info">
+  <span style="font-size:20px; line-height:1.2;">💡</span>
+  <span>
+    자재번호와 제품명을 입력하고, "측정조건" 버튼을 눌러 팝업에서 검사 항목까지 바로 입력할 수 있어.<br>
+    팝업 안 "이전 자재 불러오기"로 앞서 입력한 자재의 항목을 그대로 복사해와서 빠르게 채울 수도 있어.<br>
+    엑셀에서 자재번호·제품명 두 열을 복사해서 표 첫 칸에 붙여넣기(Ctrl+V)해도 여러 줄이 한 번에 채워져.
+  </span>
+</div>
 
 <form method="POST" id="quickForm">
   <input type="hidden" name="rows_json" id="rowsJson">
   <input type="hidden" name="items_json" id="itemsJson">
-  <div style="margin-bottom:8px;">
-    <button type="button" class="btn secondary" style="margin-top:0;" onclick="openBatchModal()">📦 선택 자재에 동일 조건 일괄 적용</button>
+  <div class="toolbar" style="margin-bottom:10px;">
+    <button type="button" class="btn secondary" onclick="openBatchModal()">📦 선택 자재에 동일 조건 일괄 적용</button>
   </div>
   <div style="overflow-x:auto;">
     <table class="quick-grid" id="quickGrid">
@@ -74,8 +81,8 @@
       </tr>
     </table>
   </div>
-  <div style="margin-top:10px; display:flex; gap:8px;">
-    <button type="button" id="addRowBtn" class="btn secondary" style="margin-top:0;">+ 행 추가</button>
+  <div class="toolbar" style="margin-top:12px;">
+    <button type="button" id="addRowBtn" class="btn secondary">+ 행 추가</button>
     <button type="submit">등록</button>
   </div>
 </form>
@@ -84,9 +91,9 @@
 <div class="modal-overlay" id="condModal">
   <div class="modal-box">
     <h3 id="condModalTitle">측정조건 입력</h3>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <button type="button" class="btn secondary" style="margin-top:0;" onclick="addItemRow()">+ 항목 추가</button>
-      <button type="button" class="btn secondary" style="margin-top:0;" onclick="togglePrevPanel()">📋 이전 자재 불러오기</button>
+    <div class="toolbar" style="margin:12px 0 14px;">
+      <button type="button" class="btn secondary" onclick="addItemRow()">+ 항목 추가</button>
+      <button type="button" class="btn secondary" onclick="togglePrevPanel()">📋 이전 자재 불러오기</button>
     </div>
 
     <div class="prev-list" id="prevPanel" style="display:none;">
@@ -128,15 +135,15 @@
     </table>
 
     {# 배치모드에서 이미 조건이 있는 자재가 섞여있을 때 보여주는 확인 목록 #}
-    <div class="prev-list" id="conflictPanel" style="display:none; border-color:#fca5a5; background:#fef2f2;">
-      <p class="hint" style="margin:0 0 8px; color:#dc2626;">아래 자재들은 이미 측정조건이 입력돼 있어. 체크된 것만 지금 입력한 조건으로 덮어써져.</p>
+    <div class="prev-list" id="conflictPanel" style="display:none; border-color:#fde68a; background:#fffbeb;">
+      <p class="hint" style="margin:0 0 8px; color:#92400e;">아래 자재들은 이미 측정조건이 입력돼 있어. 체크된 것만 지금 입력한 조건으로 덮어써져.</p>
       <div id="conflictList"></div>
     </div>
 
-    <div style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
-      <button type="button" class="btn secondary" style="margin-top:0;" onclick="closeCondModal()" id="closeBtnNormal">닫기(저장됨)</button>
-      <button type="button" class="btn secondary" style="margin-top:0; display:none;" onclick="closeCondModal()" id="closeBtnBatch">취소</button>
-      <button type="button" style="margin-top:0; display:none;" onclick="commitBatchApply()" id="applyBtnBatch">선택 자재에 적용</button>
+    <div class="toolbar" style="margin-top:16px; justify-content:flex-end;">
+      <button type="button" class="btn secondary" onclick="closeCondModal()" id="closeBtnNormal">닫기(저장됨)</button>
+      <button type="button" class="btn secondary" style="display:none;" onclick="closeCondModal()" id="closeBtnBatch">취소</button>
+      <button type="button" style="display:none;" onclick="commitBatchApply()" id="applyBtnBatch">선택 자재에 적용</button>
     </div>
   </div>
 </div>
