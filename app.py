@@ -5451,34 +5451,78 @@ def _save_ncr_photo(file_storage, dest_dir, base_name):
 @app.route("/ncr/search-intake")
 @perm_required("ncr", "approve")
 def ncr_search_intake():
-    """입고/검사 이력 검색 API — ncr/new 폼 자동입력용."""
-    q = request.args.get("q", "").strip()
-    if not q or len(q) < 1:
+    """입고/검사 이력 검색 API — ncr/new 폼 자동입력용.
+    업체명/자재명(자재번호 포함)/로트번호/입고날짜를 AND로 조합해서 찾는다.
+    검사가 끝난 inspections뿐 아니라, 검사/승인과 무관한 순수 기록인
+    intake_history(과거 입고 이력)도 같이 찾는다 — 이 화면 자체가 "과거 불량
+    기록을 지금 통보서로 남기는" 용도라 검사 안 된 과거 기록도 대상이어야 한다
+    (2026-09-07). ncr_new_manual()이 inspection_id=None을 이미 지원하므로
+    intake_history에서 온 행(원래 inspection_id 없음)도 그대로 쓸 수 있다.
+
+    2026-09-07: 기존 단일 자유검색(q)을 4필드 조합검색으로 교체(유일한 소비처인
+    ncr_manual_form.html만 확인됨, 하위호환 불필요)."""
+    supplier = request.args.get("supplier", "").strip()
+    material_name = request.args.get("material_name", "").strip()
+    lot_number = request.args.get("lot_number", "").strip()
+    receive_date = request.args.get("receive_date", "").strip()
+
+    if not any([supplier, material_name, lot_number, receive_date]):
         return {"results": []}
-    like = f"%{q}%"
+
+    insp_conditions = []
+    hist_conditions = []
+    params = {}
+    if supplier:
+        insp_conditions.append("i.supplier LIKE :supplier")
+        hist_conditions.append("ih.supplier LIKE :supplier")
+        params["supplier"] = f"%{supplier}%"
+    if material_name:
+        insp_conditions.append("""(
+            COALESCE(i.material_name, il.product_name, m.material_name) LIKE :material_name
+            OR i.material_no LIKE :material_name
+        )""")
+        hist_conditions.append("""(
+            COALESCE(ih.product_name, m2.material_name) LIKE :material_name
+            OR ih.material_no LIKE :material_name
+        )""")
+        params["material_name"] = f"%{material_name}%"
+    if lot_number:
+        insp_conditions.append("i.po_number LIKE :lot_number")
+        hist_conditions.append("ih.po_number LIKE :lot_number")
+        params["lot_number"] = f"%{lot_number}%"
+    if receive_date:
+        insp_conditions.append("i.receive_date = :receive_date")
+        hist_conditions.append("ih.receive_date = :receive_date")
+        params["receive_date"] = receive_date
+
+    insp_where = " AND ".join(insp_conditions)
+    hist_where = " AND ".join(hist_conditions)
+
     con = db.get_conn()
-    rows = con.execute("""
-        SELECT
-            i.id            AS inspection_id,
-            i.material_no,
-            COALESCE(i.material_name, il.product_name, m.material_name) AS material_name,
-            i.supplier,
-            i.receive_date,
-            i.po_number     AS lot_number,
-            i.quantity,
-            i.remark_inspector
-        FROM inspections i
-        LEFT JOIN intake_list il ON il.id = i.intake_id
-        LEFT JOIN materials   m  ON m.material_no = i.material_no
-        WHERE i.material_no  LIKE :q
-           OR i.material_name LIKE :q
-           OR il.product_name  LIKE :q
-           OR i.supplier        LIKE :q
-           OR i.po_number       LIKE :q
-           OR i.receive_date    LIKE :q
-        ORDER BY i.receive_date DESC, i.id DESC
-        LIMIT 30
-    """, {"q": like}).fetchall()
+    try:
+        rows = con.execute(f"""
+            SELECT i.id AS inspection_id, i.material_no,
+                   COALESCE(i.material_name, il.product_name, m.material_name) AS material_name,
+                   i.supplier, i.receive_date, i.po_number AS lot_number, i.quantity,
+                   i.remark_inspector, 'inspection' AS origin
+              FROM inspections i
+              LEFT JOIN intake_list il ON il.id = i.intake_id
+              LEFT JOIN materials   m  ON m.material_no = i.material_no
+             WHERE {insp_where}
+            UNION ALL
+            SELECT NULL AS inspection_id, ih.material_no,
+                   COALESCE(ih.product_name, m2.material_name) AS material_name,
+                   ih.supplier, ih.receive_date, ih.po_number AS lot_number, ih.quantity,
+                   NULL AS remark_inspector, 'history' AS origin
+              FROM intake_history ih
+              LEFT JOIN materials m2 ON m2.material_no = ih.material_no
+             WHERE {hist_where}
+             ORDER BY receive_date DESC
+             LIMIT 50
+        """, params).fetchall()
+    finally:
+        con.close()
+
     results = [dict(r) for r in rows]
     return {"results": results}
 

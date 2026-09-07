@@ -16,17 +16,40 @@
 </p>
 
 <!-- 🔍 입고·검사 이력 검색 -->
-<div class="ncr-section" style="border:2px solid var(--primary); position:relative;">
-  <h3 style="color:var(--primary);">🔍 입고·검사 이력에서 불러오기 <span style="font-weight:400; color:#6b7280; font-size:12px;">(선택 — 직접 입력해도 돼)</span></h3>
-  <div style="position:relative;">
-    <input type="text" id="intakeSearch" autocomplete="off"
-           placeholder="업체명, 자재번호, 제품명, 로트번호, 입고날짜로 검색..."
-           style="padding-right:40px;"
-           oninput="searchIntake(this.value)">
-    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); color:#9ca3af; font-size:16px;">🔍</span>
+<div class="ncr-section" style="border:2px solid var(--primary);">
+  <h3 style="color:var(--primary);">🔍 입고·검사 이력에서 불러오기 <span style="font-weight:400; color:#6b7280; font-size:12px;">(선택 — 직접 입력해도 돼. 검사 전 과거 입고 기록도 같이 찾아줘)</span></h3>
+
+  <div id="intakeSearchForm" style="display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; margin-bottom:4px;">
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">업체명</label>
+      <input type="text" id="sSupplier" autocomplete="off" placeholder="예: ACE"
+             style="width:130px; padding:7px 8px; font-size:13px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">자재명 / 자재번호</label>
+      <input type="text" id="sMaterialName" autocomplete="off" placeholder="예: 볼트 또는 600005P086"
+             style="width:190px; padding:7px 8px; font-size:13px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">로트번호</label>
+      <input type="text" id="sLotNumber" autocomplete="off" placeholder="예: CK2608-001"
+             style="width:150px; padding:7px 8px; font-size:13px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">입고날짜</label>
+      <input type="date" id="sReceiveDate" style="width:150px; padding:6px 6px; font-size:12.5px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button type="button" onclick="onIntakeSearchInput(true)" style="margin-top:0; padding:8px 16px; font-size:13px;">검색</button>
+      <button type="button" onclick="resetIntakeSearch()" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</button>
+    </div>
   </div>
-  <div id="intakeResults" style="display:none; margin-top:8px; border:1px solid var(--border);
-       border-radius:8px; overflow:hidden; max-height:320px; overflow-y:auto;"></div>
+
+  <div id="intakeSearchHint" style="font-size:12px; color:#9ca3af; margin:2px 0 8px;">
+    조건을 하나 이상 입력하면 자동으로 찾아줘 (검색 버튼을 눌러도 돼)
+  </div>
+
+  <div id="intakeResults" style="display:none; border:1px solid var(--border); border-radius:8px; overflow:hidden;"></div>
 </div>
 
 <form method="POST" enctype="multipart/form-data">
@@ -150,21 +173,37 @@
 
 <script>
 var _searchTimer = null;
-function searchIntake(val) {
+function _collectIntakeSearchParams() {
+  return {
+    supplier: document.getElementById('sSupplier').value.trim(),
+    material_name: document.getElementById('sMaterialName').value.trim(),
+    lot_number: document.getElementById('sLotNumber').value.trim(),
+    receive_date: document.getElementById('sReceiveDate').value.trim()
+  };
+}
+
+function onIntakeSearchInput(immediate) {
   clearTimeout(_searchTimer);
   var box = document.getElementById('intakeResults');
-  if (!val || val.length < 1) { box.style.display = 'none'; return; }
-  _searchTimer = setTimeout(function () {
-    fetch('/ncr/search-intake?q=' + encodeURIComponent(val))
-      .then(function(r){ return r.json(); })
-      .then(function(data) {
+  var params = _collectIntakeSearchParams();
+  var hasAny = params.supplier || params.material_name || params.lot_number || params.receive_date;
+  if (!hasAny) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  var run = function () {
+    var qs = Object.keys(params)
+      .filter(function (k) { return params[k]; })
+      .map(function (k) { return k + '=' + encodeURIComponent(params[k]); })
+      .join('&');
+    fetch('/ncr/search-intake?' + qs)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
         var rows = data.results;
         if (!rows || rows.length === 0) {
           box.innerHTML = '<div style="padding:14px; color:#9ca3af; font-size:13px; text-align:center;">검색 결과 없음</div>';
           box.style.display = 'block';
           return;
         }
-        box.innerHTML = rows.map(function(r) {
+        var html = rows.map(function (r) {
           return '<div onclick="fillForm(' + JSON.stringify(r).replace(/"/g, '&quot;') + ')" ' +
             'style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); ' +
             'font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;" ' +
@@ -175,33 +214,51 @@ function searchIntake(val) {
             '<span style="color:#6b7280; font-size:12px;">' + (r.supplier || '') + '</span>' +
             '<span style="color:#9ca3af; font-size:12px; white-space:nowrap;">' + (r.receive_date || '') + '</span>' +
             (r.lot_number ? '<span style="background:#f3f4f6; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + r.lot_number + '</span>' : '') +
+            (r.origin === 'history' ? '<span style="background:#fef3c7; color:#92400e; border-radius:4px; padding:1px 7px; font-size:11px; font-weight:700;">과거이력(검사 전)</span>' : '') +
             '</div>';
         }).join('');
+        if (rows.length >= 50) {
+          html += '<div style="padding:8px 14px; color:#9ca3af; font-size:12px; text-align:center;">검색 결과가 많아 50건까지만 보여주는 중이야 — 조건을 더 좁혀봐.</div>';
+        }
+        box.innerHTML = html;
         box.style.display = 'block';
       });
-  }, 250);
+  };
+
+  if (immediate === true) { run(); } else { _searchTimer = setTimeout(run, 250); }
 }
 
+function resetIntakeSearch() {
+  document.getElementById('sSupplier').value = '';
+  document.getElementById('sMaterialName').value = '';
+  document.getElementById('sLotNumber').value = '';
+  document.getElementById('sReceiveDate').value = '';
+  var box = document.getElementById('intakeResults');
+  box.style.display = 'none';
+  box.innerHTML = '';
+}
+</script>
+
+<script>
 function fillForm(r) {
   document.getElementById('f_material_no').value   = r.material_no   || '';
   document.getElementById('f_material_name').value = r.material_name || '';
   document.getElementById('f_supplier').value      = r.supplier      || '';
   document.getElementById('f_lot_number').value    = r.lot_number    || '';
   document.getElementById('f_receive_date').value  = r.receive_date  || '';
-  // remark_inspector → defect_description 자동채우기 (비어 있을 때만)
+  // remark_inspector → defect_description 자동채우기 (비어 있을 때만, intake_history 유래 행은 remark_inspector가 없어서 그냥 안 채워짐)
   var descEl = document.querySelector('textarea[name="defect_description"]');
   if (descEl && !descEl.value && r.remark_inspector) {
     descEl.value = r.remark_inspector;
   }
   document.getElementById('intakeResults').style.display = 'none';
-  document.getElementById('intakeSearch').value = (r.material_no || '') + ' — ' + (r.supplier || '');
   // 스크롤을 폼 쪽으로
   document.getElementById('f_material_no').scrollIntoView({behavior:'smooth', block:'center'});
 }
 
-// 검색창 외부 클릭 시 닫기
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('#intakeResults') && e.target.id !== 'intakeSearch') {
+// 검색 영역 바깥 클릭 시 결과 닫기
+document.addEventListener('click', function (e) {
+  if (!e.target.closest('#intakeSearchForm') && !e.target.closest('#intakeResults')) {
     document.getElementById('intakeResults').style.display = 'none';
   }
 });
