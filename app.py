@@ -6472,6 +6472,101 @@ def dashboard_export_xlsx():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+def _avg_time_report_group(material_name, supplier, category):
+    """이번 리포트 전용 구분 규칙(2026-09-08 사용자 확정, materials.category와는 별개):
+    - 자재명에 "TANK"가 들어가면 "단상" 포함 여부로 갈라서 본다(단상 TANK와
+      그 외 TANK는 작업시간이 다를 걸로 보여서 따로 봐야 함).
+    - 재원코리아 납품 자재는 "케이블" / "RECEPTACLE(리셉터클)" / 그 외 셋으로 갈라서
+      본다(사용자가 케이블 다음에 리셉터클도 따로 보고 싶다고 추가 요청).
+    - 둘 다 해당 안 되면 기존 자재 분류(materials.category)로 묶고, 분류가
+      없으면 "(미분류)".
+    TANK 규칙을 재원코리아 규칙보다 먼저 본다 — 실제로 겹칠 일은 없어 보이지만
+    (탱크 자재가 재원코리아산 케이블/리셉터클일 수는 없으니) 순서를 명시해둔다."""
+    name = material_name or ""
+    if "TANK" in name.upper():
+        return "TANK(단상)" if "단상" in name else "TANK(단상 아님)"
+    if supplier == "재원코리아":
+        if "케이블" in name:
+            return "재원코리아(케이블)"
+        if "RECEPTACLE" in name.upper() or "리셉터클" in name:
+            return "재원코리아(리셉터클)"
+        return "재원코리아(그 외)"
+    return category or "(미분류)"
+
+
+@app.route("/reports/avg-time-by-category")
+@perm_required("users")
+def avg_time_by_category_report():
+    """자재 분류별 자재 1개당 평균 측정시간 — 2026-09-08 사용자 요청(1회성 리포트).
+
+    검사원이 윤주호/박창현 둘뿐이고 두 사람의 검사 건수 차이가 커서(예: 50건 vs 6건),
+    단순히 전체 건을 합쳐 평균 내면 건수가 많은 쪽 숫자에 묻혀버린다. 그래서 구분마다
+    "윤주호의 평균"과 "박창현의 평균"을 각각 따로 낸 다음, 그 두 평균을 다시 평균해서
+    인원수 차이와 무관한 '1명분' 값을 낸다(사용자 확정). 한쪽만 데이터가 있으면 그
+    값 하나만 쓴다.
+
+    구분 기준은 기본적으로 자재 분류(materials.category)이지만, TANK(단상 여부)와
+    재원코리아(케이블 여부)는 이름 기준으로 더 잘게 쪼갠다(`_avg_time_report_group()`).
+
+    quality_report()의 '소요시간' 집계와는 별개다 — 그쪽은 검사자별/전체 합산이고,
+    이건 이 리포트만의 구분 기준으로 다시 쪼갠 것이라 성격이 달라서 억지로 합치지 않았다.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font as XFont
+    from collections import defaultdict
+
+    TARGET_INSPECTORS = ["윤주호", "박창현"]
+
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(f"""
+            SELECT i.inspector, i.actual_time_sec, i.material_name, i.supplier, m.category
+              FROM inspections i
+              LEFT JOIN materials m ON m.material_no = i.material_no
+             WHERE i.actual_time_sec IS NOT NULL AND i.actual_time_sec > 0
+               AND i.status != 'superseded'
+               AND i.inspector IN ({",".join("?" * len(TARGET_INSPECTORS))})
+        """, TARGET_INSPECTORS).fetchall()
+    finally:
+        conn.close()
+
+    by_group_insp = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        group = _avg_time_report_group(r["material_name"], r["supplier"], r["category"])
+        by_group_insp[group][r["inspector"]].append(r["actual_time_sec"])
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "분류별 평균 측정시간"
+    ws.append(["구분", "윤주호 평균(초)", "윤주호 건수", "박창현 평균(초)", "박창현 건수",
+               "통합 평균(초)", "통합 평균"])
+    for c in ws[1]:
+        c.font = XFont(bold=True)
+
+    for group in sorted(by_group_insp.keys()):
+        per_insp_avg = {}
+        counts = {}
+        for insp in TARGET_INSPECTORS:
+            vals = by_group_insp[group].get(insp, [])
+            counts[insp] = len(vals)
+            per_insp_avg[insp] = round(sum(vals) / len(vals), 1) if vals else None
+        available = [v for v in per_insp_avg.values() if v is not None]
+        combined = round(sum(available) / len(available), 1) if available else None
+        combined_label = f"{int(combined) // 60}분 {int(combined) % 60}초" if combined is not None else "-"
+        ws.append([group, per_insp_avg["윤주호"], counts["윤주호"], per_insp_avg["박창현"],
+                   counts["박창현"], combined, combined_label])
+
+    for idx, width in enumerate([20, 14, 10, 14, 10, 14, 14], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"분류별_평균측정시간_{_dt.now():%Y%m%d}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 @app.route("/dashboard/capability")
 @perm_required("defect_history", "inspect_history")
 def dashboard_capability():
