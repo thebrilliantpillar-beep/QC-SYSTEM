@@ -91,7 +91,7 @@
         <label style="margin-bottom:4px; display:block;">LOT 수량
           <span style="color:#9ca3af; font-weight:400; font-size:12px;">(예: 12대, 1LOT)</span>
         </label>
-        <input type="text" name="lot_qty" placeholder="예: 12대">
+        <input type="text" name="lot_qty" id="f_lot_qty" placeholder="예: 12대">
       </div>
       <div>
         <label style="margin-bottom:4px; display:block;">시료수</label>
@@ -214,6 +214,7 @@ function onIntakeSearchInput(immediate) {
             '<span style="color:#6b7280; font-size:12px;">' + (r.supplier || '') + '</span>' +
             '<span style="color:#9ca3af; font-size:12px; white-space:nowrap;">' + (r.receive_date || '') + '</span>' +
             (r.lot_number ? '<span style="background:#f3f4f6; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + r.lot_number + '</span>' : '') +
+            (r.quantity != null ? '<span style="background:#eef2ff; color:#3730a3; border-radius:4px; padding:1px 7px; font-size:11.5px; font-weight:600;">입고 ' + r.quantity + '개</span>' : '') +
             (r.origin === 'history' ? '<span style="background:#fef3c7; color:#92400e; border-radius:4px; padding:1px 7px; font-size:11px; font-weight:700;">과거이력(검사 전)</span>' : '') +
             '</div>';
         }).join('');
@@ -246,6 +247,9 @@ function fillForm(r) {
   document.getElementById('f_supplier').value      = r.supplier      || '';
   document.getElementById('f_lot_number').value    = r.lot_number    || '';
   document.getElementById('f_receive_date').value  = r.receive_date  || '';
+  // LOT 수량 자동채우기 — 검사 연결 통보서(ncr_form.html의 auto_lot_qty)와 동일하게
+  // 입고수량을 그대로 채운다(단위 없는 숫자만, 사용자가 필요하면 "12대"처럼 직접 덧붙임)
+  document.getElementById('f_lot_qty').value = (r.quantity != null) ? String(r.quantity) : '';
   // remark_inspector → defect_description 자동채우기 (비어 있을 때만, intake_history 유래 행은 remark_inspector가 없어서 그냥 안 채워짐)
   var descEl = document.querySelector('textarea[name="defect_description"]');
   if (descEl && !descEl.value && r.remark_inspector) {
