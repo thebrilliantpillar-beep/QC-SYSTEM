@@ -3,6 +3,9 @@
 {% block title %}승인 목록{% endblock %}
 {% block content %}
 
+{# 의도적으로 admin 전용(is_admin) — 승인 관련 삭제는 더 민감해서 history_delete
+   권한만으로는 안 열어주기로 확정함(2026-09-07). output_list/output_history와
+   다르게 두는 것도 확정된 사항이니 되돌리지 말 것. #}
 {{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='approve_list', show=is_admin) }}
 <style>
 .tab-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }

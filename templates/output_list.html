@@ -4,6 +4,8 @@
 {% block content %}
 <h2>성적서 출력 대기</h2>
 
+{# 의도적으로 history_delete 권한 기반(admin 전용 아님) — 승인목록/승인이력과 달리
+   여기는 admin으로 한정하지 않기로 확정함(2026-09-07). 되돌리지 말 것. #}
 {{ admin_delete_bar(url_for('history_delete_selected'), 'inspection_ids', '성적서', return_to='output_list', show=('history_delete' in user_perms)) }}
 <p class="hint">승인은 됐지만 아직 xlsx/PDF로 출력하지 않은 성적서들이야. 필요한 것만 골라서 출력하거나, 전체를 한 번에 출력할 수 있어. 행(체크박스 제외)을 클릭하면 성적서 상세를 볼 수 있어.</p>
 
