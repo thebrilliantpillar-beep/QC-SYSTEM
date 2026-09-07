@@ -77,6 +77,19 @@
   .muted { color: var(--muted); font-size: 13px; }
   .hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
 
+  /* ── 공용 안내 배너 (2026-09-07 디자인 통일) ──
+     화면마다 padding/border-radius/색상이 제각각이던 안내 배너를 4종으로 통일한다.
+     .notice-info(파랑, 참고정보) / .notice-warning(주황, 주의) /
+     .notice-danger(빨강, 반드시 조치 필요) / .notice-neutral(회색, 시스템 안내)
+     주의: 빨간색(#dc2626 계열)은 이 시스템 전체에서 "규격이탈/오류/삭제" 전용으로 예약돼
+     있으므로 notice-danger 이외의 용도로 재사용하지 말 것(CLAUDE.md 12절 참고). */
+  .notice { border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13.5px;
+            display: flex; align-items: flex-start; gap: 10px; }
+  .notice-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; }
+  .notice-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+  .notice-danger  { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; }
+  .notice-neutral { background: #f3f4f6; border: 1px solid #e5e7eb; color: #374151; }
+
   /* ── 엑셀 메모형 정보 팝오버 ── */
   .info-anchor { position:relative; display:inline-block; }
   .info-btn { background:none; border:1.5px solid #d1d5db; color:#9ca3af; border-radius:50%;
