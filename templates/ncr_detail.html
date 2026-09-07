@@ -22,13 +22,13 @@
 /* ── 제목 행 ── */
 .ncr-title-row {
   display: flex; align-items: center; gap: 10px;
-  border: 2px solid #1f2937; border-bottom: none;
+  border: 2px solid #2B3140; border-bottom: none;
   padding: 8px 12px;
 }
 .ncr-title-row .t-logo { flex-shrink:0; }
 .ncr-title-row .t-logo img { height: 48px; max-width: 100px; object-fit: contain; display: block; }
 .ncr-title-row .t-center { flex:1; text-align:center; }
-.ncr-title-row .t-main { font-size: 22px; font-weight: 900; letter-spacing: 5px; color:#1f2937; }
+.ncr-title-row .t-main { font-size: 22px; font-weight: 900; letter-spacing: 5px; color:#2B3140; }
 .ncr-title-row .t-sub { font-size: 11px; color: #6b7280; letter-spacing: 2px; margin-top: 2px; }
 .ncr-title-row .t-no { font-size: 11px; color: #6b7280; font-weight: 600; white-space: nowrap; }
 
@@ -42,13 +42,13 @@
   font-size: 11px; font-weight: 700; letter-spacing: 1px; }
 .sign-grid .sg-head span:first-child { border-right: 1px solid #9ca3af; }
 .sign-grid .sg-body { flex: 1; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; font-weight: 900; letter-spacing: 5px; color: #1f2937; }
+  font-size: 16px; font-weight: 900; letter-spacing: 5px; color: #2B3140; }
 
 /* ── 안내문 ── */
 .ncr-notice {
   border: 1px solid #9ca3af; border-top: none;
-  padding: 5px 12px; font-size: 12.5px; color: #374151;
-  background: #f9fafb;
+  padding: 5px 12px; font-size: 12.5px; color: #2B3140;
+  background: #F9F9F8;
 }
 
 /* ── 모델명/자재번호 등 스펙 행 ── */
@@ -59,19 +59,19 @@
 .ncr-body-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ncr-body-tbl td { border: 1px solid #9ca3af; border-top: none; vertical-align: top; }
 .body-head { text-align: center; font-weight: 700; padding: 5px;
-  letter-spacing: 2px; background: #f3f4f6; border-top: 1px solid #9ca3af !important; }
+  letter-spacing: 2px; background: #ECEEF2; border-top: 1px solid #9ca3af !important; }
 .body-subhead { text-align: center; font-weight: 700; font-size: 12px; padding: 4px;
-  background: #f9fafb; letter-spacing: 1px; border-top: 1px solid #9ca3af !important; }
+  background: #F9F9F8; letter-spacing: 1px; border-top: 1px solid #9ca3af !important; }
 .defect-desc-cell { padding: 10px 12px; white-space: pre-wrap; line-height: 1.75;
   min-height: 170px; font-size: 13px; }
 .photo-td { padding: 8px; }
 .ncr-doc-photo-grid { display: grid; gap: 6px; }
 .ncr-doc-photo-grid img { width: 100%; aspect-ratio: 4/3; object-fit: cover;
-  border-radius: 4px; border: 1px solid #e5e7eb; display: block; }
+  border-radius: 4px; border: 1px solid #DDE0E6; display: block; }
 .action-td { padding: 0; border-top: 1px solid #9ca3af !important; }
 .action-rows { display: flex; flex-direction: column; height: 100%; }
-.ar-row { border-bottom: 1px solid #d1d5db; padding: 6px 8px;
-  font-size: 11.5px; font-weight: 700; color: #374151; text-align: center; }
+.ar-row { border-bottom: 1px solid #DDE0E6; padding: 6px 8px;
+  font-size: 11.5px; font-weight: 700; color: #2B3140; text-align: center; }
 .ar-note { flex: 1; padding: 8px; font-size: 11px; color: #6b7280; line-height: 1.6; }
 .special-note-cell { padding: 8px 12px; min-height: 50px; font-size: 13px;
   border-top: 1px solid #9ca3af !important; }
@@ -92,7 +92,7 @@
 .ncr-status.draft     { background:#fef9c3; color:#854d0e; border:1px solid #fbbf24; }
 .ncr-status.confirmed { background:#dbeafe; color:#24344F; border:1px solid #93c5fd; }
 .ncr-status.sent      { background:#dcfce7; color:#15803d; border:1px solid #86efac; }
-.ncr-status.issued    { background:#f3f4f6; color:#374151; border:1px solid #d1d5db; }
+.ncr-status.issued    { background:#ECEEF2; color:#2B3140; border:1px solid #DDE0E6; }
 
 /* 확인 완료 배너 */
 .confirm-banner {
@@ -101,7 +101,7 @@
 }
 .stamp-choice { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 2px; }
 .stamp-choice label { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600;
-                      padding:6px 12px; border:1.5px solid #d1d5db; border-radius:8px;
+                      padding:6px 12px; border:1.5px solid #DDE0E6; border-radius:8px;
                       cursor:pointer; background:#fff; margin:0; }
 .stamp-choice input[type=radio] { width:auto; margin:0; }
 .stamp-choice label:has(input:checked) { border-color:var(--primary); background:#eff6ff; }
@@ -109,7 +109,7 @@
 /* ── 중앙 알림 모달 ── */
 .center-modal {
   display:none; position:fixed; inset:0; z-index:12000;
-  background:rgba(17,24,39,.62); align-items:center; justify-content:center; padding:20px;
+  background:rgba(36,52,79,.62); align-items:center; justify-content:center; padding:20px;
 }
 .center-modal.show { display:flex; }
 .center-modal .box {
@@ -120,8 +120,8 @@
 .center-modal .box .body { padding:22px 22px 16px; text-align:center; }
 .center-modal .box .body .ic { font-size:44px; margin-bottom:8px; }
 .center-modal .box .body h3 { margin:0 0 8px; font-size:17px; color:#92400e; font-weight:800; }
-.center-modal .box .body p { margin:0; font-size:13.5px; color:#374151; line-height:1.6; }
-.center-modal .box .foot { padding:12px; border-top:1px solid #e5e7eb; background:#f9fafb;
+.center-modal .box .body p { margin:0; font-size:13.5px; color:#2B3140; line-height:1.6; }
+.center-modal .box .foot { padding:12px; border-top:1px solid #DDE0E6; background:#F9F9F8;
                            text-align:center; }
 .center-modal .box .foot button { padding:10px 30px; font-size:14px; font-weight:800;
                                   background:#f59e0b; color:#fff; border:none; border-radius:8px;
@@ -153,7 +153,7 @@
     📥 엑셀 발행
   </a>
   <a href="{{ url_for('ncr_pdf', ncr_id=ncr['id']) }}"
-     style="background:#1f2937; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
+     style="background:#2B3140; color:#fff; padding:10px 20px; font-size:14px; font-weight:600;
             border-radius:8px; text-decoration:none; cursor:pointer;"
      title="엑셀 양식 그대로 PDF로 변환 (LibreOffice 변환, 수초 소요)">
     🖨️ PDF 발행
@@ -172,7 +172,7 @@
           style="background:#7c3aed; color:#fff;">📷 사진 첨부 ({{ photos|length }}/6)</button>
   {% else %}
   <button disabled title="최대 6장까지 첨부 가능"
-          style="background:#e5e7eb; color:#9ca3af; cursor:not-allowed;">📷 사진 6/6 (가득참)</button>
+          style="background:#DDE0E6; color:#9ca3af; cursor:not-allowed;">📷 사진 6/6 (가득참)</button>
   {% endif %}
 
   <button onclick="document.getElementById('emailModal').style.display='flex'"
@@ -184,10 +184,10 @@
   {% endif %}
 
   <a href="{{ url_for('ncr_list') }}"
-     style="background:#fff; border:1.5px solid var(--border); color:#374151;">← 목록</a>
+     style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">← 목록</a>
   {% if ncr['inspection_id'] %}
   <a href="{{ url_for('inspection_detail', inspection_id=ncr['inspection_id']) }}"
-     style="background:#fff; border:1.5px solid var(--border); color:#374151;">← 성적서</a>
+     style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">← 성적서</a>
   {% endif %}
 </div>
 
@@ -200,8 +200,8 @@
     </span>
     <span id="pdf-load-msg" style="font-size:12px; color:#9ca3af;">불러오는 중...</span>
   </div>
-  <div style="border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;
-              background:#f3f4f6; position:relative;">
+  <div style="border:1px solid #DDE0E6; border-radius:8px; overflow:hidden;
+              background:#ECEEF2; position:relative;">
     <iframe id="pdfPreview"
             src="{{ url_for('ncr_pdf', ncr_id=ncr['id'], inline='1') }}"
             style="width:100%; height:1100px; border:none; display:block;"
@@ -277,7 +277,7 @@
       <input type="email" id="emailRecipient"
              value="{{ default_contact_email if default_contact_email else (ncr['sent_to'] or '') }}"
              placeholder="supplier@example.com"
-             style="width:100%; margin:0; font-size:14px; padding:9px 12px; border:1.5px solid #d1d5db;
+             style="width:100%; margin:0; font-size:14px; padding:9px 12px; border:1.5px solid #DDE0E6;
                     border-radius:8px; box-sizing:border-box;">
       {% if supplier_contacts %}
       <select id="contactPicker" onchange="if(this.value){document.getElementById('emailRecipient').value=this.value; document.getElementById('emailRecipient').dispatchEvent(new Event('input'));}"
@@ -301,7 +301,7 @@
               class="btn secondary" style="flex:1; padding:12px; font-size:14px; margin-top:0;">닫기</button>
     </div>
 
-    <div style="border-top:1px solid #e5e7eb; margin-top:16px; padding-top:14px;">
+    <div style="border-top:1px solid #DDE0E6; margin-top:16px; padding-top:14px;">
       <div style="font-size:12.5px; color:#6b7280; margin-bottom:10px;">
         메일을 보낸 후 아래를 눌러 발송 완료로 기록해줘.
       </div>

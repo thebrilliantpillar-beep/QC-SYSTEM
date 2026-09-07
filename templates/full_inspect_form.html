@@ -4,11 +4,11 @@
 <style>
 .fi-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .fi-tbl { border-collapse: collapse; font-size: 13px; white-space: nowrap; }
-.fi-tbl th { background: #1f2937; color: #fff; padding: 7px 10px;
-             border: 1px solid #374151; font-size: 12px; text-align: center; }
-.fi-tbl td { border: 1px solid #d1d5db; padding: 2px 4px; }
+.fi-tbl th { background: #2B3140; color: #fff; padding: 7px 10px;
+             border: 1px solid #2B3140; font-size: 12px; text-align: center; }
+.fi-tbl td { border: 1px solid #DDE0E6; padding: 2px 4px; }
 .fi-tbl .no-cell { text-align: center; color: #9ca3af; width: 34px;
-                   font-size: 12px; background: #f9fafb; }
+                   font-size: 12px; background: #F9F9F8; }
 .fi-tbl input[type=text] {
   width: 100%; min-width: 60px; border: none; background: transparent;
   font-size: 13px; padding: 4px 5px; box-sizing: border-box; font-family: inherit;
@@ -22,9 +22,9 @@
 .res-ng  { text-align: center; color: #dc2626; font-weight: 700; background: #fef2f2; }
 .res-nil { text-align: center; color: #9ca3af; }
 .fi-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-          background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
-.fi-bar label { font-size: 13px; color: #374151; }
-.fi-bar input[type=date] { font-size: 13px; border: 1px solid #d1d5db;
+          background: #ECEEF2; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.fi-bar label { font-size: 13px; color: #2B3140; }
+.fi-bar input[type=date] { font-size: 13px; border: 1px solid #DDE0E6;
                             border-radius: 5px; padding: 4px 8px; }
 #save-state { font-size: 12px; color: #6b7280; margin-left: auto; }
 .btn-complete { background: #2F4670; color: #fff; border: none; border-radius: 6px;
@@ -85,7 +85,7 @@
 
   {% if config.note %}
   <div style="font-size:12px;background:#f0f4ff;border-radius:5px;
-              padding:5px 12px;margin-bottom:8px;color:#374151;">
+              padding:5px 12px;margin-bottom:8px;color:#2B3140;">
     📋 시험 조건: {{ config.note }}
   </div>
   {% endif %}

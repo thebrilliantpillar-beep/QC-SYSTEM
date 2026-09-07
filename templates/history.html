@@ -5,17 +5,17 @@
   .date-group { margin-bottom:18px; }
   .date-header {
     display:flex; align-items:center; justify-content:space-between;
-    background:#1f2937; color:#fff; padding:10px 14px; border-radius:8px 8px 0 0;
+    background:#2B3140; color:#fff; padding:10px 14px; border-radius:8px 8px 0 0;
     cursor:pointer; user-select:none;
   }
-  .date-header:hover { background:#374151; }
+  .date-header:hover { background:#2B3140; }
   .date-header .toggle-icon { font-size:12px; transition:transform .2s; }
   .date-header.collapsed .toggle-icon { transform:rotate(-90deg); }
   .date-body { display:block; overflow:hidden; }
   .date-body.collapsed { display:none; }
   .hist-table { width:100%; border-collapse:collapse; background:#fff; border-radius:0 0 8px 8px;
                 box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13px; }
-  .hist-table th { background:#f3f4f6; color:#4b5563; padding:9px 8px; text-align:center; border-bottom:1px solid #e5e7eb; }
+  .hist-table th { background:#ECEEF2; color:#4b5563; padding:9px 8px; text-align:center; border-bottom:1px solid #DDE0E6; }
   .hist-table td { border-bottom:1px solid #f0f0f0; padding:9px 8px; text-align:center; vertical-align:middle; }
   .hist-table tr:last-child td { border-bottom:none; }
   .hist-table tr.clickable:hover td { background:#f0f5ff; cursor:pointer; }
@@ -120,7 +120,7 @@
           <a href="javascript:void(0)" onclick="openDrawingModal('{{ i['material_no'] }}')"
              class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
           {% else %}
-          <span style="color:#d1d5db; font-size:12px;">-</span>
+          <span style="color:#DDE0E6; font-size:12px;">-</span>
           {% endif %}
         </td>
       </tr>

@@ -189,7 +189,7 @@
       previewBox.innerHTML = buffer.map(function (b, idx) {
         return '<div style="position:relative;">' +
           '<img src="' + b.url + '" style="width:100%; aspect-ratio:1/1; object-fit:cover; ' +
-          'border-radius:8px; border:1px solid #e5e7eb;">' +
+          'border-radius:8px; border:1px solid #DDE0E6;">' +
           '<div style="position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,.6); ' +
           'color:#fff; font-size:10px; padding:1px 5px; border-radius:4px;">' + (idx+1) + '</div>' +
           '</div>';
@@ -250,10 +250,10 @@ function onIntakeSearchInput(immediate) {
             'style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); ' +
             'font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">' +
             '<strong style="color:var(--primary); min-width:100px;">' + escapeHtml(r.material_no || '') + '</strong>' +
-            '<span style="color:#374151; flex:1;">' + escapeHtml(r.material_name || '') + '</span>' +
+            '<span style="color:#2B3140; flex:1;">' + escapeHtml(r.material_name || '') + '</span>' +
             '<span style="color:#6b7280; font-size:12px;">' + escapeHtml(r.supplier || '') + '</span>' +
             '<span style="color:#9ca3af; font-size:12px; white-space:nowrap;">' + escapeHtml(r.receive_date || '') + '</span>' +
-            (r.lot_number ? '<span style="background:#f3f4f6; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + escapeHtml(r.lot_number) + '</span>' : '') +
+            (r.lot_number ? '<span style="background:#ECEEF2; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + escapeHtml(r.lot_number) + '</span>' : '') +
             (r.quantity != null ? '<span style="background:#eef2ff; color:#3730a3; border-radius:4px; padding:1px 7px; font-size:11.5px; font-weight:600;">입고 ' + r.quantity + '개</span>' : '') +
             (r.origin === 'history' ? '<span style="background:#fef3c7; color:#92400e; border-radius:4px; padding:1px 7px; font-size:11px; font-weight:700;">과거이력(검사 전)</span>' : '') +
             '<span class="ncr-pick-badge" style="margin-left:auto; font-size:11.5px; color:#16a34a; font-weight:700; display:none;">✓ 추가됨</span>' +

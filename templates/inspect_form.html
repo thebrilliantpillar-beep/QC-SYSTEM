@@ -7,29 +7,29 @@
   .form-header span { color: var(--muted); }
   .inspect-table { width: 100%; border-collapse: collapse; background: #fff;
                    border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.07); font-size: 13.5px; }
-  .inspect-table th { background: #1f2937; color: #fff; padding: 10px 6px; text-align: center; font-weight: 600; }
-  .inspect-table td { border-bottom: 1px solid #e5e7eb; padding: 8px 5px; text-align: center; vertical-align: middle; }
+  .inspect-table th { background: #2B3140; color: #fff; padding: 10px 6px; text-align: center; font-weight: 600; }
+  .inspect-table td { border-bottom: 1px solid #DDE0E6; padding: 8px 5px; text-align: center; vertical-align: middle; }
   .inspect-table tr:last-child td { border-bottom: none; }
-  .inspect-table tr:nth-child(even) td { background: #f9fafb; }
-  .spec-cell { text-align: left; font-size: 13px; color: #374151; line-height: 1.5; }
-  .sample-input { width: 68px; padding: 7px 4px; font-size: 13.5px; border: 1px solid #d1d5db;
+  .inspect-table tr:nth-child(even) td { background: #F9F9F8; }
+  .spec-cell { text-align: left; font-size: 13px; color: #2B3140; line-height: 1.5; }
+  .sample-input { width: 68px; padding: 7px 4px; font-size: 13.5px; border: 1px solid #DDE0E6;
                   border-radius: 6px; text-align: center; }
   .sample-input:focus { border-color: #3D5A8A; outline: none; box-shadow: 0 0 0 2px rgba(61,90,138,.15); }
-  .visual-select { padding: 7px 2px; font-size: 13.5px; border: 1px solid #d1d5db; border-radius: 6px; width: 62px; }
+  .visual-select { padding: 7px 2px; font-size: 13.5px; border: 1px solid #DDE0E6; border-radius: 6px; width: 62px; }
   .result-cell { font-weight: 700; font-size: 13px; }
-  .gauge-input { width: 128px; padding: 6px 4px; font-size: 12.5px; border: 1px solid #d1d5db;
+  .gauge-input { width: 128px; padding: 6px 4px; font-size: 12.5px; border: 1px solid #DDE0E6;
                  border-radius: 6px; text-align: center; }
   .gauge-input:focus { border-color: #3D5A8A; outline: none; box-shadow: 0 0 0 2px rgba(61,90,138,.15); }
-  .gauge-search { padding: 6px 4px; border: 1px solid #d1d5db; border-radius: 6px; }
+  .gauge-search { padding: 6px 4px; border: 1px solid #DDE0E6; border-radius: 6px; }
   .gauge-search:focus { border-color: #3D5A8A; outline: none; box-shadow: 0 0 0 2px rgba(61,90,138,.15); }
   .gauge-input.gauge-expiring, .gauge-search.gauge-expiring {
     color: #dc2626; font-style: italic; border-color: #dc2626; font-weight: 700; }
   .gauge-input.gauge-invalid, .gauge-search.gauge-invalid {
     color: #991b1b; background: #fee2e2; border-color: #fca5a5; font-weight: 700; }
-  .disabled-cell { color: #d1d5db; background: #f3f4f6; }
-  .inactive-slot { background: #f3f4f6 !important; color: #d1d5db !important; }
+  .disabled-cell { color: #DDE0E6; background: #ECEEF2; }
+  .inactive-slot { background: #ECEEF2 !important; color: #DDE0E6 !important; }
   .aql-select { width: 76px; padding: 4px 2px; font-size: 11.5px; border-radius: 5px;
-                border: 1px solid #d1d5db; font-family: inherit; }
+                border: 1px solid #DDE0E6; font-family: inherit; }
   .aql-select:focus { border-color: #3D5A8A; outline: none; }
   .aql-select.changed { border-color: #f59e0b; background: #fffbeb; }
 </style>
@@ -211,7 +211,7 @@
   {% endif %}
 
   <div class="card" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-    <div style="font-size:13.5px; color:#374151;">개당 측정 시간</div>
+    <div style="font-size:13.5px; color:#2B3140;">개당 측정 시간</div>
     <div style="display:flex; align-items:center; gap:10px;">
       <span id="stopwatch" style="font-size:20px; font-weight:700; font-variant-numeric:tabular-nums;">00:00</span>
       <button type="button" id="swToggle" class="btn secondary" style="margin-top:0; padding:8px 16px;">시작</button>
@@ -247,7 +247,7 @@
         </select>
         {% else %}
         <input name="inspector" value="{{ g.user['display_name'] or g.user['username'] }}" readonly
-               style="background:#f3f4f6; color:#374151;">
+               style="background:#ECEEF2; color:#2B3140;">
         {% endif %}
       </div>
     </div>
@@ -258,7 +258,7 @@
               title="자동저장을 기다리지 않고 지금 바로 서버에 임시저장해">
         지금 임시저장
       </button>
-      <div style="font-size:13px; font-weight:600; color:#374151;"
+      <div style="font-size:13px; font-weight:600; color:#2B3140;"
            id="draft-state" title="입력하면 자동으로 서버에 저장돼. 다른 기기에서 이어서 해도 돼."></div>
     </div>
     {% if prefill and prefill.reject_reason %}
@@ -316,7 +316,7 @@
     </div>
   </div>
 
-  <div style="overflow-x:auto; max-height:70vh; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px;">
+  <div style="overflow-x:auto; max-height:70vh; overflow-y:auto; border:1px solid #DDE0E6; border-radius:8px;">
     <table class="inspect-table" id="fiTable" style="table-layout:fixed;">
       <thead style="position:sticky; top:0; z-index:2;">
         <tr>
@@ -370,13 +370,13 @@
   </div>
 
   {# 계측기 유효기간은 항목별로 한 번만 (전수 유닛별로 반복 X) — 표 아래에 컴팩트 카드 #}
-  <div style="margin-top:12px; padding:10px 12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">
+  <div style="margin-top:12px; padding:10px 12px; background:#F9F9F8; border:1px solid #DDE0E6; border-radius:8px;">
     <div style="font-size:12px; color:#6b7280; margin-bottom:6px;"><b>계측기 유효기간</b> (항목별로 한 번)</div>
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for s in specs %}
         {% if s['judge_type'] != 'visual' %}
         <div style="display:flex;align-items:center;gap:5px;font-size:12px;">
-          <span style="color:#374151;">{{ s['item_name'] }}:</span>
+          <span style="color:#2B3140;">{{ s['item_name'] }}:</span>
           {% if gauges %}
           <input type="text" class="gauge-search" name="item_{{ s['id'] }}_gauge_search" list="gaugeNames" placeholder="계측기 검색"
                  style="font-size:12px; width:140px;"
@@ -655,13 +655,13 @@
 
   <div class="card" style="margin-top:14px;">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-      <label style="margin:0; font-weight:600; color:#374151;">검사자 비고</label>
+      <label style="margin:0; font-weight:600; color:#2B3140;">검사자 비고</label>
       <button type="button" class="btn secondary" style="margin:0; padding:7px 12px; font-size:13px;"
               onclick="openDefectModal()">🚫 불량 문구 삽입</button>
     </div>
     <textarea name="remark_inspector" id="remarkInspector" rows="3"
               placeholder="필요하면 검사자가 남길 특이사항을 적어. 불량이 있으면 위 버튼으로 표준 문구를 조립할 수 있어."
-              style="width:100%; font-size:13.5px; padding:10px; border:1px solid #d1d5db; border-radius:8px; resize:vertical;">{{ prefill.remark_inspector if prefill else '' }}</textarea>
+              style="width:100%; font-size:13.5px; padding:10px; border:1px solid #DDE0E6; border-radius:8px; resize:vertical;">{{ prefill.remark_inspector if prefill else '' }}</textarea>
     <div style="margin-top:4px; font-size:11.5px; color:#9ca3af;">
       "불량증상 XXX 검사 수량 N개 중 M개 불량 P%" 형식으로 조립돼. 여러 번 눌러서 줄바꿈으로 누적할 수 있어.
     </div>
@@ -682,23 +682,23 @@
       <div>
         <label style="font-size:12.5px; color:#4b5563; font-weight:600;">불량 증상</label>
         <input type="text" id="dm_symptom" placeholder="예: 도금 벗겨짐, 나사산 뭉개짐"
-               style="width:100%; padding:9px; font-size:14px; border:1px solid #d1d5db; border-radius:8px;">
+               style="width:100%; padding:9px; font-size:14px; border:1px solid #DDE0E6; border-radius:8px;">
       </div>
       <div style="display:flex; gap:10px;">
         <div style="flex:1;">
           <label style="font-size:12.5px; color:#4b5563; font-weight:600;">검사 수량</label>
           <input type="number" id="dm_total" min="1" value="{{ intake.quantity or '' }}"
                  oninput="dmRecalc()"
-                 style="width:100%; padding:9px; font-size:14px; border:1px solid #d1d5db; border-radius:8px;">
+                 style="width:100%; padding:9px; font-size:14px; border:1px solid #DDE0E6; border-radius:8px;">
         </div>
         <div style="flex:1;">
           <label style="font-size:12.5px; color:#4b5563; font-weight:600;">불량 수량</label>
           <input type="number" id="dm_bad" min="0" value="1" oninput="dmRecalc()"
-                 style="width:100%; padding:9px; font-size:14px; border:1px solid #d1d5db; border-radius:8px;">
+                 style="width:100%; padding:9px; font-size:14px; border:1px solid #DDE0E6; border-radius:8px;">
         </div>
       </div>
-      <div id="dm_preview" style="background:#f3f4f6; border-radius:8px; padding:10px 12px;
-           font-size:13.5px; color:#374151; min-height:20px;"></div>
+      <div id="dm_preview" style="background:#ECEEF2; border-radius:8px; padding:10px 12px;
+           font-size:13.5px; color:#2B3140; min-height:20px;"></div>
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
       <button type="button" class="btn secondary" style="margin:0;" onclick="closeDefectModal()">취소</button>
@@ -742,7 +742,7 @@ document.getElementById('defectModal').addEventListener('click', function(e){
 
 {# ===== 태블릿용 방향 이동 D패드 ===== #}
 <div id="navPad" style="position:fixed; right:14px; bottom:14px; z-index:200;
-     background:rgba(31,41,55,.92); border-radius:16px; padding:10px;
+     background:rgba(43,49,64,.92); border-radius:16px; padding:10px;
      box-shadow:0 4px 18px rgba(0,0,0,.35); display:grid;
      grid-template-columns:52px 52px 52px; grid-template-rows:52px 52px 52px; gap:6px;">
   <div></div>
@@ -756,7 +756,7 @@ document.getElementById('defectModal').addEventListener('click', function(e){
   <div></div>
 </div>
 <style>
-  .nav-btn { background:#374151; color:#fff; border:none; border-radius:10px; font-size:17px;
+  .nav-btn { background:#2B3140; color:#fff; border:none; border-radius:10px; font-size:17px;
              font-weight:700; cursor:pointer; margin:0; padding:0; touch-action:manipulation; }
   .nav-btn:active { background:#3D5A8A; }
   .nav-confirm { font-size:13px; background:#2F4670; }
@@ -849,7 +849,7 @@ function onGaugeSearch(input, specId) {
     return;
   }
   var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(exp);
-  if (!m) { if (gview) { gview.textContent = '만료 ' + exp; gview.style.color = '#374151'; } return; }
+  if (!m) { if (gview) { gview.textContent = '만료 ' + exp; gview.style.color = '#2B3140'; } return; }
   var target = new Date(+m[1], +m[2] - 1, +m[3]);
   var today = new Date(); today.setHours(0, 0, 0, 0);
   var diffDays = Math.round((target - today) / 86400000);

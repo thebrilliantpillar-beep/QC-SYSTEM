@@ -11,13 +11,13 @@
 <style>
   .quick-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
                 overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
-  .quick-grid th { background:#f3f4f6; color:#4b5563; padding:8px 4px; font-size:11.5px; white-space:nowrap; }
-  .quick-grid td { border:1px solid #e5e7eb; padding:0; }
+  .quick-grid th { background:#ECEEF2; color:#4b5563; padding:8px 4px; font-size:11.5px; white-space:nowrap; }
+  .quick-grid td { border:1px solid #DDE0E6; padding:0; }
   .quick-grid input {
     width:100%; box-sizing:border-box; padding:7px 6px; font-size:12.5px; border:none; border-radius:0; margin:0; background:transparent;
   }
   .quick-grid input:focus { outline:2px solid #3D5A8A; outline-offset:-2px; background:#eff6ff; }
-  .quick-grid td.rownum { background:#f9fafb; text-align:center; color:#9ca3af; font-size:11px; width:26px; }
+  .quick-grid td.rownum { background:#F9F9F8; text-align:center; color:#9ca3af; font-size:11px; width:26px; }
   .quick-grid td.del-cell { width:30px; text-align:center; background:#fff; }
   .del-row-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:14px; padding:4px; }
   .cond-cell { text-align:center; width:110px; }
@@ -33,10 +33,10 @@
                max-height:88vh; overflow-y:auto; }
   .modal-box h3 { margin-top:0; }
   .item-row-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
-  .item-row-table th { background:#f3f4f6; padding:6px 4px; font-size:11px; }
-  .item-row-table td { border:1px solid #e5e7eb; padding:3px; }
-  .item-row-table input, .item-row-table select { width:100%; padding:4px; font-size:11.5px; border:1px solid #d1d5db; border-radius:4px; }
-  .prev-list { margin-top:10px; border:1px solid #e5e7eb; border-radius:8px; padding:10px; background:#f9fafb; }
+  .item-row-table th { background:#ECEEF2; padding:6px 4px; font-size:11px; }
+  .item-row-table td { border:1px solid #DDE0E6; padding:3px; }
+  .item-row-table input, .item-row-table select { width:100%; padding:4px; font-size:11.5px; border:1px solid #DDE0E6; border-radius:4px; }
+  .prev-list { margin-top:10px; border:1px solid #DDE0E6; border-radius:8px; padding:10px; background:#F9F9F8; }
   .prev-item-row { display:flex; align-items:center; gap:6px; padding:4px 0; font-size:12px; user-select:none; }
   .prev-item-row input[type=checkbox] { width:auto; }
   .tol-builder { display:flex; gap:3px; margin-top:4px; }
@@ -115,14 +115,14 @@
               <div id="pop-aql-quick" class="info-pop" style="left:auto;right:0;top:24px;z-index:600;">
                 <button class="info-pop-close">×</button>
                 <b>AQL 선택 기준</b>
-                <div style="margin-top:6px; color:#374151; line-height:1.8;">
+                <div style="margin-top:6px; color:#2B3140; line-height:1.8;">
                   <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
                   <b>1.5</b> 엄격<br>
                   <b>4</b> 일반 기준 — 샘플 가장 적음<br>
                   <b>전수</b> 입고 수량 전체 검사<br>
                   <b>퍼센트</b> 입고 수량의 N% 검사
                 </div>
-                <div style="margin-top:6px; font-size:11.5px; color:#6b7280; border-top:1px solid #e5e7eb; padding-top:5px;">
+                <div style="margin-top:6px; font-size:11.5px; color:#6b7280; border-top:1px solid #DDE0E6; padding-top:5px;">
                   수치 AQL: 숫자 낮을수록 엄격하고 샘플 더 많음
                 </div>
               </div>

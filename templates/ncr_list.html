@@ -9,7 +9,7 @@
 .ncr-badge.draft     { background:#fef9c3; color:#854d0e; }
 .ncr-badge.confirmed { background:#dbeafe; color:#24344F; }
 .ncr-badge.sent      { background:#dcfce7; color:#15803d; }
-.ncr-badge.issued    { background:#f3f4f6; color:#374151; }
+.ncr-badge.issued    { background:#ECEEF2; color:#2B3140; }
 </style>
 
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
@@ -24,7 +24,7 @@
   <a href="{{ url_for('ncr_list', status=val) }}"
      style="padding:6px 14px; border-radius:999px; font-size:13px; font-weight:700; text-decoration:none;
             {% if status_filter == val %}background:var(--primary); color:#fff;
-            {% else %}background:#f3f4f6; color:#374151;{% endif %}">
+            {% else %}background:#ECEEF2; color:#2B3140;{% endif %}">
     {{ label }}
   </a>
   {% endfor %}
@@ -80,7 +80,7 @@
   </div>
 </div>
 
-<h3 style="margin:20px 0 8px; color:#374151;">📋 전체 통보서</h3>
+<h3 style="margin:20px 0 8px; color:#2B3140;">📋 전체 통보서</h3>
 {% endif %}
 
 {% set list_to_show = other_ncrs if (not status_filter and draft_ncrs) else ncrs %}

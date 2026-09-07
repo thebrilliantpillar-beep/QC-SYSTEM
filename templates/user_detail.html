@@ -63,8 +63,8 @@
     <div id="permForm" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px;">
       {% for group_name, items in perm_groups %}
       <div style="border:1px solid var(--border); border-radius:10px; padding:12px 14px; background:#fafafa;">
-        <div style="font-weight:800; font-size:13px; color:#374151; margin-bottom:8px;
-                    border-bottom:1px solid #e5e7eb; padding-bottom:6px;">{{ group_name }}</div>
+        <div style="font-weight:800; font-size:13px; color:#2B3140; margin-bottom:8px;
+                    border-bottom:1px solid #DDE0E6; padding-bottom:6px;">{{ group_name }}</div>
         {% for code, label in items %}
         <label style="display:flex; align-items:flex-start; gap:7px; font-weight:400; font-size:13px; margin:6px 0; cursor:pointer;">
           <input type="checkbox" name="permissions" value="{{ code }}" style="width:auto; margin-top:2px;"

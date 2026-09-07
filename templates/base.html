@@ -28,20 +28,20 @@
   }
   * { box-sizing: border-box; }
   body { font-family: "Gothic A1", -apple-system, "Malgun Gothic", sans-serif; margin: 0; background: var(--bg); color: var(--text); }
-  header { background: linear-gradient(135deg, #1f2937, #111827); color: #fff; padding: 16px 20px;
+  header { background: linear-gradient(135deg, #2B3140, #24344F); color: #fff; padding: 16px 20px;
            display: flex; align-items: center; gap: 20px; flex-wrap: wrap; position: relative; z-index: 50; }
   header .logo { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
-  header a { color: #d1d5db; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px; }
+  header a { color: #DDE0E6; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px; }
   header a:hover, header a.active { color: #fff; background: rgba(255,255,255,.1); }
   /* 드롭다운 메뉴
      화면이 좁으면 상단 메뉴가 두 줄로 접히는데, 이때 열린 목록이 아랫줄 버튼 뒤로 깔려서
      글자가 겹쳐 보이던 문제가 있었다. 열린 드롭다운만 z-index로 확실히 위에 올린다. */
   .nav-dropdown { position: relative; }
   .nav-dropdown.open { z-index: 1000; }
-  .nav-dropdown > button { background: none; border: none; color: #d1d5db; font-size: 14px; padding: 6px 10px;
+  .nav-dropdown > button { background: none; border: none; color: #DDE0E6; font-size: 14px; padding: 6px 10px;
                             border-radius: 6px; cursor: pointer; font-family: inherit; }
   .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); }
-  .nav-dropdown .menu { display: none; position: absolute; top: 100%; left: 0; background: #1f2937;
+  .nav-dropdown .menu { display: none; position: absolute; top: 100%; left: 0; background: #2B3140;
                          border-radius: 8px; padding: 6px; min-width: 170px;
                          box-shadow: 0 8px 20px rgba(0,0,0,.45); margin-top:4px;
                          z-index: 1001; }
@@ -54,14 +54,14 @@
   }
   main { padding: 20px 16px 60px; max-width: 780px; margin: 0 auto; }
   h2 { font-size: 20px; margin: 4px 0 16px; }
-  h3 { font-size: 16px; color: #374151; }
+  h3 { font-size: 16px; color: #2B3140; }
   table { width: 100%; border-collapse: collapse; background: var(--card); margin-top: 10px;
           border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
   th, td { border-bottom: 1px solid var(--border); padding: 12px 10px; text-align: center; font-size: 13.5px; }
-  th { background: #f3f4f6; color: #4b5563; font-weight: 700; }
+  th { background: #ECEEF2; color: #4b5563; font-weight: 700; }
   tr:last-child td { border-bottom: none; }
   tr.clickable:hover { background: #f0f5ff; cursor: pointer; }
-  input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #d1d5db;
+  input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #DDE0E6;
                              border-radius: 8px; font-family: inherit; background: #fff; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary);
                              box-shadow: 0 0 0 3px rgba(61,90,138,.16); }
@@ -79,7 +79,7 @@
   .badge.pass { color: var(--pass); background: #dcfce7; }
   .badge.fail { color: var(--fail); background: #fee2e2; }
   .badge.pending { color: var(--pending); background: #fef3c7; }
-  .badge.muted { color: #6b7280; background: #f3f4f6; }
+  .badge.muted { color: #6b7280; background: #ECEEF2; }
   .badge.special { color: #ea580c; background: #ffedd5; }
   .badge.review  { color: #7c3aed; background: #ede9fe; }
   .flash { background: #fef3c7; border: 1px solid #fbbf24; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13.5px; }
@@ -97,24 +97,24 @@
   .notice-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; }
   .notice-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
   .notice-danger  { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; }
-  .notice-neutral { background: #f3f4f6; border: 1px solid #e5e7eb; color: #374151; }
+  .notice-neutral { background: #ECEEF2; border: 1px solid #DDE0E6; color: #2B3140; }
 
   /* ── 엑셀 메모형 정보 팝오버 ── */
   .info-anchor { position:relative; display:inline-block; }
-  .info-btn { background:none; border:1.5px solid #d1d5db; color:#9ca3af; border-radius:50%;
+  .info-btn { background:none; border:1.5px solid #DDE0E6; color:#9ca3af; border-radius:50%;
               width:17px; height:17px; font-size:10px; font-weight:700; cursor:pointer; padding:0;
               display:inline-flex; align-items:center; justify-content:center;
               margin-left:5px; vertical-align:middle; line-height:1; transition:border-color .15s,color .15s; }
-  .info-btn:hover, .info-btn.pinned { border-color:#6b7280; color:#374151; }
+  .info-btn:hover, .info-btn.pinned { border-color:#6b7280; color:#2B3140; }
   .info-pop { display:none; position:absolute; z-index:500; left:22px; top:0;
-              background:#fafaf7; border:1px solid #d1d5db; border-radius:8px;
-              padding:10px 13px 10px 12px; font-size:12.5px; color:#374151;
+              background:#fafaf7; border:1px solid #DDE0E6; border-radius:8px;
+              padding:10px 13px 10px 12px; font-size:12.5px; color:#2B3140;
               max-width:300px; min-width:220px; box-shadow:0 4px 14px rgba(0,0,0,.10);
               line-height:1.65; white-space:normal; }
   .info-pop.show { display:block; }
   .info-pop-close { float:right; background:none; border:none; cursor:pointer;
                     color:#9ca3af; font-size:14px; padding:0 0 4px 8px; line-height:1; }
-  .info-pop-close:hover { color:#374151; }
+  .info-pop-close:hover { color:#2B3140; }
 </style>
 <script>
 (function(){
@@ -359,8 +359,8 @@ function toggleNav(btn) {
 .detail-modal-box { background:#fff; border-radius:12px; width:min(96vw,960px); height:92vh;
                     display:flex; flex-direction:column; overflow:hidden; box-shadow:0 16px 48px rgba(0,0,0,.4); }
 .detail-modal-head { display:flex; justify-content:space-between; align-items:center; gap:10px;
-                     padding:8px 14px; border-bottom:1px solid var(--border); background:#f9fafb; }
-.detail-modal-head .t { font-weight:700; font-size:13.5px; color:#374151; }
+                     padding:8px 14px; border-bottom:1px solid var(--border); background:#F9F9F8; }
+.detail-modal-head .t { font-weight:700; font-size:13.5px; color:#2B3140; }
 .detail-modal-head .btns { display:flex; gap:8px; }
 .detail-modal-head a, .detail-modal-head button { margin:0; padding:6px 12px; font-size:12.5px; border-radius:7px;
                      text-decoration:none; cursor:pointer; }
@@ -372,7 +372,7 @@ function toggleNav(btn) {
       <span class="t">상세 보기</span>
       <div class="btns">
         <a id="detailOpenFull" href="#" target="_blank" class="btn secondary">새 탭에서 열기 ↗</a>
-        <button type="button" onclick="closeDetailPopup()" style="background:#e5e7eb; color:#374151; border:none;">✕ 닫기</button>
+        <button type="button" onclick="closeDetailPopup()" style="background:#DDE0E6; color:#2B3140; border:none;">✕ 닫기</button>
       </div>
     </div>
     <iframe id="detailFrame" src="about:blank" title="상세 보기"></iframe>

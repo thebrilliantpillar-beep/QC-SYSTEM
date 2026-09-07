@@ -11,27 +11,27 @@
   <div style="background:#fff; border-radius:14px; width:min(96vw,900px); height:min(90vh,680px);
               display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.35);">
     <div style="display:flex; align-items:center; justify-content:space-between;
-                padding:12px 18px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap; gap:8px;">
+                padding:12px 18px; border-bottom:1px solid #DDE0E6; flex-wrap:wrap; gap:8px;">
       <span id="drawingModalTitle" style="font-weight:700; font-size:15px;">📐 도면</span>
       <div style="display:flex; align-items:center; gap:6px;">
         <button type="button" onclick="drawingZoom(0.8)" title="축소"
-                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
-                       font-size:16px; font-weight:700; color:#374151; cursor:pointer; padding:0;">－</button>
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #DDE0E6; background:#F9F9F8;
+                       font-size:16px; font-weight:700; color:#2B3140; cursor:pointer; padding:0;">－</button>
         <span id="drawingZoomLabel" style="font-size:12px; color:#6b7280; min-width:38px; text-align:center;">100%</span>
         <button type="button" onclick="drawingZoom(1.25)" title="확대"
-                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
-                       font-size:16px; font-weight:700; color:#374151; cursor:pointer; padding:0;">＋</button>
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #DDE0E6; background:#F9F9F8;
+                       font-size:16px; font-weight:700; color:#2B3140; cursor:pointer; padding:0;">＋</button>
         <button type="button" onclick="drawingRotate(-90)" title="왼쪽으로 회전"
-                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
-                       font-size:15px; color:#374151; cursor:pointer; padding:0;">⟲</button>
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #DDE0E6; background:#F9F9F8;
+                       font-size:15px; color:#2B3140; cursor:pointer; padding:0;">⟲</button>
         <button type="button" onclick="drawingRotate(90)" title="오른쪽으로 회전"
-                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
-                       font-size:15px; color:#374151; cursor:pointer; padding:0;">⟳</button>
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #DDE0E6; background:#F9F9F8;
+                       font-size:15px; color:#2B3140; cursor:pointer; padding:0;">⟳</button>
         <button type="button" onclick="drawingResetView()" title="맞춤으로 초기화"
                 style="font-size:12px; color:#3D5A8A; background:none; border:none; cursor:pointer; padding:4px 2px;">맞춤</button>
         <button type="button" onclick="drawingPrint()" title="인쇄"
-                style="width:32px; height:32px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
-                       font-size:14px; color:#374151; cursor:pointer; padding:0;">🖨️</button>
+                style="width:32px; height:32px; border-radius:8px; border:1px solid #DDE0E6; background:#F9F9F8;
+                       font-size:14px; color:#2B3140; cursor:pointer; padding:0;">🖨️</button>
         <a id="drawingModalOpenNew" href="#" target="_blank" rel="noopener"
            style="font-size:12.5px; color:#3D5A8A; text-decoration:none; margin-left:4px;">새 탭</a>
         <button onclick="closeDrawingModal()" style="font-size:20px; background:none; border:none;
@@ -41,7 +41,7 @@
     <div id="drawingModalBody" style="flex:1; overflow:auto; background:#525659; text-align:center; padding:10px;
                                        touch-action:pan-x pan-y;">
       <div id="drawingPageWrap" style="transform-origin:top center;">
-        <div id="drawingModalMsg" style="color:#e5e7eb; font-size:13.5px; padding:20px;">불러오는 중…</div>
+        <div id="drawingModalMsg" style="color:#DDE0E6; font-size:13.5px; padding:20px;">불러오는 중…</div>
       </div>
     </div>
   </div>
@@ -143,12 +143,12 @@
     rotation = 0;
     zoomLabel();
     wrap.style.transform = '';
-    wrap.innerHTML = '<div id="drawingModalMsg" style="color:#e5e7eb; font-size:13.5px; padding:20px;">불러오는 중…</div>';
+    wrap.innerHTML = '<div id="drawingModalMsg" style="color:#DDE0E6; font-size:13.5px; padding:20px;">불러오는 중…</div>';
     m.style.display = 'flex';
 
     var myToken = ++renderToken;
     if (!window.pdfjsLib) {
-      wrap.innerHTML = '<div style="color:#e5e7eb; font-size:13.5px; padding:20px;">PDF 뷰어를 불러오지 못했어. "새 탭"을 눌러줘.</div>';
+      wrap.innerHTML = '<div style="color:#DDE0E6; font-size:13.5px; padding:20px;">PDF 뷰어를 불러오지 못했어. "새 탭"을 눌러줘.</div>';
       return;
     }
 
@@ -158,7 +158,7 @@
       return renderAll();
     }).catch(function (err) {
       if (myToken !== renderToken) return;
-      wrap.innerHTML = '<div style="color:#e5e7eb; font-size:13.5px; padding:20px;">도면을 불러오지 못했어. "새 탭"을 눌러줘.</div>';
+      wrap.innerHTML = '<div style="color:#DDE0E6; font-size:13.5px; padding:20px;">도면을 불러오지 못했어. "새 탭"을 눌러줘.</div>';
       console.error('drawing PDF load failed', err);
     });
   };

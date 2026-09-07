@@ -4,11 +4,11 @@
 <style>
 .fi-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .fi-tbl { border-collapse: collapse; font-size: 13px; white-space: nowrap; }
-.fi-tbl th { background: #1f2937; color: #fff; padding: 7px 8px;
-             border: 1px solid #374151; font-size: 12px; text-align: center; }
-.fi-tbl td { border: 1px solid #d1d5db; padding: 2px 3px; }
+.fi-tbl th { background: #2B3140; color: #fff; padding: 7px 8px;
+             border: 1px solid #2B3140; font-size: 12px; text-align: center; }
+.fi-tbl td { border: 1px solid #DDE0E6; padding: 2px 3px; }
 .fi-tbl .no-cell { text-align: center; color: #4b5563; width: 34px;
-                   font-size: 12px; background: #f9fafb; font-weight: 600; }
+                   font-size: 12px; background: #F9F9F8; font-weight: 600; }
 .fi-tbl input[type=text] {
   width: 100%; min-width: 52px; border: none; background: transparent;
   font-size: 13px; padding: 4px 4px; box-sizing: border-box; font-family: inherit;
@@ -19,12 +19,12 @@
 }
 .serial-3 { display: flex; align-items: stretch; gap: 2px; min-width: 220px; }
 .serial-3 .sp {
-  flex: 0 0 auto; padding: 4px 6px; background: #f3f4f6; color: #6b7280;
+  flex: 0 0 auto; padding: 4px 6px; background: #ECEEF2; color: #6b7280;
   font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center;
   min-width: 54px; justify-content: center;
 }
 .serial-3 .sp.editable {
-  background: transparent; color: #111827; padding: 0;
+  background: transparent; color: #24344F; padding: 0;
 }
 .serial-3 .sp.editable input {
   min-width: 54px; text-align: center; font-size: 13px;
@@ -37,9 +37,9 @@
 .res-ng  { text-align: center; color: #dc2626; font-weight: 700; background: #fef2f2; }
 .res-nil { text-align: center; color: #9ca3af; }
 .fi-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-          background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
-.fi-bar label { font-size: 13px; color: #374151; }
-.fi-bar input[type=date] { font-size: 13px; border: 1px solid #d1d5db;
+          background: #ECEEF2; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+.fi-bar label { font-size: 13px; color: #2B3140; }
+.fi-bar input[type=date] { font-size: 13px; border: 1px solid #DDE0E6;
                             border-radius: 5px; padding: 4px 8px; }
 .serial-config { background: #eff6ff; border: 1px solid #bfdbfe;
                  border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
@@ -108,9 +108,9 @@
   <div class="serial-config">
     <h4>제품번호(S/N) 공통 입력</h4>
     <div class="row">
-      <span style="font-size:12px;color:#374151;">첫 부분 (배치)</span>
+      <span style="font-size:12px;color:#2B3140;">첫 부분 (배치)</span>
       <input type="text" id="sn-prefix" placeholder="예: E2607" maxlength="20">
-      <span style="font-size:12px;color:#374151;">끝 부분 (모델)</span>
+      <span style="font-size:12px;color:#2B3140;">끝 부분 (모델)</span>
       <input type="text" id="sn-suffix" placeholder="예: M2-100-1" maxlength="30">
       <button type="button" class="btn-apply" onclick="applySerialToAll()">
         📋 전체 행에 적용
@@ -124,7 +124,7 @@
 
   {% if config.note %}
   <div style="font-size:12px;background:#f0f4ff;border-radius:5px;
-              padding:5px 12px;margin-bottom:8px;color:#374151;">
+              padding:5px 12px;margin-bottom:8px;color:#2B3140;">
     📋 시험 조건: {{ config.note }}
   </div>
   {% endif %}

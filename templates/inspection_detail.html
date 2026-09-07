@@ -7,18 +7,18 @@
   /* 2026-09-07 디자인 감사: 라벨(항목명)과 값(실제 정보)의 크기·굵기 차이를 뚜렷하게 —
      예전엔 둘이 거의 같은 크기라 어디가 라벨이고 어디가 값인지 한눈에 구분이 안 됐다. */
   .meta-grid span { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.02em; }
-  .meta-grid b { font-size:15px; font-weight:700; color:#111827; }
+  .meta-grid b { font-size:15px; font-weight:700; color:#24344F; }
   .result-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
                   overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13.5px; margin-top:10px; }
-  .result-table th { background:#1f2937; color:#fff; padding:10px 8px; text-align:center; font-size:12px; white-space:nowrap; }
-  .result-table td { border-bottom:1px solid #e5e7eb; padding:9px 8px; text-align:center; vertical-align:middle; font-size:13px; }
+  .result-table th { background:#2B3140; color:#fff; padding:10px 8px; text-align:center; font-size:12px; white-space:nowrap; }
+  .result-table td { border-bottom:1px solid #DDE0E6; padding:9px 8px; text-align:center; vertical-align:middle; font-size:13px; }
   .result-table tr:last-child td { border-bottom:none; }
-  .result-table tr:nth-child(even) td { background:#f9fafb; }
+  .result-table tr:nth-child(even) td { background:#F9F9F8; }
   .val-box { display:inline-flex; align-items:center; justify-content:center;
              min-width:36px; padding:3px 6px; border-radius:5px; font-size:12.5px; font-weight:600;
-             background:#f3f4f6; border:1px solid #e5e7eb; color:#1f2937; margin:2px; }
+             background:#ECEEF2; border:1px solid #DDE0E6; color:#2B3140; margin:2px; }
   .val-box.fail { background:#fee2e2; border-color:#fca5a5; color:#dc2626; }
-  .method-tag { display:inline-block; font-size:11px; color:#6b7280; background:#f3f4f6;
+  .method-tag { display:inline-block; font-size:11px; color:#6b7280; background:#ECEEF2;
                 border-radius:4px; padding:2px 6px; white-space:nowrap; }
   .approve-box { background:#fff; border-radius:12px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08);
                  margin-top:20px; }
@@ -115,7 +115,7 @@ if (window.top !== window.self) {
 {% if total_time_label != '-' or aql_groups %}
 <div class="card" style="padding:14px 18px; margin-bottom:14px;">
   <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
-    <span style="font-size:13px; font-weight:700; color:#374151;">⏱ 총 측정시간</span>
+    <span style="font-size:13px; font-weight:700; color:#2B3140;">⏱ 총 측정시간</span>
     <span style="font-size:16px; font-weight:800; color:#2F4670; margin-left:4px;">{{ total_time_label }}</span>
     <span style="font-size:12px; color:#9ca3af; margin-left:2px;">(개당 {{ per_cycle_label }})</span>
     <span class="info-anchor" style="margin-left:4px;">
@@ -127,15 +127,15 @@ if (window.top !== window.self) {
           스톱워치로 잰 <b>개당 측정시간</b>(샘플 1개 기준)을 기반으로 계산해.
         </div>
         <div style="margin-top:6px; color:#6b7280;">
-          <b style="color:#374151;">전수·퍼센티지 검사인 경우:</b><br>
+          <b style="color:#2B3140;">전수·퍼센티지 검사인 경우:</b><br>
           샘플수 × 개당시간 (단순 곱셈)<br>
-          <b style="color:#374151; margin-top:4px; display:block;">수치 AQL 혼합인 경우:</b>
+          <b style="color:#2B3140; margin-top:4px; display:block;">수치 AQL 혼합인 경우:</b>
           ① 가장 높은 AQL(샘플 가장 적음)을 기준: 샘플수 × 개당시간<br>
           ② 나머지 AQL(샘플 더 많음): 기준 초과 수량 × 10초 추가<br>
           <span style="font-size:11.5px;">기준 그룹에서 이미 측정한 수량은 중복 계산 안 해.</span>
         </div>
         {% if aql_groups %}
-        <div style="margin-top:8px; border-top:1px solid #e5e7eb; padding-top:6px; font-size:12px;">
+        <div style="margin-top:8px; border-top:1px solid #DDE0E6; padding-top:6px; font-size:12px;">
           {% for aql_key, v in aql_groups.items() %}
           <div>AQL <b>{{ aql_key | aql_display }}</b> → 샘플 <b>{{ v['qty'] }}개</b>
           {% if v['ac'] is not none %}<span style="color:#6b7280;"> (Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }})</span>{% endif %}
@@ -157,7 +157,7 @@ if (window.top !== window.self) {
       <span style="color:#9ca3af; font-weight:400; font-size:11px;">→</span>
       <span>{{ v['qty'] }}개</span>
       {% if v['ac'] is not none %}
-      <span style="color:#9ca3af; font-weight:400; font-size:11px; border-left:1px solid #d1d5db; padding-left:4px; margin-left:2px;">Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }}</span>
+      <span style="color:#9ca3af; font-weight:400; font-size:11px; border-left:1px solid #DDE0E6; padding-left:4px; margin-left:2px;">Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }}</span>
       {% endif %}
     </span>
     {% endfor %}
@@ -170,7 +170,7 @@ if (window.top !== window.self) {
 <div id="drawingBanner" class="card"
      style="padding:12px 18px; margin-bottom:14px; display:flex;
             align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
-            border-left:4px solid #d1d5db;">
+            border-left:4px solid #DDE0E6;">
   <div>
     <b id="drawingBannerLabel" style="color:#9ca3af; font-size:14px;">📐 도면 확인 중...</b>
     <p class="muted" style="margin:3px 0 0; font-size:12.5px;" id="drawingBannerDesc">도면 파일 유무를 확인하고 있어.</p>
@@ -226,9 +226,9 @@ if (window.top !== window.self) {
           {% endif %}
         {% else %}-{% endif %}
       </td>
-      <td style="font-size:12.5px; color:#374151;">{{ '%.2f'|format(it['max_value']) if it['max_value'] is not none else '-' }}</td>
-      <td style="font-size:12.5px; color:#374151;">{{ '%.2f'|format(it['min_value']) if it['min_value'] is not none else '-' }}</td>
-      <td style="font-size:12px; color:{{ '#dc2626' if sm.get('aql')|string == '0.65' else '#374151' }}; font-weight:{{ '700' if sm.get('aql')|string == '0.65' else '400' }};">
+      <td style="font-size:12.5px; color:#2B3140;">{{ '%.2f'|format(it['max_value']) if it['max_value'] is not none else '-' }}</td>
+      <td style="font-size:12.5px; color:#2B3140;">{{ '%.2f'|format(it['min_value']) if it['min_value'] is not none else '-' }}</td>
+      <td style="font-size:12px; color:{{ '#dc2626' if sm.get('aql')|string == '0.65' else '#2B3140' }}; font-weight:{{ '700' if sm.get('aql')|string == '0.65' else '400' }};">
         {{ sm.get('aql') | aql_display if sm.get('aql') is not none else '-' }}
         {% if sm.get('ac_allowance') is not none %}
         <br><span style="font-size:10.5px; font-weight:400; color:#6b7280;">Ac{{ sm['ac_allowance'] }}/Re{{ sm['ac_allowance'] + 1 }}</span>
@@ -237,7 +237,7 @@ if (window.top !== window.self) {
       <td style="font-size:12.5px;">{{ sm.get('sample_qty') or '-' }}</td>
       <td><span class="badge {{ 'pass' if it['result']=='합격' else ('fail' if it['result']=='불합격' else 'pending') }}">{{ it['result'] }}</span></td>
       <td style="font-size:12px;">
-        {% if it['gauge_name'] %}<div style="color:#374151; font-weight:600;">{{ it['gauge_name'] }}</div>{% endif %}
+        {% if it['gauge_name'] %}<div style="color:#2B3140; font-weight:600;">{{ it['gauge_name'] }}</div>{% endif %}
         {% if it['gauge_expiry'] %}
           <div style="color:#dc2626;">{{ it['gauge_expiry'] }}</div>
         {% elif it['gauge_name'] %}
@@ -300,8 +300,8 @@ if (window.top !== window.self) {
     <div>
       <span style="font-weight:800; font-size:12px; letter-spacing:.02em; color:#000000;">🔎 검사자</span>
       {% if header['remark_inspector'] %}
-      <div style="margin:6px 0 0; background:#fff; border:1px solid #e5e7eb; border-radius:8px;
-                  padding:9px 12px; font-size:14px; font-weight:600; color:#111827;">{{ header['remark_inspector'] }}</div>
+      <div style="margin:6px 0 0; background:#fff; border:1px solid #DDE0E6; border-radius:8px;
+                  padding:9px 12px; font-size:14px; font-weight:600; color:#24344F;">{{ header['remark_inspector'] }}</div>
       {% endif %}
       {% if 'inspect_input' in user_perms %}
       <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:4px;">
@@ -389,15 +389,15 @@ if (window.top !== window.self) {
       <form method="POST" action="{{ url_for('inspection_ncr_waive', inspection_id=header['id']) }}"
             style="margin:0;">
         <input type="hidden" name="action" value="unwaive">
-        <button type="submit" style="padding:8px 16px; background:#fff; color:#374151;
-                border:1px solid #d1d5db; border-radius:8px; font-size:13px; cursor:pointer; margin:0;">
+        <button type="submit" style="padding:8px 16px; background:#fff; color:#2B3140;
+                border:1px solid #DDE0E6; border-radius:8px; font-size:13px; cursor:pointer; margin:0;">
           생략 취소
         </button>
       </form>
     </div>
   </div>
   {% if existing_ncr_list %}
-  <div style="margin-top:12px; border-top:1px solid #e5e7eb; padding-top:10px;">
+  <div style="margin-top:12px; border-top:1px solid #DDE0E6; padding-top:10px;">
     <span style="font-size:12.5px; color:var(--muted); font-weight:600;">발행된 통보서</span>
     {% for n in existing_ncr_list %}
     <div style="margin-top:6px;">
@@ -430,7 +430,7 @@ if (window.top !== window.self) {
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <button type="button" onclick="toggleWaiveForm()"
-              style="padding:8px 14px; background:#fff; color:#6b7280; border:1px solid #d1d5db;
+              style="padding:8px 14px; background:#fff; color:#6b7280; border:1px solid #DDE0E6;
                      border-radius:8px; font-size:13px; cursor:pointer; margin:0; white-space:nowrap;">
         통보서 불필요
       </button>
@@ -460,7 +460,7 @@ if (window.top !== window.self) {
         생략 확인
       </button>
       <button type="button" onclick="toggleWaiveForm()"
-              style="padding:9px 14px; background:#fff; color:#374151; border:1px solid #d1d5db;
+              style="padding:9px 14px; background:#fff; color:#2B3140; border:1px solid #DDE0E6;
                      border-radius:8px; font-size:13px; cursor:pointer; margin:0;">
         취소
       </button>
@@ -538,8 +538,8 @@ function toggleWaiveForm() {
   {% if 'approve_revoke' in user_perms %}
   <form method="post" action="{{ url_for('approve_revoke', inspection_id=header['id']) }}"
         onsubmit="return confirm('반려를 취소하고 다시 승인 대기 상태로 되돌릴게. 맞아?')">
-    <button type="submit" style="padding:7px 16px; border-radius:8px; border:1px solid #d1d5db;
-            background:#f9fafb; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer;">
+    <button type="submit" style="padding:7px 16px; border-radius:8px; border:1px solid #DDE0E6;
+            background:#F9F9F8; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer;">
       ↩ 결정 회수
     </button>
   </form>
@@ -563,15 +563,15 @@ function toggleWaiveForm() {
     <div class="muted" style="font-size:12.5px; margin-top:4px;">아직 xlsx/PDF로 출력 안 됨 — "출력 대기" 화면에서 출력해줘.</div>
     {% endif %}
     <span id="integrity-badge" style="display:inline-block; margin-top:7px; font-size:12.5px;
-          border-radius:6px; padding:3px 10px; background:#f3f4f6; color:#6b7280; font-weight:600;">
+          border-radius:6px; padding:3px 10px; background:#ECEEF2; color:#6b7280; font-weight:600;">
       🔒 무결성 확인 중…
     </span>
   </div>
   {% if 'approve_revoke' in user_perms %}
   <form method="post" action="{{ url_for('approve_revoke', inspection_id=header['id']) }}"
         onsubmit="return confirm('결정을 회수하고 다시 승인 대기 상태로 되돌릴게. 맞아?')">
-    <button type="submit" style="padding:7px 16px; border-radius:8px; border:1px solid #d1d5db;
-            background:#f9fafb; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer;">
+    <button type="submit" style="padding:7px 16px; border-radius:8px; border:1px solid #DDE0E6;
+            background:#F9F9F8; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer;">
       ↩ 결정 회수
     </button>
   </form>
@@ -603,7 +603,7 @@ function toggleWaiveForm() {
         bannerLabel.textContent = '📐 도면 없음';
         bannerLabel.style.color = '#9ca3af';
         bannerDesc.textContent = '이 자재에 등록된 도면 파일이 없어.';
-        banner.style.borderLeftColor = '#e5e7eb';
+        banner.style.borderLeftColor = '#DDE0E6';
       }
     } else {
       if (bannerLabel) {
@@ -635,14 +635,14 @@ function toggleWaiveForm() {
   fetch('{{ url_for("inspection_verify", inspection_id=header["id"]) }}')
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      if (!d.checked) { paint('🔒 ' + d.message, '#f3f4f6', '#6b7280'); return; }
+      if (!d.checked) { paint('🔒 ' + d.message, '#ECEEF2', '#6b7280'); return; }
       if (d.content_ok && d.pdf_ok !== false) {
         paint('🔒 무결성 확인됨 — ' + d.message, '#dcfce7', '#166534');
       } else {
         paint('🚨 ' + d.message, '#fee2e2', '#991b1b');
       }
     })
-    .catch(function () { paint('🔒 무결성 확인 실패', '#f3f4f6', '#6b7280'); });
+    .catch(function () { paint('🔒 무결성 확인 실패', '#ECEEF2', '#6b7280'); });
 })();
 </script>
 {% endif %}

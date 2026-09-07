@@ -5,7 +5,7 @@
 .hist-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .hist-table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
 .hist-table th {
-  background: #f3f4f6;
+  background: #ECEEF2;
   padding: 8px 10px;
   border: 1px solid var(--border);
   white-space: nowrap;
@@ -19,7 +19,7 @@
   position: sticky;
   left: 0;
   z-index: 2;
-  background: #f3f4f6;
+  background: #ECEEF2;
 }
 .hist-table td {
   padding: 7px 10px;
@@ -35,12 +35,12 @@
   background: var(--card);
   text-align: left;
 }
-.hist-table tr:hover td { background: #f9fafb; }
-.hist-table tr:hover td.fixed-col { background: #f3f4f6; }
+.hist-table tr:hover td { background: #F9F9F8; }
+.hist-table tr:hover td.fixed-col { background: #ECEEF2; }
 
 .cell-pass   { background: #f0fdf4; color: #15803d; font-weight: 700; }
 .cell-fail   { background: #fef2f2; color: #dc2626; font-weight: 700; }
-.cell-empty  { color: #d1d5db; }
+.cell-empty  { color: #DDE0E6; }
 
 .result-badge {
   display: inline-block; padding: 2px 8px; border-radius: 999px;
@@ -129,7 +129,7 @@
       {% elif insp['overall_result'] %}
         <span class="result-badge fail">{{ insp['overall_result'] }}</span>
       {% else %}
-        <span class="result-badge" style="background:#f3f4f6; color:#6b7280;">-</span>
+        <span class="result-badge" style="background:#ECEEF2; color:#6b7280;">-</span>
       {% endif %}
     </td>
 
@@ -159,8 +159,8 @@
         {% endif %}
       </td>
     {% else %}
-      <td class="cell-empty" style="color:#e5e7eb;">—</td>
-      <td class="cell-empty" style="color:#e5e7eb;">—</td>
+      <td class="cell-empty" style="color:#DDE0E6;">—</td>
+      <td class="cell-empty" style="color:#DDE0E6;">—</td>
     {% endif %}
     {% endfor %}
   </tr>

@@ -16,10 +16,10 @@
   .kbox .v { font-size:21px; font-weight:800; margin-top:4px; }
   .v.bad { color:var(--fail); } .v.ok { color:#16a34a; } .v.warn { color:#d97706; }
   .doc table { width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:16px; }
-  .doc th { background:#f8fafc; text-align:left; padding:8px 10px; border:1px solid var(--border); font-weight:700; }
+  .doc th { background:#F9F9F8; text-align:left; padding:8px 10px; border:1px solid var(--border); font-weight:700; }
   .doc td { padding:7px 10px; border:1px solid var(--border); }
   .num { text-align:right; font-variant-numeric:tabular-nums; }
-  .sec { font-size:13.5px; font-weight:800; color:#374151; margin:18px 0 8px; }
+  .sec { font-size:13.5px; font-weight:800; color:#2B3140; margin:18px 0 8px; }
   .signrow { display:flex; justify-content:flex-end; margin-top:26px; }
   .signbox { border:1px solid var(--border); border-radius:9px; padding:11px 18px; text-align:center; min-width:190px; }
   .signbox .role { font-size:11.5px; color:var(--muted); font-weight:700; margin-bottom:6px; }
@@ -45,9 +45,9 @@
         onsubmit="return prepareSign()">
     <input type="hidden" name="signature_data" id="sigData">
     <div style="background:#fff; border:1px solid var(--border); border-radius:9px; padding:12px;">
-      <b style="font-size:13.5px; color:#374151;">✍️ 최종결정권자 승인 서명</b>
+      <b style="font-size:13.5px; color:#2B3140;">✍️ 최종결정권자 승인 서명</b>
       <canvas id="sigPad" width="340" height="120"
-              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+              style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%; margin-top:8px;"></canvas>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
         <button type="button" onclick="clearSig()" class="btn secondary"

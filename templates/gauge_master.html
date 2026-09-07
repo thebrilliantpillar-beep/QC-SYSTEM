@@ -82,7 +82,7 @@
                 '{{ g['last_calibrated'] or '' }}', '{{ g['expiry_date'] or '' }}',
                 '{{ (g['notes'] or '')|replace("'", "\\'") }}')"
               style="background:none; border:1px solid var(--border); border-radius:6px;
-                     padding:4px 10px; font-size:12.5px; cursor:pointer; color:#374151; margin-top:0;">
+                     padding:4px 10px; font-size:12.5px; cursor:pointer; color:#2B3140; margin-top:0;">
         수정
       </button>
       <form method="POST" action="{{ url_for('gauge_delete', gauge_id=g['id']) }}" style="display:inline;"

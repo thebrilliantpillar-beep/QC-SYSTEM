@@ -22,35 +22,35 @@
   .kbox .big { font-size:24px; font-weight:800; }
   .kbox .sub { font-size:12px; color:#9ca3af; margin-top:3px; }
 
-  .bar { background:#f3f4f6; border-radius:999px; height:9px; overflow:hidden; margin-top:8px; }
+  .bar { background:#ECEEF2; border-radius:999px; height:9px; overflow:hidden; margin-top:8px; }
   .bar > div { height:100%; background:var(--primary); border-radius:999px; }
 
   .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
          margin-top:13px; overflow:hidden; }
   .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex;
-                   align-items:center; gap:9px; font-size:14px; font-weight:800; color:#374151; }
+                   align-items:center; gap:9px; font-size:14px; font-weight:800; color:#2B3140; }
   .sec > summary::-webkit-details-marker { display:none; }
-  .sec > summary:hover { background:#f8fafc; }
+  .sec > summary:hover { background:#F9F9F8; }
   .sec .cnt { font-size:12px; font-weight:700; border-radius:999px; padding:2px 9px; }
   .cnt.red { background:#fee2e2; color:#991b1b; }
-  .cnt.gray { background:#f3f4f6; color:#6b7280; }
+  .cnt.gray { background:#ECEEF2; color:#6b7280; }
   .sec .arrow { color:#9ca3af; font-size:12px; margin-left:auto; transition:transform .18s; }
   .sec[open] .arrow { transform:rotate(90deg); }
   .sec .body { border-top:1px solid var(--border); }
 
   .item { display:flex; justify-content:space-between; align-items:center; gap:10px;
-          padding:10px 16px; border-bottom:1px solid #f1f5f9; font-size:13px; flex-wrap:wrap; }
+          padding:10px 16px; border-bottom:1px solid #ECEEF2; font-size:13px; flex-wrap:wrap; }
   .item:last-child { border-bottom:none; }
-  .item:hover { background:#f8fafc; cursor:pointer; }
+  .item:hover { background:#F9F9F8; cursor:pointer; }
   .item .mno { font-weight:700; }
   .item .sub { color:var(--muted); font-size:12px; }
   .go { color:var(--primary); font-size:12px; font-weight:700; white-space:nowrap; }
 
   .tblw { overflow-x:auto; }
   .tblw table { width:100%; border-collapse:collapse; font-size:12.5px; margin:0; box-shadow:none; }
-  .tblw th { background:#f8fafc; text-align:left; padding:9px 12px; font-weight:700;
+  .tblw th { background:#F9F9F8; text-align:left; padding:9px 12px; font-weight:700;
              border-bottom:1px solid var(--border); white-space:nowrap; }
-  .tblw td { padding:8px 12px; border-bottom:1px solid #f1f5f9; text-align:left; white-space:nowrap; }
+  .tblw td { padding:8px 12px; border-bottom:1px solid #ECEEF2; text-align:left; white-space:nowrap; }
   .tblw tr:last-child td { border-bottom:none; }
   .num { text-align:right !important; font-variant-numeric:tabular-nums; }
   .none { padding:22px 16px; text-align:center; color:#9ca3af; font-size:13px; }
@@ -132,7 +132,7 @@
     <span class="arrow">▶</span>
   </summary>
   <div class="body">
-    {% if hint %}<div style="padding:9px 16px; font-size:12px; color:#6b7280; background:#f8fafc;">{{ hint }}</div>{% endif %}
+    {% if hint %}<div style="padding:9px 16px; font-size:12px; color:#6b7280; background:#F9F9F8;">{{ hint }}</div>{% endif %}
     {% if not items %}<div class="none">처리할 게 없어. 👍</div>{% endif %}
     {{ caller() }}
   </div>
@@ -268,9 +268,9 @@
                               display:flex; align-items:center; gap:12px;
                               font-size:14px; user-select:none; }
       .sup-block > summary::-webkit-details-marker { display:none; }
-      .sup-block > summary:hover { background:#f9fafb; }
+      .sup-block > summary:hover { background:#F9F9F8; }
       .sup-block[open] > summary { background:#eff6ff; border-bottom:1px solid var(--border); }
-      .sup-name { font-weight:700; color:#111827; flex:1; }
+      .sup-name { font-weight:700; color:#24344F; flex:1; }
       .sup-stat { font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
       .sup-caret { color:#9ca3af; transition:transform .15s; }
       .sup-block[open] .sup-caret { transform:rotate(90deg); }

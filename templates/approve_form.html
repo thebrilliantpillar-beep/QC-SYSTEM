@@ -18,7 +18,7 @@
 .verdict-banner.has-pending { background:#fef3c7; border:2px solid var(--pending); }
 .verdict-icon { font-size:54px; line-height:1; flex-shrink:0; }
 .verdict-text h2 { margin:0 0 4px; font-size:21px; }
-.verdict-text p  { margin:0; font-size:14px; color:#374151; }
+.verdict-text p  { margin:0; font-size:14px; color:#2B3140; }
 .verdict-counts  { margin-left:auto; text-align:right; font-size:13px; color:#6b7280; line-height:1.8; }
 .verdict-counts b { font-size:24px; color:#111; display:block; }
 
@@ -34,37 +34,37 @@
                 box-shadow:0 2px 8px rgba(220,38,38,.13); }
 .item-header  { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
 .item-name    { font-size:20px; font-weight:800; color:#111; }
-.item-spec    { font-size:13.5px; color:#374151; }
-.item-method-badge { font-size:12px; color:#6b7280; background:#f3f4f6;
+.item-spec    { font-size:13.5px; color:#2B3140; }
+.item-method-badge { font-size:12px; color:#6b7280; background:#ECEEF2;
                       padding:2px 8px; border-radius:999px; }
-.spec-range   { font-size:13px; color:#374151; margin-bottom:8px; }
+.spec-range   { font-size:13px; color:#2B3140; margin-bottom:8px; }
 .mval-list    { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .mval-chip    { padding:6px 14px; border-radius:8px; font-size:16px; font-weight:700;
-                background:#f3f4f6; color:#374151; border:2px solid transparent; }
+                background:#ECEEF2; color:#2B3140; border:2px solid transparent; }
 .mval-chip.out{ background:#fee2e2; color:#b91c1c; border-color:#fca5a5; }
 
 /* ── ③ 합격 항목 접기 ── */
 .pass-toggle { display:flex; align-items:center; justify-content:space-between;
-               background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px;
-               padding:12px 16px; cursor:pointer; font-size:14px; font-weight:600; color:#374151; }
+               background:#F9F9F8; border:1px solid #DDE0E6; border-radius:10px;
+               padding:12px 16px; cursor:pointer; font-size:14px; font-weight:600; color:#2B3140; }
 .pass-toggle:hover { background:#f0fdf4; border-color:#86efac; }
 .pass-toggle .icon { transition:transform .2s; }
 .pass-toggle.open .icon { transform:rotate(180deg); }
-.pass-body { display:none; border:1px solid #e5e7eb; border-top:none;
+.pass-body { display:none; border:1px solid #DDE0E6; border-top:none;
              border-radius:0 0 10px 10px; overflow:hidden; margin-bottom:20px; }
 .pass-body.open { display:block; }
 .pass-table { width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
-.pass-table th { background:#f3f4f6; color:#6b7280; padding:8px 10px; text-align:center;
-                 font-size:11.5px; font-weight:700; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
+.pass-table th { background:#ECEEF2; color:#6b7280; padding:8px 10px; text-align:center;
+                 font-size:11.5px; font-weight:700; border-bottom:1px solid #DDE0E6; white-space:nowrap; }
 .pass-table th:first-child { text-align:left; }
 .pass-table td { padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:middle; text-align:center; }
 .pass-table td:first-child { text-align:left; }
 .pass-table tr:last-child td { border-bottom:none; }
 .val-box { display:inline-flex; align-items:center; justify-content:center;
            min-width:34px; padding:2px 5px; border-radius:5px; font-size:12px; font-weight:600;
-           background:#f3f4f6; border:1px solid #e5e7eb; color:#1f2937; margin:2px; }
+           background:#ECEEF2; border:1px solid #DDE0E6; color:#2B3140; margin:2px; }
 .val-box.fail { background:#fee2e2; border-color:#fca5a5; color:#dc2626; }
-.method-tag { display:inline-block; font-size:11px; color:#6b7280; background:#f3f4f6;
+.method-tag { display:inline-block; font-size:11px; color:#6b7280; background:#ECEEF2;
               border-radius:4px; padding:2px 6px; white-space:nowrap; }
 
 
@@ -72,7 +72,7 @@
 .sig-radio { display:inline-flex; align-items:center; gap:6px; font-weight:400; font-size:14px; cursor:pointer; }
 .sig-radio input { width:auto; }
 
-canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+canvas#sigPad { border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                 touch-action:none; display:block; margin-top:6px; max-width:100%; }
 
 .submit-final { width:100%; padding:16px; font-size:17px; font-weight:800; border:none;
@@ -90,16 +90,16 @@ canvas#sigPad { border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
 {# ───────── 중앙 알림 모달 (도장/사인 미선택 등, 닫기 버튼만) ───────── #}
 <div id="approveWarn"
      style="display:none; position:fixed; inset:0; z-index:12000;
-            background:rgba(17,24,39,.62); align-items:center; justify-content:center; padding:20px;">
+            background:rgba(36,52,79,.62); align-items:center; justify-content:center; padding:20px;">
   <div style="background:#fff; border-radius:16px; width:min(94vw, 440px);
               box-shadow:0 20px 60px rgba(0,0,0,.35);
               border-top:7px solid #f59e0b; overflow:hidden;">
     <div style="padding:24px 24px 16px; text-align:center;">
       <div style="font-size:48px; line-height:1; margin-bottom:10px;">⚠️</div>
       <h3 id="approveWarnTitle" style="margin:0 0 8px; font-size:17px; color:#92400e; font-weight:800;">알림</h3>
-      <p id="approveWarnMsg" style="margin:0; font-size:13.5px; color:#374151; line-height:1.65;"></p>
+      <p id="approveWarnMsg" style="margin:0; font-size:13.5px; color:#2B3140; line-height:1.65;"></p>
     </div>
-    <div style="padding:12px; border-top:1px solid #e5e7eb; background:#f9fafb; text-align:center;">
+    <div style="padding:12px; border-top:1px solid #DDE0E6; background:#F9F9F8; text-align:center;">
       <button type="button" onclick="closeApproveWarn()"
               style="padding:10px 30px; font-size:14px; font-weight:800; border:none;
                      border-radius:8px; cursor:pointer; background:#f59e0b; color:#fff; margin:0;">
@@ -170,7 +170,7 @@ function showApproveWarn(title, msg){
 <div id="drawingBanner" class="card"
      style="padding:12px 18px; display:flex; align-items:center;
             justify-content:space-between; flex-wrap:wrap; gap:10px;
-            border-left:4px solid #d1d5db;">
+            border-left:4px solid #DDE0E6;">
   <div>
     <b id="drawingBannerLabel" style="color:#9ca3af; font-size:14px;">📐 도면 확인 중...</b>
     <p class="muted" style="margin:3px 0 0; font-size:12.5px;" id="drawingBannerDesc">도면 파일 유무를 확인하고 있어.</p>
@@ -196,14 +196,14 @@ function showApproveWarn(title, msg){
             스톱워치로 잰 <b>개당 측정시간</b>(샘플 1개 기준)을 기반으로 계산해.
           </div>
           <div style="margin-top:6px; color:#6b7280;">
-            <b style="color:#374151;">전수·퍼센티지 검사인 경우:</b><br>
+            <b style="color:#2B3140;">전수·퍼센티지 검사인 경우:</b><br>
             샘플수 × 개당시간 (단순 곱셈)<br>
-            <b style="color:#374151; margin-top:4px; display:block;">수치 AQL 혼합인 경우:</b>
+            <b style="color:#2B3140; margin-top:4px; display:block;">수치 AQL 혼합인 경우:</b>
             ① 가장 높은 AQL(샘플 가장 적음)을 기준: 샘플수 × 개당시간<br>
             ② 나머지 AQL(샘플 더 많음): 기준 초과 수량 × 10초 추가<br>
             <span style="font-size:11.5px;">기준 그룹에서 이미 측정한 수량은 중복 계산 안 해.</span>
           </div>
-          <div style="margin-top:8px; border-top:1px solid #e5e7eb; padding-top:6px; font-size:12px; color:#374151;">
+          <div style="margin-top:8px; border-top:1px solid #DDE0E6; padding-top:6px; font-size:12px; color:#2B3140;">
             <b>AQL이란?</b> 허용 가능한 최대 불량률.<br>
             숫자 낮을수록 더 엄격하고 샘플도 <b>많아.</b><br>
             <b style="color:#dc2626;">0.65</b> 중요항목(*), 샘플 가장 많음 &nbsp;
@@ -221,7 +221,7 @@ function showApproveWarn(title, msg){
       <span style="color:#9ca3af; font-weight:400; font-size:11px;">→</span>
       <span>{{ v['qty'] }}개</span>
       {% if v['ac'] is not none %}
-      <span style="color:#9ca3af; font-weight:400; font-size:11px; border-left:1px solid #d1d5db; padding-left:4px; margin-left:2px;">Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }}</span>
+      <span style="color:#9ca3af; font-weight:400; font-size:11px; border-left:1px solid #DDE0E6; padding-left:4px; margin-left:2px;">Ac{{ v['ac'] }}/Re{{ v['ac'] + 1 }}</span>
       {% endif %}
     </span>
     {% endfor %}
@@ -251,7 +251,7 @@ function showApproveWarn(title, msg){
     <b style="font-weight:800; letter-spacing:0.5px;">비고 — 결정 전 반드시 확인해줘</b>
     {% if header['remark_inspector'] %}
     <div style="margin-top:10px; background:#fff; border:1px solid #fde68a; border-radius:8px;
-                padding:9px 12px; font-weight:600; color:#1f2937;">
+                padding:9px 12px; font-weight:600; color:#2B3140;">
       <span style="color:#b45309; font-weight:700; margin-right:4px;">🔎 검사자</span>
       {{ header['remark_inspector'] }}
     </div>
@@ -401,7 +401,7 @@ function showApproveWarn(title, msg){
           <span style="color:#9ca3af; font-size:11px; font-weight:700;">{{ it['item_name'] }}</span>
           <span style="font-size:13px; margin-left:4px;">{{ it['spec_display'] or it['item_name'] }}</span>
         </td>
-        <td style="font-size:12px; color:#374151;">{{ it['spec_display'] or '-' }}</td>
+        <td style="font-size:12px; color:#2B3140;">{{ it['spec_display'] or '-' }}</td>
         <td>
           {% if it['inspect_method'] %}<span class="method-tag">{{ it['inspect_method'] }}</span>{% else %}-{% endif %}
         </td>
@@ -457,7 +457,7 @@ function showApproveWarn(title, msg){
 
   {# 서명 패드 #}
   <div class="card">
-    <b style="font-size:14px; color:#374151;">✍️ 서명 (승인·특채·불합격 확정 시 필수)</b>
+    <b style="font-size:14px; color:#2B3140;">✍️ 서명 (승인·특채·불합격 확정 시 필수)</b>
     <p class="muted" style="margin:4px 0 12px; font-size:13px;">
       최종 결정 세 가지(승인·특채·불합격 확정)는 <b>서명이 반드시 있어야</b> 처리돼.
       반려(재검사 요청)만 서명 없이 가능해.
@@ -477,7 +477,7 @@ function showApproveWarn(title, msg){
     {# 직접 서명 영역 #}
     <div id="drawArea">
       <canvas id="sigPad" width="340" height="120"
-              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+              style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%;"></canvas>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
         <button type="button" onclick="clearSig()" class="btn secondary sm">지우기</button>
@@ -486,8 +486,8 @@ function showApproveWarn(title, msg){
                 style="display:none;">📂 저장된 서명 불러오기</button>
       </div>
       {# 저장된 서명 미리보기 #}
-      <div id="savedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#f9fafb;
-           border:1px solid #e5e7eb; border-radius:6px; font-size:12.5px; color:#6b7280;">
+      <div id="savedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#F9F9F8;
+           border:1px solid #DDE0E6; border-radius:6px; font-size:12.5px; color:#6b7280;">
         저장된 서명: <img id="savedSigImg" style="height:36px; vertical-align:middle; margin-left:6px;">
       </div>
     </div>
@@ -511,9 +511,9 @@ function showApproveWarn(title, msg){
              onchange="var n=this.files&&this.files[0]?this.files[0].name:'선택된 파일 없음';document.getElementById('sigFileName').textContent=n;">
 
       {# 도장 / 사인 선택 — 업로드일 때만 노출, 기본 선택 없음 #}
-      <div style="margin-top:14px; background:#f9fafb; border:1px solid #e5e7eb;
+      <div style="margin-top:14px; background:#F9F9F8; border:1px solid #DDE0E6;
                   border-radius:8px; padding:12px 14px;">
-        <b style="font-size:13px; color:#374151;">🖋️ 업로드 이미지 종류 <span style="color:#dc2626;">*</span></b>
+        <b style="font-size:13px; color:#2B3140;">🖋️ 업로드 이미지 종류 <span style="color:#dc2626;">*</span></b>
         <p style="margin:3px 0 8px; font-size:12.5px; color:#6b7280;">
           도장은 성적서에 <b>5×5cm</b>로, 사인은 기본 크기(약 5.7×2.3cm)로 들어가.
         </p>
@@ -741,7 +741,7 @@ window.addEventListener('load', () => {
         label.textContent = '📐 도면 없음';
         label.style.color = '#9ca3af';
         desc.textContent = '이 자재에 등록된 도면 파일이 없어.';
-        banner.style.borderLeftColor = '#e5e7eb';
+        banner.style.borderLeftColor = '#DDE0E6';
         banner.style.background = '';
         if (fab) fab.style.display = 'none';
       }

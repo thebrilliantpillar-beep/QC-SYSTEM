@@ -22,11 +22,11 @@
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
   <a href="{{ url_for('return_list') }}"
      style="padding:6px 14px; border-radius:999px; font-size:13px; font-weight:700; text-decoration:none;
-            {% if not status_filter %}background:var(--primary); color:#fff;{% else %}background:#f3f4f6; color:#374151;{% endif %}">전체</a>
+            {% if not status_filter %}background:var(--primary); color:#fff;{% else %}background:#ECEEF2; color:#2B3140;{% endif %}">전체</a>
   {% for s in statuses %}
   <a href="{{ url_for('return_list', status=s) }}"
      style="padding:6px 14px; border-radius:999px; font-size:13px; font-weight:700; text-decoration:none;
-            {% if status_filter == s %}background:var(--primary); color:#fff;{% else %}background:#f3f4f6; color:#374151;{% endif %}">
+            {% if status_filter == s %}background:var(--primary); color:#fff;{% else %}background:#ECEEF2; color:#2B3140;{% endif %}">
     {{ s }}
   </a>
   {% endfor %}

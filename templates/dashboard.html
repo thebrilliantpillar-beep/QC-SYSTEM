@@ -38,10 +38,10 @@
   .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
          margin-top:14px; overflow:hidden; }
   .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex;
-                   align-items:center; gap:9px; font-size:14px; font-weight:800; color:#374151;
+                   align-items:center; gap:9px; font-size:14px; font-weight:800; color:#2B3140;
                    user-select:none; }
   .sec > summary::-webkit-details-marker { display:none; }
-  .sec > summary:hover { background:#f8fafc; }
+  .sec > summary:hover { background:#F9F9F8; }
   .sec .arrow { color:#9ca3af; font-size:12px; transition:transform .18s; margin-left:auto; }
   .sec[open] .arrow { transform:rotate(90deg); }
   .sec .sec-body { border-top:1px solid var(--border); padding:14px 16px; }
@@ -49,18 +49,18 @@
 
   .tbl-wrap { overflow-x:auto; }
   .tbl-wrap table { width:100%; border-collapse:collapse; font-size:12.5px; margin:0; box-shadow:none; }
-  .tbl-wrap th { background:#f8fafc; text-align:left; padding:9px 11px; font-weight:700;
+  .tbl-wrap th { background:#F9F9F8; text-align:left; padding:9px 11px; font-weight:700;
                  border-bottom:1px solid var(--border); white-space:nowrap; }
-  .tbl-wrap td { padding:8px 11px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:left; }
+  .tbl-wrap td { padding:8px 11px; border-bottom:1px solid #ECEEF2; white-space:nowrap; text-align:left; }
   .tbl-wrap tr:last-child td { border-bottom:none; }
-  .tbl-wrap tr.clickable:hover td { background:#f8fafc; cursor:pointer; }
+  .tbl-wrap tr.clickable:hover td { background:#F9F9F8; cursor:pointer; }
   .num { text-align:right !important; font-variant-numeric:tabular-nums; }
 
   .rate-pill { display:inline-block; border-radius:6px; padding:2px 8px; font-weight:700; font-size:12px; }
   .r-ok { background:#dcfce7; color:#166534; }
   .r-warn { background:#fef3c7; color:#92400e; }
   .r-bad { background:#fee2e2; color:#991b1b; }
-  .r-mut { background:#f3f4f6; color:#6b7280; }
+  .r-mut { background:#ECEEF2; color:#6b7280; }
 
   /* 팝업 */
   .modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9000;
@@ -202,7 +202,7 @@
     </span>
     <b style="font-size:15px;">핵심 요약</b>
   </div>
-  <p style="margin:0; font-size:14.5px; line-height:1.7; color:#374151;">{{ h['headline'] }}</p>
+  <p style="margin:0; font-size:14.5px; line-height:1.7; color:#2B3140;">{{ h['headline'] }}</p>
   {% if h['표본참고'] %}
   <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">{{ h['표본참고'] }}</p>
   {% endif %}
@@ -261,7 +261,7 @@
     <svg viewBox="0 0 {{ W + 60 }} 230" style="width:100%; min-width:{{ W + 60 }}px; height:230px;">
       {% for gy in range(0, 5) %}
         {% set yy = 20 + gy * 40 %}
-        <line x1="42" y1="{{ yy }}" x2="{{ W + 50 }}" y2="{{ yy }}" stroke="#e5e7eb" stroke-width="1"/>
+        <line x1="42" y1="{{ yy }}" x2="{{ W + 50 }}" y2="{{ yy }}" stroke="#DDE0E6" stroke-width="1"/>
         <text x="38" y="{{ yy + 4 }}" text-anchor="end" font-size="9" fill="#9ca3af">
           {{ ((maxq or 1) * (4 - gy) / 4) | round | int }}
         </text>
@@ -421,7 +421,7 @@
             <td class="num">{{ (pp['총초'] // 60) }}분</td>
             <td class="num">{{ '%.1f'|format(pp['평균초'] / 60) }}분</td></tr>
         {% endfor %}
-        <tr style="background:#f8fafc; font-weight:700;">
+        <tr style="background:#F9F9F8; font-weight:700;">
           <td>전체</td><td class="num">{{ t['측정건수'] }}</td>
           <td class="num">{{ (t['총초'] // 60) }}분</td>
           <td class="num">{{ '%.1f'|format(t['평균초'] / 60) }}분</td>
@@ -615,7 +615,7 @@ function renderCapability(materialNo) {
         showEmpty('숫자로 판정하는 항목이 없어서 공정능력을 계산할 수 없어.'); return;
       }
       var h = '<div style="padding:14px;">' +
-        '<div style="background:#f8fafc; border:1px solid var(--border); border-radius:9px;' +
+        '<div style="background:#F9F9F8; border:1px solid var(--border); border-radius:9px;' +
         ' padding:11px 13px; font-size:12.5px; color:#4b5563; line-height:1.65; margin-bottom:11px;">' +
         '<b>Cpk가 뭐야?</b><br>' +
         '측정값이 규격 범위 안에서 <b>얼마나 여유 있게</b> 들어오는지를 보는 숫자야.<br>' +

@@ -11,7 +11,7 @@
 .tab-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
 .tab-btn {
   padding:7px 16px; border-radius:999px; font-size:13px; font-weight:700;
-  border:2px solid #e5e7eb; background:#fff; color:#6b7280; cursor:pointer;
+  border:2px solid #DDE0E6; background:#fff; color:#6b7280; cursor:pointer;
   text-decoration:none; transition:all .15s;
 }
 .tab-btn:hover { border-color:#6b7280; color:#111; }
@@ -22,16 +22,16 @@
 .tab-btn.active-rejected { background:#6b7280; border-color:#6b7280; color:#fff; }
 .cnt-badge { display:inline-block; background:rgba(255,255,255,.3); border-radius:999px;
              padding:0 7px; font-size:11px; margin-left:4px; }
-.tab-btn:not([class*="active"]) .cnt-badge { background:#f3f4f6; color:#6b7280; }
+.tab-btn:not([class*="active"]) .cnt-badge { background:#ECEEF2; color:#6b7280; }
 
 .search-row { display:flex; gap:8px; margin-bottom:14px; }
-.search-row input { flex:1; padding:9px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; }
+.search-row input { flex:1; padding:9px 12px; border:1px solid #DDE0E6; border-radius:8px; font-size:14px; }
 .search-row button { padding:9px 16px; border-radius:8px; background:#3D5A8A; color:#fff;
                      border:none; font-size:14px; font-weight:700; cursor:pointer; }
 
 .revoke-btn {
-  font-size:11px; padding:3px 10px; border-radius:6px; border:1px solid #d1d5db;
-  background:#f9fafb; color:#6b7280; cursor:pointer; white-space:nowrap;
+  font-size:11px; padding:3px 10px; border-radius:6px; border:1px solid #DDE0E6;
+  background:#F9F9F8; color:#6b7280; cursor:pointer; white-space:nowrap;
   font-weight:600; margin-left:6px;
 }
 .revoke-btn:hover { background:#fee2e2; border-color:#fca5a5; color:#b91c1c; }
@@ -50,7 +50,7 @@
 #batchModalBox h3 { margin:0 0 6px; font-size:18px; }
 
 canvas#batchSigPad {
-  border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+  border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
   touch-action:none; display:block; max-width:100%; margin-top:6px;
 }
 .sig-method-row { display:flex; gap:16px; margin-bottom:10px; }
@@ -94,7 +94,7 @@ canvas#batchSigPad {
   <button type="submit">🔍 검색</button>
   {% if q %}
   <a href="{{ url_for('approve_list', tab=tab) }}"
-     style="padding:9px 14px; border-radius:8px; border:1px solid #d1d5db; color:#6b7280;
+     style="padding:9px 14px; border-radius:8px; border:1px solid #DDE0E6; color:#6b7280;
             background:#fff; font-size:14px; text-decoration:none;">✕ 초기화</a>
   {% endif %}
 </form>
@@ -233,7 +233,7 @@ canvas#batchSigPad {
     {# 직접 서명 영역 #}
     <div id="batchDrawArea">
       <canvas id="batchSigPad" width="340" height="120"
-              style="border:1.5px solid #d1d5db; border-radius:8px; background:#fff;
+              style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%;"></canvas>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
         <button type="button" onclick="clearBatchSig()" class="btn secondary"
@@ -243,8 +243,8 @@ canvas#batchSigPad {
         <button type="button" onclick="loadBatchDefaultSig()" id="batchLoadSigBtn" class="btn secondary"
                 style="padding:6px 14px; font-size:13px; margin-top:0; display:none;">📂 저장된 서명 불러오기</button>
       </div>
-      <div id="batchSavedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#f9fafb;
-           border:1px solid #e5e7eb; border-radius:6px; font-size:12.5px; color:#6b7280;">
+      <div id="batchSavedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#F9F9F8;
+           border:1px solid #DDE0E6; border-radius:6px; font-size:12.5px; color:#6b7280;">
         저장된 서명: <img id="batchSavedSigImg" style="height:36px; vertical-align:middle; margin-left:6px;">
       </div>
     </div>
@@ -313,7 +313,7 @@ function closeBatchModal() {
   var canvas = document.getElementById('batchSigPad');
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
-  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#111827';
+  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#24344F';
   var drawing = false;
   window._batchHasSigned = false;
   window._batchSigCtx = ctx;
