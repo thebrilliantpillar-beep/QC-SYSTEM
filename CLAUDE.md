@@ -833,3 +833,43 @@ Claude 세션이 시차를 두고 건드릴 수 있고, 사용자 본인도 시�
 - Artifact 시안 자체(구글폰트 Gothic A1/IBM Plex Mono 조합, 역동형 레이아웃 등)는
   iqc-app 코드가 아니라 별도 미리보기 페이지였다 — 실제 화면에 옮길 때는 태블릿 뷰포트,
   기존 기능(폼/JS/권한 로직)과의 충돌 여부를 화면마다 다시 확인해야 한다.
+
+## 17. `position: sticky`가 표 셀에서 안 먹을 때 — base.html의 공용 `table` 규칙부터 의심할 것 (2026-09-08)
+
+검사 입력 화면(`inspect_form.html`)에서 "검사항목/규격" 열을 가로 스크롤 시 고정(엑셀
+틀고정)하는 기능을 넣었는데, 처음 구현이 **실제로는 전혀 동작하지 않았다** — 코드
+리뷰만으로는 멀쩡해 보였지만 실기기에서 스크롤해도 그 열이 안 붙어 있었다.
+
+**겪은 과정(다음에 비슷한 버그 만나면 이 순서로 의심할 것)**:
+1. 처음엔 `.inspect-table`에 `border-collapse: collapse`와 `overflow: hidden`이
+   있길래 이게 원인이라 보고, `border-collapse: separate; border-spacing: 0;`으로
+   바꾸고 `overflow: hidden`을 **지웠다.** → 여전히 안 됐다.
+2. 원인: **`base.html`에 있는 범용 `table { ... overflow: hidden; ... }` 규칙이
+   모든 `<table>`에 걸려 있다.** `.inspect-table`에서 `overflow` 선언 자체를
+   지워버리면 "아무것도 안 남는" 게 아니라 **범용 규칙이 그대로 이어받아 적용된다.**
+   즉 지우는 것만으로는 안 되고, **`overflow: visible`을 명시적으로 다시 선언해서
+   범용 규칙을 덮어써야 한다.**
+3. `position: sticky`를 쓰는 요소의 조상 중 하나라도 `overflow`가 `visible`이
+   아니면(`hidden`/`auto`/`scroll` 전부 포함), 그 조상이 "가장 가까운 스크롤
+   조상"으로 잡혀서 sticky가 **그 조상 기준으로 계산된다.** 우리가 원한 건 바깥의
+   `overflow-x:auto` div를 기준으로 붙는 것이었는데, 그보다 안쪽(더 가까운)의 `<table>`
+   자체가 `overflow:hidden`이라 **table 기준으로 sticky가 계산되면서(table 자체가
+   스크롤과 함께 통째로 움직이니까) 사실상 아무 효과가 없어 보이는 것**이었다.
+
+**확인 방법(코드만 보고는 못 잡음, 실제로 이렇게 확인했다)**: 이 환경엔 브라우저가
+없어서, 로컬 Chrome(`C:\Program Files\Google\Chrome\Application\chrome.exe`)을
+`--headless=new --screenshot=파일경로 --window-size=W,H` 로 직접 띄워서 렌더링
+스크린샷을 찍었다. 추가로 페이지에 진단용 `<script>`를 주입해서(`window.onload`에서
+대상 요소의 `getComputedStyle()`과 조상 전부를 순회하며 `overflow`/`position`/
+`transform` 등을 화면에 텍스트로 찍어줌) 어느 조상이 문제인지 정확히 짚어냈다.
+**앞으로 CSS 레이아웃(sticky, 겹침, z-index 등)이 코드상으론 맞는데 실제로 안
+먹는 것 같으면, 말로 추측하지 말고 이 방식(headless Chrome 스크린샷 + 진단
+스크립트 주입)으로 직접 확인할 것** — PowerShell 도구로 `& $chrome --headless=new
+--screenshot=... file:///경로` 형태로 호출하면 된다(Bash 도구로 직접 exe를 부르면
+경로/프로세스 처리가 불안정해서 PowerShell 쪽이 더 안정적이었다).
+
+**일반적 교훈**: `base.html`처럼 사이트 전체에 적용되는 범용 선택자(`table`, `button`,
+`input` 등)에 `overflow`/`position`/`transform`처럼 자식 요소의 레이아웃 계산에
+영향을 주는 속성이 있으면, 특정 화면에서 그 속성을 "끄고 싶을 때" 단순히 그 화면의
+스타일에서 선언을 **지우면 안 되고 반대값으로 명시적으로 덮어써야 한다.** 이런
+범용 규칙이 뭐가 있는지 먼저 `base.html`을 확인하는 습관을 들일 것.

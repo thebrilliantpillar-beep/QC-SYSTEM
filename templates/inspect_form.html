@@ -5,8 +5,14 @@
 <style>
   .form-header { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; font-size: 14px; }
   .form-header span { color: var(--muted); }
-  .inspect-table { width: 100%; border-collapse: collapse; background: #fff;
-                   border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.07); font-size: 13.5px; }
+  /* border-collapse:collapse + overflow:hidden(둥근 모서리용)는 브라우저에서
+     position:sticky가 표 셀에 안 먹는 원인이 된다(2026-09-08, 실기기에서 열고정
+     안 되는 문제 발견 후 수정) — separate로 바꾸고 둥근모서리는 감싸는 div가 대신 처리.
+     주의: base.html의 공용 `table` 규칙이 모든 표에 overflow:hidden을 걸어놔서,
+     여기서 지우기만 하면 그 공용 규칙이 그대로 적용돼 버린다 — 반드시 overflow:visible로
+     명시적으로 덮어써야 한다(실제로 이걸 놓쳐서 한 번 고쳤다고 착각한 적 있음). */
+  .inspect-table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff;
+                   border-radius: 10px; overflow: visible; box-shadow: 0 1px 3px rgba(0,0,0,.07); font-size: 13.5px; }
   .inspect-table th { background: #2B3140; color: #fff; padding: 10px 6px; text-align: center; font-weight: 600; }
   .inspect-table td { border-bottom: 1px solid #DDE0E6; padding: 8px 5px; text-align: center; vertical-align: middle; }
   .inspect-table tr:last-child td { border-bottom: none; }
@@ -519,7 +525,7 @@
   }
   </script>
   {% endif %}
-  <div style="overflow-x:auto; margin-top:4px;">
+  <div style="overflow-x:auto; overflow-y:hidden; border-radius:10px; margin-top:4px;">
     <table class="inspect-table">
       <thead>
         <tr>
