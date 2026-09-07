@@ -6476,14 +6476,15 @@ def _avg_time_report_group(material_name, supplier, category):
     """이번 리포트 전용 구분 규칙(2026-09-08 사용자 확정, materials.category와는 별개):
     - 자재명에 "TANK"가 들어가면 "단상" 포함 여부로 갈라서 본다(단상 TANK와
       그 외 TANK는 작업시간이 다를 걸로 보여서 따로 봐야 함).
-    - 재원코리아 납품 자재는 "CABLE(케이블)" / "RECEPTACLE(리셉터클)" / 그 외 셋으로
-      갈라서 본다(사용자가 케이블 다음에 리셉터클도 따로 보고 싶다고 추가 요청).
-      실제 자재명 표기가 "케이블"이 아니라 영문 "CABLE"이라 영문 기준으로 확인한다
-      (2026-09-08 사용자 확인 — 처음엔 한글 "케이블"로만 찾아서 0건으로 잡혔었음).
-    - 둘 다 해당 안 되면 기존 자재 분류(materials.category)로 묶고, 분류가
+    - 재원코리아 납품 자재는 "CABLE(케이블)" / "HARNESS(하네스)" / "RECEPTACLE(리셉터클)" /
+      그 외 넷으로 갈라서 본다. 실제 검사 이력을 보니 재원코리아 물량이 전부 HARNESS와
+      RECEPTACLE뿐이고 CABLE이라는 단어가 들어간 자재는 아직 검사 이력이 없었다 —
+      자재 분류상 "케이블&하네스"로 하나처럼 묶여 있어도, 하네스는 케이블과 다른
+      별도 구분으로 보고 싶다고 사용자가 확정했다(2026-09-08).
+    - 아무 것도 해당 안 되면 기존 자재 분류(materials.category)로 묶고, 분류가
       없으면 "(미분류)".
     TANK 규칙을 재원코리아 규칙보다 먼저 본다 — 실제로 겹칠 일은 없어 보이지만
-    (탱크 자재가 재원코리아산 케이블/리셉터클일 수는 없으니) 순서를 명시해둔다."""
+    (탱크 자재가 재원코리아산 케이블/하네스/리셉터클일 수는 없으니) 순서를 명시해둔다."""
     name = material_name or ""
     name_upper = name.upper()
     if "TANK" in name_upper:
@@ -6491,6 +6492,8 @@ def _avg_time_report_group(material_name, supplier, category):
     if supplier == "재원코리아":
         if "CABLE" in name_upper or "케이블" in name:
             return "재원코리아(케이블)"
+        if "HARNESS" in name_upper or "하네스" in name:
+            return "재원코리아(하네스)"
         if "RECEPTACLE" in name_upper or "리셉터클" in name:
             return "재원코리아(리셉터클)"
         return "재원코리아(그 외)"
@@ -6509,7 +6512,8 @@ def avg_time_by_category_report():
     값 하나만 쓴다.
 
     구분 기준은 기본적으로 자재 분류(materials.category)이지만, TANK(단상 여부)와
-    재원코리아(케이블 여부)는 이름 기준으로 더 잘게 쪼갠다(`_avg_time_report_group()`).
+    재원코리아(케이블/하네스/리셉터클/그 외)는 이름 기준으로 더 잘게 쪼갠다
+    (`_avg_time_report_group()`).
 
     quality_report()의 '소요시간' 집계와는 별개다 — 그쪽은 검사자별/전체 합산이고,
     이건 이 리포트만의 구분 기준으로 다시 쪼갠 것이라 성격이 달라서 억지로 합치지 않았다.
@@ -6561,26 +6565,6 @@ def avg_time_by_category_report():
 
     for idx, width in enumerate([20, 14, 10, 14, 10, 14, 14], start=1):
         ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
-
-    # 임시 진단 시트 — "재원코리아(케이블)"이 0건으로 나와서, 실제 저장된 자재명이
-    # 뭔지 눈으로 보려고 추가했다(2026-09-08). CABLE/케이블 키워드가 맞게 잡히면
-    # 이 시트는 다시 지울 것 — 정식 리포트에 포함시킬 목적이 아니다.
-    ws2 = wb.create_sheet("재원코리아_자재명목록(진단용)")
-    ws2.append(["자재명", "검사원", "건수"])
-    for c in ws2[1]:
-        c.font = XFont(bold=True)
-    name_counts = defaultdict(lambda: defaultdict(int))
-    for r in rows:
-        if r["supplier"] == "재원코리아":
-            name_counts[r["material_name"] or "(제품명 없음)"][r["inspector"]] += 1
-    for name in sorted(name_counts.keys()):
-        for insp in TARGET_INSPECTORS:
-            n = name_counts[name].get(insp, 0)
-            if n:
-                ws2.append([name, insp, n])
-    ws2.column_dimensions["A"].width = 40
-    ws2.column_dimensions["B"].width = 12
-    ws2.column_dimensions["C"].width = 8
 
     buf = io.BytesIO()
     wb.save(buf)
