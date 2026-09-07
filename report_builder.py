@@ -365,21 +365,21 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
             ws[f"B{row}"] = r["spec_display"]
             _grow_row_for_text(ws, row, r["spec_display"])
         # AQL 칸은 두 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
-        #   AQL 4.0
-        #   샘플 6개/Ac1 이내 합격   (또는 Ac=0이면 예전처럼 "무결점")
-        # 실제 계측은 항상 최대 6개까지만 하지만(inspect_form.html 참고), 합격 허용 불량개수(Ac)는
-        # AQL로 계산된 진짜 표본수(sample_qty)에 해당하는 KS Q ISO 2859-1 표준표 값을 쓴다
-        # (aql_ac_allowance(), 사용자 확정 — 6개는 참고 표본, Ac는 표준표 기준).
+        #   [4]
+        #   Ac1 이내 합격   (또는 Ac=0이면 예전처럼 "무결점")
+        # 샘플 개수는 D열(샘플 수량)에 이미 따로 나오므로 여기서는 반복하지 않는다
+        # (2026-09-08 사용자 확정 — 판정 기준은 Ac개수/무결점 여부만 보면 된다).
+        # 합격 허용 불량개수(Ac)는 AQL로 계산된 진짜 표본수(sample_qty)에 해당하는
+        # KS Q ISO 2859-1 표준표 값을 쓴다(aql_ac_allowance(), 사용자 확정).
         if r.get("aql") is not None:
-            aql_text = format_aql(r["aql"])
+            aql_text = f"[{format_aql(r['aql'])}]"
             sample_qty = r.get("sample_qty")
             ac_allowance = r.get("ac_allowance")
             if sample_qty:
-                measured_n = min(sample_qty, 6)
                 if ac_allowance:
-                    aql_text = f"{aql_text}\n샘플 {measured_n}개/Ac{ac_allowance} 이내 합격"
+                    aql_text = f"{aql_text}\nAc{ac_allowance} 이내 합격"
                 else:
-                    aql_text = f"{aql_text}\n샘플 {measured_n}개/무결점"
+                    aql_text = f"{aql_text}\n무결점"
             ws[f"C{row}"] = aql_text
             _grow_row_for_text(ws, row, aql_text, chars_per_line=_AQL_COL_CHARS_PER_LINE)
         # ※ wrap_text 없으면 LibreOffice가 PDF 변환할 때 줄바꿈을 무시하고 한 줄로 뭉갠다.
