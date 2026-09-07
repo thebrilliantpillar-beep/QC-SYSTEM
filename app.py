@@ -5536,56 +5536,126 @@ def ncr_new_manual():
     남기고 싶을 때 쓴다 — 성적서(inspection_id) 연결 없이도 발행 가능
     (2026-08-31 사용자 요청)."""
     if request.method == "POST":
-        material_no = request.form.get("material_no", "").strip()
-        material_name = request.form.get("material_name", "").strip()
-        supplier = request.form.get("supplier", "").strip()
-        if not material_no or not supplier:
-            flash("자재번호와 업체는 필수야.")
+        material_nos   = request.form.getlist("material_no[]")
+        material_names = request.form.getlist("material_name[]")
+        suppliers      = request.form.getlist("supplier[]")
+        lot_numbers    = request.form.getlist("lot_number[]")
+        receive_dates  = request.form.getlist("receive_date[]")
+        lot_qtys       = request.form.getlist("lot_qty[]")
+        sample_qtys    = request.form.getlist("sample_qty[]")
+        defect_qtys    = request.form.getlist("defect_qty[]")
+
+        n = len(material_nos)
+        if n == 0:
+            flash("발행할 자재를 목록에 1개 이상 추가해줘.")
             return redirect(url_for("ncr_new_manual"))
 
-        sample_qty = request.form.get("sample_qty", "").strip() or None
-        defect_qty = request.form.get("defect_qty", "").strip() or None
-        ncr_id, ncr_no = db.create_ncr(
-            inspection_id=None,
-            material_no=material_no,
-            material_name=material_name,
-            supplier=supplier,
-            defect_description=request.form.get("defect_description", "").strip(),
-            action_required="",
-            due_date=request.form.get("due_date", "").strip(),
-            issued_by=g.user["display_name"] or g.user["username"],
-            issued_date=request.form.get("issued_date", "").strip(),
-            lot_number=request.form.get("lot_number", "").strip() or None,
-            receive_date=request.form.get("receive_date", "").strip() or None,
-            cc_recipient=request.form.get("cc_recipient", "").strip() or None,
-            sample_qty=int(sample_qty) if sample_qty and sample_qty.isdigit() else None,
-            defect_qty=int(defect_qty) if defect_qty and defect_qty.isdigit() else None,
-            special_note=request.form.get("special_note", "").strip() or None,
-            lot_qty=request.form.get("lot_qty", "").strip() or None,
-        )
-        record_change("부적합 통보서 발행(수기입력)", "ncr", ncr_id,
-                      f"{ncr_no} — {material_no} / {supplier}")
+        def _at(lst, i):
+            return lst[i].strip() if i < len(lst) and lst[i] else ""
 
+        defect_description = request.form.get("defect_description", "").strip()
+        issued_date = request.form.get("issued_date", "").strip()
+        cc_recipient = request.form.get("cc_recipient", "").strip() or None
+        special_note = request.form.get("special_note", "").strip() or None
+        due_date = request.form.get("due_date", "").strip()
+
+        if not defect_description or not issued_date:
+            flash("발행일과 불량 내용은 필수야.")
+            return redirect(url_for("ncr_new_manual"))
+
+        created = []
+        failed = []
+        for i in range(n):
+            m_no = _at(material_nos, i)
+            m_name = _at(material_names, i)
+            sup = _at(suppliers, i)
+            if not m_no or not sup:
+                failed.append({"row": i + 1, "reason": "자재번호 또는 업체 누락"})
+                continue
+
+            lot_no = _at(lot_numbers, i) or None
+            rdate = _at(receive_dates, i) or None
+            lqty = _at(lot_qtys, i) or None
+            sqty_s = _at(sample_qtys, i)
+            dqty_s = _at(defect_qtys, i)
+            sqty = int(sqty_s) if sqty_s.isdigit() else None
+            dqty = int(dqty_s) if dqty_s.isdigit() else None
+
+            ncr_id, ncr_no = db.create_ncr(
+                inspection_id=None,
+                material_no=m_no,
+                material_name=m_name,
+                supplier=sup,
+                defect_description=defect_description,
+                action_required="",
+                due_date=due_date,
+                issued_by=g.user["display_name"] or g.user["username"],
+                issued_date=issued_date,
+                lot_number=lot_no,
+                receive_date=rdate,
+                cc_recipient=cc_recipient,
+                sample_qty=sqty,
+                defect_qty=dqty,
+                special_note=special_note,
+                lot_qty=lqty,
+            )
+            created.append({"ncr_id": ncr_id, "ncr_no": ncr_no, "material_no": m_no, "supplier": sup})
+
+        if not created:
+            flash("발행된 통보서가 없어 — 자재번호/업체를 확인해줘.")
+            return redirect(url_for("ncr_new_manual"))
+
+        # 사진: 업로드 스트림은 1번만 읽히므로 먼저 바이트로 버퍼링해서
+        # 발행된 통보서 개수만큼 재사용한다(각 통보서마다 파일을 실제로 복사 저장).
         import uuid
-        saved_photos = 0
+        from io import BytesIO
+        from werkzeug.datastructures import FileStorage
+
+        valid_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+        photo_buffers = []
         for file in request.files.getlist("photos"):
             if not file or not file.filename:
                 continue
             ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
-            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            if ext not in valid_exts:
                 continue
-            base = f"{ncr_no}_{uuid.uuid4().hex[:8]}"
-            try:
-                fname = _save_ncr_photo(file, NCR_PHOTO_DIR, base)
-                db.add_ncr_photo(ncr_id, fname)
-                saved_photos += 1
-            except Exception:
-                pass
-        if saved_photos:
-            record_change("NCR 사진 첨부", "ncr", ncr_id, f"{saved_photos}장 (작성 시 일괄)")
+            file.stream.seek(0)
+            photo_buffers.append(file.stream.read())
 
-        flash(f"부적합 통보서 {ncr_no} 발행됐어." + (f" 사진 {saved_photos}장 첨부." if saved_photos else ""))
-        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+        total_photos_saved = 0
+        for c in created:
+            for raw_bytes in photo_buffers:
+                base = f"{c['ncr_no']}_{uuid.uuid4().hex[:8]}"
+                try:
+                    fs = FileStorage(stream=BytesIO(raw_bytes), filename=f"{base}.jpg")
+                    fname = _save_ncr_photo(fs, NCR_PHOTO_DIR, base)
+                    db.add_ncr_photo(c["ncr_id"], fname)
+                    total_photos_saved += 1
+                except Exception:
+                    pass
+
+        if total_photos_saved:
+            names = ", ".join(f"{c['ncr_no']}" for c in created)
+            record_change("NCR 사진 첨부", "ncr", None,
+                          f"{total_photos_saved}장 (일괄 발행 {len(created)}건에 각각 복사: {names})")
+
+        summary_items = [f"{c['ncr_no']}({c['material_no']})" for c in created[:10]]
+        summary = ", ".join(summary_items)
+        if len(created) > 10:
+            summary += f" 외 {len(created) - 10}건"
+        record_change(
+            "부적합 통보서 발행(수기입력)" if len(created) == 1 else "부적합 통보서 일괄 발행(수기입력)",
+            "ncr", created[0]["ncr_id"] if len(created) == 1 else None,
+            f"{len(created)}건 발행" + (f", {len(failed)}건 실패" if failed else "") + f" — {summary}",
+        )
+
+        if len(created) == 1 and not failed:
+            flash(f"부적합 통보서 {created[0]['ncr_no']} 발행됐어." +
+                  (f" 사진 {total_photos_saved}장 첨부." if total_photos_saved else ""))
+            return redirect(url_for("ncr_detail", ncr_id=created[0]["ncr_id"]))
+
+        return render_template("ncr_manual_bulk_result.html",
+                               created=created, failed=failed, photos_saved=total_photos_saved)
 
     from datetime import date
     return render_template("ncr_manual_form.html", today=date.today().isoformat())

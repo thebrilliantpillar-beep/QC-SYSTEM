@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}부적합 통보서 일괄 발행 결과{% endblock %}
+{% block content %}
+<h2>부적합 통보서 일괄 발행 결과</h2>
+
+<div class="card" style="display:flex; gap:20px; flex-wrap:wrap;">
+  <div><b style="color:#16a34a;">발행 {{ created|length }}건</b></div>
+  {% if failed %}<div><b style="color:#dc2626;">실패 {{ failed|length }}건</b></div>{% endif %}
+  {% if photos_saved %}<div>사진 자재별 복사 첨부 {{ photos_saved }}건</div>{% endif %}
+</div>
+
+{% if created %}
+<h3 style="margin-top:20px;">발행된 통보서</h3>
+<div style="overflow-x:auto;">
+<table>
+  <tr><th>통보서번호</th><th>자재번호</th><th>업체</th><th></th></tr>
+  {% for c in created %}
+  <tr>
+    <td>{{ c.ncr_no }}</td>
+    <td>{{ c.material_no }}</td>
+    <td>{{ c.supplier }}</td>
+    <td><a href="{{ url_for('ncr_detail', ncr_id=c.ncr_id) }}" class="btn secondary" style="padding:4px 10px; font-size:12px;">상세보기</a></td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+
+{% if failed %}
+<h3 style="margin-top:20px;">발행 실패</h3>
+<table>
+  <tr><th>목록 순번</th><th>사유</th></tr>
+  {% for f in failed %}
+  <tr>
+    <td>{{ f.row }}번째</td>
+    <td style="text-align:left; padding-left:14px;">{{ f.reason }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<div style="margin-top:20px; display:flex; gap:8px;">
+  <a href="{{ url_for('ncr_new_manual') }}" class="btn secondary">추가로 더 작성</a>
+  <a href="{{ url_for('ncr_list') }}" class="btn">부적합 통보서 목록 보기</a>
+</div>
+{% endblock %}

@@ -13,11 +13,12 @@
   성적서에 연결하지 않고 직접 입력해서 발행해 — 이 시스템 도입 전 회사 로컬에만 있던
   과거 불량 기록을 지금 통보서로 남기고 싶을 때 써. 이미 검사입력이 돼 있는 건은
   해당 성적서 상세 화면의 "부적합 통보서" 버튼을 쓰는 게 더 편해.
+  <b>자재를 여러 개 담으면 자재마다 통보서가 각각 발행돼.</b>
 </p>
 
 <!-- 🔍 입고·검사 이력 검색 -->
 <div class="ncr-section" style="border:2px solid var(--primary);">
-  <h3 style="color:var(--primary);">🔍 입고·검사 이력에서 불러오기 <span style="font-weight:400; color:#6b7280; font-size:12px;">(선택 — 직접 입력해도 돼. 검사 전 과거 입고 기록도 같이 찾아줘)</span></h3>
+  <h3 style="color:var(--primary);">🔍 입고·검사 이력에서 불러오기 <span style="font-weight:400; color:#6b7280; font-size:12px;">(선택 — 검색 결과를 클릭하면 아래 목록에 추가돼. 다시 클릭하면 목록에서 빠져. 여러 개 골라도 돼)</span></h3>
 
   <div id="intakeSearchForm" style="display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; margin-bottom:4px;">
     <div>
@@ -52,24 +53,69 @@
   <div id="intakeResults" style="display:none; border:1px solid var(--border); border-radius:8px; overflow:hidden;"></div>
 </div>
 
-<form method="POST" enctype="multipart/form-data">
+<form method="POST" enctype="multipart/form-data" onsubmit="return validateNcrForm()">
   <div class="ncr-section">
-    <h3>📦 자재·업체 정보</h3>
+    <h3>📦 자재 직접 추가 <span style="font-weight:400; color:#6b7280; font-size:12px;">(검색에 없는 과거 자재는 여기서 입력)</span></h3>
 
-    <label>자재번호 <span style="color:var(--fail);">*</span></label>
-    <input type="text" name="material_no" id="f_material_no" required placeholder="예: 600005P086">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:10px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">자재번호 <span style="color:var(--fail);">*</span></label>
+        <input type="text" id="m_material_no" placeholder="예: 600005P086">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">제품명</label>
+        <input type="text" id="m_material_name" placeholder="예: 둥근머리 볼트(M4*16L,STS304)">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">업체 <span style="color:var(--fail);">*</span></label>
+        <input type="text" id="m_supplier" placeholder="예: ACE">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">로트번호</label>
+        <input type="text" id="m_lot_number" placeholder="예: CK2608-001">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">입고날짜</label>
+        <input type="date" id="m_receive_date">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT 수량</label>
+        <input type="text" id="m_lot_qty" placeholder="예: 12대">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">시료수</label>
+        <input type="number" id="m_sample_qty" min="0">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">불량수</label>
+        <input type="number" id="m_defect_qty" min="0">
+      </div>
+    </div>
+    <button type="button" class="btn secondary" style="margin-top:12px;" onclick="addManualNcrRow()">+ 목록에 추가</button>
+  </div>
 
-    <label>제품명</label>
-    <input type="text" name="material_name" id="f_material_name" placeholder="예: 둥근머리 볼트(M4*16L,STS304)">
-
-    <label>업체 <span style="color:var(--fail);">*</span></label>
-    <input type="text" name="supplier" id="f_supplier" required placeholder="예: ACE">
-
-    <label>로트번호</label>
-    <input type="text" name="lot_number" id="f_lot_number" placeholder="예: CK2608-001">
-
-    <label>입고날짜</label>
-    <input type="date" name="receive_date" id="f_receive_date">
+  <div class="ncr-section">
+    <h3>📦 발행 대상 자재 목록 <span id="ncrRowsCount" style="font-weight:400; color:#16a34a; font-size:12.5px;"></span></h3>
+    <p class="muted" style="margin:-4px 0 10px; font-size:12.5px;">
+      자재를 여러 개 담으면 <b>자재마다 통보서가 각각 발행</b>돼. LOT수량·시료수·불량수는
+      자재(로트)마다 다를 수 있어서 행별로 따로 입력해. 불량 내용·사진은 아래 "통보서 내용"에
+      공통으로 1번만 입력하면 모든 통보서에 똑같이 들어가 — 자재마다 불량 내용이 다르면
+      이 화면을 나눠서 여러 번 작성해줘.
+    </p>
+    <div id="ncrRowsEmpty" style="padding:16px; text-align:center; color:#9ca3af; font-size:13px; border:1px dashed var(--border); border-radius:8px;">
+      아직 추가된 자재가 없어. 위 검색 결과를 클릭하거나 직접 입력해서 추가해줘.
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="min-width:820px; display:none;" id="ncrRowsTable">
+        <thead>
+          <tr>
+            <th>자재번호</th><th>제품명</th><th>업체</th><th>로트번호</th>
+            <th>입고날짜</th><th>LOT수량</th><th>시료수</th><th>불량수</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="ncrRowsBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="ncr-section">
@@ -85,23 +131,9 @@
     <textarea name="defect_description" rows="4" required
               placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛) — 2026년 3월경 발생분"
               style="resize:vertical;"></textarea>
-
-    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:4px;">
-      <div>
-        <label style="margin-bottom:4px; display:block;">LOT 수량
-          <span style="color:#9ca3af; font-weight:400; font-size:12px;">(예: 12대, 1LOT)</span>
-        </label>
-        <input type="text" name="lot_qty" id="f_lot_qty" placeholder="예: 12대">
-      </div>
-      <div>
-        <label style="margin-bottom:4px; display:block;">시료수</label>
-        <input type="number" name="sample_qty" min="0" placeholder="검사 수량">
-      </div>
-      <div>
-        <label style="margin-bottom:4px; display:block;">불량수</label>
-        <input type="number" name="defect_qty" min="0" placeholder="불량 수량">
-      </div>
-    </div>
+    <p style="margin:2px 0 10px; font-size:12px; color:#9ca3af;">
+      이 내용은 목록에 담긴 모든 자재의 통보서에 공통으로 들어가.
+    </p>
 
     <label>특기사항 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
     <textarea name="special_note" rows="2" placeholder="예: 전수 검사 후 재납품 요청"
@@ -204,18 +236,27 @@ function onIntakeSearchInput(immediate) {
           return;
         }
         var html = rows.map(function (r) {
-          return '<div onclick="fillForm(' + JSON.stringify(r).replace(/"/g, '&quot;') + ')" ' +
+          var key = r.origin + '|' + (r.inspection_id || '') + '|' + r.material_no + '|' + (r.lot_number || '') + '|' + (r.receive_date || '');
+          return '<div class="ncr-search-row" ' +
+            'data-ncr-key="' + escapeHtml(key) + '" ' +
+            'data-material-no="' + escapeHtml(r.material_no || '') + '" ' +
+            'data-material-name="' + escapeHtml(r.material_name || '') + '" ' +
+            'data-supplier="' + escapeHtml(r.supplier || '') + '" ' +
+            'data-lot-number="' + escapeHtml(r.lot_number || '') + '" ' +
+            'data-receive-date="' + escapeHtml(r.receive_date || '') + '" ' +
+            'data-lot-qty="' + escapeHtml(r.quantity != null ? String(r.quantity) : '') + '" ' +
+            'data-remark="' + escapeHtml(r.remark_inspector || '') + '" ' +
+            'onclick="toggleNcrRowFromSearch(this)" ' +
             'style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); ' +
-            'font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;" ' +
-            'onmouseover="this.style.background=\'var(--bg-alt)\'" ' +
-            'onmouseout="this.style.background=\'\'">' +
-            '<strong style="color:var(--primary); min-width:100px;">' + (r.material_no || '') + '</strong>' +
-            '<span style="color:#374151; flex:1;">' + (r.material_name || '') + '</span>' +
-            '<span style="color:#6b7280; font-size:12px;">' + (r.supplier || '') + '</span>' +
-            '<span style="color:#9ca3af; font-size:12px; white-space:nowrap;">' + (r.receive_date || '') + '</span>' +
-            (r.lot_number ? '<span style="background:#f3f4f6; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + r.lot_number + '</span>' : '') +
+            'font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">' +
+            '<strong style="color:var(--primary); min-width:100px;">' + escapeHtml(r.material_no || '') + '</strong>' +
+            '<span style="color:#374151; flex:1;">' + escapeHtml(r.material_name || '') + '</span>' +
+            '<span style="color:#6b7280; font-size:12px;">' + escapeHtml(r.supplier || '') + '</span>' +
+            '<span style="color:#9ca3af; font-size:12px; white-space:nowrap;">' + escapeHtml(r.receive_date || '') + '</span>' +
+            (r.lot_number ? '<span style="background:#f3f4f6; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + escapeHtml(r.lot_number) + '</span>' : '') +
             (r.quantity != null ? '<span style="background:#eef2ff; color:#3730a3; border-radius:4px; padding:1px 7px; font-size:11.5px; font-weight:600;">입고 ' + r.quantity + '개</span>' : '') +
             (r.origin === 'history' ? '<span style="background:#fef3c7; color:#92400e; border-radius:4px; padding:1px 7px; font-size:11px; font-weight:700;">과거이력(검사 전)</span>' : '') +
+            '<span class="ncr-pick-badge" style="margin-left:auto; font-size:11.5px; color:#16a34a; font-weight:700; display:none;">✓ 추가됨</span>' +
             '</div>';
         }).join('');
         if (rows.length >= 50) {
@@ -223,6 +264,9 @@ function onIntakeSearchInput(immediate) {
         }
         box.innerHTML = html;
         box.style.display = 'block';
+        box.querySelectorAll('[data-ncr-key]').forEach(function (el) {
+          if (_ncrRowKeys.has(el.getAttribute('data-ncr-key'))) el.classList.add('ncr-picked');
+        });
       });
   };
 
@@ -240,27 +284,116 @@ function resetIntakeSearch() {
 }
 </script>
 
+<style>
+.ncr-search-row:hover { background: var(--bg-alt); }
+.ncr-search-row.ncr-picked { background: #f0fdf4; }
+.ncr-search-row.ncr-picked .ncr-pick-badge { display: inline !important; }
+</style>
+
 <script>
-function fillForm(r) {
-  document.getElementById('f_material_no').value   = r.material_no   || '';
-  document.getElementById('f_material_name').value = r.material_name || '';
-  document.getElementById('f_supplier').value      = r.supplier      || '';
-  document.getElementById('f_lot_number').value    = r.lot_number    || '';
-  document.getElementById('f_receive_date').value  = r.receive_date  || '';
-  // LOT 수량 자동채우기 — 검사 연결 통보서(ncr_form.html의 auto_lot_qty)와 동일하게
-  // 입고수량을 그대로 채운다(단위 없는 숫자만, 사용자가 필요하면 "12대"처럼 직접 덧붙임)
-  document.getElementById('f_lot_qty').value = (r.quantity != null) ? String(r.quantity) : '';
-  // remark_inspector → defect_description 자동채우기 (비어 있을 때만, intake_history 유래 행은 remark_inspector가 없어서 그냥 안 채워짐)
-  var descEl = document.querySelector('textarea[name="defect_description"]');
-  if (descEl && !descEl.value && r.remark_inspector) {
-    descEl.value = r.remark_inspector;
-  }
-  document.getElementById('intakeResults').style.display = 'none';
-  // 스크롤을 폼 쪽으로
-  document.getElementById('f_material_no').scrollIntoView({behavior:'smooth', block:'center'});
+var _ncrRowKeys = new Set();
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
 }
 
-// 검색 영역 바깥 클릭 시 결과 닫기
+function cssEscape(s) {
+  return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&');
+}
+
+function addNcrRow(data) {
+  var key = data.key || ('manual:' + Date.now() + ':' + Math.random().toString(36).slice(2));
+  if (_ncrRowKeys.has(key)) return;
+  _ncrRowKeys.add(key);
+  var html = '<tr data-ncr-key="' + escapeHtml(key) + '">' +
+    '<td><input type="text" name="material_no[]" value="' + escapeHtml(data.material_no) + '" required style="width:110px;"></td>' +
+    '<td><input type="text" name="material_name[]" value="' + escapeHtml(data.material_name) + '" style="width:160px;"></td>' +
+    '<td><input type="text" name="supplier[]" value="' + escapeHtml(data.supplier) + '" required style="width:90px;"></td>' +
+    '<td><input type="text" name="lot_number[]" value="' + escapeHtml(data.lot_number) + '" style="width:120px;"></td>' +
+    '<td><input type="date" name="receive_date[]" value="' + escapeHtml(data.receive_date) + '" style="width:150px;"></td>' +
+    '<td><input type="text" name="lot_qty[]" value="' + escapeHtml(data.lot_qty) + '" style="width:70px;" placeholder="예:12대"></td>' +
+    '<td><input type="number" name="sample_qty[]" value="' + escapeHtml(data.sample_qty) + '" min="0" style="width:65px;"></td>' +
+    '<td><input type="number" name="defect_qty[]" value="' + escapeHtml(data.defect_qty) + '" min="0" style="width:65px;"></td>' +
+    '<td><button type="button" class="btn secondary" onclick="removeNcrRow(this)" style="padding:4px 8px; font-size:12px;">✕</button></td>' +
+    '</tr>';
+  document.getElementById('ncrRowsBody').insertAdjacentHTML('beforeend', html);
+  updateNcrRowCount();
+}
+
+function removeNcrRow(btn) {
+  var tr = btn.closest('tr');
+  var key = tr.getAttribute('data-ncr-key');
+  _ncrRowKeys.delete(key);
+  tr.remove();
+  var picked = document.querySelector('#intakeResults [data-ncr-key="' + cssEscape(key) + '"]');
+  if (picked) picked.classList.remove('ncr-picked');
+  updateNcrRowCount();
+}
+
+function toggleNcrRowFromSearch(el) {
+  var key = el.getAttribute('data-ncr-key');
+  if (_ncrRowKeys.has(key)) {
+    var tr = document.querySelector('#ncrRowsBody tr[data-ncr-key="' + cssEscape(key) + '"]');
+    if (tr) tr.remove();
+    _ncrRowKeys.delete(key);
+    el.classList.remove('ncr-picked');
+    updateNcrRowCount();
+    return;
+  }
+  addNcrRow({
+    key: key,
+    material_no: el.getAttribute('data-material-no'),
+    material_name: el.getAttribute('data-material-name'),
+    supplier: el.getAttribute('data-supplier'),
+    lot_number: el.getAttribute('data-lot-number'),
+    receive_date: el.getAttribute('data-receive-date'),
+    lot_qty: el.getAttribute('data-lot-qty'),
+    sample_qty: '',
+    defect_qty: ''
+  });
+  el.classList.add('ncr-picked');
+  var remark = el.getAttribute('data-remark');
+  var descEl = document.querySelector('textarea[name="defect_description"]');
+  if (descEl && !descEl.value && remark) descEl.value = remark;
+}
+
+function addManualNcrRow() {
+  var no = document.getElementById('m_material_no').value.trim();
+  var sup = document.getElementById('m_supplier').value.trim();
+  if (!no || !sup) { alert('자재번호와 업체는 필수야.'); return; }
+  addNcrRow({
+    material_no: no,
+    material_name: document.getElementById('m_material_name').value.trim(),
+    supplier: sup,
+    lot_number: document.getElementById('m_lot_number').value.trim(),
+    receive_date: document.getElementById('m_receive_date').value,
+    lot_qty: document.getElementById('m_lot_qty').value.trim(),
+    sample_qty: document.getElementById('m_sample_qty').value.trim(),
+    defect_qty: document.getElementById('m_defect_qty').value.trim()
+  });
+  ['m_material_no', 'm_material_name', 'm_supplier', 'm_lot_number', 'm_receive_date', 'm_lot_qty', 'm_sample_qty', 'm_defect_qty']
+    .forEach(function (id) { document.getElementById(id).value = ''; });
+  document.getElementById('m_material_no').focus();
+}
+
+function updateNcrRowCount() {
+  var n = document.querySelectorAll('#ncrRowsBody tr').length;
+  document.getElementById('ncrRowsEmpty').style.display = n ? 'none' : 'block';
+  document.getElementById('ncrRowsTable').style.display = n ? 'table' : 'none';
+  document.getElementById('ncrRowsCount').textContent = n ? ('· ' + n + '건 선택됨') : '';
+}
+
+function validateNcrForm() {
+  var rows = document.querySelectorAll('#ncrRowsBody tr');
+  if (rows.length === 0) {
+    alert('발행할 자재를 목록에 1개 이상 추가해줘. (검색 결과를 클릭하거나 직접 추가해줘)');
+    return false;
+  }
+  return true;
+}
+
 document.addEventListener('click', function (e) {
   if (!e.target.closest('#intakeSearchForm') && !e.target.closest('#intakeResults')) {
     document.getElementById('intakeResults').style.display = 'none';
