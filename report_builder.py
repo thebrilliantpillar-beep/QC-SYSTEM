@@ -104,6 +104,11 @@ _ITEM_ROW_CHARS_PER_LINE = 16  # B열 폭(약 18.7) 기준, 한글 위주 텍스
 _AQL_COL_CHARS_PER_LINE = 7    # C열 폭(약 8.4, B열의 약 45%) 기준 — AQL 칸("불량 1개까지 합격")이
                                # B열 기준 추정치로는 안 잘리는 걸로 잘못 계산돼 행 높이가 안 늘어나고
                                # 글자가 잘려 보이던 문제(2026-09-08) 대응
+_AQL_FONT_SIZE_NORMAL = 11     # 템플릿 기본 폰트 크기(리셋 루프가 Font(name=...)만 주고 size는
+                               # 명시 안 해서 openpyxl 기본값 11로 떨어지는 것과 동일하게 맞춤)
+_AQL_FONT_SIZE_SMALL = 9       # Ac(합격 허용 불량개수)가 두 자리 이상이면 "불량 12개"처럼 줄이
+                               # 길어져 좁은 C열 폭에서 답답해 보이므로 이때만 폰트를 줄인다(2026-09-08)
+_AQL_COL_CHARS_PER_LINE_SMALL = 9  # 폰트를 9pt로 줄였을 때(11pt 대비) 한 줄에 들어가는 글자 수 보정
 
 
 def _estimate_wrapped_lines(text, chars_per_line=_ITEM_ROW_CHARS_PER_LINE):
@@ -364,25 +369,37 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
         if r.get("spec_display") is not None:
             ws[f"B{row}"] = r["spec_display"]
             _grow_row_for_text(ws, row, r["spec_display"])
-        # AQL 칸은 두 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
+        # AQL 칸은 여러 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
         #   [4]
-        #   불량 1개까지 합격   (또는 Ac=0이면 예전처럼 "무결점")
+        #   불량 1개
+        #   까지 합격   (또는 Ac=0이면 예전처럼 "무결점")
         # "Ac1"이라는 전문용어 그대로 쓰면 비전문가가 반대로 오해하기 쉬워서(2026-09-08
         # 실사용자 피드백 — "불량 3개면 합격이냐"고 반문함), "불량 N개까지 합격"으로 풀어썼다.
-        # 샘플 개수는 D열(샘플 수량)에 이미 따로 나오므로 여기서는 반복하지 않는다.
+        # "불량 N개"/"까지 합격"은 반드시 이 지점에서 줄바꿈(\n)을 직접 넣는다 — wrap_text의
+        # 자동 줄바꿈에 맡기면 폭에 따라 "불량 1"/"개까지"/"합격"처럼 단어 중간을 끊어버렸다
+        # (2026-09-08 재피드백). 샘플 개수는 D열(샘플 수량)에 이미 따로 나오므로 반복 안 한다.
         # 합격 허용 불량개수(Ac)는 AQL로 계산된 진짜 표본수(sample_qty)에 해당하는
         # KS Q ISO 2859-1 표준표 값을 쓴다(aql_ac_allowance(), 사용자 확정).
         if r.get("aql") is not None:
             aql_text = f"[{format_aql(r['aql'])}]"
             sample_qty = r.get("sample_qty")
             ac_allowance = r.get("ac_allowance")
+            aql_chars_per_line = _AQL_COL_CHARS_PER_LINE
+            aql_small_font = False
             if sample_qty:
                 if ac_allowance:
-                    aql_text = f"{aql_text}\n불량 {ac_allowance}개까지 합격"
+                    aql_text = f"{aql_text}\n불량 {ac_allowance}개\n까지 합격"
+                    if ac_allowance >= 10:
+                        # Ac가 두 자리면 "불량 12개"가 좁은 C열 폭엔 여전히 빡빡해 보여서
+                        # 폰트를 줄여 여유 있게 맞춘다(2026-09-08 사용자 확정)
+                        aql_small_font = True
+                        aql_chars_per_line = _AQL_COL_CHARS_PER_LINE_SMALL
                 else:
                     aql_text = f"{aql_text}\n무결점"
             ws[f"C{row}"] = aql_text
-            _grow_row_for_text(ws, row, aql_text, chars_per_line=_AQL_COL_CHARS_PER_LINE)
+            ws[f"C{row}"].font = Font(name="맑은 고딕",
+                                      size=_AQL_FONT_SIZE_SMALL if aql_small_font else _AQL_FONT_SIZE_NORMAL)
+            _grow_row_for_text(ws, row, aql_text, chars_per_line=aql_chars_per_line)
         # ※ wrap_text 없으면 LibreOffice가 PDF 변환할 때 줄바꿈을 무시하고 한 줄로 뭉갠다.
         # shrink_to_fit은 일부러 안 씀 — wrap_text와 같이 쓰면 렌더러마다 우선순위가 달라서
         # (엑셀은 wrap_text가 이기지만 LibreOffice는 글자를 억지로 욱여넣다 잘라먹는 경우가 있었음,
