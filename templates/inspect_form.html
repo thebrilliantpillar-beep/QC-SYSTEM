@@ -11,6 +11,18 @@
   .inspect-table td { border-bottom: 1px solid #DDE0E6; padding: 8px 5px; text-align: center; vertical-align: middle; }
   .inspect-table tr:last-child td { border-bottom: none; }
   .inspect-table tr:nth-child(even) td { background: #F9F9F8; }
+  /* "검사항목 / 규격" 열 고정 — 가로 스크롤 시 엑셀 틀고정처럼 이 열만 왼쪽에 붙박아 둔다.
+     짝수행 배경(#F9F9F8)을 고정 셀에도 그대로 따라가게 해야 스크롤할 때 다른 셀이
+     비쳐 보이지 않는다(2026-09-08, 사용자 요청). #fiTable(전수검사 유닛별 표)은 열 구성이
+     달라서(2번째 열이 시리얼번호) 이 규칙에서 제외한다. */
+  .inspect-table:not(#fiTable) th:nth-child(2),
+  .inspect-table:not(#fiTable) td:nth-child(2) {
+    position: sticky; left: 0; z-index: 1;
+    background: #fff;
+    border-right: 2px solid #DDE0E6;
+  }
+  .inspect-table:not(#fiTable) th:nth-child(2) { z-index: 2; background: #2B3140; }
+  .inspect-table:not(#fiTable) tr:nth-child(even) td:nth-child(2) { background: #F9F9F8; }
   .spec-cell { text-align: left; font-size: 13px; color: #2B3140; line-height: 1.5; }
   .sample-input { width: 68px; padding: 7px 4px; font-size: 13.5px; border: 1px solid #DDE0E6;
                   border-radius: 6px; text-align: center; }
