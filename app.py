@@ -6562,6 +6562,26 @@ def avg_time_by_category_report():
     for idx, width in enumerate([20, 14, 10, 14, 10, 14, 14], start=1):
         ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
 
+    # 임시 진단 시트 — "재원코리아(케이블)"이 0건으로 나와서, 실제 저장된 자재명이
+    # 뭔지 눈으로 보려고 추가했다(2026-09-08). CABLE/케이블 키워드가 맞게 잡히면
+    # 이 시트는 다시 지울 것 — 정식 리포트에 포함시킬 목적이 아니다.
+    ws2 = wb.create_sheet("재원코리아_자재명목록(진단용)")
+    ws2.append(["자재명", "검사원", "건수"])
+    for c in ws2[1]:
+        c.font = XFont(bold=True)
+    name_counts = defaultdict(lambda: defaultdict(int))
+    for r in rows:
+        if r["supplier"] == "재원코리아":
+            name_counts[r["material_name"] or "(제품명 없음)"][r["inspector"]] += 1
+    for name in sorted(name_counts.keys()):
+        for insp in TARGET_INSPECTORS:
+            n = name_counts[name].get(insp, 0)
+            if n:
+                ws2.append([name, insp, n])
+    ws2.column_dimensions["A"].width = 40
+    ws2.column_dimensions["B"].width = 12
+    ws2.column_dimensions["C"].width = 8
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
