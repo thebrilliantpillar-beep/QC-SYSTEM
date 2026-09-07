@@ -101,7 +101,7 @@ ITEM_COLS = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "N", "O", "P", "Q
 
 ITEM_ROW_HEIGHT = 39.0   # 항목표 한 행 기본 높이(템플릿 원본 값) — 대략 2줄까지 여유 있게 잡혀 있음
 _ITEM_ROW_CHARS_PER_LINE = 16  # B열 폭(약 18.7) 기준, 한글 위주 텍스트가 한 줄에 대략 들어가는 양
-_AQL_COL_CHARS_PER_LINE = 7    # C열 폭(약 8.4, B열의 약 45%) 기준 — AQL 칸("샘플 N개/Ac1 이내 합격")이
+_AQL_COL_CHARS_PER_LINE = 7    # C열 폭(약 8.4, B열의 약 45%) 기준 — AQL 칸("불량 1개까지 합격")이
                                # B열 기준 추정치로는 안 잘리는 걸로 잘못 계산돼 행 높이가 안 늘어나고
                                # 글자가 잘려 보이던 문제(2026-09-08) 대응
 
@@ -366,9 +366,10 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
             _grow_row_for_text(ws, row, r["spec_display"])
         # AQL 칸은 두 줄로 — 본사 양식이라 AQL 표기는 유지하되, 실제 판정 근거를 같이 적는다.
         #   [4]
-        #   Ac1 이내 합격   (또는 Ac=0이면 예전처럼 "무결점")
-        # 샘플 개수는 D열(샘플 수량)에 이미 따로 나오므로 여기서는 반복하지 않는다
-        # (2026-09-08 사용자 확정 — 판정 기준은 Ac개수/무결점 여부만 보면 된다).
+        #   불량 1개까지 합격   (또는 Ac=0이면 예전처럼 "무결점")
+        # "Ac1"이라는 전문용어 그대로 쓰면 비전문가가 반대로 오해하기 쉬워서(2026-09-08
+        # 실사용자 피드백 — "불량 3개면 합격이냐"고 반문함), "불량 N개까지 합격"으로 풀어썼다.
+        # 샘플 개수는 D열(샘플 수량)에 이미 따로 나오므로 여기서는 반복하지 않는다.
         # 합격 허용 불량개수(Ac)는 AQL로 계산된 진짜 표본수(sample_qty)에 해당하는
         # KS Q ISO 2859-1 표준표 값을 쓴다(aql_ac_allowance(), 사용자 확정).
         if r.get("aql") is not None:
@@ -377,7 +378,7 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
             ac_allowance = r.get("ac_allowance")
             if sample_qty:
                 if ac_allowance:
-                    aql_text = f"{aql_text}\nAc{ac_allowance} 이내 합격"
+                    aql_text = f"{aql_text}\n불량 {ac_allowance}개까지 합격"
                 else:
                     aql_text = f"{aql_text}\n무결점"
             ws[f"C{row}"] = aql_text
