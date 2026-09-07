@@ -2,31 +2,39 @@
 {% block title %}계측기 관리 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
-.gauge-status { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:700; }
-.gauge-status.expired  { background:#fee2e2; color:#dc2626; }
-.gauge-status.d15      { background:#fef2f2; color:#dc2626; }
-.gauge-status.d30      { background:#fef3c7; color:#92400e; }
-.gauge-status.ok       { background:#dcfce7; color:#16a34a; }
-.modal-bg { display:none; position:fixed; inset:0; z-index:9000;
-            background:rgba(0,0,0,.5); align-items:center; justify-content:center; }
-.modal-box { background:#fff; border-radius:14px; padding:24px; width:min(95vw,480px);
-             box-shadow:0 8px 30px rgba(0,0,0,.25); max-height:90vh; overflow-y:auto; }
+  /* 계측기 유효기간 상태 배지 — base.html의 .badge 팔레트를 그대로 쓰고,
+     D-30 구간만 이 화면 전용 modifier(.badge.gauge-warn30)로 좀 더 옅은 주황을 쓴다.
+     (2026-09-07 디자인 감사: 화면 자체 색상 대신 공용 .badge 톤으로 통일) */
+  .badge.gauge-warn30 { color:#b45309; background:#fffbeb; }
+
+  .gauge-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+  .gauge-header h2 { margin:0; }
+  .gauge-header .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .gauge-header .actions .btn, .gauge-header .actions button { margin-top:0; }
+
+  .modal-bg { display:none; position:fixed; inset:0; z-index:9000;
+              background:rgba(0,0,0,.5); align-items:center; justify-content:center; }
+  .modal-box { background:#fff; border-radius:14px; padding:24px; width:min(95vw,480px);
+               box-shadow:0 8px 30px rgba(0,0,0,.25); max-height:90vh; overflow-y:auto; }
 </style>
 
-<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
-  <h2 style="margin:0;">🔧 계측기 관리</h2>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+<div class="gauge-header">
+  <h2>🔧 계측기 관리</h2>
+  <div class="actions">
     <form method="POST" action="{{ url_for('gauge_import_methods') }}" style="margin:0;"
           onsubmit="return confirm('자재 규격에 적힌 측정 방식들을 계측기 종류로 한 번에 등록할까?\n(육안·외관·전수 제외, 이미 등록된 종류는 건너뜀. 유효기간은 비워두니 등록 후 채워줘.)');">
-      <button type="submit" class="btn secondary" style="padding:10px 16px; font-size:14px; margin-top:0;">측정방식에서 종류 불러오기</button>
+      <button type="submit" class="btn secondary">측정방식에서 종류 불러오기</button>
     </form>
-    <button onclick="openModal()" style="padding:10px 20px; font-size:14px; margin-top:0;">+ 계측기 등록</button>
+    <button onclick="openModal()">+ 계측기 등록</button>
   </div>
 </div>
-<p class="muted" style="margin:0 0 16px; font-size:12.5px;">
-  자재 규격의 '측정 방식'에 적힌 계측기 종류와 이름이 같으면(띄어쓰기 무시), 검사 입력 화면에서 그 항목의 유효기간이 자동으로 채워져.
-  종류를 불러온 뒤 각 계측기의 <b>만료일</b>을 넣어줘.
-</p>
+<div class="notice notice-neutral">
+  <span style="font-size:20px; line-height:1.2;">ℹ️</span>
+  <span>
+    자재 규격의 '측정 방식'에 적힌 계측기 종류와 이름이 같으면(띄어쓰기 무시), 검사 입력 화면에서 그 항목의 유효기간이 자동으로 채워져.
+    종류를 불러온 뒤 각 계측기의 <b>만료일</b>을 넣어줘.
+  </span>
+</div>
 
 {% if gauges %}
 <div style="overflow-x:auto;">
@@ -47,25 +55,25 @@
   {% for g in gauges %}
   {% set dl = g['days_left'] if g['days_left'] != none else 9999 %}
   <tr>
-    <td style="font-size:13px; color:var(--muted);">{{ g['gauge_no'] or '-' }}</td>
+    <td class="muted">{{ g['gauge_no'] or '-' }}</td>
     <td style="text-align:left; padding-left:12px; font-weight:700;">{{ g['name'] }}</td>
-    <td style="font-size:12.5px;">{{ g['model'] or '-' }}</td>
-    <td style="font-size:12.5px;">{{ g['location'] or '-' }}</td>
-    <td style="font-size:13px;">{{ (g['last_calibrated'] | date_korean) if g['last_calibrated'] else '-' }}</td>
-    <td style="font-size:13px; font-weight:{% if g['expiry_date'] and g['expiry_date'] <= d15 %}700{% else %}400{% endif %};">
+    <td>{{ g['model'] or '-' }}</td>
+    <td>{{ g['location'] or '-' }}</td>
+    <td>{{ (g['last_calibrated'] | date_korean) if g['last_calibrated'] else '-' }}</td>
+    <td style="font-weight:{% if g['expiry_date'] and g['expiry_date'] <= d15 %}700{% else %}400{% endif %};">
       {{ (g['expiry_date'] | date_korean) if g['expiry_date'] else '-' }}
     </td>
     <td>
       {% if not g['expiry_date'] %}
-        <span class="gauge-status ok">-</span>
+        <span class="badge muted">-</span>
       {% elif g['expiry_date'] < today %}
-        <span class="gauge-status expired">만료</span>
+        <span class="badge fail">만료</span>
       {% elif g['expiry_date'] <= d15 %}
-        <span class="gauge-status d15">D-{{ dl|int }}</span>
+        <span class="badge pending">D-{{ dl|int }}</span>
       {% elif g['expiry_date'] <= d30 %}
-        <span class="gauge-status d30">D-{{ dl|int }}</span>
+        <span class="badge gauge-warn30">D-{{ dl|int }}</span>
       {% else %}
-        <span class="gauge-status ok">정상</span>
+        <span class="badge pass">정상</span>
       {% endif %}
     </td>
     <td>
