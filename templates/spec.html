@@ -5,6 +5,7 @@
 <h2>자재 관리</h2>
 {% if can_edit %}
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+  <a href="{{ url_for('spec_new') }}" class="btn" style="margin-top:0;">+ 개별 등록</a>
   <a href="{{ url_for('spec_quick_add') }}" class="btn secondary" style="margin-top:0;">+ 일괄 등록</a>
 </div>
 {% endif %}

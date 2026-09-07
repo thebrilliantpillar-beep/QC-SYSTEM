@@ -1798,6 +1798,31 @@ def _resolve_material_name(material_no, specs=None):
     return None
 
 
+@app.route("/spec/new", methods=["GET", "POST"])
+@perm_required("material_edit")
+def spec_new():
+    """자재 개별등록 — 아직 DB에 없는 새 자재를 자재번호/자재명만으로 먼저 만든 뒤
+    spec_detail로 넘겨서 나머지(분류/기준서정보/전수검사/항목)를 이어서 채우게 한다.
+    2026-09-07: CLAUDE.md 15절 참고 — spec_detail.html을 is_new=True로 재사용."""
+    if request.method == "POST":
+        new_material_no = request.form.get("new_material_no", "").strip()
+        new_material_name = request.form.get("new_material_name", "").strip()
+        if not new_material_no:
+            flash("자재번호는 비워둘 수 없어.")
+            return redirect(url_for("spec_new"))
+        if db.get_material(new_material_no):
+            flash(f"자재번호 '{new_material_no}'는 이미 등록돼 있어. 자재 관리에서 찾아 수정해줘.")
+            return redirect(url_for("spec_new"))
+        db.upsert_material(new_material_no, new_material_name)
+        record_change("자재 신규 등록", "material", new_material_no, new_material_name)
+        flash(f"자재 '{new_material_no}'를 등록했어. 이어서 분류·규격을 채워줘.")
+        return redirect(url_for("spec_detail", material_no=new_material_no))
+    return render_template("spec_detail.html", material_no="", specs=[], material_name="",
+                           material=None, drawing_no=None, drawing_pdf=None, drawing_has_auto=False,
+                           full_inspect_config=None, method_options=gauge_method_options(),
+                           categories=db.list_material_categories(), is_new=True)
+
+
 @app.route("/spec/<material_no>")
 @perm_required("material_view")
 def spec_detail(material_no):

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ material_no }} 자재{% endblock %}
+{% set is_new = is_new | default(false) %}
+{% block title %}{{ '자재 개별등록' if is_new else material_no ~ ' 자재' }}{% endblock %}
 {% block content %}
 {% set can_edit = 'material_edit' in user_perms %}
 {# 측정 방식(계측기) 선택지 — 계측기 관리에 등록된 종류 + 육안/외관. 목록에 없으면 직접 입력 가능 #}
@@ -29,7 +30,8 @@
 </style>
 
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
-  <h2 style="margin:0;">{{ material_no }} 검사 규격</h2>
+  <h2 style="margin:0;">{{ '자재 개별등록' if is_new else material_no ~ ' 검사 규격' }}</h2>
+  {% if not is_new %}
   <a href="{{ url_for('material_history', material_no=material_no) }}"
      class="btn secondary" style="margin-top:0; padding:8px 16px; font-size:13px;">
     📈 검사 이력 추적
@@ -40,24 +42,36 @@
     📜 과거 입고 이력
   </a>
   {% endif %}
+  {% endif %}
 </div>
+{% if is_new %}
+<p class="hint">자재번호와 자재명을 입력하고 등록하면, 이어서 자재 분류·기준서 정보·검사 항목을 채울 수 있는 화면으로 넘어가.</p>
+{% else %}
 <p class="hint">항목을 직접 수정하거나 삭제할 수 있어. 판정유형을 "육안"으로 바꾸면 하한/상한은 저장 시 자동으로 비워져.
   수치 항목은 규격표기 아래 "기준값·부호·공차값"으로 빠르게 조합해서 규격표기+하한/상한을 한번에 채울 수도 있어(직접 타이핑도 계속 가능).</p>
+{% endif %}
 
 {% if can_edit %}
 <div class="card">
-  <h3 style="margin-top:0;">자재번호 / 자재명 수정</h3>
+  <h3 style="margin-top:0;">자재번호 / 자재명 {{ '등록' if is_new else '수정' }}</h3>
+  {% if is_new %}
+  <p class="hint" style="margin-top:0;">등록할 자재번호와 자재명을 입력해줘. 이미 쓰이는 자재번호는 등록할 수 없어.</p>
+  {% else %}
   <p class="hint" style="margin-top:0;">자재번호를 바꾸면 지금부터 이 번호로 취급돼. 이미 입고·검사된 과거 성적서는 그대로 옛 번호로 남아.</p>
-  <form method="POST" action="{{ url_for('spec_material_rename', material_no=material_no) }}"
-        onsubmit="return confirm('자재번호/자재명을 변경할까? 과거 성적서 기록은 옛 번호로 그대로 남아있어.');">
+  {% endif %}
+  <form method="POST"
+        action="{{ url_for('spec_new') if is_new else url_for('spec_material_rename', material_no=material_no) }}"
+        onsubmit="return confirm('{{ '이 자재를 새로 등록할까?' if is_new else '자재번호/자재명을 변경할까? 과거 성적서 기록은 옛 번호로 그대로 남아있어.' }}');">
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
       <div style="flex:1; min-width:140px;"><label>자재번호</label><input type="text" name="new_material_no" value="{{ material_no }}" required></div>
       <div style="flex:1; min-width:140px;"><label>자재명</label><input type="text" name="new_material_name" value="{{ material_name or '' }}"></div>
-      <button type="submit" style="margin-top:0;">변경 저장</button>
+      <button type="submit" style="margin-top:0;">{{ '등록' if is_new else '변경 저장' }}</button>
     </div>
   </form>
 </div>
 {% endif %}
+
+{% if not is_new %}
 
 <div class="card">
   <h3 style="margin-top:0;">자재 분류</h3>
@@ -802,6 +816,7 @@ async function saveAllSpecs() {
   }
 }
 </script>
+{% endif %}
 {% endif %}
 {% include "_drawing_modal.html" %}
 {% endblock %}
