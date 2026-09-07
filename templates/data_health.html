@@ -8,7 +8,7 @@
             box-shadow:0 1px 3px rgba(0,0,0,.06); }
   .hs-box .v { font-size:26px; font-weight:800; }
   .hs-box .l { font-size:12px; color:var(--muted); font-weight:600; margin-top:4px; }
-  .v.high{ color:#dc2626; } .v.mid{ color:#d97706; } .v.low{ color:#2563eb; } .v.none{ color:#16a34a; }
+  .v.high{ color:#dc2626; } .v.mid{ color:#d97706; } .v.low{ color:#3D5A8A; } .v.none{ color:#16a34a; }
 
   .chk { background:#fff; border-radius:12px; margin-bottom:11px;
          box-shadow:0 1px 3px rgba(0,0,0,.06); overflow:hidden; }
@@ -16,7 +16,7 @@
                    display:flex; align-items:flex-start; gap:11px; }
   .chk > summary::-webkit-details-marker { display:none; }
   .chk-bar { width:4px; align-self:stretch; border-radius:3px; flex-shrink:0; }
-  .bar-high{ background:#dc2626; } .bar-mid{ background:#f59e0b; } .bar-low{ background:#3b82f6; }
+  .bar-high{ background:#dc2626; } .bar-mid{ background:#f59e0b; } .bar-low{ background:#3D5A8A; }
   .bar-ok{ background:#16a34a; }
   .chk-title { font-weight:700; font-size:14.5px; }
   .chk-desc { color:var(--muted); font-size:12.5px; margin-top:4px; line-height:1.55; }
@@ -57,7 +57,7 @@
       <span class="chk-title">{{ c['title'] }}</span>
       <div class="chk-desc">{{ c['desc'] }}</div>
     </span>
-    <span class="chk-count" style="color:{{ '#16a34a' if not n else ('#dc2626' if c['severity']=='high' else ('#d97706' if c['severity']=='mid' else '#2563eb')) }};">
+    <span class="chk-count" style="color:{{ '#16a34a' if not n else ('#dc2626' if c['severity']=='high' else ('#d97706' if c['severity']=='mid' else '#3D5A8A')) }};">
       {{ '없음' if not n else n ~ '건' }}
     </span>
   </summary>

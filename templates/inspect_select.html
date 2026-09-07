@@ -264,7 +264,7 @@
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['quantity'] or '-' }}</td>
     <td onclick="event.stopPropagation()" style="min-width:120px;">
       {% if inspectors %}
-      <div style="font-size:12px; color:#1d4ed8; font-weight:600;">
+      <div style="font-size:12px; color:#2F4670; font-weight:600;">
         {% if inspectors|length == 1 %}
           검사원 1 ({{ inspectors[0] }})
         {% else %}

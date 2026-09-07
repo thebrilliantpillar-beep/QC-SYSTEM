@@ -54,7 +54,7 @@
                 style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
         <button type="button" onclick="loadDefaultSig()" class="btn secondary"
                 style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
-        <button type="submit" style="background:#1d4ed8; color:#fff; padding:8px 18px; font-size:13.5px;
+        <button type="submit" style="background:#2F4670; color:#fff; padding:8px 18px; font-size:13.5px;
                 border:none; border-radius:8px; cursor:pointer; font-weight:700; margin-top:0;">
           ✅ 서명하고 승인
         </button>
@@ -69,8 +69,8 @@
   </form>
 </div>
 {% elif r['status'] == 'approved' %}
-<div class="card no-print" style="border-left:4px solid #2563eb; background:#eff6ff;">
-  <b style="font-size:14px; color:#1e40af;">승인 완료 — 발송할 수 있어</b>
+<div class="card no-print" style="border-left:4px solid #3D5A8A; background:#eff6ff;">
+  <b style="font-size:14px; color:#24344F;">승인 완료 — 발송할 수 있어</b>
   <div class="muted" style="font-size:12.5px; margin-top:3px;">
     승인 {{ r['approved_by'] }} · {{ r['approved_at'] | datetime_korean }}
   </div>

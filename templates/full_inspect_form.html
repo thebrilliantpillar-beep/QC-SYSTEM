@@ -27,9 +27,9 @@
 .fi-bar input[type=date] { font-size: 13px; border: 1px solid #d1d5db;
                             border-radius: 5px; padding: 4px 8px; }
 #save-state { font-size: 12px; color: #6b7280; margin-left: auto; }
-.btn-complete { background: #1d4ed8; color: #fff; border: none; border-radius: 6px;
+.btn-complete { background: #2F4670; color: #fff; border: none; border-radius: 6px;
                 padding: 8px 20px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
-.btn-complete:hover { background: #1e40af; }
+.btn-complete:hover { background: #24344F; }
 .btn-save { background: #059669; color: #fff; border: none; border-radius: 6px;
             padding: 8px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .btn-save:hover { background: #047857; }
@@ -46,7 +46,7 @@
 
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <a href="{{ url_for('inspection_detail', inspection_id=header.id) }}"
-       style="font-size:13px;color:#2563eb;text-decoration:none;">← 성적서로</a>
+       style="font-size:13px;color:#3D5A8A;text-decoration:none;">← 성적서로</a>
     <h2 style="margin:0;font-size:18px;">전수검사 기록지</h2>
     <span style="font-size:13px;color:#6b7280;">
       {{ header.material_no }} · {{ header.material_name }}
@@ -168,8 +168,8 @@
     {% endif %}
     <a href="{{ url_for('full_inspect_pdf', inspection_id=header.id) }}"
        target="_blank"
-       style="color:#2563eb;font-size:13px;text-decoration:none;padding:8px 14px;
-              border:1px solid #2563eb;border-radius:6px;">📄 PDF 미리보기</a>
+       style="color:#3D5A8A;font-size:13px;text-decoration:none;padding:8px 14px;
+              border:1px solid #3D5A8A;border-radius:6px;">📄 PDF 미리보기</a>
     <span id="save-state2" style="font-size:12px;color:#6b7280;"></span>
   </div>
 

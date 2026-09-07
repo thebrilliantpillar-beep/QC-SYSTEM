@@ -43,7 +43,7 @@
                             border-radius: 5px; padding: 4px 8px; }
 .serial-config { background: #eff6ff; border: 1px solid #bfdbfe;
                  border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
-.serial-config h4 { margin: 0 0 6px 0; font-size: 13px; color: #1e40af; }
+.serial-config h4 { margin: 0 0 6px 0; font-size: 13px; color: #24344F; }
 .serial-config .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .serial-config input {
   font-size: 13px; border: 1px solid #cbd5e1; border-radius: 5px;
@@ -51,15 +51,15 @@
 }
 .serial-config .hint { font-size: 11px; color: #6b7280; margin-top: 4px; }
 #save-state { font-size: 12px; color: #6b7280; margin-left: auto; }
-.btn-complete { background: #1d4ed8; color: #fff; border: none; border-radius: 6px;
+.btn-complete { background: #2F4670; color: #fff; border: none; border-radius: 6px;
                 padding: 8px 20px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
-.btn-complete:hover { background: #1e40af; }
+.btn-complete:hover { background: #24344F; }
 .btn-save { background: #059669; color: #fff; border: none; border-radius: 6px;
             padding: 8px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .btn-save:hover { background: #047857; }
-.btn-apply { background: #2563eb; color: #fff; border: none; border-radius: 5px;
+.btn-apply { background: #3D5A8A; color: #fff; border: none; border-radius: 5px;
              padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.btn-apply:hover { background: #1d4ed8; }
+.btn-apply:hover { background: #2F4670; }
 .badge-done { display:inline-block; background: #16a34a; color: #fff;
               border-radius: 10px; padding: 2px 12px; font-size: 12px; font-weight: 700; }
 .badge-open { display:inline-block; background: #d97706; color: #fff;
@@ -75,7 +75,7 @@
 
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <a href="{{ url_for('inspection_detail', inspection_id=header.id) }}"
-       style="font-size:13px;color:#2563eb;text-decoration:none;">← 성적서로</a>
+       style="font-size:13px;color:#3D5A8A;text-decoration:none;">← 성적서로</a>
     <h2 style="margin:0;font-size:18px;">하우징 전수검사 기록지</h2>
     <span class="badge-housing">HOUSING</span>
     <span style="font-size:13px;color:#6b7280;">
@@ -269,8 +269,8 @@
     {% endif %}
     <a href="{{ url_for('full_inspect_pdf', inspection_id=header.id) }}"
        target="_blank"
-       style="color:#2563eb;font-size:13px;text-decoration:none;padding:8px 14px;
-              border:1px solid #2563eb;border-radius:6px;">📄 PDF 미리보기</a>
+       style="color:#3D5A8A;font-size:13px;text-decoration:none;padding:8px 14px;
+              border:1px solid #3D5A8A;border-radius:6px;">📄 PDF 미리보기</a>
     <span id="save-state2" style="font-size:12px;color:#6b7280;"></span>
     <span style="font-size:11px;color:#6b7280;margin-left:auto;">
       ↑↓←→ 화살표로 셀 이동 · Enter=아래 · Tab=오른쪽

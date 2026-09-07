@@ -116,7 +116,7 @@ if (window.top !== window.self) {
 <div class="card" style="padding:14px 18px; margin-bottom:14px;">
   <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
     <span style="font-size:13px; font-weight:700; color:#374151;">⏱ 총 측정시간</span>
-    <span style="font-size:16px; font-weight:800; color:#1d4ed8; margin-left:4px;">{{ total_time_label }}</span>
+    <span style="font-size:16px; font-weight:800; color:#2F4670; margin-left:4px;">{{ total_time_label }}</span>
     <span style="font-size:12px; color:#9ca3af; margin-left:2px;">(개당 {{ per_cycle_label }})</span>
     <span class="info-anchor" style="margin-left:4px;">
       <button class="info-btn" data-pop="pop-total-time">i</button>
@@ -153,7 +153,7 @@ if (window.top !== window.self) {
     {% for aql_key, v in aql_groups.items() %}
     <span style="display:inline-flex; align-items:center; gap:4px; background:{{ '#fee2e2' if aql_key|string == '0.65' else '#f0f4ff' }}; border:1px solid {{ '#fca5a5' if aql_key|string == '0.65' else '#bfdbfe' }}; border-radius:6px; padding:3px 10px; font-size:12.5px; font-weight:700;">
       <span style="color:#6b7280; font-weight:400; font-size:11px;">AQL</span>
-      <span style="color:{{ '#dc2626' if aql_key|string == '0.65' else '#1d4ed8' }};">{{ aql_key | aql_display }}</span>
+      <span style="color:{{ '#dc2626' if aql_key|string == '0.65' else '#2F4670' }};">{{ aql_key | aql_display }}</span>
       <span style="color:#9ca3af; font-weight:400; font-size:11px;">→</span>
       <span>{{ v['qty'] }}개</span>
       {% if v['ac'] is not none %}
@@ -176,7 +176,7 @@ if (window.top !== window.self) {
     <p class="muted" style="margin:3px 0 0; font-size:12.5px;" id="drawingBannerDesc">도면 파일 유무를 확인하고 있어.</p>
   </div>
   <button type="button" onclick="openDrawingModal('{{ header['material_no'] }}')" id="drawingBannerBtn"
-          style="display:none; background:#1d4ed8; color:#fff; border:none; padding:9px 20px;
+          style="display:none; background:#2F4670; color:#fff; border:none; padding:9px 20px;
                  border-radius:8px; font-size:14px; font-weight:700; cursor:pointer;">
     도면 열기 📐
   </button>
@@ -254,7 +254,7 @@ if (window.top !== window.self) {
 
 {% if full_inspect_config %}
 {# ===== 전수검사 기록지 ===== #}
-<div class="approve-box" style="border-left:4px solid #1a6faf; margin-bottom:14px;">
+<div class="approve-box" style="border-left:4px solid #3D5A8A; margin-bottom:14px;">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <h3 style="margin:0;">📋 전수검사 기록지</h3>
     {% if full_inspect and full_inspect.status == 'complete' %}
@@ -270,13 +270,13 @@ if (window.top !== window.self) {
       <span style="background:#6b7280;color:#fff;border-radius:10px;padding:2px 10px;font-size:12px;">미입력</span>
     {% endif %}
     <a href="{{ url_for('full_inspect_form', inspection_id=header['id']) }}"
-       style="margin-left:auto;background:#1a6faf;color:#fff;text-decoration:none;
+       style="margin-left:auto;background:#3D5A8A;color:#fff;text-decoration:none;
               border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;">
       {{ '📝 기록지 보기/수정' if full_inspect else '📝 기록지 입력 시작' }}
     </a>
     {% if full_inspect and full_inspect.status == 'complete' %}
     <a href="{{ url_for('full_inspect_pdf', inspection_id=header['id']) }}" target="_blank"
-       style="background:#fff;border:1px solid #1a6faf;color:#1a6faf;text-decoration:none;
+       style="background:#fff;border:1px solid #3D5A8A;color:#3D5A8A;text-decoration:none;
               border-radius:6px;padding:7px 14px;font-size:13px;">📄 PDF 미리보기</a>
     {% endif %}
   </div>
@@ -513,7 +513,7 @@ function toggleWaiveForm() {
 
 {% if header['status'] == 'pending' %}
 {# 2026-09-07: 순수 참고 안내라서 notice-info로 통일(.approve-box → .notice notice-info) #}
-<div class="notice notice-info" style="border-left:4px solid #2563eb; padding:14px 18px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+<div class="notice notice-info" style="border-left:4px solid #3D5A8A; padding:14px 18px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
   <div>
     <b style="font-size:15px; font-weight:800;">✏️ 측정값 수정 가능</b>
     <p class="muted" style="margin:4px 0 0;">승인 대기 중이야. 수정이 필요하면 아래 버튼을 눌러.</p>
@@ -582,7 +582,7 @@ function toggleWaiveForm() {
 {% include "_drawing_modal.html" %}
 
 <button onclick="openDrawingModal('{{ header['material_no'] }}')" id="drawingFab"
-  style="position:fixed; bottom:24px; right:24px; z-index:8000; background:#1d4ed8; color:#fff;
+  style="position:fixed; bottom:24px; right:24px; z-index:8000; background:#2F4670; color:#fff;
          border:none; border-radius:50px; padding:13px 20px; font-size:14px; font-weight:700;
          cursor:pointer; box-shadow:0 4px 14px rgba(29,78,216,.45); display:flex;
          align-items:center; gap:7px;">
@@ -608,8 +608,8 @@ function toggleWaiveForm() {
     } else {
       if (bannerLabel) {
         bannerLabel.textContent = '📐 도면 있음';
-        bannerLabel.style.color = '#1d4ed8';
-        if (banner) banner.style.borderLeftColor = '#1d4ed8';
+        bannerLabel.style.color = '#2F4670';
+        if (banner) banner.style.borderLeftColor = '#2F4670';
         if (bannerDesc) bannerDesc.textContent = '이 자재에 도면 파일이 등록되어 있어.';
         if (bannerBtn) bannerBtn.style.display = 'block';
       }

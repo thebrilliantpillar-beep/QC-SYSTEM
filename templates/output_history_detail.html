@@ -53,23 +53,23 @@
     <div style="display:flex; flex-wrap:wrap; gap:10px 24px; align-items:center; margin-bottom:16px;">
       {% if has_drawing %}
       <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer; margin:0;">
-        <input type="checkbox" name="incl_drawing" value="1" checked style="width:auto; accent-color:#2563eb;">
+        <input type="checkbox" name="incl_drawing" value="1" checked style="width:auto; accent-color:#3D5A8A;">
         📐 도면
       </label>
       {% else %}
       <span style="font-size:13px; color:#9ca3af;">📐 도면 없음</span>
       {% endif %}
       <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer; margin:0;">
-        <input type="checkbox" name="incl_standard" value="1" checked style="width:auto; accent-color:#2563eb;">
+        <input type="checkbox" name="incl_standard" value="1" checked style="width:auto; accent-color:#3D5A8A;">
         📋 기준서
       </label>
       <label style="display:flex; align-items:center; gap:6px; font-weight:500; font-size:14px; cursor:pointer; margin:0;">
-        <input type="checkbox" name="incl_report" value="1" checked style="width:auto; accent-color:#2563eb;">
+        <input type="checkbox" name="incl_report" value="1" checked style="width:auto; accent-color:#3D5A8A;">
         📄 성적서
       </label>
     </div>
     <button type="submit" style="padding:13px 28px; font-size:15px; font-weight:700;
-            background:#2563eb; color:#fff; border:none; border-radius:10px; cursor:pointer;">
+            background:#3D5A8A; color:#fff; border:none; border-radius:10px; cursor:pointer;">
       🔄 다시 출력
     </button>
     <a href="{{ url_for('inspection_detail', inspection_id=header['id']) }}"
