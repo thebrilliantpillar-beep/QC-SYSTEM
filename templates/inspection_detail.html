@@ -4,7 +4,10 @@
 {% block content %}
 <style>
   .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; font-size:14px; }
-  .meta-grid span { color:#6b7280; }
+  /* 2026-09-07 디자인 감사: 라벨(항목명)과 값(실제 정보)의 크기·굵기 차이를 뚜렷하게 —
+     예전엔 둘이 거의 같은 크기라 어디가 라벨이고 어디가 값인지 한눈에 구분이 안 됐다. */
+  .meta-grid span { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.02em; }
+  .meta-grid b { font-size:15px; font-weight:700; color:#111827; }
   .result-table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
                   overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13.5px; margin-top:10px; }
   .result-table th { background:#1f2937; color:#fff; padding:10px 8px; text-align:center; font-size:12px; white-space:nowrap; }
@@ -87,20 +90,26 @@ if (window.top !== window.self) {
     <div><span>개당 측정 시간</span><br><b>{{ per_cycle_label }}</b></div>
     <div><span>총 측정 시간</span><br><b>{{ total_time_label }}</b></div>
   </div>
-  {% if gauge_alerts %}
-  <div style="margin-top:14px; padding-top:14px; border-top:1px solid #e5e7eb;">
-    <span style="font-size:13px; color:#6b7280;">계측기 유효기간 임박</span>
+</div>
+
+{# ===== 계측기 유효기간 경고 (2026-09-07: 공용 .notice-warning으로 통일 — 예전엔 정보 카드
+     안에 구분선만 그어놓은 하위 섹션이었는데, 승인/검사입력 화면과 같은 배너 톤으로 맞췄다) ===== #}
+{% if gauge_alerts %}
+<div class="notice notice-warning">
+  <span style="font-size:18px; line-height:1.2;">⏰</span>
+  <div style="flex:1;">
+    <b>계측기 유효기간 임박</b>
     <div style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
       {% for a in gauge_alerts %}
-      <div style="font-size:13px; {{ 'color:#dc2626; font-style:italic; font-weight:700;' if a['days_left'] <= 15 else 'color:#d97706;' }}">
+      <div style="font-size:13px; {{ 'color:#dc2626; font-weight:700;' if a['days_left'] <= 15 else '' }}">
         {{ a['gauge_name'] or a['item_name'] }} —
         {% if a['days_left'] < 0 %}이미 만료 (D+{{ -a['days_left'] }}){% elif a['days_left'] == 0 %}오늘 만료{% else %}D-{{ a['days_left'] }}{% endif %}
       </div>
       {% endfor %}
     </div>
   </div>
-  {% endif %}
 </div>
+{% endif %}
 
 {# ===== 측정시간 + AQL 샘플 요약 카드 ===== #}
 {% if total_time_label != '-' or aql_groups %}
@@ -289,9 +298,10 @@ if (window.top !== window.self) {
 
   <div style="display:grid; gap:14px;">
     <div>
-      <span style="font-weight:700; color:#000000;">🔎 검사자</span>
+      <span style="font-weight:800; font-size:12px; letter-spacing:.02em; color:#000000;">🔎 검사자</span>
       {% if header['remark_inspector'] %}
-      <div style="color:#000000; font-size:13.5px; margin:4px 0;">{{ header['remark_inspector'] }}</div>
+      <div style="margin:6px 0 0; background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+                  padding:9px 12px; font-size:14px; font-weight:600; color:#111827;">{{ header['remark_inspector'] }}</div>
       {% endif %}
       {% if 'inspect_input' in user_perms %}
       <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:4px;">
@@ -303,9 +313,10 @@ if (window.top !== window.self) {
     </div>
 
     <div>
-      <span style="font-weight:700; color:#006400;">🧑‍💼 중간관리자</span>
+      <span style="font-weight:800; font-size:12px; letter-spacing:.02em; color:#006400;">🧑‍💼 중간관리자</span>
       {% if header['remark_manager'] %}
-      <div style="color:#006400; font-size:13.5px; margin:4px 0;">{{ header['remark_manager'] }}</div>
+      <div style="margin:6px 0 0; background:#fff; border:1px solid #bbf7d0; border-radius:8px;
+                  padding:9px 12px; font-size:14px; font-weight:600; color:#166534;">{{ header['remark_manager'] }}</div>
       {% endif %}
       {% if 'inspect_edit_all' in user_perms %}
       <form method="POST" action="{{ url_for('inspection_remark', inspection_id=header['id']) }}" style="margin-top:4px;">
@@ -320,8 +331,9 @@ if (window.top !== window.self) {
 </div>
 {% if header['remark_approver'] %}
 <div class="approve-box" style="border-left:4px solid #4B0082; margin-top:14px; padding:14px 18px;">
-  <span style="font-weight:700; color:#4B0082; font-size:12px;">👑 최종결정권자 비고</span>
-  <div style="color:#4B0082; font-size:13.5px; margin-top:6px;">{{ header['remark_approver'] }}</div>
+  <span style="font-weight:800; color:#4B0082; font-size:12px; letter-spacing:.02em;">👑 최종결정권자 비고</span>
+  <div style="margin-top:6px; background:#fff; border:1px solid #ddd6fe; border-radius:8px;
+              padding:9px 12px; font-size:14px; font-weight:600; color:#4B0082;">{{ header['remark_approver'] }}</div>
 </div>
 {% endif %}
 
@@ -485,8 +497,7 @@ function toggleWaiveForm() {
 {% endif %}
 
 {% if stale_spec_items %}
-<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px;
-     padding:10px 14px; margin-bottom:10px; font-size:13.5px; display:flex; align-items:flex-start; gap:10px;">
+<div class="notice notice-danger" style="margin-bottom:10px;">
   <span style="font-size:20px; line-height:1.2;">⚠️</span>
   <span>
     <b style="color:#dc2626;">규격이 바뀐 항목이 있어</b> —
@@ -501,9 +512,10 @@ function toggleWaiveForm() {
 {% endif %}
 
 {% if header['status'] == 'pending' %}
-<div class="approve-box" style="border-left:4px solid #2563eb; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+{# 2026-09-07: 순수 참고 안내라서 notice-info로 통일(.approve-box → .notice notice-info) #}
+<div class="notice notice-info" style="border-left:4px solid #2563eb; padding:14px 18px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
   <div>
-    <b>✏️ 측정값 수정 가능</b>
+    <b style="font-size:15px; font-weight:800;">✏️ 측정값 수정 가능</b>
     <p class="muted" style="margin:4px 0 0;">승인 대기 중이야. 수정이 필요하면 아래 버튼을 눌러.</p>
   </div>
   <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -515,11 +527,12 @@ function toggleWaiveForm() {
 </div>
 
 {% elif header['status'] == 'rejected' %}
-<div class="approve-box" style="border-left:4px solid #dc2626; display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+{# 2026-09-07: 재검사가 반드시 필요한 상태라 notice-danger로 통일(.approve-box → .notice notice-danger) #}
+<div class="notice notice-danger" style="border-left:4px solid #dc2626; padding:14px 18px; display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:10px;">
   <div>
-    <b style="color:#dc2626;">반려됨</b> — {{ header['approver'] or '' }} ({{ header['approved_at'] | datetime_korean }})<br>
-    <span style="color:#6b7280; font-size:13.5px;">{{ header['reject_reason'] or '사유 없음' }}</span>
-    <br>
+    <b style="color:#dc2626; font-size:15px; font-weight:800;">반려됨</b>
+    <span style="font-size:12.5px; margin-left:6px;">{{ header['approver'] or '' }} ({{ header['approved_at'] | datetime_korean }})</span>
+    <div style="margin-top:6px; font-size:13.5px;">{{ header['reject_reason'] or '사유 없음' }}</div>
     <a href="{{ url_for('reinspect', inspection_id=header['id']) }}" class="btn" style="margin-top:12px; display:inline-block;">재검사 입력</a>
   </div>
   {% if 'approve_revoke' in user_perms %}
@@ -535,17 +548,20 @@ function toggleWaiveForm() {
 
 {% elif header['status'] == 'approved' %}
 {% set label, cls = status_display(header) %}
+{# 2026-09-07: 합격/특채/불합격 3색 최종상태는 4종 notice 색상에 그대로 안 맞아서(합격=녹색은
+   notice에 없음) .approve-box 카드 톤은 유지하고, 결정 라벨(값)과 승인자·일시(보조정보)의
+   크기 위계만 뚜렷하게 나눴다. #}
 <div class="approve-box" style="border-left:4px solid {{ '#ea580c' if cls=='special' else ('#16a34a' if cls=='pass' else '#dc2626') }}; display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:10px;">
   <div>
-    <b style="color:{{ '#ea580c' if cls=='special' else ('#16a34a' if cls=='pass' else '#dc2626') }};">
+    <b style="color:{{ '#ea580c' if cls=='special' else ('#16a34a' if cls=='pass' else '#dc2626') }}; font-size:16px; font-weight:800;">
       {{ label }}{{ ' 완료 ⚠' if cls=='special' else ' 완료' }}
-    </b> — {{ header['approver'] or '' }} ({{ header['approved_at'] | datetime_korean }})
+    </b>
+    <span class="muted" style="font-size:12.5px; margin-left:6px;">{{ header['approver'] or '' }} · {{ header['approved_at'] | datetime_korean }}</span>
     {% if header['pdf_path'] %}
-    <br><span class="muted" style="font-size:13px;">저장 위치: {{ header['pdf_path'] }}</span>
+    <div class="muted" style="font-size:12.5px; margin-top:4px;">저장 위치: {{ header['pdf_path'] }}</div>
     {% else %}
-    <br><span class="muted" style="font-size:13px;">아직 xlsx/PDF로 출력 안 됨 — "출력 대기" 화면에서 출력해줘.</span>
+    <div class="muted" style="font-size:12.5px; margin-top:4px;">아직 xlsx/PDF로 출력 안 됨 — "출력 대기" 화면에서 출력해줘.</div>
     {% endif %}
-    <br>
     <span id="integrity-badge" style="display:inline-block; margin-top:7px; font-size:12.5px;
           border-radius:6px; padding:3px 10px; background:#f3f4f6; color:#6b7280; font-weight:600;">
       🔒 무결성 확인 중…
