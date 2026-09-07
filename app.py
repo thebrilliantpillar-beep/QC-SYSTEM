@@ -2656,7 +2656,11 @@ def inspect_form(intake_id):
 
         db.clear_inspection_progress(intake_id)
         db.delete_inspection_draft(intake_id)
-        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+        back_q = (request.form.get("q") or "").strip()
+        redirect_kwargs = {"inspection_id": inspection_id, "from_submit": 1}
+        if back_q:
+            redirect_kwargs["q"] = back_q
+        return redirect(url_for("inspection_detail", **redirect_kwargs))
 
     prior_defect_count = db.get_defect_count_for(intake_row["supplier"], material_no)
     inspector_name = g.user["display_name"] or g.user["username"]

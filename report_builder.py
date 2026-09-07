@@ -854,6 +854,7 @@ def build_ncr_excel(ncr, photo_paths=None):
 
         if photo_paths:
             _insert_ncr_photos(ws, photo_paths, PILImage)
+            _build_ncr_photo_sheet(wb, ncr, photo_paths, PILImage)
 
         # A4 세로 1장 고정
         ws.page_setup.paperSize  = ws.PAPERSIZE_A4
@@ -944,6 +945,142 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
             ext=XDRPositiveSize2D(iw, ih),
         )
         ws.add_image(img)
+
+
+def _build_ncr_photo_sheet(wb, ncr, photo_paths, PILImage=None):
+    """불량현상 사진을 "불량현상사진" 시트(2페이지)에 2열 그리드로 크게 배치.
+
+    D9:F17의 작은 미리보기(_insert_ncr_photos)와는 별개 — 6장 이하로 상한이 걸려 있어
+    (templates/ncr_detail.html) 항상 페이지 1장 안에 들어간다. 사진이 0장이면 시트 자체를
+    만들지 않는다(빈 페이지 방지).
+
+    앵커링: 처음엔 "열 하나를 그리드 전체 폭보다 넓게 잡고 col=0 고정 + colOff만으로
+    가로 위치를 표현"하는 방식을 시도했는데, 실측 결과 LibreOffice가 fitToPage+
+    horizontalCentered 조합에서 이 방식을 쓸 때 작은 colOff 값을 가진 이미지를
+    (큰 colOff 값의 이미지는 멀쩡한데) 페이지 왼쪽 경계에서 잘라먹는 현상이 실제로
+    발생했다(원인 불명 — LO 자체 렌더링 버그로 추정). 그래서 _insert_ncr_photos와
+    동일한 검증된 방식대로, 촘촘한 여러 열·행(각 칸은 실제 오프셋보다 항상 크게)을
+    명시적으로 선언해두고 그 실제 크기 목록을 누적하며 걸어가는 _resolve()로 절대
+    좌표를 (칸 인덱스, 칸 안 오프셋)으로 변환한다 — 오프셋이 항상 자기 칸의 크기보다
+    작으므로 위와 같은 문제가 재현되지 않는다(실측으로 확인함).
+    """
+    import math
+    from openpyxl.utils import get_column_letter
+
+    valid = [p for p in photo_paths if p and os.path.exists(p)]
+    if not valid:
+        return
+
+    n = len(valid)
+    new_ws = wb.create_sheet(title="불량현상사진", index=1)
+    new_ws.sheet_view.showGridLines = False
+
+    # 그리드 레이아웃 (2열 고정, 행 수 = ceil(n/2))
+    cols = 2
+    rows = math.ceil(n / cols)
+    grid_x0, grid_y0 = 0.4, 1.8   # cm, 좌상단 기준
+    grid_w, grid_h = 20.2, 27.0  # cm
+    cell_w = grid_w / cols
+    cell_h = grid_h / rows
+    pad = 0.3  # cm, 슬롯 안쪽 여백
+
+    CHAR_TO_EMU = 7 * 9525  # _insert_ncr_photos와 동일한 근사 변환
+    CM_PER_PT = 2.54 / 72
+
+    # 가로: 1cm짜리 좁은 열을 그리드 폭(+버퍼)만큼 나열
+    GRID_COL_CM = 1.0
+    n_cols_grid = math.ceil((grid_x0 + grid_w) / GRID_COL_CM) + 2
+    col_w_units = cm_to_EMU(GRID_COL_CM) / CHAR_TO_EMU
+    for c in range(n_cols_grid):
+        new_ws.column_dimensions[get_column_letter(c + 1)].width = col_w_units
+    col_widths_emu = [cm_to_EMU(GRID_COL_CM)] * n_cols_grid
+
+    # 제목 (촘촘한 열 전체를 병합해서 가운데 정렬)
+    new_ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols_grid)
+    title_cell = new_ws.cell(row=1, column=1)
+    title_cell.value = f"불량현상 사진 — {ncr.get('material_no', '')} / {ncr.get('ncr_no', '')}"
+    title_cell.font = Font(bold=True, size=13)
+    title_cell.alignment = Alignment(horizontal='center', vertical='center')
+    TITLE_ROW_PT = 24
+    new_ws.row_dimensions[1].height = TITLE_ROW_PT
+
+    # 세로: 제목 행(1) 다음, 1cm짜리 좁은 행을 그리드 높이(+버퍼)만큼 나열
+    GRID_ROW_CM = 1.0
+    n_rows_grid = math.ceil((grid_y0 + grid_h) / GRID_ROW_CM) + 2
+    row_h_pt = GRID_ROW_CM / CM_PER_PT
+    for r in range(n_rows_grid):
+        new_ws.row_dimensions[2 + r].height = row_h_pt
+    title_h_cm = TITLE_ROW_PT * CM_PER_PT
+    row_heights_emu = [cm_to_EMU(title_h_cm)] + [cm_to_EMU(GRID_ROW_CM)] * n_rows_grid
+
+    def _resolve(abs_emu, sizes_emu):
+        cum = 0
+        for idx, size in enumerate(sizes_emu):
+            if cum + size > abs_emu:
+                return idx, abs_emu - cum
+            cum += size
+        # 범위를 벗어나면 마지막 칸에 몰아준다(방어적 처리)
+        last = len(sizes_emu) - 1
+        return last, abs_emu - (cum - sizes_emu[-1])
+
+    for i, path in enumerate(valid):
+        row_i, col_i = divmod(i, cols)
+        # 홀수 개수면 마지막 사진은 그 행 중앙(2열 폭 전체)에 배치
+        if row_i == rows - 1 and (n % cols != 0) and i == n - 1:
+            slot_x = grid_x0
+            slot_w = cell_w * cols
+        else:
+            slot_x = grid_x0 + col_i * cell_w
+            slot_w = cell_w
+        slot_y = grid_y0 + row_i * cell_h
+        slot_h = cell_h
+
+        avail_w = slot_w - pad * 2
+        avail_h = slot_h - pad * 2
+
+        aspect = 4 / 3
+        if PILImage:
+            try:
+                with PILImage.open(path) as pil:
+                    ow, oh = pil.size
+                    if oh:
+                        aspect = ow / oh
+            except Exception:
+                pass
+
+        if aspect >= avail_w / avail_h:
+            iw_cm, ih_cm = avail_w, avail_w / aspect
+        else:
+            iw_cm, ih_cm = avail_h * aspect, avail_h
+
+        x_cm = slot_x + (slot_w - iw_cm) / 2
+        y_cm = slot_y + (slot_h - ih_cm) / 2
+
+        col_idx, col_off_emu = _resolve(cm_to_EMU(x_cm), col_widths_emu)
+        row_idx, row_off_emu = _resolve(cm_to_EMU(y_cm), row_heights_emu)
+
+        img = XLImage(path)
+        marker = AnchorMarker(col=col_idx, colOff=col_off_emu,
+                              row=row_idx, rowOff=row_off_emu)
+        img.anchor = OneCellAnchor(_from=marker,
+                                    ext=XDRPositiveSize2D(cm_to_EMU(iw_cm), cm_to_EMU(ih_cm)))
+        new_ws.add_image(img)
+
+    # 페이지 설정 (본문 시트와 동일)
+    new_ws.page_setup.paperSize   = new_ws.PAPERSIZE_A4
+    new_ws.page_setup.orientation = new_ws.ORIENTATION_PORTRAIT
+    new_ws.page_setup.fitToWidth  = 1
+    new_ws.page_setup.fitToHeight = 1
+    new_ws.sheet_properties.pageSetUpPr.fitToPage = True
+    new_ws.page_margins.left   = 0.4
+    new_ws.page_margins.right  = 0.4
+    new_ws.page_margins.top    = 0.4
+    new_ws.page_margins.bottom = 0.4
+    new_ws.page_margins.header = 0.0
+    new_ws.page_margins.footer = 0.0
+    new_ws.print_options.horizontalCentered = True
+    last_col_letter = get_column_letter(n_cols_grid)
+    new_ws.print_area = f"A1:{last_col_letter}{1 + n_rows_grid}"
 
 
 def _ncr_mail_subject(ncr):

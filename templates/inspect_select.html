@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}검사 입력 - 대상 선택{% endblock %}
 {% block content %}
+{% set inspect_qs = ('?q=' ~ (query | urlencode)) if query else '' %}
 <h2>검사 대기 목록</h2>
 <p class="muted">입고 리스트에 등록됐지만 아직 검사하지 않은 건이야. 클릭하면 헤더정보는 자동으로 채워지고 측정값만 입력하면 돼.</p>
 
@@ -241,11 +242,11 @@
     <td onclick="event.stopPropagation()">
       <input type="checkbox" class="pending-check" form="deleteForm" name="intake_ids" value="{{ r['id'] }}">
     </td>
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['supplier'] or '-' }}</td>
-    <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['po_number'] or '-' }}</td>
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">
+    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
+    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['supplier'] or '-' }}</td>
+    <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['po_number'] or '-' }}</td>
+    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
+    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">
       {{ r['material_no'] }}
       {% if r['assembly_no'] %}
         <span class="badge special" style="margin-left:4px;" title="{{ r['assembly_no'] }} 조립품의 파츠로 자동 전개됨">MA 파츠</span>
@@ -260,7 +261,7 @@
         </a>
       {% endif %}
     </td>
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}')">{{ r['quantity'] or '-' }}</td>
+    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['quantity'] or '-' }}</td>
     <td onclick="event.stopPropagation()" style="min-width:120px;">
       {% if inspectors %}
       <div style="font-size:12px; color:#1d4ed8; font-weight:600;">

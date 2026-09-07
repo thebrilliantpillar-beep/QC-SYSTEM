@@ -171,6 +171,7 @@
 
 <form method="POST" id="inspectForm"
       action="{% if edit_mode %}{{ url_for('edit_inspection_submit', inspection_id=edit_mode) }}{% endif %}">
+  <input type="hidden" name="q" value="{{ request.args.get('q', '') }}">
 
   {# 도면 버튼 — position:fixed로 여러 번 시도했는데 이 화면에서는 스크롤 중 키보드가
      떠 있으면 화면 밖으로 밀려나는 문제가 실기기 녹화로 반복 확인됐다(2026-09-02).

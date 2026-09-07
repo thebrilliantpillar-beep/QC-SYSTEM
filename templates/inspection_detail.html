@@ -37,6 +37,31 @@
   <span class="badge pending">{{ header['status'] }}</span>
 </div>
 
+{% if request.args.get('from_submit') == '1' %}
+{% set _back_q = request.args.get('q', '') %}
+<div class="card" style="background:#ecfdf5; border:1px solid #a7f3d0; display:flex;
+     align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px;">
+  <span style="font-weight:700; color:#065f46;">✅ 성적서가 등록됐어.</span>
+  <a href="{{ url_for('inspect_select', q=_back_q) if _back_q else url_for('inspect_select') }}"
+     class="btn" style="background:#16a34a; color:#fff; border:none; padding:9px 18px;
+     border-radius:8px; font-weight:700; text-decoration:none; margin-top:0;">
+    🔙 검사입력 목록으로 돌아가기
+  </a>
+  <span id="autoCloseNotice" style="display:none; font-size:12.5px; color:#065f46;">이 창은 곧 자동으로 닫혀요.</span>
+</div>
+<script>
+if (window.top !== window.self) {
+  var _n = document.getElementById('autoCloseNotice');
+  if (_n) _n.style.display = 'inline';
+  setTimeout(function() {
+    if (window.parent && typeof window.parent.closeDetailPopup === 'function') {
+      window.parent.closeDetailPopup();
+    }
+  }, 1500);
+}
+</script>
+{% endif %}
+
 <div class="card">
   <div class="meta-grid">
     <div><span>자재번호</span><br><b>{{ header['material_no'] }}</b></div>
