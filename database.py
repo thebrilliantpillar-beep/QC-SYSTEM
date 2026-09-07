@@ -1313,34 +1313,13 @@ def find_duplicate_intake_history(rows):
     return dups
 
 
-def search_intake_history(query=None, search_by="all", date_from=None, date_to=None):
-    """자재번호/제품명/업체명/발주번호 기준 검색 + 입고일 범위(ISO 'YYYY-MM-DD') 필터.
-    intake_list.search_intake()의 자매 함수지만 완전히 별개 테이블을 조회한다."""
+def list_intake_history():
+    """과거 입고 이력 전체 조회 — 검색/필터는 app.py의 공용 헬퍼
+    (_list_search_params/_row_passes_search)가 화면 쪽에서 Python으로 거른다.
+    검사이력(history.html) 등 4개 화면과 같은 방식으로 통일했다(2026-09-08 —
+    예전엔 이 테이블만 SQL WHERE로 직접 검색해서 화면마다 검색 UI/방식이 달랐음)."""
     conn = get_conn()
-    sql = "SELECT * FROM intake_history WHERE 1=1"
-    params = []
-    q = (query or "").strip()
-    if q:
-        col_map = {
-            "material_no": "material_no",
-            "product_name": "product_name",
-            "supplier": "supplier",
-            "po_number": "po_number",
-        }
-        if search_by in col_map:
-            sql += f" AND {col_map[search_by]} LIKE ?"
-            params.append(f"%{q}%")
-        else:
-            sql += " AND (material_no LIKE ? OR product_name LIKE ? OR supplier LIKE ? OR po_number LIKE ?)"
-            params.extend([f"%{q}%"] * 4)
-    if date_from:
-        sql += " AND receive_date >= ?"
-        params.append(date_from)
-    if date_to:
-        sql += " AND receive_date <= ?"
-        params.append(date_to)
-    sql += " ORDER BY receive_date DESC, id DESC"
-    rows = conn.execute(sql, params).fetchall()
+    rows = conn.execute("SELECT * FROM intake_history ORDER BY receive_date DESC, id DESC").fetchall()
     conn.close()
     return rows
 

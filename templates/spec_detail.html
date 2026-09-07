@@ -35,7 +35,7 @@
     📈 검사 이력 추적
   </a>
   {% if 'intake' in user_perms %}
-  <a href="{{ url_for('intake_history_list', q=material_no, by='material_no') }}"
+  <a href="{{ url_for('intake_history_list', q_material=material_no) }}"
      class="btn secondary" style="margin-left:8px;">
     📜 과거 입고 이력
   </a>

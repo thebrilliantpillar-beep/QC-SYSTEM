@@ -12,36 +12,11 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-    <div style="flex:2; min-width:180px;">
-      <label>검색어</label>
-      <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 제품명, 업체명, 발주번호...">
-    </div>
-    <div style="flex:1; min-width:130px;">
-      <label>검색 기준</label>
-      <select name="by">
-        <option value="all" {% if search_by=='all' %}selected{% endif %}>전체</option>
-        <option value="material_no" {% if search_by=='material_no' %}selected{% endif %}>자재번호</option>
-        <option value="product_name" {% if search_by=='product_name' %}selected{% endif %}>제품명</option>
-        <option value="supplier" {% if search_by=='supplier' %}selected{% endif %}>업체명</option>
-        <option value="po_number" {% if search_by=='po_number' %}selected{% endif %}>발주번호</option>
-      </select>
-    </div>
-    <div>
-      <label>입고일 시작</label>
-      <input type="date" name="date_from" value="{{ date_from }}">
-    </div>
-    <div>
-      <label>입고일 종료</label>
-      <input type="date" name="date_to" value="{{ date_to }}">
-    </div>
-    <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or search_by != 'all' or date_from or date_to %}
-    <a href="{{ url_for('intake_history_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>
-    {% endif %}
-  </form>
-</div>
+{% set show_inspector = false %}
+{% set show_result = false %}
+{% set show_status = false %}
+{% set show_lot = true %}
+{% include "_list_search.html" %}
 
 {% if 'intake' in user_perms %}
 <form id="intakeHistoryDeleteForm" method="POST" action="{{ url_for('intake_history_delete') }}"

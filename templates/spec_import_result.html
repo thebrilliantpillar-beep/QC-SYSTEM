@@ -8,16 +8,34 @@
   <div><b style="color:#dc2626;">실패 {{ failures|length }}건</b></div>
 </div>
 
-<h3>등록 성공</h3>
+{% if new_material_nos %}
+<form method="POST" action="{{ url_for('spec_import_undo') }}"
+      onsubmit="return confirm('이번에 새로 등록된 자재 {{ new_material_nos|length }}개를 삭제할까? 되돌릴 수 없어.');"
+      style="margin-top:12px;">
+  {% for mn in new_material_nos %}<input type="hidden" name="material_no[]" value="{{ mn }}">{% endfor %}
+  <button type="submit" style="margin:0; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626;">
+    🔙 방금 새로 등록된 자재 {{ new_material_nos|length }}개 되돌리기(삭제)
+  </button>
+  <span class="muted" style="font-size:12px; margin-left:8px;">
+    이번 업로드로 처음 생긴 자재만 대상이야. 이미 있던 자재를 덮어쓴 경우는 원래 규격을 복원할 수 없어서 대상이 아니야.
+  </span>
+</form>
+{% endif %}
+
+<h3 style="margin-top:20px;">등록 성공</h3>
 {% if results %}
 <table>
-  <tr><th>자재번호</th><th>자재명</th><th>항목수</th><th>파일명</th></tr>
+  <tr><th>자재번호</th><th>자재명</th><th>항목수</th><th>파일명</th><th></th></tr>
   {% for r in results %}
   <tr onclick="location.href='{{ url_for('spec_detail', material_no=r['material_no']) }}'" style="cursor:pointer">
     <td>{{ r['material_no'] }}</td>
     <td>{{ r['material_name'] or '-' }}</td>
     <td>{{ r['item_count'] }}</td>
     <td style="font-size:12px; color:#6b7280;">{{ r['filename'] }}</td>
+    <td>
+      {% if r['is_new'] %}<span style="font-size:11px; background:#dcfce7; color:#15803d; border-radius:999px; padding:2px 8px;">신규</span>
+      {% else %}<span style="font-size:11px; background:#fef3c7; color:#92400e; border-radius:999px; padding:2px 8px;">기존 덮어씀</span>{% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>

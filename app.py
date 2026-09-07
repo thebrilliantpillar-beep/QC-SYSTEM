@@ -542,6 +542,7 @@ def _list_search_params():
         "q_supplier": (a.get("q_supplier") or "").strip(),
         "q_product": (a.get("q_product") or "").strip(),
         "q_material": (a.get("q_material") or "").strip(),
+        "q_lot": (a.get("q_lot") or "").strip(),
         "f_result": (a.get("f_result") or "").strip(),
         "f_status": (a.get("f_status") or "").strip(),
         "insp_start": (a.get("insp_start") or "").strip(),
@@ -552,7 +553,7 @@ def _list_search_params():
 
 
 def _row_passes_search(f, inspector=None, supplier=None, product=None, material=None,
-                        result=None, status=None, insp_date=None, recv_date=None):
+                        result=None, status=None, insp_date=None, recv_date=None, lot=None):
     """공통 검색 필터 한 건 판정. 필드가 그 화면에 아예 없으면(None) 그 조건은 건너뛰고,
     있는데 값이 비어 있으면(빈 문자열) 정상적으로 걸러진다."""
     if f["q_inspector"] and inspector is not None and f["q_inspector"] not in inspector:
@@ -562,6 +563,8 @@ def _row_passes_search(f, inspector=None, supplier=None, product=None, material=
     if f["q_product"] and product is not None and f["q_product"] not in product:
         return False
     if f["q_material"] and material is not None and f["q_material"] not in material:
+        return False
+    if f["q_lot"] and lot is not None and f["q_lot"] not in lot:
         return False
     if f["f_result"] and result is not None and f["f_result"] != result:
         return False
@@ -1483,28 +1486,27 @@ def intake():
 @perm_required("intake")
 def intake_history_list():
     """검사/승인 워크플로우와 무관한 과거 입고 이력 조회. intake_list가 아니라
-    intake_history 테이블을 본다 — 절대 검사 대기 큐나 품질현황에 영향 없음."""
-    query = request.args.get("q", "").strip()
-    search_by = request.args.get("by", "all")
-    date_from = (request.args.get("date_from") or "").strip()
-    date_to = (request.args.get("date_to") or "").strip()
-    d_from = _parse_any_date(date_from) if date_from else None
-    d_to = _parse_any_date(date_to) if date_to else None
+    intake_history 테이블을 본다 — 절대 검사 대기 큐나 품질현황에 영향 없음.
 
-    rows = db.search_intake_history(
-        query, search_by,
-        date_from=d_from.isoformat() if d_from else None,
-        date_to=d_to.isoformat() if d_to else None,
-    )
-    pager = _paginate(list(rows))
+    검색은 검사이력(history.html) 등 4개 화면과 같은 공용 필터
+    (_list_search_params/_row_passes_search, _list_search.html)로 통일했다
+    (2026-09-08 — reuse-scout 점검 지적사항, 화면마다 검색 UI가 제각각이었음)."""
+    f = _list_search_params()
+    rows = [
+        r for r in db.list_intake_history()
+        if _row_passes_search(
+            f, supplier=r["supplier"] or "", product=r["product_name"] or "",
+            material=r["material_no"] or "", lot=r["po_number"] or "",
+            recv_date=r["receive_date"],
+        )
+    ]
+    pager = _paginate(rows)
 
     mats = db.get_materials()
     registered = {m["material_no"] for m in mats}
 
     return render_template("intake_history.html",
-                           pager=pager, query=query, search_by=search_by,
-                           date_from=date_from, date_to=date_to,
-                           registered=registered)
+                           pager=pager, f=f, registered=registered)
 
 
 @app.route("/intake-history/import", methods=["GET", "POST"])
@@ -2081,6 +2083,12 @@ def spec_import():
                     failures.append({"filename": f.filename, "reason": fail_reason})
                     continue
 
+                # 되돌리기 지원용 — replace_specs_for_material()이 기존 규격을 덮어쓰기
+                # 전에 "이 자재가 원래 있었는지"를 먼저 확인해둔다. 이미 있던 자재는
+                # 덮어써진 규격을 복원할 방법이 없어서(2026-09-08 사용자 확정) 되돌리기
+                # 대상에서 제외하고, 이번에 새로 생긴 자재만 되돌릴 수 있게 한다.
+                is_new = db.get_material(material_no) is None
+
                 item_warnings.extend(warnings)
                 db.replace_specs_for_material(material_no, material_name, items)
                 results.append({
@@ -2088,6 +2096,7 @@ def spec_import():
                     "material_name": material_name,
                     "item_count": len(items),
                     "filename": f.filename,
+                    "is_new": is_new,
                 })
 
         if results:
@@ -2096,10 +2105,29 @@ def spec_import():
                 material_list += " 외"
             record_change("자재 일괄 등록", "spec", None, f"{len(results)}개 자재 ({material_list})")
 
+        new_material_nos = [r["material_no"] for r in results if r["is_new"]]
         return render_template("spec_import_result.html",
-                               results=results, failures=failures, warnings=item_warnings)
+                               results=results, failures=failures, warnings=item_warnings,
+                               new_material_nos=new_material_nos)
 
     return render_template("spec_import.html")
+
+
+@app.route("/spec/import/undo", methods=["POST"])
+@perm_required("material_import")
+def spec_import_undo():
+    """방금 규격 일괄등록으로 새로 생긴 자재만 되돌린다(삭제). 이미 있던 자재를
+    덮어쓴 경우는 대상이 아니다 — 덮어써진 예전 규격을 복원할 방법이 없어서
+    (2026-09-08 사용자 확정) spec_import()가 새로 생긴 자재만 넘겨준다."""
+    material_nos = request.form.getlist("material_no[]")
+    if not material_nos:
+        flash("되돌릴 자재가 없어.")
+        return redirect(url_for("spec_list"))
+    db.delete_materials_bulk(material_nos)
+    record_change("규격 일괄등록 되돌리기", "spec", None,
+                  f"{len(material_nos)}개 자재 삭제 (일괄등록 취소): " + ", ".join(material_nos[:10]))
+    flash(f"{len(material_nos)}개 자재를 삭제했어(방금 일괄등록으로 새로 생긴 자재만).")
+    return redirect(url_for("spec_list"))
 
 
 @app.route("/intake/confirm-dups", methods=["GET", "POST"])

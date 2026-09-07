@@ -1,15 +1,18 @@
-{# 검사이력/불량이력/부적합통보서/반품처리 4개 목록 화면이 공통으로 쓰는 검색 폼.
-   사용: {% include "_list_search.html" %}  (호출부에서 f, result_options, status_options,
-   show_result, show_status를 미리 set 해두면 그대로 씀 — 기본은 전부 표시) #}
+{# 검사이력/불량이력/부적합통보서/반품처리/과거입고이력 5개 목록 화면이 공통으로 쓰는
+   검색 폼. 사용: {% include "_list_search.html" %}  (호출부에서 f, result_options,
+   status_options, show_result, show_status, show_inspector, show_lot을 미리 set 해두면
+   그대로 씀 — show_result/show_status/show_inspector 기본은 표시, show_lot 기본은 숨김) #}
 <details style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px 14px; margin-bottom:14px;"
-    {% if f and (f.q_inspector or f.q_supplier or f.q_product or f.q_material or f.f_result or f.f_status or f.insp_start or f.insp_end or f.recv_start or f.recv_end) %}open{% endif %}>
+    {% if f and (f.q_inspector or f.q_supplier or f.q_product or f.q_material or f.q_lot or f.f_result or f.f_status or f.insp_start or f.insp_end or f.recv_start or f.recv_end) %}open{% endif %}>
   <summary style="cursor:pointer; font-weight:600; color:#374151; font-size:14px;">🔎 검색</summary>
   <div>
     <form method="get" style="display:flex; flex-wrap:wrap; gap:10px 16px; align-items:flex-end; margin-top:10px;">
+      {% if show_inspector | default(true) %}
       <div>
         <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">검사자</label>
         <input type="text" name="q_inspector" value="{{ f.q_inspector }}" placeholder="이름" style="width:110px; padding:7px 8px; font-size:13px;">
       </div>
+      {% endif %}
       <div>
         <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">업체명</label>
         <input type="text" name="q_supplier" value="{{ f.q_supplier }}" placeholder="업체명" style="width:130px; padding:7px 8px; font-size:13px;">
@@ -22,6 +25,12 @@
         <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">자재번호</label>
         <input type="text" name="q_material" value="{{ f.q_material }}" placeholder="자재번호" style="width:130px; padding:7px 8px; font-size:13px;">
       </div>
+      {% if show_lot | default(false) %}
+      <div>
+        <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">발주번호</label>
+        <input type="text" name="q_lot" value="{{ f.q_lot }}" placeholder="발주번호" style="width:130px; padding:7px 8px; font-size:13px;">
+      </div>
+      {% endif %}
       {% if show_result | default(true) %}
       <div>
         <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">자동판정</label>
