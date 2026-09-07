@@ -4,21 +4,30 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}IQC 성적서 시스템{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;500;700;900&display=swap">
 <style>
+  /* 2026-09-08: 색상 팔레트를 채도 낮춘 톤으로 교체(태블릿 장시간 사용 시 눈피로 완화 목적,
+     사용자 직접 지시). 변수 이름은 그대로 두고 값만 바꿨다 — 진한 파랑(#2563eb)이던
+     --primary 값을 차분한 남색(#3D5A8A)으로. --pass/--fail/--pending 등 판정 의미
+     색상은 시스템 규칙이라 건드리지 않음. 아직 화면 곳곳에 하드코딩된 hex 색상(1,734곳,
+     60개 화면)은 이 변수를 안 쓰고 있어서 이번 교체로 안 바뀐다 — 그건 화면별로 순차
+     정리 예정(CLAUDE.md 참고). */
   :root {
-    --primary: #2563eb;
-    --primary-dark: #1e40af;
-    --bg: #f6f7fb;
-    --card: #ffffff;
-    --border: #e5e7eb;
-    --text: #1f2937;
+    --primary: #3D5A8A;
+    --primary-dark: #2F4670;
+    --bg: #ECEEF2;
+    --card: #F9F9F8;
+    --border: #DDE0E6;
+    --text: #2B3140;
     --muted: #6b7280;
     --pass: #16a34a;
     --fail: #dc2626;
     --pending: #d97706;
   }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, "Malgun Gothic", sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+  body { font-family: "Gothic A1", -apple-system, "Malgun Gothic", sans-serif; margin: 0; background: var(--bg); color: var(--text); }
   header { background: linear-gradient(135deg, #1f2937, #111827); color: #fff; padding: 16px 20px;
            display: flex; align-items: center; gap: 20px; flex-wrap: wrap; position: relative; z-index: 50; }
   header .logo { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
@@ -55,7 +64,7 @@
   input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #d1d5db;
                              border-radius: 8px; font-family: inherit; background: #fff; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary);
-                             box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+                             box-shadow: 0 0 0 3px rgba(61,90,138,.16); }
   label { font-weight: 600; font-size: 13px; color: #4b5563; display: block; margin: 14px 0 6px; }
   button, .btn { display: inline-block; padding: 12px 22px; background: var(--primary); color: #fff; border: none;
                  border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
