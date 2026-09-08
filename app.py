@@ -5611,6 +5611,8 @@ def ncr_new_manual():
         cc_recipient = request.form.get("cc_recipient", "").strip() or None
         special_note = request.form.get("special_note", "").strip() or None
         due_date = request.form.get("due_date", "").strip()
+        occurrence_type = request.form.get("occurrence_type", "입고검사")
+        defect_type = request.form.get("defect_type") or None
 
         if not defect_description or not issued_date:
             flash("발행일과 불량 내용은 필수야.")
@@ -5651,6 +5653,8 @@ def ncr_new_manual():
                 defect_qty=dqty,
                 special_note=special_note,
                 lot_qty=lqty,
+                occurrence_type=occurrence_type,
+                defect_type=defect_type,
             )
             created.append({"ncr_id": ncr_id, "ncr_no": ncr_no, "material_no": m_no, "supplier": sup})
 
@@ -5737,6 +5741,7 @@ def ncr_new(inspection_id):
     if request.method == "POST":
         sample_qty = request.form.get("sample_qty", "").strip() or None
         defect_qty = request.form.get("defect_qty", "").strip() or None
+        defect_type = request.form.get("defect_type") or None
         ncr_id, ncr_no = db.create_ncr(
             inspection_id=inspection_id,
             material_no=header["material_no"],
@@ -5752,6 +5757,8 @@ def ncr_new(inspection_id):
             defect_qty=int(defect_qty) if defect_qty and defect_qty.isdigit() else None,
             special_note=request.form.get("special_note", "").strip() or None,
             lot_qty=request.form.get("lot_qty", "").strip() or None,
+            occurrence_type='입고검사',
+            defect_type=defect_type,
         )
         record_change("부적합 통보서 발행", "ncr", ncr_id,
                       f"{ncr_no} — {header['material_no']} / {header['supplier']}")
@@ -6464,6 +6471,36 @@ def _resolve_period(period_type, start, end, preset=None):
 ROW_LIMIT_CHOICES = [20, 50, 100, 300, 0]   # 0 = 전체
 
 
+def _format_period_label(key, period_type):
+    """기간 키를 사람이 읽기 좋은 라벨로 변환."""
+    if not key:
+        return key
+    try:
+        if period_type == 'monthly' and len(key) == 7 and key[4] == '-':
+            # "2026-09" → "9월"
+            return str(int(key[5:])) + '월'
+        elif period_type == 'weekly' and 'W' in key:
+            # "2026-W36" → "36주차"
+            return key.split('W')[1] + '주차'
+        elif period_type == 'daily' and len(key) == 10:
+            # "2026-09-08" → "9/8"
+            parts = key.split('-')
+            return f"{int(parts[1])}/{int(parts[2])}"
+        elif period_type == 'quarterly' and 'Q' in key:
+            # "2026-Q3" → "3분기"
+            return key.split('Q')[1] + '분기'
+        elif period_type == 'half' and 'H' in key:
+            # "2026-H2" → "하반기" / "2026-H1" → "상반기"
+            h = key.split('H')[1]
+            return '상반기' if h == '1' else '하반기'
+        elif period_type == 'yearly':
+            # "2026" → "2026년"
+            return key + '년'
+    except (IndexError, ValueError):
+        pass
+    return key
+
+
 def _dashboard_params():
     """대시보드 필터를 URL 쿼리에서 읽어온다.
     업체·발주번호는 화면에서 여러 개 고를 수 있어서 getlist로 받는다(선택 칩 방식)."""
@@ -6543,6 +6580,51 @@ def quality_dashboard():
                            row_choices=ROW_LIMIT_CHOICES,
                            categories=db.list_material_categories(),
                            qs=_dashboard_query(p))
+
+
+@app.route("/dashboard/chart-data")
+@login_required
+def dashboard_chart_data():
+    """차트용 JSON 데이터 엔드포인트 — defect_history 또는 inspect_history 권한 필요."""
+    perms = set((g.user.get('permissions') or '').split(','))
+    if 'defect_history' not in perms and 'inspect_history' not in perms:
+        return jsonify({'error': 'forbidden'}), 403
+
+    p = _dashboard_params()
+    report = _build_quality_report(p)
+
+    periods = []
+    for entry in report.get('by_period', []):
+        key = entry.get('기간', '')
+        label = _format_period_label(key, p.get('period_type', 'monthly'))
+        periods.append({
+            'label': label,
+            'key': key,
+            '수량': entry.get('수량', 0),
+            '불합격수량': entry.get('불합격수량', 0),
+            '특채수량': entry.get('특채수량', 0),
+            '합격수량': entry.get('합격수량', 0),
+            '불량률': entry.get('불량률', 0.0),
+            '규격이탈률': entry.get('규격이탈률', 0.0),
+            'PPM': entry.get('PPM', 0),
+            '검사표본수': entry.get('검사표본수', 0),
+            'ncr_건수': entry.get('ncr_건수', 0),
+            '사후불량_건수': entry.get('사후불량_건수', 0),
+        })
+
+    defect_type_dist = [
+        {'label': k, 'value': v}
+        for k, v in report.get('불량유형별', {}).items()
+        if v > 0
+    ]
+
+    return jsonify({
+        'periods': periods,
+        'defect_type_dist': defect_type_dist,
+        'supplier_ncr_rank': report.get('supplier_ncr_rank', []),
+        'material_deviation_rank': report.get('material_deviation_rank', []),
+        'supplier_deviation_rank': report.get('supplier_deviation_rank', []),
+    })
 
 
 @app.route("/dashboard/export.json")
