@@ -52,6 +52,17 @@
     <label>참조 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택 — 예: 구매팀)</span></label>
     <input type="text" name="cc_recipient" placeholder="예: 구매팀">
 
+    <label>불량 유형 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+    <select name="defect_type">
+      <option value="">— 선택 안 함 —</option>
+      <option {% if ncr and ncr.defect_type == '치수불량' %}selected{% endif %}>치수불량</option>
+      <option {% if ncr and ncr.defect_type == '외관불량' %}selected{% endif %}>외관불량</option>
+      <option {% if ncr and ncr.defect_type == '기능불량' %}selected{% endif %}>기능불량</option>
+      <option {% if ncr and ncr.defect_type == '재질불량' %}selected{% endif %}>재질불량</option>
+      <option {% if ncr and ncr.defect_type == '수량불량' %}selected{% endif %}>수량불량</option>
+      <option {% if ncr and ncr.defect_type == '기타' %}selected{% endif %}>기타</option>
+    </select>
+
     <label>불량 내용 <span style="color:var(--fail);">*</span>
       {% if auto_defect_description %}
       <span style="color:#6b7280; font-weight:400; font-size:12px; margin-left:6px;">

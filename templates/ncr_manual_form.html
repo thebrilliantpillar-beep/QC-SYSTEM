@@ -127,6 +127,29 @@
     <label>참조 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택 — 예: 구매팀)</span></label>
     <input type="text" name="cc_recipient" placeholder="예: 구매팀">
 
+    <div style="margin-bottom:10px;">
+      <label style="margin-bottom:4px; display:block;">발생 시점 <span style="color:var(--fail);">*</span></label>
+      <div style="display:flex; gap:16px; align-items:center; margin-top:4px;">
+        <label style="display:flex; align-items:center; gap:6px; font-weight:400; cursor:pointer;">
+          <input type="radio" name="occurrence_type" value="입고검사" checked> 입고검사 중
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-weight:400; cursor:pointer;">
+          <input type="radio" name="occurrence_type" value="사후"> 사후 불량
+        </label>
+      </div>
+    </div>
+
+    <label>불량 유형 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+    <select name="defect_type">
+      <option value="">— 선택 안 함 —</option>
+      <option>치수불량</option>
+      <option>외관불량</option>
+      <option>기능불량</option>
+      <option>재질불량</option>
+      <option>수량불량</option>
+      <option>기타</option>
+    </select>
+
     <label>불량 내용 <span style="color:var(--fail);">*</span></label>
     <textarea name="defect_description" rows="4" required
               placeholder="예: 도금 두께 기준 미달 (기준 5㎛ 이상, 실측 3.2㎛) — 2026년 3월경 발생분"
