@@ -3,12 +3,12 @@
 {% block title %}품질 현황 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
+  /* ── 필터 ── */
   .f-row { display:flex; gap:9px; flex-wrap:wrap; align-items:flex-end; }
   .f-row > div { flex:1; min-width:130px; }
   .f-row label { font-size:12px; margin:0 0 5px; }
   .f-row input, .f-row select { margin:0; }
 
-  /* 선택한 업체·로트번호가 쌓이는 칩 */
   .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
   .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
           border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
@@ -25,30 +25,64 @@
   .state-chk input { width:auto; margin:0; }
   .state-chk.on { border-color:var(--primary); background:#eff6ff; color:var(--primary-dark); }
 
+  /* ── KPI ── */
   .kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:16px 0 6px; }
   @media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(3,1fr); } }
-  @media (max-width:640px){ .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
-  .kpi { background:#fff; border-radius:12px; padding:14px 13px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  @media (max-width:640px) { .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
+  .kpi { background:#fff; border-radius:12px; padding:14px 13px;
+         box-shadow:0 1px 3px rgba(0,0,0,.06);
+         transition:transform .2s, box-shadow .2s; cursor:default; }
+  .kpi:hover { transform:translateY(-3px); box-shadow:0 4px 12px rgba(0,0,0,.10); }
   .kpi .k-l { font-size:11.5px; color:var(--muted); font-weight:700; }
   .kpi .k-v { font-size:25px; font-weight:800; margin-top:5px; line-height:1.15; }
   .kpi .k-s { font-size:11.5px; color:#9ca3af; margin-top:3px; }
-  .k-v.bad { color:var(--fail); } .k-v.warn { color:#d97706; } .k-v.ok { color:#16a34a; }
+  .k-v.bad  { color:var(--fail); }
+  .k-v.warn { color:#d97706; }
+  .k-v.ok   { color:#16a34a; }
 
-  /* 접었다 펼 수 있는 구역 */
-  .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
-         margin-top:14px; overflow:hidden; }
-  .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex;
-                   align-items:center; gap:9px; font-size:14px; font-weight:800; color:#2B3140;
-                   user-select:none; }
-  .sec > summary::-webkit-details-marker { display:none; }
-  .sec > summary:hover { background:#F9F9F8; }
-  .sec .arrow { color:#9ca3af; font-size:12px; transition:transform .18s; margin-left:auto; }
-  .sec[open] .arrow { transform:rotate(90deg); }
-  .sec .sec-body { border-top:1px solid var(--border); padding:14px 16px; }
-  .sec .sec-count { font-size:12px; color:#9ca3af; font-weight:600; }
+  /* ── 패널 카드 ── */
+  .panel-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
+                padding:14px 16px; margin-top:14px; }
+  .panel-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .panel-title { font-size:14px; font-weight:800; color:#2B3140; }
 
+  /* Panel A 토글 뱃지 */
+  .toggle-row { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px; }
+  .toggle-badge { display:inline-flex; align-items:center; gap:4px; border-radius:6px;
+                  padding:3px 10px; font-size:11.5px; font-weight:700; cursor:pointer;
+                  border:1.5px solid rgba(0,0,0,.08); transition:opacity .15s; user-select:none; }
+  .toggle-badge.off { opacity:.35; }
+
+  /* B/C 그리드 */
+  .bc-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:14px; }
+  @media (max-width:900px){ .bc-grid{ grid-template-columns:1fr; } }
+  .bc-panel { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); padding:14px 16px; }
+  .sub-chart-block { margin-bottom:16px; }
+  .sub-chart-label { font-size:12px; font-weight:700; color:#6b7280; margin-bottom:6px; }
+
+  /* Skeleton shimmer */
+  @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+  .skeleton { border-radius:8px; background:#ECEEF2; overflow:hidden;
+              position:relative; margin-bottom:12px; }
+  .skeleton::after { content:''; position:absolute; inset:0;
+                     background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);
+                     animation:shimmer 1.4s infinite; }
+
+  /* 하단 탭 */
+  .tabs-section { margin-top:14px; }
+  .bottom-tabbar { display:flex; gap:6px; flex-wrap:wrap; }
+  .bottom-tabbar button { border:1px solid var(--border); background:#fff;
+                          border-radius:8px 8px 0 0; padding:7px 14px; font-size:12.5px;
+                          font-weight:700; cursor:pointer; margin:0; color:#4b5563; }
+  .bottom-tabbar button.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .tab-pane { display:none; background:#fff; border-radius:0 12px 12px 12px;
+              box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .tab-pane.on { display:block; }
+
+  /* 테이블 */
   .tbl-wrap { overflow-x:auto; }
-  .tbl-wrap table { width:100%; border-collapse:collapse; font-size:12.5px; margin:0; box-shadow:none; }
+  .tbl-wrap table { width:100%; border-collapse:collapse; font-size:12.5px; margin:0;
+                    box-shadow:none; overflow:visible; }
   .tbl-wrap th { background:#F9F9F8; text-align:left; padding:9px 11px; font-weight:700;
                  border-bottom:1px solid var(--border); white-space:nowrap; }
   .tbl-wrap td { padding:8px 11px; border-bottom:1px solid #ECEEF2; white-space:nowrap; text-align:left; }
@@ -57,12 +91,12 @@
   .num { text-align:right !important; font-variant-numeric:tabular-nums; }
 
   .rate-pill { display:inline-block; border-radius:6px; padding:2px 8px; font-weight:700; font-size:12px; }
-  .r-ok { background:#dcfce7; color:#166534; }
-  .r-warn { background:#fef3c7; color:#92400e; }
+  .r-ok  { background:#dcfce7; color:#166534; }
+  .r-warn{ background:#fef3c7; color:#92400e; }
   .r-bad { background:#fee2e2; color:#991b1b; }
   .r-mut { background:#ECEEF2; color:#6b7280; }
 
-  /* 팝업 */
+  /* 모달 */
   .modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9000;
               align-items:center; justify-content:center; padding:14px; }
   .modal-bg.open { display:flex; }
@@ -73,31 +107,43 @@
   .modal-title { font-weight:800; font-size:15px; }
   .modal-body { padding:0; overflow:auto; flex:1; }
   .modal-body iframe { width:100%; height:74vh; border:none; display:block; }
-  .tabbar { display:flex; gap:6px; padding:10px 17px 0; flex-wrap:wrap; }
-  .tabbar button { border:1px solid var(--border); background:#fff; border-radius:8px 8px 0 0;
-                   padding:7px 14px; font-size:12.5px; font-weight:700; cursor:pointer; margin:0; color:#4b5563; }
-  .tabbar button.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .modal-tabs { display:flex; gap:6px; padding:10px 17px 0; flex-wrap:wrap; }
+  .modal-tabs button { border:1px solid var(--border); background:#fff; border-radius:8px 8px 0 0;
+                       padding:7px 14px; font-size:12.5px; font-weight:700;
+                       cursor:pointer; margin:0; color:#4b5563; }
+  .modal-tabs button.on { background:var(--primary); color:#fff; border-color:var(--primary); }
   .empty { padding:34px; text-align:center; color:var(--muted); font-size:13.5px; }
 </style>
 
+{# Chart.js CDN — 반드시 인라인 스크립트보다 먼저 로드 #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
 <h2>📊 품질 현황</h2>
 
-{# ───────── 필터 ───────── #}
+{# ─────────────────────── 필터 카드 ─────────────────────── #}
 <div class="card">
   <form method="GET" id="filterForm">
     <div class="f-row">
       <div style="max-width:118px;">
         <label>기간 단위</label>
-        <select name="period">
+        <select name="period" id="periodSelect">
           {% for code, label in period_types %}
           <option value="{{ code }}" {% if p.period_type==code %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>
-      <div style="max-width:150px;"><label>시작일</label><input type="date" name="start" value="{{ p.start }}"></div>
-      <div style="max-width:150px;"><label>종료일</label><input type="date" name="end" value="{{ p.end }}"></div>
-      <div><label>자재번호 / 제품명</label>
-        <input type="text" name="material" value="{{ p.material }}" placeholder="일부만 입력해도 돼"></div>
+      <div style="max-width:150px;">
+        <label>시작일</label>
+        <input type="date" name="start" id="startInput" value="{{ p.start }}">
+      </div>
+      <div style="max-width:150px;">
+        <label>종료일</label>
+        <input type="date" name="end" id="endInput" value="{{ p.end }}">
+      </div>
+      <div>
+        <label>자재번호 / 제품명</label>
+        <input type="text" name="material" value="{{ p.material }}" placeholder="일부만 입력해도 돼">
+      </div>
       <div style="max-width:170px;">
         <label>자재 분류</label>
         <select name="category">
@@ -109,11 +155,12 @@
       </div>
     </div>
 
-    {# 업체 — 골라서 쌓는 방식 #}
+    {# 업체 칩 #}
     <div style="margin-top:13px;">
       <label style="margin:0 0 5px;">업체 <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span></label>
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
-        <input list="supList" id="supPick" placeholder="업체명 검색 후 선택" style="flex:1; min-width:180px;"
+        <input list="supList" id="supPick" placeholder="업체명 검색 후 선택"
+               style="flex:1; min-width:180px;"
                onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('supplier','supPick');}">
         <datalist id="supList">{% for s in suppliers %}<option value="{{ s['name'] }}">{% endfor %}</datalist>
         <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
@@ -122,14 +169,15 @@
       <div class="chip-box" id="chips-supplier"></div>
     </div>
 
-    {# 로트번호 #}
+    {# 로트번호 칩 #}
     <div style="margin-top:13px;">
       <label style="margin:0 0 5px;">
         {{ term('lot', '로트번호') }}
         <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span>
       </label>
       <div style="display:flex; gap:7px; flex-wrap:wrap;">
-        <input list="poList" id="poPick" placeholder="로트번호 검색 후 선택" style="flex:1; min-width:180px;"
+        <input list="poList" id="poPick" placeholder="로트번호 검색 후 선택"
+               style="flex:1; min-width:180px;"
                onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('po_number','poPick');}">
         <datalist id="poList">{% for po in po_options %}<option value="{{ po }}">{% endfor %}</datalist>
         <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
@@ -144,10 +192,12 @@
       <div class="state-row">
         {% for st in lot_states %}
         <label class="state-chk {% if st in p.states %}on{% endif %}">
-          <input type="checkbox" name="state" value="{{ st }}" {% if st in p.states %}checked{% endif %}
+          <input type="checkbox" name="state" value="{{ st }}"
+                 {% if st in p.states %}checked{% endif %}
                  onchange="this.closest('.state-chk').classList.toggle('on', this.checked)">
-          {{ st }}{% if st == '특채' %}{{ term('special') }}{% elif st == '미결' %}
-          <span class="muted" style="font-weight:400; font-size:11.5px;">(승인대기·반려)</span>{% endif %}
+          {{ st }}{% if st == '특채' %}{{ term('special') }}
+          {% elif st == '미결' %}<span class="muted" style="font-weight:400; font-size:11.5px;">(승인대기·반려)</span>
+          {% endif %}
         </label>
         {% endfor %}
       </div>
@@ -158,7 +208,9 @@
         <label>목록 표시 행수</label>
         <select name="rows">
           {% for n in row_choices %}
-          <option value="{{ n }}" {% if p.row_limit==n %}selected{% endif %}>{{ '전체' if n==0 else n ~ '행' }}</option>
+          <option value="{{ n }}" {% if p.row_limit==n %}selected{% endif %}>
+            {{ '전체' if n==0 else n ~ '행' }}
+          </option>
           {% endfor %}
         </select>
       </div>
@@ -193,6 +245,7 @@
 </div>
 {% else %}
 
+{# ─────────────────────── 핵심 요약 ─────────────────────── #}
 {% set h = highlights %}
 <div class="card" style="border-left:4px solid
     {{ '#dc2626' if h['톤']=='경고' else ('#d97706' if h['톤']=='주의' else ('#16a34a' if h['톤']=='양호' else '#9ca3af')) }};">
@@ -217,97 +270,142 @@
   {% endif %}
 </div>
 
-{# ───────── KPI ───────── #}
+{# ─────────────────────── KPI 카드 5개 ─────────────────────── #}
 <div class="kpi-grid">
   <div class="kpi">
+    <div class="k-l">검사 로트수</div>
+    <div class="k-v kpi-value" data-value="{{ s['로트'] }}">{{ s['로트'] }}</div>
+    <div class="k-s">입고 기준 로트</div>
+  </div>
+  <div class="kpi">
     <div class="k-l">입고 수량</div>
-    <div class="k-v">{{ "{:,}".format(s['수량']) }}</div>
-    <div class="k-s">{{ s['로트'] }}개 로트</div>
-  </div>
-  <div class="kpi">
-    <div class="k-l">검사 표본수 <span style="font-weight:400; font-size:10.5px; color:#9ca3af;">실측기준</span></div>
-    <div class="k-v">{{ "{:,}".format(s['검사표본수']) if s['검사표본수'] else '—' }}</div>
-    <div class="k-s">{% if s['표본불량률'] is not none %}표본불량 {{ s['표본불량수'] }}개 · {{ s['표본불량률'] }}%{% elif s['검사표본수'] %}불량비고 없음{% else %}비고 미기재{% endif %}</div>
-  </div>
-  <div class="kpi">
-    <div class="k-l">불합격 수량</div>
-    <div class="k-v {{ 'bad' if s['불합격수량'] else 'ok' }}">{{ "{:,}".format(s['불합격수량']) }}</div>
-    <div class="k-s">{{ s['불합격로트'] }}개 로트 · 특채 {{ "{:,}".format(s['특채수량']) }}</div>
+    <div class="k-v kpi-value" data-value="{{ s['수량'] }}">{{ "{:,}".format(s['수량']) }}</div>
+    <div class="k-s">{{ s['로트'] }}개 로트 합계</div>
   </div>
   <div class="kpi">
     <div class="k-l">불량률 {{ term('defect_rate') }}</div>
-    <div class="k-v {{ 'bad' if s['불량률'] >= 3 else ('warn' if s['불량률'] >= 1 else 'ok') }}">{{ s['불량률'] }}%</div>
-    <div class="k-s">규격이탈률 {{ s['규격이탈률'] }}% {{ term('deviation_rate') }}</div>
+    <div class="k-v kpi-value {{ 'bad' if s['불량률']>=3 else ('warn' if s['불량률']>=1 else 'ok') }}"
+         data-value="{{ s['불량률'] }}" data-suffix="%" data-decimals="1">{{ s['불량률'] }}%</div>
+    <div class="k-s">불합격 {{ "{:,}".format(s['불합격수량']) }}개 · {{ s['불합격로트'] }}로트</div>
   </div>
   <div class="kpi">
-    <div class="k-l">PPM {{ term('ppm') }}</div>
-    <div class="k-v {{ 'bad' if s['PPM'] >= 30000 else ('warn' if s['PPM'] >= 10000 else 'ok') }}">{{ "{:,}".format(s['PPM']) }}</div>
-    <div class="k-s">미결 {{ "{:,}".format(s['미결수량']) }} (분모 제외)</div>
+    <div class="k-l">규격이탈률 {{ term('deviation_rate') }}</div>
+    <div class="k-v kpi-value {{ 'warn' if s['규격이탈률']>0 else 'ok' }}"
+         data-value="{{ s['규격이탈률'] }}" data-suffix="%" data-decimals="1">{{ s['규격이탈률'] }}%</div>
+    <div class="k-s">특채 {{ "{:,}".format(s['특채수량']) }}개</div>
+  </div>
+  <div class="kpi">
+    <div class="k-l">NCR 건수 {{ term('ncr') }}</div>
+    <div class="k-v kpi-value {{ 'bad' if s['ncr_건수']>0 else 'ok' }}"
+         data-value="{{ s['ncr_건수'] }}">{{ s['ncr_건수'] }}</div>
+    <div class="k-s">사후불량 {{ s['사후불량_건수'] }}건 포함</div>
   </div>
 </div>
 <p class="muted" style="font-size:12px; margin:0 0 4px;">
-  ※ 불량률 = 불합격 확정 수량 ÷ 판정 확정 수량({{ "{:,}".format(s['확정수량']) }}). 승인 대기·반려 건은 분모에서 빠져.
+  ※ 불량률 = 불합격 확정 수량 ÷ 판정 확정 수량({{ "{:,}".format(s['확정수량']) }}).
+  승인 대기·반려 건은 분모에서 빠져.
 </p>
 
-{# ───────── 기간별 추이 ───────── #}
-<details class="sec" data-sec="trend">
-  <summary>📈 기간별 추이 <span class="sec-count">{{ report['기간별']|length }}구간</span><span class="arrow">▶</span></summary>
-  <div class="sec-body">
-    {% set periods = report['기간별'] %}
-    {% set maxq = periods | map(attribute='수량') | max %}
-    {% set maxr = periods | map(attribute='불량률') | max %}
-    {% set W = 60 * (periods|length if periods|length > 1 else 2) %}
-    <div style="overflow-x:auto;">
-    <svg viewBox="0 0 {{ W + 60 }} 230" style="width:100%; min-width:{{ W + 60 }}px; height:230px;">
-      {% for gy in range(0, 5) %}
-        {% set yy = 20 + gy * 40 %}
-        <line x1="42" y1="{{ yy }}" x2="{{ W + 50 }}" y2="{{ yy }}" stroke="#DDE0E6" stroke-width="1"/>
-        <text x="38" y="{{ yy + 4 }}" text-anchor="end" font-size="9" fill="#9ca3af">
-          {{ ((maxq or 1) * (4 - gy) / 4) | round | int }}
-        </text>
-      {% endfor %}
-      {% for pr in periods %}
-        {% set x = 50 + loop.index0 * 60 %}
-        {% set h = (pr['수량'] / (maxq or 1) * 160) | round | int %}
-        <rect x="{{ x }}" y="{{ 180 - h }}" width="30" height="{{ h if h > 0 else 1 }}"
-              fill="#bfdbfe" rx="3"><title>{{ pr['구간'] }} 검사 {{ pr['수량'] }}개</title></rect>
-        {% set fh = (pr['불합격수량'] / (maxq or 1) * 160) | round | int %}
-        {% if pr['불합격수량'] %}
-        <rect x="{{ x }}" y="{{ 180 - fh }}" width="30" height="{{ fh if fh > 0 else 2 }}"
-              fill="#dc2626" rx="3"><title>{{ pr['구간'] }} 불합격 {{ pr['불합격수량'] }}개</title></rect>
-        {% endif %}
-        <text x="{{ x + 15 }}" y="196" text-anchor="middle" font-size="9.5" fill="#6b7280">{{ pr['구간'] }}</text>
-        <text x="{{ x + 15 }}" y="209" text-anchor="middle" font-size="9.5" font-weight="700"
-              fill="{{ '#dc2626' if pr['불량률'] >= 1 else '#9ca3af' }}">{{ pr['불량률'] }}%</text>
-      {% endfor %}
-      {% if periods|length > 1 %}
-        <polyline fill="none" stroke="#f59e0b" stroke-width="2"
-          points="{% for pr in periods %}{{ 65 + loop.index0 * 60 }},{{ 180 - ((pr['불량률'] / (maxr if maxr > 0 else 1)) * 160) | round | int }} {% endfor %}"/>
-        {% for pr in periods %}
-        <circle cx="{{ 65 + loop.index0 * 60 }}"
-                cy="{{ 180 - ((pr['불량률'] / (maxr if maxr > 0 else 1)) * 160) | round | int }}"
-                r="3" fill="#f59e0b"><title>불량률 {{ pr['불량률'] }}%</title></circle>
-        {% endfor %}
-      {% endif %}
-    </svg>
+{# ─────────────────────── 패널 A: 기간별 추이 ─────────────────────── #}
+<div class="panel-card">
+  <div class="panel-hd">
+    <span class="panel-title">📈 기간별 추이</span>
+    <span style="font-size:12px; color:#9ca3af;">{{ report['기간별']|length }}구간</span>
+  </div>
+  <div class="toggle-row" id="panelAToggles"></div>
+  <div style="position:relative; height:280px;">
+    <canvas id="panelAChart"></canvas>
+  </div>
+</div>
+
+{# ─────────────────────── 패널 B/C 그리드 ─────────────────────── #}
+<div class="bc-grid">
+
+  {# 패널 B: 불량 분석 #}
+  <div class="bc-panel">
+    <div class="panel-title" style="margin-bottom:12px;">🔴 불량 분석</div>
+    <div id="panelBSkel">
+      <div class="skeleton" style="height:130px;"></div>
+      <div class="skeleton" style="height:130px;"></div>
+      <div class="skeleton" style="height:110px;"></div>
     </div>
-    <div style="font-size:11.5px; color:#6b7280; margin-top:6px;">
-      <span style="color:#bfdbfe;">■</span> 입고 수량
-      <span style="color:#dc2626; margin-left:9px;">■</span> 불합격 수량
-      <span style="color:#f59e0b; margin-left:9px;">●</span> 불량률(선)
+    <div id="panelBContent" style="opacity:0; transition:opacity .3s; display:none;">
+      <div class="sub-chart-block">
+        <div class="sub-chart-label">업체별 불량 순위</div>
+        <div style="position:relative; height:180px;"><canvas id="chartB1"></canvas></div>
+      </div>
+      <div class="sub-chart-block">
+        <div class="sub-chart-label">불량 유형 분포</div>
+        <div style="position:relative; height:160px;"><canvas id="chartB2"></canvas></div>
+      </div>
+      <div class="sub-chart-block" style="margin-bottom:0;">
+        <div class="sub-chart-label">NCR 건수 추이</div>
+        <div style="position:relative; height:140px;"><canvas id="chartB3"></canvas></div>
+      </div>
     </div>
   </div>
-</details>
 
-{# ───────── 업체별 ───────── #}
-<details class="sec" data-sec="supplier">
-  <summary>🏭 업체별 <span class="sec-count">{{ report['업체별']|length }}개 업체</span><span class="arrow">▶</span></summary>
-  <div class="sec-body" style="padding:0;">
+  {# 패널 C: 규격이탈 분석 #}
+  <div class="bc-panel">
+    <div class="panel-title" style="margin-bottom:12px;">🟡 규격이탈 분석</div>
+    <div id="panelCSkel">
+      <div class="skeleton" style="height:130px;"></div>
+      <div class="skeleton" style="height:130px;"></div>
+      <div class="skeleton" style="height:110px;"></div>
+    </div>
+    <div id="panelCContent" style="opacity:0; transition:opacity .3s; display:none;">
+      <div class="sub-chart-block">
+        <div class="sub-chart-label">이탈 자재 순위</div>
+        <div style="position:relative; height:180px;"><canvas id="chartC1"></canvas></div>
+      </div>
+      <div class="sub-chart-block">
+        <div class="sub-chart-label">이탈 업체 순위</div>
+        <div style="position:relative; height:160px;"><canvas id="chartC2"></canvas></div>
+      </div>
+      <div class="sub-chart-block" style="margin-bottom:0;">
+        <div class="sub-chart-label">규격이탈 추이</div>
+        <div style="position:relative; height:140px;"><canvas id="chartC3"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ─────────────────────── 하단 탭 ─────────────────────── #}
+<div class="tabs-section">
+  <div class="bottom-tabbar" id="bottomTabBar">
+    <button class="on" data-tab="supplier" onclick="switchTab('supplier')">
+      🏭 업체별 ({{ report['업체별']|length }})
+    </button>
+    <button data-tab="material" onclick="switchTab('material')">
+      📦 자재별 ({{ report['자재별']|length }})
+    </button>
+    {% if report['불량항목순위'] %}
+    <button data-tab="items" onclick="switchTab('items')">
+      🔧 불량 항목 ({{ report['불량항목순위']|length }})
+    </button>
+    {% endif %}
+    {% if report['변경점'] %}
+    <button data-tab="cp" onclick="switchTab('cp')">
+      🔀 {{ term('4m', '4M 변경점') }} ({{ report['변경점']|length }})
+    </button>
+    {% endif %}
+    {% if report['소요시간']['측정건수'] %}
+    <button data-tab="time" onclick="switchTab('time')">⏱️ 소요시간</button>
+    {% endif %}
+    <button data-tab="list" onclick="switchTab('list')">
+      📋 성적서 ({{ report['성적서목록']|length }})
+    </button>
+  </div>
+
+  {# 업체별 탭 #}
+  <div class="tab-pane on" id="tab-supplier">
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>업체</th><th class="num">로트</th><th class="num">입고수량</th><th class="num">검사표본수</th>
-          <th class="num">불합격</th><th class="num">특채</th><th class="num">불량률</th><th class="num">PPM</th>
+          <th>업체</th><th class="num">로트</th><th class="num">입고수량</th>
+          <th class="num">검사표본수</th><th class="num">불합격</th><th class="num">특채</th>
+          <th class="num">불량률</th><th class="num">PPM</th>
         </tr></thead>
         <tbody>
         {% for r in report['업체별'] %}
@@ -315,10 +413,18 @@
           <td><b>{{ r['업체'] }}</b></td>
           <td class="num">{{ r['로트'] }}</td>
           <td class="num">{{ "{:,}".format(r['수량']) }}</td>
-          <td class="num" style="color:#6366f1;">{{ "{:,}".format(r['검사표본수']) if r['검사표본수'] else '—' }}</td>
-          <td class="num" style="color:{{ '#dc2626' if r['불합격수량'] else '#9ca3af' }};">{{ "{:,}".format(r['불합격수량']) }}</td>
+          <td class="num" style="color:#6366f1;">
+            {{ "{:,}".format(r['검사표본수']) if r['검사표본수'] else '—' }}
+          </td>
+          <td class="num" style="color:{{ '#dc2626' if r['불합격수량'] else '#9ca3af' }};">
+            {{ "{:,}".format(r['불합격수량']) }}
+          </td>
           <td class="num">{{ "{:,}".format(r['특채수량']) }}</td>
-          <td class="num"><span class="rate-pill {{ 'r-bad' if r['불량률']>=3 else ('r-warn' if r['불량률']>=1 else 'r-ok') }}">{{ r['불량률'] }}%</span></td>
+          <td class="num">
+            <span class="rate-pill {{ 'r-bad' if r['불량률']>=3 else ('r-warn' if r['불량률']>=1 else 'r-ok') }}">
+              {{ r['불량률'] }}%
+            </span>
+          </td>
           <td class="num">{{ "{:,}".format(r['PPM']) }}</td>
         </tr>
         {% endfor %}
@@ -326,20 +432,15 @@
       </table>
     </div>
   </div>
-</details>
 
-{# ───────── 자재별 ───────── #}
-{% set mat_rows = report['자재별'] if p.row_limit == 0 else report['자재별'][:p.row_limit] %}
-<details class="sec" data-sec="material">
-  <summary>📦 자재별
-    <span class="sec-count">{{ mat_rows|length }}/{{ report['자재별']|length }} · 행을 누르면 상세</span>
-    <span class="arrow">▶</span></summary>
-  <div class="sec-body" style="padding:0;">
+  {# 자재별 탭 #}
+  {% set mat_rows = report['자재별'] if p.row_limit==0 else report['자재별'][:p.row_limit] %}
+  <div class="tab-pane" id="tab-material">
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>자재번호</th><th>자재명</th><th class="num">로트</th><th class="num">입고수량</th><th class="num">검사표본수</th>
-          <th class="num">불합격</th><th class="num">불량률</th><th></th>
+          <th>자재번호</th><th>자재명</th><th class="num">로트</th><th class="num">입고수량</th>
+          <th class="num">검사표본수</th><th class="num">불합격</th><th class="num">불량률</th><th></th>
         </tr></thead>
         <tbody>
         {% for r in mat_rows %}
@@ -348,9 +449,17 @@
           <td style="white-space:normal;">{{ r['자재명'] or '-' }}</td>
           <td class="num">{{ r['로트'] }}</td>
           <td class="num">{{ "{:,}".format(r['수량']) }}</td>
-          <td class="num" style="color:#6366f1;">{{ "{:,}".format(r['검사표본수']) if r['검사표본수'] else '—' }}</td>
-          <td class="num" style="color:{{ '#dc2626' if r['불합격수량'] else '#9ca3af' }};">{{ "{:,}".format(r['불합격수량']) }}</td>
-          <td class="num"><span class="rate-pill {{ 'r-bad' if r['불량률']>=3 else ('r-warn' if r['불량률']>=1 else 'r-ok') }}">{{ r['불량률'] }}%</span></td>
+          <td class="num" style="color:#6366f1;">
+            {{ "{:,}".format(r['검사표본수']) if r['검사표본수'] else '—' }}
+          </td>
+          <td class="num" style="color:{{ '#dc2626' if r['불합격수량'] else '#9ca3af' }};">
+            {{ "{:,}".format(r['불합격수량']) }}
+          </td>
+          <td class="num">
+            <span class="rate-pill {{ 'r-bad' if r['불량률']>=3 else ('r-warn' if r['불량률']>=1 else 'r-ok') }}">
+              {{ r['불량률'] }}%
+            </span>
+          </td>
           <td style="color:var(--primary); font-size:12px;">상세 →</td>
         </tr>
         {% endfor %}
@@ -358,71 +467,77 @@
       </table>
     </div>
   </div>
-</details>
 
-{# ───────── 불량 항목 ───────── #}
-{% if report['불량항목순위'] %}
-{% set item_rows = report['불량항목순위'] if p.row_limit == 0 else report['불량항목순위'][:p.row_limit] %}
-<details class="sec" data-sec="items">
-  <summary>🔧 불량 많이 나는 항목
-    <span class="sec-count">{{ item_rows|length }}/{{ report['불량항목순위']|length }}</span><span class="arrow">▶</span></summary>
-  <div class="sec-body" style="padding:0;">
+  {# 불량 항목 탭 #}
+  {% if report['불량항목순위'] %}
+  {% set item_rows = report['불량항목순위'] if p.row_limit==0 else report['불량항목순위'][:p.row_limit] %}
+  <div class="tab-pane" id="tab-items">
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>자재번호</th><th>항목</th><th>규격</th><th class="num">발생</th><th>업체</th></tr></thead>
+        <thead><tr>
+          <th>자재번호</th><th>항목</th><th>규격</th><th class="num">발생</th><th>업체</th>
+        </tr></thead>
         <tbody>
         {% for r in item_rows %}
-        <tr><td>{{ r['자재번호'] }}</td><td>{{ r['항목'] }}</td>
-            <td style="white-space:normal;">{{ r['규격'] or '-' }}</td>
-            <td class="num" style="font-weight:700; color:#dc2626;">{{ r['발생건수'] }}</td>
-            <td>{{ r['업체'] or '-' }}</td></tr>
+        <tr>
+          <td>{{ r['자재번호'] }}</td>
+          <td>{{ r['항목'] }}</td>
+          <td style="white-space:normal;">{{ r['규격'] or '-' }}</td>
+          <td class="num" style="font-weight:700; color:#dc2626;">{{ r['발생건수'] }}</td>
+          <td>{{ r['업체'] or '-' }}</td>
+        </tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
-</details>
-{% endif %}
+  {% endif %}
 
-{# ───────── 4M 변경점 ───────── #}
-{% if report['변경점'] %}
-<details class="sec" data-sec="cp">
-  <summary>🔀 이 기간의 {{ term('4m', '4M 변경점') }}
-    <span class="sec-count">{{ report['변경점']|length }}건 · 불량률 변화의 원인 후보</span><span class="arrow">▶</span></summary>
-  <div class="sec-body" style="padding:0;">
+  {# 4M 변경점 탭 #}
+  {% if report['변경점'] %}
+  <div class="tab-pane" id="tab-cp">
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>변경일</th><th>업체</th><th>구분</th><th>자재</th><th>내용</th></tr></thead>
+        <thead><tr>
+          <th>변경일</th><th>업체</th><th>구분</th><th>자재</th><th>내용</th>
+        </tr></thead>
         <tbody>
         {% for c in report['변경점'] %}
-        <tr><td>{{ c['change_date'] | date_korean }}</td><td>{{ c['supplier'] }}</td>
-            <td>{{ c['change_type'] }}</td><td>{{ c['material_no'] or '업체 전체' }}</td>
-            <td style="white-space:normal;">{{ c['description'] or '-' }}</td></tr>
+        <tr>
+          <td>{{ c['change_date'] | date_korean }}</td>
+          <td>{{ c['supplier'] }}</td>
+          <td>{{ c['change_type'] }}</td>
+          <td>{{ c['material_no'] or '업체 전체' }}</td>
+          <td style="white-space:normal;">{{ c['description'] or '-' }}</td>
+        </tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
-</details>
-{% endif %}
+  {% endif %}
 
-{# ───────── 소요시간 ───────── #}
-{% set t = report['소요시간'] %}
-{% if t['측정건수'] %}
-<details class="sec" data-sec="time">
-  <summary>⏱️ 검사 소요시간 <span class="sec-count">{{ t['측정건수'] }}건 · 인력 산정 근거</span><span class="arrow">▶</span></summary>
-  <div class="sec-body" style="padding:0;">
+  {# 소요시간 탭 #}
+  {% set t = report['소요시간'] %}
+  {% if t['측정건수'] %}
+  <div class="tab-pane" id="tab-time">
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>검사자</th><th class="num">건수</th><th class="num">총 시간</th><th class="num">건당 평균</th></tr></thead>
+        <thead><tr>
+          <th>검사자</th><th class="num">건수</th><th class="num">총 시간</th><th class="num">건당 평균</th>
+        </tr></thead>
         <tbody>
         {% for pp in t['인원별'] %}
-        <tr><td><b>{{ pp['검사자'] }}</b></td><td class="num">{{ pp['건수'] }}</td>
-            <td class="num">{{ (pp['총초'] // 60) }}분</td>
-            <td class="num">{{ '%.1f'|format(pp['평균초'] / 60) }}분</td></tr>
+        <tr>
+          <td><b>{{ pp['검사자'] }}</b></td>
+          <td class="num">{{ pp['건수'] }}</td>
+          <td class="num">{{ (pp['총초'] // 60) }}분</td>
+          <td class="num">{{ '%.1f'|format(pp['평균초'] / 60) }}분</td>
+        </tr>
         {% endfor %}
         <tr style="background:#F9F9F8; font-weight:700;">
-          <td>전체</td><td class="num">{{ t['측정건수'] }}</td>
+          <td>전체</td>
+          <td class="num">{{ t['측정건수'] }}</td>
           <td class="num">{{ (t['총초'] // 60) }}분</td>
           <td class="num">{{ '%.1f'|format(t['평균초'] / 60) }}분</td>
         </tr>
@@ -430,16 +545,11 @@
       </table>
     </div>
   </div>
-</details>
-{% endif %}
+  {% endif %}
 
-{# ───────── 성적서 목록 ───────── #}
-{% set insp_rows = report['성적서목록'] if p.row_limit == 0 else report['성적서목록'][:p.row_limit] %}
-<details class="sec" data-sec="list">
-  <summary>📋 성적서
-    <span class="sec-count">{{ insp_rows|length }}/{{ report['성적서목록']|length }} · 행을 누르면 팝업</span>
-    <span class="arrow">▶</span></summary>
-  <div class="sec-body" style="padding:0;">
+  {# 성적서 탭 #}
+  {% set insp_rows = report['성적서목록'] if p.row_limit==0 else report['성적서목록'][:p.row_limit] %}
+  <div class="tab-pane" id="tab-list">
     <div class="tbl-wrap">
       <table>
         <thead><tr>
@@ -457,11 +567,17 @@
           <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
           <td>{{ r['overall_result'] or '-' }}</td>
           <td>
-            {% if r['status'] == 'approved' and r['approval_type'] == 'failed' %}<span class="rate-pill r-bad">불합격</span>
-            {% elif r['status'] == 'approved' and r['approval_type'] == 'special' %}<span class="rate-pill r-warn">특채</span>
-            {% elif r['status'] == 'approved' %}<span class="rate-pill r-ok">합격</span>
-            {% elif r['status'] == 'rejected' %}<span class="rate-pill r-warn">반려</span>
-            {% else %}<span class="rate-pill r-mut">대기</span>{% endif %}
+            {% if r['status']=='approved' and r['approval_type']=='failed' %}
+              <span class="rate-pill r-bad">불합격</span>
+            {% elif r['status']=='approved' and r['approval_type']=='special' %}
+              <span class="rate-pill r-warn">특채</span>
+            {% elif r['status']=='approved' %}
+              <span class="rate-pill r-ok">합격</span>
+            {% elif r['status']=='rejected' %}
+              <span class="rate-pill r-warn">반려</span>
+            {% else %}
+              <span class="rate-pill r-mut">대기</span>
+            {% endif %}
           </td>
           <td style="color:var(--primary); font-size:12px;">보기 →</td>
         </tr>
@@ -476,11 +592,12 @@
     </p>
     {% endif %}
   </div>
-</details>
 
-{% endif %}
+</div>{# /.tabs-section #}
 
-{# ───────── 팝업 ───────── #}
+{% endif %}{# /if 로트 > 0 #}
+
+{# ─────────────────────── 팝업 모달 ─────────────────────── #}
 <div class="modal-bg" id="modal" onclick="if(event.target===this) closeModal()">
   <div class="modal-box">
     <div class="modal-head">
@@ -488,14 +605,16 @@
       <button type="button" onclick="closeModal()"
               style="background:none; border:none; font-size:22px; cursor:pointer; color:#6b7280; margin:0; padding:0 4px;">✕</button>
     </div>
-    <div class="tabbar" id="modalTabs"></div>
+    <div class="modal-tabs" id="modalTabs"></div>
     <div class="modal-body" id="modalBody"></div>
   </div>
 </div>
 
 <script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
 <script>
-/* ───────── 선택 칩 (업체 / 로트번호) ───────── */
+/* ══════════════════════════════════════════════
+   선택 칩 (업체 / 로트번호)
+══════════════════════════════════════════════ */
 var CHIPS = {
   supplier:  {{ p.suppliers  | tojson }},
   po_number: {{ p.po_numbers | tojson }}
@@ -509,15 +628,16 @@ function renderChips(name) {
     box.innerHTML = '<span class="chip-empty">선택 안 함 — 전체 ' + CHIP_LABEL[name] + '</span>';
     return;
   }
-  CHIPS[name].forEach(function (val, i) {
+  CHIPS[name].forEach(function(val, i) {
     var chip = document.createElement('span');
     chip.className = 'chip';
     chip.appendChild(document.createTextNode(val));
     var x = document.createElement('button');
     x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
-    x.onclick = function () { CHIPS[name].splice(i, 1); renderChips(name); };
+    x.onclick = (function(idx) {
+      return function() { CHIPS[name].splice(idx, 1); renderChips(name); };
+    })(i);
     chip.appendChild(x);
-    // 폼 제출 때 같이 넘어가도록 hidden 으로 심는다
     var hidden = document.createElement('input');
     hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
     chip.appendChild(hidden);
@@ -534,7 +654,6 @@ function addChip(name, inputId) {
   renderChips(name);
 }
 
-/* 업체별 표에서 행을 누르면 그 업체를 칩으로 추가하고 바로 조회 */
 function pickSupplier(name) {
   if (CHIPS.supplier.indexOf(name) === -1) CHIPS.supplier.push(name);
   renderChips('supplier');
@@ -544,73 +663,480 @@ function pickSupplier(name) {
 renderChips('supplier');
 renderChips('po_number');
 
-/* ───────── 구역 접기/펼치기 상태 기억 ───────── */
-CollapsibleSections.init('details.sec', 'dash-sec-');
+/* ══════════════════════════════════════════════
+   기간단위 → 날짜 자동입력
+══════════════════════════════════════════════ */
+function _fmt(d) { return d.toISOString().slice(0, 10); }
+var PERIOD_RANGES = {
+  daily:     function() { var d = new Date(); return [d, d]; },
+  weekly:    function() {
+    var d = new Date(), mon = new Date(d);
+    mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return [mon, d];
+  },
+  monthly:   function() { var d = new Date(); return [new Date(d.getFullYear(), d.getMonth(), 1), d]; },
+  quarterly: function() {
+    var d = new Date(), q = Math.floor(d.getMonth() / 3);
+    return [new Date(d.getFullYear(), q * 3, 1), d];
+  },
+  half:      function() {
+    var d = new Date(), h = d.getMonth() < 6 ? 0 : 6;
+    return [new Date(d.getFullYear(), h, 1), d];
+  },
+  yearly:    function() { var d = new Date(); return [new Date(d.getFullYear(), 0, 1), d]; },
+};
+document.getElementById('periodSelect').addEventListener('change', function() {
+  var fn = PERIOD_RANGES[this.value];
+  if (!fn) return;
+  var range = fn();
+  document.getElementById('startInput').value = _fmt(range[0]);
+  document.getElementById('endInput').value   = _fmt(range[1]);
+});
 
-/* ───────── 상세 팝업 ───────── */
-var modal = document.getElementById('modal');
-var mTitle = document.getElementById('modalTitle');
-var mTabs  = document.getElementById('modalTabs');
-var mBody  = document.getElementById('modalBody');
+/* ══════════════════════════════════════════════
+   KPI 카운트업 애니메이션 (DOMContentLoaded)
+══════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', function() {
+  var kpis = document.querySelectorAll('.kpi-value');
+  kpis.forEach(function(el) {
+    var target   = parseFloat(el.getAttribute('data-value')) || 0;
+    var suffix   = el.getAttribute('data-suffix') || '';
+    var decimals = parseInt(el.getAttribute('data-decimals') || '0', 10);
+    var start    = performance.now();
+    var duration = 900;
 
-function closeModal() { modal.classList.remove('open'); mBody.innerHTML = ''; mTabs.innerHTML = ''; }
-document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+    function tick(now) {
+      var elapsed = Math.min(now - start, duration);
+      var t       = elapsed / duration;
+      var ease    = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      var val     = target * ease;
+      if (decimals > 0) {
+        el.textContent = val.toFixed(decimals) + suffix;
+      } else {
+        var rounded = Math.round(val);
+        el.textContent = (target > 999)
+          ? rounded.toLocaleString() + suffix
+          : rounded + suffix;
+      }
+      if (t < 1) requestAnimationFrame(tick);
+      else {
+        // 최종값 정확히 표시
+        if (decimals > 0) el.textContent = target.toFixed(decimals) + suffix;
+        else el.textContent = (target > 999) ? Math.round(target).toLocaleString() + suffix : Math.round(target) + suffix;
+      }
+    }
+    requestAnimationFrame(tick);
+  });
+});
+
+/* ══════════════════════════════════════════════
+   하단 탭 전환
+══════════════════════════════════════════════ */
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('on'); });
+  var tp = document.getElementById('tab-' + name);
+  if (tp) tp.classList.add('on');
+  document.querySelectorAll('#bottomTabBar button').forEach(function(b) {
+    b.classList.toggle('on', b.dataset.tab === name);
+  });
+  try { localStorage.setItem('dash-active-tab', name); } catch(e) {}
+}
+(function() {
+  var saved = null;
+  try { saved = localStorage.getItem('dash-active-tab'); } catch(e) {}
+  if (saved && document.getElementById('tab-' + saved)) switchTab(saved);
+})();
+
+/* ══════════════════════════════════════════════
+   기간 라벨 포맷 (서버 _format_period_label 과 동일 로직)
+══════════════════════════════════════════════ */
+function formatPeriodLabel(key, periodType) {
+  try {
+    if (periodType === 'monthly' && key.length === 7) return parseInt(key.slice(5)) + '월';
+    if (periodType === 'weekly'  && key.indexOf('W') !== -1) return key.split('W')[1] + '주차';
+    if (periodType === 'daily'   && key.length === 10) {
+      var p = key.split('-'); return parseInt(p[1]) + '/' + parseInt(p[2]);
+    }
+    if (periodType === 'quarterly' && key.indexOf('Q') !== -1) return key.split('Q')[1] + '분기';
+    if (periodType === 'half'      && key.indexOf('H') !== -1) {
+      return key.split('H')[1] === '1' ? '상반기' : '하반기';
+    }
+    if (periodType === 'yearly') return key + '년';
+  } catch(e) {}
+  return key;
+}
+
+/* ══════════════════════════════════════════════
+   패널 A — 기간별 추이 Mixed 차트 (서버사이드 데이터)
+══════════════════════════════════════════════ */
+var _PT  = {{ p.period_type | tojson }};         // 기간단위
+var _RAW = {{ report['기간별'] | tojson }};       // 기간별 리스트 (구간, 수량, ...)
+
+var _HIDDEN_KEY = 'dashboard_panel_a_hidden';
+var _savedHidden = null;
+try { var _sh = localStorage.getItem(_HIDDEN_KEY); _savedHidden = _sh ? JSON.parse(_sh) : null; } catch(e) {}
+// 기본 숨김: 3(합격수량), 6(PPM), 7(검사표본수)
+var _hiddenSet = new Set(_savedHidden !== null ? _savedHidden : [3, 6, 7]);
+
+var _paLabels = _RAW.map(function(d) { return formatPeriodLabel(d['구간'] || '', _PT); });
+
+// 데이터셋 정의 (index 순서 고정 — 토글 뱃지와 1:1 대응)
+var _PA_DS_DEFS = [
+  { label:'입고 수량',    type:'bar',  yAxisID:'y',    key:'수량',        color:'#bfdbfe', textColor:'#1e3a8a' },
+  { label:'불합격 수량',  type:'bar',  yAxisID:'y',    key:'불합격수량',  color:'#fca5a5', textColor:'#991b1b' },
+  { label:'특채 수량',    type:'bar',  yAxisID:'y',    key:'특채수량',    color:'#fed7aa', textColor:'#92400e' },
+  { label:'합격 수량',    type:'bar',  yAxisID:'y',    key:'합격수량',    color:'#bbf7d0', textColor:'#166534' },
+  { label:'불량률 %',     type:'line', yAxisID:'yPct', key:'불량률',      color:'#dc2626', textColor:'#fff' },
+  { label:'규격이탈률 %', type:'line', yAxisID:'yPct', key:'규격이탈률',  color:'#f59e0b', textColor:'#fff', dash:[6,3] },
+  { label:'PPM',          type:'line', yAxisID:'yPpm', key:'PPM',         color:'#a78bfa', textColor:'#fff' },
+  { label:'검사 표본수',  type:'bar',  yAxisID:'y',    key:'검사표본수',  color:'#e5e7eb', textColor:'#374151' },
+];
+
+var _paDatasets = _PA_DS_DEFS.map(function(def, i) {
+  var data = _RAW.map(function(d) { return (d[def.key] !== undefined && d[def.key] !== null) ? d[def.key] : 0; });
+  var ds = {
+    label:    def.label,
+    type:     def.type,
+    yAxisID:  def.yAxisID,
+    data:     data,
+    hidden:   _hiddenSet.has(i),
+    backgroundColor: def.color,
+  };
+  if (def.type === 'line') {
+    ds.borderColor        = def.color;
+    ds.pointBackgroundColor = def.color;
+    ds.fill               = false;
+    ds.tension            = 0.3;
+    ds.pointRadius        = 3;
+    if (def.dash) ds.borderDash = def.dash;
+  }
+  return ds;
+});
+
+var _paChart = null;
+(function() {
+  var ctx = document.getElementById('panelAChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  _paChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: _paLabels, datasets: _paDatasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: {
+          type: 'linear', position: 'left', stacked: false, beginAtZero: true,
+          title: { display: true, text: '수량', font: { size: 11 } },
+        },
+        yPct: {
+          type: 'linear', position: 'right', beginAtZero: true,
+          title: { display: true, text: '%', font: { size: 11 } },
+          grid: { drawOnChartArea: false },
+        },
+        yPpm: {
+          type: 'linear', position: 'right', beginAtZero: true,
+          display: !_hiddenSet.has(6),
+          title: { display: false },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+  _buildPAToggles();
+})();
+
+function _buildPAToggles() {
+  var container = document.getElementById('panelAToggles');
+  if (!container) return;
+  container.innerHTML = '';
+  _PA_DS_DEFS.forEach(function(def, i) {
+    var badge = document.createElement('span');
+    badge.className = 'toggle-badge' + (_hiddenSet.has(i) ? ' off' : '');
+    badge.style.background  = def.color;
+    badge.style.color       = def.textColor;
+    badge.style.borderColor = def.color;
+    badge.textContent       = def.label;
+    badge.onclick = (function(idx) {
+      return function() {
+        if (!_paChart) return;
+        var isVisible = _paChart.isDatasetVisible(idx);
+        _paChart.setDatasetVisibility(idx, !isVisible);
+        badge.classList.toggle('off', isVisible); // isVisible=true → 이제 숨김 → off 추가
+        if (isVisible) { _hiddenSet.add(idx); } else { _hiddenSet.delete(idx); }
+        try { localStorage.setItem(_HIDDEN_KEY, JSON.stringify(Array.from(_hiddenSet))); } catch(e) {}
+        // PPM 전용 축 가시성
+        _paChart.options.scales.yPpm.display = _paChart.isDatasetVisible(6);
+        _paChart.update('active');
+      };
+    })(i);
+    container.appendChild(badge);
+  });
+}
+
+/* ══════════════════════════════════════════════
+   패널 B/C — /dashboard/chart-data fetch
+══════════════════════════════════════════════ */
+(function() {
+  var url = '/dashboard/chart-data' + location.search;
+  fetch(url)
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data) {
+      _initPanelB(data);
+      _initPanelC(data);
+      // 스켈레톤 숨기고 컨텐츠 페이드인
+      ['panelBSkel', 'panelCSkel'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+      ['panelBContent', 'panelCContent'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.style.display = '';
+        requestAnimationFrame(function() { el.style.opacity = '1'; });
+      });
+    })
+    .catch(function(err) {
+      console.warn('chart-data fetch 실패:', err);
+      ['panelBSkel', 'panelCSkel'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = '<p style="padding:16px; color:#9ca3af; font-size:13px; text-align:center;">차트 데이터를 불러오지 못했어.</p>';
+      });
+    });
+})();
+
+function _initPanelB(data) {
+  var periods = data.periods || [];
+  var pLabels = periods.map(function(p) { return p.label || p.key || ''; });
+
+  // B1: 업체별 불량 순위 (가로 막대)
+  var rank = (data.supplier_ncr_rank || []).slice(0, 8).reverse();
+  var b1ctx = document.getElementById('chartB1');
+  if (b1ctx && rank.length) {
+    new Chart(b1ctx, {
+      type: 'bar',
+      data: {
+        labels: rank.map(function(r) { return r.name || r['업체'] || ''; }),
+        datasets: [
+          { label: '불합격수량', data: rank.map(function(r) { return r['불합격수량'] || 0; }), backgroundColor: '#fca5a5' },
+          { label: 'NCR건수',   data: rank.map(function(r) { return r['ncr_건수']    || 0; }), backgroundColor: '#fb923c' },
+        ],
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        scales: {
+          x: { beginAtZero: true },
+          y: { ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+  } else if (b1ctx) {
+    b1ctx.parentElement.innerHTML = '<p style="text-align:center; color:#9ca3af; font-size:12px; padding:20px 0;">데이터 없음</p>';
+  }
+
+  // B2: 불량 유형 분포 (도넛)
+  var dist    = data.defect_type_dist || [];
+  var palette = ['#fca5a5', '#fed7aa', '#fde68a', '#bbf7d0', '#bfdbfe', '#e9d5ff'];
+  var b2ctx   = document.getElementById('chartB2');
+  if (b2ctx && dist.length) {
+    new Chart(b2ctx, {
+      type: 'doughnut',
+      data: {
+        labels:   dist.map(function(d) { return d.label; }),
+        datasets: [{ data: dist.map(function(d) { return d.value; }), backgroundColor: palette }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+        },
+      },
+    });
+  } else if (b2ctx) {
+    b2ctx.parentElement.innerHTML = '<p style="text-align:center; color:#9ca3af; font-size:12px; padding:20px 0;">데이터 없음</p>';
+  }
+
+  // B3: NCR 건수 추이 (스택 막대)
+  var b3ctx = document.getElementById('chartB3');
+  if (b3ctx && periods.length) {
+    var ncrIn   = periods.map(function(p) { return Math.max(0, (p['ncr_건수'] || 0) - (p['사후불량_건수'] || 0)); });
+    var ncrPost = periods.map(function(p) { return p['사후불량_건수'] || 0; });
+    new Chart(b3ctx, {
+      type: 'bar',
+      data: {
+        labels: pLabels,
+        datasets: [
+          { label: '입고검사 NCR', data: ncrIn,   backgroundColor: '#fb923c', stack: 'ncr' },
+          { label: '사후불량',     data: ncrPost, backgroundColor: '#f97316', stack: 'ncr' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+        scales: {
+          x: { stacked: true, ticks: { font: { size: 10 } } },
+          y: { stacked: true, beginAtZero: true },
+        },
+      },
+    });
+  }
+}
+
+function _initPanelC(data) {
+  var periods = data.periods || [];
+  var pLabels = periods.map(function(p) { return p.label || p.key || ''; });
+
+  // C1: 이탈 자재 순위 (가로 막대)
+  var matRank = (data.material_deviation_rank || []).slice(0, 8).reverse();
+  var c1ctx   = document.getElementById('chartC1');
+  if (c1ctx && matRank.length) {
+    new Chart(c1ctx, {
+      type: 'bar',
+      data: {
+        labels: matRank.map(function(r) {
+          var name = r.material_name || r.material_no || '';
+          return name.length > 14 ? name.slice(0, 14) + '…' : name;
+        }),
+        datasets: [{ label: '특채건수', data: matRank.map(function(r) { return r['특채건수'] || 0; }), backgroundColor: '#fed7aa' }],
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true },
+          y: { ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+  } else if (c1ctx) {
+    c1ctx.parentElement.innerHTML = '<p style="text-align:center; color:#9ca3af; font-size:12px; padding:20px 0;">데이터 없음</p>';
+  }
+
+  // C2: 이탈 업체 순위 (가로 막대)
+  var supDev = (data.supplier_deviation_rank || []).slice(0, 8).reverse();
+  var c2ctx  = document.getElementById('chartC2');
+  if (c2ctx && supDev.length) {
+    new Chart(c2ctx, {
+      type: 'bar',
+      data: {
+        labels: supDev.map(function(r) { return r.name || r['업체'] || ''; }),
+        datasets: [{ label: '특채건수', data: supDev.map(function(r) { return r['특채건수'] || 0; }), backgroundColor: '#fbbf24' }],
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true },
+          y: { ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+  } else if (c2ctx) {
+    c2ctx.parentElement.innerHTML = '<p style="text-align:center; color:#9ca3af; font-size:12px; padding:20px 0;">데이터 없음</p>';
+  }
+
+  // C3: 규격이탈 추이 (선 차트)
+  var c3ctx = document.getElementById('chartC3');
+  if (c3ctx && periods.length) {
+    new Chart(c3ctx, {
+      type: 'line',
+      data: {
+        labels: pLabels,
+        datasets: [{
+          label: '특채 수량',
+          data: periods.map(function(p) { return p['특채수량'] || 0; }),
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245,158,11,.15)',
+          fill: true, tension: 0.3, pointRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font: { size: 10 } } },
+          y: { beginAtZero: true },
+        },
+      },
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════
+   팝업 모달
+══════════════════════════════════════════════ */
+var _modal  = document.getElementById('modal');
+var _mTitle = document.getElementById('modalTitle');
+var _mTabs  = document.getElementById('modalTabs');
+var _mBody  = document.getElementById('modalBody');
+
+function closeModal() {
+  _modal.classList.remove('open');
+  _mBody.innerHTML  = '';
+  _mTabs.innerHTML = '';
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
 
 function buildTabs(tabs) {
-  mTabs.innerHTML = '';
-  tabs.forEach(function (t, i) {
+  _mTabs.innerHTML = '';
+  tabs.forEach(function(t, i) {
     var b = document.createElement('button');
     b.textContent = t.label;
-    b.className = i === 0 ? 'on' : '';
-    b.onclick = function () {
-      Array.prototype.forEach.call(mTabs.children, function (c) { c.className = ''; });
+    b.className   = i === 0 ? 'on' : '';
+    b.onclick = function() {
+      Array.prototype.forEach.call(_mTabs.children, function(c) { c.className = ''; });
       b.className = 'on';
       t.render();
     };
-    mTabs.appendChild(b);
+    _mTabs.appendChild(b);
   });
   if (tabs.length) tabs[0].render();
 }
-function showFrame(url) { mBody.innerHTML = '<iframe src="' + url + '"></iframe>'; }
-function showEmpty(msg) { mBody.innerHTML = '<div class="empty">' + msg + '</div>'; }
 
-/* 도면은 자재의 절반 이상이 미연결이라, 없을 때 안내를 띄운다 */
+function showFrame(url) { _mBody.innerHTML = '<iframe src="' + url + '"></iframe>'; }
+function showEmpty(msg) { _mBody.innerHTML = '<div class="empty">' + msg + '</div>'; }
+
 function showDrawing(materialNo) {
   var url = '/drawing/' + encodeURIComponent(materialNo);
-  fetch(url, { method: 'HEAD' }).then(function (r) {
-    if (r.ok) showFrame(url);
-    else showEmpty('이 자재에는 연결된 도면이 없어.<br><span style="font-size:12px;">' +
-                   '도면 파일명이 자재번호와 같으면 자동으로 연결돼.</span>');
-  }).catch(function () { showFrame(url); });
+  fetch(url, { method: 'HEAD' })
+    .then(function(r) {
+      if (r.ok) showFrame(url);
+      else showEmpty('이 자재에는 연결된 도면이 없어.<br><span style="font-size:12px;">도면 파일명이 자재번호와 같으면 자동으로 연결돼.</span>');
+    })
+    .catch(function() { showFrame(url); });
 }
 
 function openInspection(id, materialNo, ncrId) {
-  mTitle.textContent = '성적서 #' + id + ' · ' + materialNo;
-  modal.classList.add('open');
+  _mTitle.textContent = '성적서 #' + id + ' · ' + materialNo;
+  _modal.classList.add('open');
   var tabs = [
-    { label: '📄 성적서', render: function () { showFrame('/inspection/' + id); } },
-    { label: '📐 도면',   render: function () { showDrawing(materialNo); } }
+    { label: '📄 성적서', render: function() { showFrame('/inspection/' + id); } },
+    { label: '📐 도면',   render: function() { showDrawing(materialNo); } },
   ];
-  if (ncrId) tabs.push({ label: '🚨 부적합 통보서', render: function () { showFrame('/ncr/' + ncrId); } });
+  if (ncrId) tabs.push({ label: '🚨 부적합 통보서', render: function() { showFrame('/ncr/' + ncrId); } });
   buildTabs(tabs);
 }
 
 function openMaterial(materialNo, materialName) {
-  mTitle.textContent = materialNo + (materialName ? ' · ' + materialName : '');
-  modal.classList.add('open');
+  _mTitle.textContent = materialNo + (materialName ? ' · ' + materialName : '');
+  _modal.classList.add('open');
   buildTabs([
-    { label: '📊 공정능력 (Cpk)', render: function () { renderCapability(materialNo); } },
-    { label: '📈 검사 이력', render: function () { showFrame('/material/' + encodeURIComponent(materialNo) + '/history'); } },
-    { label: '📐 도면', render: function () { showDrawing(materialNo); } },
-    { label: '📋 자재 규격', render: function () { showFrame('/spec/' + encodeURIComponent(materialNo)); } }
+    { label: '📊 공정능력 (Cpk)', render: function() { renderCapability(materialNo); } },
+    { label: '📈 검사 이력',      render: function() { showFrame('/material/' + encodeURIComponent(materialNo) + '/history'); } },
+    { label: '📐 도면',           render: function() { showDrawing(materialNo); } },
+    { label: '📋 자재 규격',      render: function() { showFrame('/spec/' + encodeURIComponent(materialNo)); } },
   ]);
 }
 
 function renderCapability(materialNo) {
-  mBody.innerHTML = '<div class="empty">계산 중…</div>';
+  _mBody.innerHTML = '<div class="empty">계산 중…</div>';
   fetch('/dashboard/capability?material_no=' + encodeURIComponent(materialNo))
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
       if (!d.items || !d.items.length) {
         showEmpty('숫자로 판정하는 항목이 없어서 공정능력을 계산할 수 없어.'); return;
       }
@@ -628,25 +1154,28 @@ function renderCapability(materialNo) {
         '<th>항목</th><th>규격</th><th class="num">표본</th><th class="num">평균</th>' +
         '<th class="num">표준편차</th><th class="num">Cp</th><th class="num">Cpk</th><th>판정</th>' +
         '</tr></thead><tbody>';
-      d.items.forEach(function (it) {
-        var cls = (it.판정 === '우수' || it.판정 === '양호') ? 'r-ok'
-                : it.판정 === '주의' ? 'r-warn' : it.판정 === '부족' ? 'r-bad' : '';
-        var note = it.판정 === '표본부족' ? '측정 데이터가 아직 적어'
+      d.items.forEach(function(it) {
+        var cls  = (it.판정 === '우수' || it.판정 === '양호') ? 'r-ok'
+                 : it.판정 === '주의' ? 'r-warn' : it.판정 === '부족' ? 'r-bad' : '';
+        var note = it.판정 === '표본부족'  ? '측정 데이터가 아직 적어'
                  : it.판정 === '산포없음' ? '측정값이 전부 같아 — 계측기 분해능 확인 필요' : '';
-        var pill = cls ? '<span class="rate-pill ' + cls + '">' + it.판정 + '</span>'
-                       : '<span class="rate-pill r-mut" title="' + note + '">' + (it.판정 || '-') + '</span>';
+        var pill = cls
+          ? '<span class="rate-pill ' + cls + '">' + it.판정 + '</span>'
+          : '<span class="rate-pill r-mut" title="' + note + '">' + (it.판정 || '-') + '</span>';
         h += '<tr><td>' + it.항목 + '</td>' +
              '<td style="white-space:normal;">' + (it.규격 || '-') + '</td>' +
              '<td class="num">' + it.표본수 + '</td>' +
              '<td class="num">' + (it.평균 !== null ? it.평균 : '-') + '</td>' +
              '<td class="num">' + (it.표준편차 !== null ? it.표준편차 : '-') + '</td>' +
-             '<td class="num">' + (it.Cp !== null ? it.Cp : '-') + '</td>' +
+             '<td class="num">' + (it.Cp  !== null ? it.Cp  : '-') + '</td>' +
              '<td class="num" style="font-weight:700;">' + (it.Cpk !== null ? it.Cpk : '-') + '</td>' +
-             '<td>' + pill + (note ? '<div style="font-size:11px; color:#9ca3af;">' + note + '</div>' : '') + '</td></tr>';
+             '<td>' + pill +
+               (note ? '<div style="font-size:11px; color:#9ca3af;">' + note + '</div>' : '') +
+             '</td></tr>';
       });
-      mBody.innerHTML = h + '</tbody></table></div></div>';
+      _mBody.innerHTML = h + '</tbody></table></div></div>';
     })
-    .catch(function () { showEmpty('공정능력을 계산하지 못했어.'); });
+    .catch(function() { showEmpty('공정능력을 계산하지 못했어.'); });
 }
 </script>
 {% endblock %}
