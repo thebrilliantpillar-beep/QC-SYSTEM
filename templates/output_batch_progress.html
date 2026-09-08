@@ -3,12 +3,60 @@
 {% block content %}
 <style>
   .prog-wrap { max-width:580px; margin:32px auto; }
-  .prog-bar-bg { background:#DDE0E6; border-radius:99px; height:20px; overflow:hidden; margin:10px 0; }
-  .prog-bar { background:#3D5A8A; height:100%; width:0%; transition:width .4s; border-radius:99px; }
-  .prog-bar.done { background:#16a34a; }
-  .prog-bar.error { background:#dc2626; }
+
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes counter-spin { to { transform:rotate(-360deg); } }
+  @keyframes bounce-dot { 0%,80%,100%{ transform:translateY(0); opacity:.35; } 40%{ transform:translateY(-5px); opacity:1; } }
+  @keyframes shimmer-sweep { 0%{ background-position:0% 0; } 100%{ background-position:300% 0; } }
+  @keyframes pop-in { 0%{ transform:scale(0); opacity:0; } 60%{ transform:scale(1.2); } 100%{ transform:scale(1); opacity:1; } }
+  @keyframes pulse-glow-success { 0%{ box-shadow:0 0 0 0 rgba(22,163,74,.45); } 100%{ box-shadow:0 0 0 16px rgba(22,163,74,0); } }
+  @keyframes shake { 10%,90%{ transform:translateX(-2px); } 20%,80%{ transform:translateX(3px); } 30%,50%,70%{ transform:translateX(-5px); } 40%,60%{ transform:translateX(5px); } }
+  @keyframes confetti-fall { 0%{ transform:translateY(0) rotate(0deg); opacity:1; } 100%{ transform:translateY(90px) rotate(300deg); opacity:0; } }
+
+  .prog-card { padding:28px 22px; text-align:center; position:relative; overflow:hidden; }
+
+  .loader-ring { width:72px; height:72px; border-radius:50%; border:6px solid var(--border);
+                 border-top-color:var(--primary); border-right-color:var(--primary);
+                 margin:0 auto 16px; position:relative; display:flex; align-items:center;
+                 justify-content:center; animation:spin .9s linear infinite; transition:border-color .3s; }
+  .loader-icon { font-size:26px; display:inline-block; animation:counter-spin .9s linear infinite; transition:opacity .2s; }
+  .status-badge { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                  font-size:32px; opacity:0; transform:scale(0); }
+
+  .prog-card.is-finished .loader-ring { animation:none; }
+  .prog-card.is-finished .loader-icon { opacity:0; }
+  .prog-card.is-finished .status-badge { opacity:1; animation:pop-in .5s cubic-bezier(.34,1.56,.64,1) forwards; }
+  .prog-card.is-success .loader-ring { border-color:var(--pass,#16a34a); animation:pulse-glow-success 1.2s ease-out; }
+  .prog-card.is-fail .loader-ring { border-color:var(--fail,#dc2626); }
+  .prog-card.is-fail { animation:shake .5s; }
+  .prog-card.is-partial .loader-ring { border-color:var(--pending,#d97706); }
+
+  #prog-label { font-size:14px; font-weight:700; color:var(--text); margin:4px 0 14px; }
+  .dots span { animation:bounce-dot 1.4s infinite ease-in-out; display:inline-block; }
+  .dots span:nth-child(2) { animation-delay:.2s; }
+  .dots span:nth-child(3) { animation-delay:.4s; }
+  .prog-card.is-finished .dots { display:none; }
+
+  .prog-bar-bg { background:var(--border); border-radius:99px; height:20px; overflow:hidden; margin:10px 0; }
+  .prog-bar { background:linear-gradient(90deg, var(--primary-dark), var(--primary), #6b8cc7, var(--primary));
+              background-size:300% 100%; height:100%; width:0%; transition:width .35s ease;
+              border-radius:99px; animation:shimmer-sweep 1.6s linear infinite; }
+  .prog-bar.done { background:var(--pass,#16a34a); animation:none; }
+  .prog-bar.error { background:var(--fail,#dc2626); animation:none; }
+
+  .confetti-box { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+  .confetti-box span { position:absolute; top:-10px; width:8px; height:8px; border-radius:2px; opacity:0; }
+  .confetti-box.celebrate span { animation:confetti-fall 1.1s ease-in forwards; opacity:1; }
+
   .result-item { font-size:13px; padding:5px 0; border-bottom:1px solid var(--border); display:flex; gap:8px; align-items:center; }
   .result-item:last-child { border-bottom:none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loader-ring, .loader-icon, .prog-bar, .dots span, .confetti-box span, .prog-card.is-fail,
+    .prog-card.is-success .loader-ring, .prog-card.is-finished .status-badge {
+      animation:none !important;
+    }
+  }
 </style>
 
 <div class="prog-wrap">
@@ -17,12 +65,32 @@
     서버에서 1개씩 순서대로 PDF를 만들고 있어. 창을 닫지 말고 기다려줘.
   </p>
 
-  <div class="card" style="padding:20px 22px;">
-    <div id="prog-label" style="font-size:14px; font-weight:600; color:#2B3140; margin-bottom:8px;">준비 중...</div>
+  <div class="card prog-card" id="progCard">
+    <div class="confetti-box" id="confettiBox">
+      <span style="left:6%;  background:#3D5A8A; animation-delay:0s;"></span>
+      <span style="left:16%; background:#16a34a; animation-delay:.05s;"></span>
+      <span style="left:27%; background:#d97706; animation-delay:.1s;"></span>
+      <span style="left:38%; background:#3D5A8A; animation-delay:.02s;"></span>
+      <span style="left:48%; background:#16a34a; animation-delay:.15s;"></span>
+      <span style="left:58%; background:#d97706; animation-delay:.08s;"></span>
+      <span style="left:68%; background:#3D5A8A; animation-delay:.18s;"></span>
+      <span style="left:78%; background:#16a34a; animation-delay:.03s;"></span>
+      <span style="left:88%; background:#d97706; animation-delay:.12s;"></span>
+      <span style="left:94%; background:#3D5A8A; animation-delay:.2s;"></span>
+    </div>
+
+    <div class="loader-ring" id="loaderRing">
+      <span class="loader-icon" id="loaderIcon">🖨️</span>
+      <span class="status-badge" id="statusBadge"></span>
+    </div>
+
+    <div id="prog-label">
+      <span id="prog-label-text">준비 중</span><span class="dots"><span>.</span><span>.</span><span>.</span></span>
+    </div>
     <div class="prog-bar-bg">
       <div class="prog-bar" id="prog-bar"></div>
     </div>
-    <div id="prog-count" class="muted" style="font-size:13px;">0 / {{ target_ids|length }}건</div>
+    <div id="prog-count" class="muted" style="font-size:13px; margin-top:8px;">0 / {{ target_ids|length }}건</div>
   </div>
 
   <div id="result-box" class="card" style="padding:16px 20px; margin-top:14px; display:none;">
@@ -41,14 +109,17 @@
   var total = ids.length;
   var results = [];
   var bar = document.getElementById('prog-bar');
-  var label = document.getElementById('prog-label');
+  var labelText = document.getElementById('prog-label-text');
   var count = document.getElementById('prog-count');
+  var progCard = document.getElementById('progCard');
+  var statusBadge = document.getElementById('statusBadge');
+  var confettiBox = document.getElementById('confettiBox');
 
   function setProgress(done, text) {
     var pct = Math.round(done / total * 100);
     bar.style.width = pct + '%';
     count.textContent = done + ' / ' + total + '건';
-    if (text) label.textContent = text;
+    if (text) labelText.textContent = text;
   }
 
   async function processOne(idx) {
@@ -75,7 +146,22 @@
     var fail = results.filter(function (r) { return !r.ok; }).length;
 
     setProgress(total, '완료!');
-    bar.className = 'prog-bar ' + (fail ? 'error' : 'done');
+    progCard.classList.add('is-finished');
+
+    if (fail === 0) {
+      bar.className = 'prog-bar done';
+      progCard.classList.add('is-success');
+      statusBadge.textContent = '✅';
+      confettiBox.classList.add('celebrate');
+    } else if (fail === total) {
+      bar.className = 'prog-bar error';
+      progCard.classList.add('is-fail');
+      statusBadge.textContent = '❌';
+    } else {
+      bar.className = 'prog-bar error';
+      progCard.classList.add('is-partial');
+      statusBadge.textContent = '⚠️';
+    }
 
     var summary = document.getElementById('result-summary');
     if (fail === 0) {
