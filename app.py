@@ -6583,13 +6583,13 @@ def quality_dashboard():
 
 
 @app.route("/dashboard/chart-data")
-@login_required
+@perm_required("defect_history", "inspect_history")
 def dashboard_chart_data():
-    """차트용 JSON 데이터 엔드포인트 — defect_history 또는 inspect_history 권한 필요."""
-    perms = set((g.user.get('permissions') or '').split(','))
-    if 'defect_history' not in perms and 'inspect_history' not in perms:
-        return jsonify({'error': 'forbidden'}), 403
-
+    """차트용 JSON 데이터 엔드포인트 — /dashboard 본문과 동일한 권한(defect_history 또는
+    inspect_history)만 요구하면 되므로 perm_required 데코레이터를 그대로 재사용한다.
+    2026-09-08: 원래 g.user.get('permissions')로 직접 파싱했었는데, g.user는
+    sqlite3.Row라 .get()이 없어 AttributeError로 매번 500이 났었다(admin 포함 전원
+    영향) — perm_required는 _user_perms()를 통해 admin 전권한 자동부여도 반영한다."""
     p = _dashboard_params()
     report = _build_quality_report(p)
 
