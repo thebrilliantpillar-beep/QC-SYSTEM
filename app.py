@@ -6911,6 +6911,10 @@ def supplier_report_generate():
 
     report = db.quality_report(start, end, period_type="monthly", supplier=supplier)
     report.pop("성적서목록", None)
+    history = db.get_supplier_report_trend(supplier, period, limit=5)
+    current_point = {"기간": period, **{k: report["요약"][k] for k in
+                      ("수량", "불합격수량", "특채수량", "합격수량", "불량률", "규격이탈률", "PPM")}}
+    report["월별추이"] = history + [current_point]
     rid, err = db.upsert_supplier_report(
         supplier, period, start, end,
         json.dumps(report, ensure_ascii=False, default=str),
@@ -6935,13 +6939,14 @@ def supplier_report_detail(report_id):
         payload = json.loads(row["payload"])
     except ValueError:
         payload = None
+    highlights = db.quality_highlights(payload) if payload else None
     can_approve, block_reason = _can_make_final_decision(g.user, "업체 성적표 승인")
     sig_url = None
     if row["approve_signature"] and os.path.exists(row["approve_signature"]):
         sig_url = "/static/signatures/" + os.path.basename(row["approve_signature"])
     default_contact = db.get_default_contact(row["supplier"] or "", "report")
     return render_template("supplier_report_detail.html",
-                           r=row, payload=payload,
+                           r=row, payload=payload, highlights=highlights,
                            supplier_info=db.get_supplier(row["supplier"] or ""),
                            supplier_contacts=db.list_supplier_contacts(row["supplier"] or ""),
                            default_contact_email=default_contact["email"],

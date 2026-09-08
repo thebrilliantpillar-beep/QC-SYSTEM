@@ -797,7 +797,7 @@ var _paLabels = _RAW.map(function(d) { return formatPeriodLabel(d['구간'] || '
 var _PA_DS_DEFS = [
   { label:'입고 수량',    type:'bar',  yAxisID:'y',    key:'수량',        color:'#bfdbfe', textColor:'#1e3a8a' },
   { label:'불합격 수량',  type:'bar',  yAxisID:'y',    key:'불합격수량',  color:'#fca5a5', textColor:'#991b1b' },
-  { label:'특채 수량',    type:'bar',  yAxisID:'y',    key:'특채수량',    color:'#fed7aa', textColor:'#92400e' },
+  { label:'특채 수량',    type:'bar',  yAxisID:'y',    key:'특채수량',    color:'#fde68a', textColor:'#ca8a04' },
   { label:'합격 수량',    type:'bar',  yAxisID:'y',    key:'합격수량',    color:'#bbf7d0', textColor:'#166534' },
   { label:'불량률 %',     type:'line', yAxisID:'yPct', key:'불량률',      color:'#dc2626', textColor:'#fff' },
   { label:'규격이탈률 %', type:'line', yAxisID:'yPct', key:'규격이탈률',  color:'#f59e0b', textColor:'#fff', dash:[6,3] },
@@ -966,7 +966,7 @@ function _initPanelB(data) {
         labels: rank.map(function(r) { return r.name || r['업체'] || ''; }),
         datasets: [
           { label: '불합격수량', data: rank.map(function(r) { return r['불합격수량'] || 0; }), backgroundColor: '#fca5a5' },
-          { label: 'NCR건수',   data: rank.map(function(r) { return r['ncr_건수']    || 0; }), backgroundColor: '#fb923c' },
+          { label: 'NCR건수',   data: rank.map(function(r) { return r['ncr_건수']    || 0; }), backgroundColor: '#fbbf24' },
         ],
       },
       options: {
@@ -984,7 +984,7 @@ function _initPanelB(data) {
 
   // B2: 불량 유형 분포 (도넛)
   var dist    = data.defect_type_dist || [];
-  var palette = ['#fca5a5', '#fed7aa', '#fde68a', '#bbf7d0', '#bfdbfe', '#e9d5ff'];
+  var palette = ['#fca5a5', '#fde68a', '#bbf7d0', '#bfdbfe', '#e9d5ff', '#d1d5db'];
   var b2ctx   = document.getElementById('chartB2');
   if (b2ctx && dist.length) {
     new Chart(b2ctx, {
@@ -1014,8 +1014,8 @@ function _initPanelB(data) {
       data: {
         labels: pLabels,
         datasets: [
-          { label: '입고검사 NCR', data: ncrIn,   backgroundColor: '#fb923c', stack: 'ncr' },
-          { label: '사후불량',     data: ncrPost, backgroundColor: '#f97316', stack: 'ncr' },
+          { label: '입고검사 NCR', data: ncrIn,   backgroundColor: '#fbbf24', stack: 'ncr' },
+          { label: '사후불량',     data: ncrPost, backgroundColor: '#b45309', stack: 'ncr' },
         ],
       },
       options: {
@@ -1045,7 +1045,7 @@ function _initPanelC(data) {
           var name = r.material_name || r.material_no || '';
           return name.length > 14 ? name.slice(0, 14) + '…' : name;
         }),
-        datasets: [{ label: '특채건수', data: matRank.map(function(r) { return r['특채건수'] || 0; }), backgroundColor: '#fed7aa' }],
+        datasets: [{ label: '특채건수', data: matRank.map(function(r) { return r['특채건수'] || 0; }), backgroundColor: '#fde68a' }],
       },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
@@ -1068,7 +1068,7 @@ function _initPanelC(data) {
       type: 'bar',
       data: {
         labels: supDev.map(function(r) { return r.name || r['업체'] || ''; }),
-        datasets: [{ label: '특채건수', data: supDev.map(function(r) { return r['특채건수'] || 0; }), backgroundColor: '#fbbf24' }],
+        datasets: [{ label: '특채건수', data: supDev.map(function(r) { return r['특채건수'] || 0; }), backgroundColor: '#fde68a' }],
       },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,

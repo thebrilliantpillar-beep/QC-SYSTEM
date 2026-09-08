@@ -3592,8 +3592,9 @@ def quality_highlights(report):
         headline += " 규격 이탈이 두드러지는 업체·자재는 없습니다."
 
     sample_note = None
-    if s["표본불량률"] is not None and (s["표본불량률"] - s["불량률"]) >= 2:
-        sample_note = (f"참고: 개별 표본 기준으로는 불량 표본 비율이 {s['표본불량률']}%로 나타납니다. "
+    sample_defect_rate = s.get("표본불량률")  # 이 필드가 없던 시절(구버전) 성적표 스냅샷 대응
+    if sample_defect_rate is not None and (sample_defect_rate - s["불량률"]) >= 2:
+        sample_note = (f"참고: 개별 표본 기준으로는 불량 표본 비율이 {sample_defect_rate}%로 나타납니다. "
                         "이 수치는 특채로 넘어간 물량의 표본 불량까지 포함하며, "
                         "위 불량률·PPM에는 특채가 들어가지 않습니다.")
 
@@ -3633,6 +3634,30 @@ def upsert_supplier_report(supplier, period, start_date, end_date, payload_json,
         return rid, None
     finally:
         conn.close()
+
+
+def get_supplier_report_trend(supplier, upto_period_exclusive, limit=5):
+    """최근 성적표 목록 — 월별 추이 차트용. upto_period_exclusive 는 포함하지 않는다
+    (같은 달 draft가 자기 자신을 중복으로 끌고 오는 걸 막기 위해 반드시 '<')."""
+    import json
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT period, payload FROM supplier_reports
+            WHERE supplier = ? AND period < ?
+            ORDER BY period DESC LIMIT ?""",
+        (supplier, upto_period_exclusive, limit)).fetchall()
+    conn.close()
+    out = []
+    for row in reversed(rows):
+        try:
+            data = json.loads(row["payload"])
+            s = data["요약"]
+            out.append({"기간": row["period"], "수량": s["수량"], "불합격수량": s["불합격수량"],
+                        "특채수량": s["특채수량"], "합격수량": s["합격수량"],
+                        "불량률": s["불량률"], "규격이탈률": s["규격이탈률"], "PPM": s["PPM"]})
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out
 
 
 def list_supplier_reports(status=None):
