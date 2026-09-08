@@ -2034,17 +2034,20 @@ def _next_ncr_no():
 
 def create_ncr(inspection_id, material_no, material_name, supplier, defect_description,
                action_required, due_date, issued_by, issued_date, lot_number=None, receive_date=None,
-               cc_recipient=None, sample_qty=None, defect_qty=None, special_note=None, lot_qty=None):
+               cc_recipient=None, sample_qty=None, defect_qty=None, special_note=None, lot_qty=None,
+               occurrence_type='입고검사', defect_type=None):
     ncr_no = _next_ncr_no()
     conn = get_conn()
     cur = conn.execute("""
         INSERT INTO ncr (ncr_no, inspection_id, material_no, material_name, supplier,
             defect_description, action_required, due_date, issued_by, issued_date, status,
-            lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
+            lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty,
+            occurrence_type, defect_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (ncr_no, inspection_id, material_no, material_name, supplier,
           defect_description, action_required, due_date, issued_by, issued_date,
-          lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty))
+          lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty,
+          occurrence_type, defect_type))
     conn.commit()
     ncr_id = cur.lastrowid
     conn.close()
@@ -3284,13 +3287,30 @@ def quality_report(start_date, end_date, period_type="monthly",
         """, ids).fetchall():
             sample_count_map[sc_row[0]] = int(sc_row[1])
 
+    # NCR 집계용 데이터 — issued_date 기준, supplier 필터 적용
+    ncr_sql = """
+        SELECT supplier, issued_date,
+               COALESCE(occurrence_type, '입고검사') AS occurrence_type,
+               defect_type
+          FROM ncr
+         WHERE issued_date IS NOT NULL
+    """
+    ncr_params = []
+    if start_date:
+        ncr_sql += " AND issued_date >= ?"; ncr_params.append(start_date)
+    if end_date:
+        ncr_sql += " AND issued_date <= ?"; ncr_params.append(end_date)
+    if suppliers:
+        ncr_sql += f" AND supplier IN ({','.join('?' * len(suppliers))})"; ncr_params += suppliers
+    ncr_rows = [dict(r) for r in conn.execute(ncr_sql, ncr_params).fetchall()]
+
     conn.close()
 
     # ---- 집계 ----
     def blank():
         return {"로트": 0, "수량": 0, "합격수량": 0, "특채수량": 0,
                 "불합격수량": 0, "미결수량": 0, "불합격로트": 0,
-                "검사표본수": 0, "표본불량수": 0}
+                "검사표본수": 0, "표본불량수": 0, "특채건수": 0}
 
     def add(acc, r):
         qty = int(r["quantity"] or 0)
@@ -3303,6 +3323,7 @@ def quality_report(start_date, end_date, period_type="monthly",
             acc["합격수량"] += qty
         elif state == "특채":
             acc["특채수량"] += qty
+            acc["특채건수"] += 1
         elif state == "불합격":
             acc["불합격수량"] += qty
             acc["불합격로트"] += 1
@@ -3387,6 +3408,80 @@ def quality_report(start_date, end_date, period_type="monthly",
         "인원별": sorted(per_person.values(), key=lambda x: -x["건수"]),
     }
 
+    # ---- NCR 집계 ----
+    # 최상위 요약
+    ncr_total = len(ncr_rows)
+    ncr_후발 = sum(1 for n in ncr_rows if n["occurrence_type"] == "사후")
+    ncr_불량유형별: dict = {}
+    for n in ncr_rows:
+        dt = n["defect_type"] or "(미분류)"
+        ncr_불량유형별[dt] = ncr_불량유형별.get(dt, 0) + 1
+
+    # 기간별 NCR 건수 — issued_date 기준으로 period_key 계산
+    ncr_by_period: dict = {}
+    for n in ncr_rows:
+        pk = _period_key(n["issued_date"], period_type) or "(날짜없음)"
+        entry = ncr_by_period.setdefault(pk, {"ncr_건수": 0, "사후불량_건수": 0})
+        entry["ncr_건수"] += 1
+        if n["occurrence_type"] == "사후":
+            entry["사후불량_건수"] += 1
+
+    # period_list에 NCR 건수 병합
+    for item in period_list:
+        pk = item["구간"]
+        ncr_entry = ncr_by_period.get(pk, {"ncr_건수": 0, "사후불량_건수": 0})
+        item["ncr_건수"] = ncr_entry["ncr_건수"]
+        item["사후불량_건수"] = ncr_entry["사후불량_건수"]
+
+    # 업체별 NCR 건수
+    ncr_by_supplier: dict = {}
+    for n in ncr_rows:
+        sup = n["supplier"] or "(미입력)"
+        entry = ncr_by_supplier.setdefault(sup, {"ncr_건수": 0, "사후불량_건수": 0})
+        entry["ncr_건수"] += 1
+        if n["occurrence_type"] == "사후":
+            entry["사후불량_건수"] += 1
+
+    # supplier_list에 NCR 건수 병합
+    for item in supplier_list:
+        sup = item["업체"]
+        ncr_entry = ncr_by_supplier.get(sup, {"ncr_건수": 0, "사후불량_건수": 0})
+        item["ncr_건수"] = ncr_entry["ncr_건수"]
+        item["사후불량_건수"] = ncr_entry["사후불량_건수"]
+
+    # 요약에 NCR 건수 추가
+    summary["ncr_건수"] = ncr_total
+    summary["사후불량_건수"] = ncr_후발
+    summary["불량유형별"] = ncr_불량유형별
+
+    # supplier_ncr_rank — NCR 건수 내림차순
+    sup_ncr_map: dict = {}
+    for n in ncr_rows:
+        sup = n["supplier"] or "(미입력)"
+        sup_ncr_map[sup] = sup_ncr_map.get(sup, 0) + 1
+    # 불합격수량은 supplier_list에서 가져온다
+    sup_불합격_map = {item["업체"]: item["불합격수량"] for item in supplier_list}
+    supplier_ncr_rank = sorted(
+        [{"name": s, "ncr_건수": cnt, "불합격수량": sup_불합격_map.get(s, 0)}
+         for s, cnt in sup_ncr_map.items()],
+        key=lambda x: -x["ncr_건수"],
+    )
+
+    # material_deviation_rank — 특채건수 내림차순 (특채건수 > 0인 자재만)
+    material_deviation_rank = sorted(
+        [{"material_no": item["자재번호"], "material_name": item["자재명"],
+          "특채건수": item["특채건수"]}
+         for item in material_list if item.get("특채건수", 0) > 0],
+        key=lambda x: -x["특채건수"],
+    )
+
+    # supplier_deviation_rank — 특채건수 내림차순 (특채건수 > 0인 업체만)
+    supplier_deviation_rank = sorted(
+        [{"name": item["업체"], "특채건수": item["특채건수"]}
+         for item in supplier_list if item.get("특채건수", 0) > 0],
+        key=lambda x: -x["특채건수"],
+    )
+
     return {
         "기간": {"시작": start_date, "종료": end_date, "유형": period_type},
         "필터": {"업체": ", ".join(suppliers) if suppliers else "전체",
@@ -3402,6 +3497,9 @@ def quality_report(start_date, end_date, period_type="monthly",
         "소요시간": time_stats,
         "변경점": change_points,
         "성적서목록": rows,
+        "supplier_ncr_rank": supplier_ncr_rank,
+        "material_deviation_rank": material_deviation_rank,
+        "supplier_deviation_rank": supplier_deviation_rank,
     }
 
 
@@ -3669,6 +3767,27 @@ def process_capability(material_no, item_name=None, min_samples=5):
 
     conn.close()
     return out
+
+
+# ---------- 마이그레이션 ----------
+
+def ensure_ncr_columns_migration():
+    """ncr 테이블에 occurrence_type / defect_type 컬럼 추가 (멱등).
+
+    - occurrence_type: '입고검사' | '사후'. NULL은 '입고검사'로 간주.
+    - defect_type: '치수불량'|'외관불량'|'기능불량'|'재질불량'|'수량불량'|'기타'. NULL 허용.
+    """
+    if get_setting("ncr_columns_migrated_20260908") == "1":
+        return
+    conn = get_conn()
+    existing = [r[1] for r in conn.execute("PRAGMA table_info('ncr')").fetchall()]
+    if "occurrence_type" not in existing:
+        conn.execute("ALTER TABLE ncr ADD COLUMN occurrence_type TEXT DEFAULT '입고검사'")
+    if "defect_type" not in existing:
+        conn.execute("ALTER TABLE ncr ADD COLUMN defect_type TEXT")
+    conn.commit()
+    conn.close()
+    set_setting("ncr_columns_migrated_20260908", "1")
 
 
 # ---------- 데이터 점검 (관리자 전용) ----------

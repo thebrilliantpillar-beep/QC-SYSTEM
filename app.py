@@ -7053,6 +7053,7 @@ ensure_perm_migration()
 ensure_inspect_method_fill_20260825()
 ensure_supplier_contacts_migration_20260907()
 ensure_material_category_import_20260907()
+db.ensure_ncr_columns_migration()
 
 # 매일 06:00 (KST) 자동 DB 백업 이메일
 try:
