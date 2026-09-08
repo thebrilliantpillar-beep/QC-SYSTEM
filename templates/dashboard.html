@@ -855,6 +855,10 @@ var _paChart = null;
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      // 불합격/특채처럼 값이 작아 막대가 몇 픽셀 안 되는 항목은 정확히 그 위에
+      // 마우스를 올리기 어려워서 툴팁이 안 뜨는 것처럼 보였다(2026-09-08 피드백) —
+      // intersect:false + mode:'index'로 그 구간 세로줄 아무 데나 올려도 전부 뜨게 함.
+      interaction: { mode: 'index', intersect: false },
       plugins: { legend: { display: false } },
       scales: {
         y: {
