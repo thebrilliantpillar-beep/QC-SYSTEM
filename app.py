@@ -6594,8 +6594,8 @@ def dashboard_chart_data():
     report = _build_quality_report(p)
 
     periods = []
-    for entry in report.get('by_period', []):
-        key = entry.get('기간', '')
+    for entry in report.get('기간별', []):
+        key = entry.get('구간', '')
         label = _format_period_label(key, p.get('period_type', 'monthly'))
         periods.append({
             'label': label,
@@ -6614,7 +6614,7 @@ def dashboard_chart_data():
 
     defect_type_dist = [
         {'label': k, 'value': v}
-        for k, v in report.get('불량유형별', {}).items()
+        for k, v in report.get('요약', {}).get('불량유형별', {}).items()
         if v > 0
     ]
 
