@@ -105,6 +105,15 @@ def init_db():
         )
     """)
 
+    # 0-0-2. 불량 유형 마스터 — material_categories와 동일한 관례(name PK, FK 없이
+    # ncr.defect_type에 문자열로만 저장). 2026-09-08 신설.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS defect_types (
+            name TEXT PRIMARY KEY,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+
     # 0-1. 커스텀 성적서 템플릿 — 드래그앤드롭 디자이너로 만든 자유 배치 양식
     #      layout_json = 요소 배열 [{kind,x,y,w,h,field?,text?,size,bold,align}, ...]
     #      좌표는 캔버스 기준 px(canvas_w × canvas_h). 출력 시 reportlab로 PDF 직접 그림.
@@ -3788,6 +3797,76 @@ def ensure_ncr_columns_migration():
     conn.commit()
     conn.close()
     set_setting("ncr_columns_migrated_20260908", "1")
+
+
+def ensure_defect_types_seed_20260908():
+    """불량 유형 마스터 최초 시드 — 폼에 하드코딩돼 있던 6종을 마스터 테이블로 옮긴다(멱등)."""
+    if get_setting("defect_types_seeded_20260908") == "1":
+        return
+    for name in ["치수불량", "외관불량", "기능불량", "재질불량", "수량불량", "기타"]:
+        add_defect_type(name)
+    set_setting("defect_types_seeded_20260908", "1")
+
+
+# ---------- 불량 유형 마스터 (NCR 폼 드롭다운, 생성/수정/삭제 팝업에서 씀) ----------
+
+def list_defect_types():
+    """등록된 불량 유형명 전체 (가나다순)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT name FROM defect_types ORDER BY name").fetchall()
+    conn.close()
+    return [r["name"] for r in rows]
+
+
+def add_defect_type(name):
+    """불량 유형명을 마스터에 등록. 이미 있으면(공백/대소문자 무시) 기존 정본 표기를
+    반환. name이 빈 값이면 None. (material_categories.add_material_category와 동일 관례)"""
+    name = (name or "").strip()[:30]  # 프론트 maxlength=30과 맞춰 서버에서도 강제
+    if not name:
+        return None
+    conn = get_conn()
+    for row in conn.execute("SELECT name FROM defect_types").fetchall():
+        if row["name"].strip().casefold() == name.casefold():
+            conn.close()
+            return row["name"]
+    conn.execute("INSERT INTO defect_types (name) VALUES (?)", (name,))
+    conn.commit()
+    conn.close()
+    return name
+
+
+def rename_defect_type(old_name, new_name):
+    """불량 유형명 변경 — 이미 발행된 NCR에 쓰인 값도 새 이름으로 같이 갱신한다
+    (과거 통계·목록에서 라벨이 끊기지 않게, rename_material()과 동일한 사고방식).
+    반환: (성공여부, 에러메시지)."""
+    old_name = (old_name or "").strip()
+    new_name = (new_name or "").strip()[:30]  # 프론트 maxlength=30과 맞춰 서버에서도 강제
+    if not new_name:
+        return False, "이름을 입력해줘."
+    conn = get_conn()
+    if new_name.casefold() != old_name.casefold():
+        dup = conn.execute("SELECT 1 FROM defect_types WHERE name = ?", (new_name,)).fetchone()
+        if dup:
+            conn.close()
+            return False, f"'{new_name}'은 이미 있는 이름이야."
+    existing = conn.execute("SELECT 1 FROM defect_types WHERE name = ?", (old_name,)).fetchone()
+    if not existing:
+        conn.close()
+        return False, "존재하지 않는 항목이야."
+    conn.execute("UPDATE defect_types SET name = ? WHERE name = ?", (new_name, old_name))
+    conn.execute("UPDATE ncr SET defect_type = ? WHERE defect_type = ?", (new_name, old_name))
+    conn.commit()
+    conn.close()
+    return True, None
+
+
+def delete_defect_type(name):
+    """불량 유형을 마스터에서만 제거한다 — FK가 없어서 이미 발행된 NCR의 defect_type
+    값은 그대로 남는다(자재 분류 삭제와 동일한 방식). 목록/드롭다운에서만 안 보이게 된다."""
+    conn = get_conn()
+    conn.execute("DELETE FROM defect_types WHERE name = ?", ((name or "").strip(),))
+    conn.commit()
+    conn.close()
 
 
 # ---------- 데이터 점검 (관리자 전용) ----------

@@ -1,0 +1,183 @@
+{# 불량 유형 마스터 관리 팝업 — ncr_form.html / ncr_manual_form.html 공용.
+   호출부는 반드시 <select name="defect_type" id="defectTypeSelect">를 갖고 있어야 하고,
+   그 안에 마지막 옵션으로 <option value="__manage__">➕ 생성 및 수정...</option>이 있어야 한다.
+   그 옵션을 고르면 이 팝업이 뜨고, select는 원래 값으로 즉시 되돌아간다(실제 값으로
+   선택되는 게 아니라 팝업을 여는 트리거일 뿐이라서). 팝업에서 추가/수정/삭제하면
+   select의 옵션 목록도 그 자리에서 새로고침된다. #}
+<div class="dtm-overlay" id="dtmOverlay">
+  <div class="dtm-box">
+    <div class="dtm-hd">
+      <b>불량 유형 관리</b>
+      <button type="button" class="dtm-close" onclick="closeDefectTypeModal()">×</button>
+    </div>
+    <div id="dtmList" class="dtm-list"></div>
+    <div class="dtm-add-row">
+      <input type="text" id="dtmNewName" placeholder="새 불량 유형 이름" maxlength="30">
+      <button type="button" onclick="dtmAdd()">추가</button>
+    </div>
+    <p id="dtmMsg" class="dtm-msg"></p>
+  </div>
+</div>
+<style>
+  .dtm-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:9000;
+                 align-items:center; justify-content:center; padding:16px; }
+  .dtm-overlay.open { display:flex; }
+  .dtm-box { background:#fff; border-radius:14px; padding:20px; max-width:420px; width:100%;
+             max-height:80vh; overflow-y:auto; }
+  .dtm-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .dtm-hd b { font-size:15px; }
+  .dtm-close { background:none; border:none; font-size:22px; cursor:pointer; color:#9ca3af; padding:0; line-height:1; }
+  .dtm-list { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .dtm-row { display:flex; align-items:center; gap:6px; padding:6px; border:1px solid var(--border); border-radius:8px; }
+  .dtm-row input[type=text] { flex:1; padding:6px 7px; font-size:13px; border:1px solid var(--border);
+                               border-radius:5px; margin-top:0; }
+  .dtm-row button { padding:6px 10px; font-size:12px; margin-top:0; border-radius:5px; cursor:pointer; }
+  .dtm-save-btn { background:#eff6ff; color:#2454c7; border:1px solid #bfdbfe; }
+  .dtm-del-btn { background:#fff; color:var(--fail); border:1px solid var(--fail); }
+  .dtm-add-row { display:flex; gap:6px; }
+  .dtm-add-row input { flex:1; padding:8px; font-size:13px; border:1px solid var(--border); border-radius:6px; margin-top:0; }
+  .dtm-add-row button { margin-top:0; padding:8px 16px; }
+  .dtm-msg { margin:8px 0 0; font-size:12.5px; min-height:16px; }
+</style>
+<script>
+(function(){
+  var LIST_URL   = "{{ url_for('defect_types_list') }}";
+  var ADD_URL    = "{{ url_for('defect_types_add') }}";
+  var RENAME_URL = "{{ url_for('defect_types_rename') }}";
+  var DELETE_URL = "{{ url_for('defect_types_delete') }}";
+  var select   = document.getElementById('defectTypeSelect');
+  var overlay  = document.getElementById('dtmOverlay');
+  var listBox  = document.getElementById('dtmList');
+  var msgBox   = document.getElementById('dtmMsg');
+  var newInput = document.getElementById('dtmNewName');
+  if (!select) return;
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function showMsg(text, ok) {
+    msgBox.style.color = ok ? '#16a34a' : 'var(--fail)';
+    msgBox.textContent = text;
+  }
+
+  select.dataset.prevValue = select.value;
+  select.addEventListener('change', function() {
+    if (select.value === '__manage__') {
+      // 폼이 실수로 "__manage__" 값으로 제출되는 일이 없게, 팝업을 열기 전에
+      // select 값부터 원래대로 되돌려놓는다(모달이 떠 있는 동안도 select는 정상값 유지).
+      select.value = select.dataset.prevValue || '';
+      openDefectTypeModal();
+    } else {
+      select.dataset.prevValue = select.value;
+    }
+  });
+
+  window.openDefectTypeModal = function() {
+    overlay.classList.add('open');
+    msgBox.textContent = '';
+    newInput.value = '';
+    loadList();
+  };
+
+  window.closeDefectTypeModal = function() {
+    overlay.classList.remove('open');
+    select.value = select.dataset.prevValue || '';
+    refreshSelectOptions(select.value);
+  };
+
+  function loadList() {
+    listBox.innerHTML = '<p style="color:#9ca3af; font-size:13px; margin:0;">불러오는 중...</p>';
+    fetch(LIST_URL).then(function(r){ return r.json(); }).then(function(data){
+      renderList(data.types || []);
+    }).catch(function(){
+      listBox.innerHTML = '<p style="color:var(--fail); font-size:13px; margin:0;">불러오지 못했어.</p>';
+    });
+  }
+
+  function renderList(types) {
+    if (!types.length) {
+      listBox.innerHTML = '<p style="color:#9ca3af; font-size:13px; margin:0;">등록된 유형이 없어.</p>';
+      return;
+    }
+    listBox.innerHTML = types.map(function(name) {
+      return '<div class="dtm-row" data-name="' + escapeHtml(name) + '">' +
+        '<input type="text" value="' + escapeHtml(name) + '">' +
+        '<button type="button" class="dtm-save-btn" onclick="dtmRename(this)">저장</button>' +
+        '<button type="button" class="dtm-del-btn" onclick="dtmDelete(this)">삭제</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function refreshSelectOptions(selectedName) {
+    fetch(LIST_URL).then(function(r){ return r.json(); }).then(function(data){
+      var types = data.types || [];
+      select.innerHTML = '';
+      var blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '— 선택 안 함 —';
+      select.appendChild(blank);
+      types.forEach(function(name) {
+        var opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        select.appendChild(opt);
+      });
+      var manage = document.createElement('option');
+      manage.value = '__manage__'; manage.textContent = '➕ 생성 및 수정...';
+      select.appendChild(manage);
+      select.value = (selectedName && types.indexOf(selectedName) !== -1) ? selectedName : '';
+      select.dataset.prevValue = select.value;
+    });
+  }
+
+  window.dtmAdd = function() {
+    var name = newInput.value.trim();
+    if (!name) { showMsg('이름을 입력해줘.', false); return; }
+    fetch(ADD_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'name=' + encodeURIComponent(name),
+    }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+      .then(function(res){
+        if (!res.ok || !res.d.ok) { showMsg((res.d && res.d.error) || '추가하지 못했어.', false); return; }
+        newInput.value = '';
+        showMsg('✓ 추가됨', true);
+        loadList();
+      }).catch(function(){ showMsg('추가하지 못했어.', false); });
+  };
+
+  window.dtmRename = function(btn) {
+    var row = btn.closest('.dtm-row');
+    var oldName = row.dataset.name;
+    var newName = row.querySelector('input').value.trim();
+    if (!newName) { showMsg('이름을 입력해줘.', false); return; }
+    if (newName === oldName) return;
+    fetch(RENAME_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'old_name=' + encodeURIComponent(oldName) + '&new_name=' + encodeURIComponent(newName),
+    }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+      .then(function(res){
+        if (!res.ok || !res.d.ok) { showMsg((res.d && res.d.error) || '변경하지 못했어.', false); return; }
+        showMsg('✓ 변경됨', true);
+        loadList();
+      }).catch(function(){ showMsg('변경하지 못했어.', false); });
+  };
+
+  window.dtmDelete = function(btn) {
+    var row = btn.closest('.dtm-row');
+    var name = row.dataset.name;
+    if (!confirm("'" + name + "' 유형을 삭제할까? 이미 발행된 통보서 기록은 그대로 남아.")) return;
+    fetch(DELETE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'name=' + encodeURIComponent(name),
+    }).then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { showMsg((d && d.error) || '삭제하지 못했어.', false); return; }
+        showMsg('✓ 삭제됨', true);
+        loadList();
+      }).catch(function(){ showMsg('삭제하지 못했어.', false); });
+  };
+})();
+</script>

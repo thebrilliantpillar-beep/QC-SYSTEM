@@ -140,14 +140,12 @@
     </div>
 
     <label>불량 유형 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
-    <select name="defect_type">
+    <select name="defect_type" id="defectTypeSelect">
       <option value="">— 선택 안 함 —</option>
-      <option>치수불량</option>
-      <option>외관불량</option>
-      <option>기능불량</option>
-      <option>재질불량</option>
-      <option>수량불량</option>
-      <option>기타</option>
+      {% for dt in defect_types %}
+      <option>{{ dt }}</option>
+      {% endfor %}
+      <option value="__manage__">➕ 생성 및 수정...</option>
     </select>
 
     <label>불량 내용 <span style="color:var(--fail);">*</span></label>
@@ -423,4 +421,5 @@ document.addEventListener('click', function (e) {
   }
 });
 </script>
+{% include "_defect_type_modal.html" %}
 {% endblock %}

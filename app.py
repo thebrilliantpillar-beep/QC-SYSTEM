@@ -5715,7 +5715,8 @@ def ncr_new_manual():
                                created=created, failed=failed, photos_saved=total_photos_saved)
 
     from datetime import date
-    return render_template("ncr_manual_form.html", today=date.today().isoformat())
+    return render_template("ncr_manual_form.html", today=date.today().isoformat(),
+                           defect_types=db.list_defect_types())
 
 
 @app.route("/ncr/new/<int:inspection_id>", methods=["GET", "POST"])
@@ -5863,7 +5864,50 @@ def ncr_new(inspection_id):
                            auto_defect_description=auto_defect_description,
                            auto_lot_qty=auto_lot_qty,
                            auto_sample_qty=auto_sample_qty,
-                           auto_defect_qty=auto_defect_qty)
+                           auto_defect_qty=auto_defect_qty,
+                           defect_types=db.list_defect_types())
+
+
+# ---------- 불량 유형 마스터 관리 (NCR 작성화면 드롭다운 옆 팝업, AJAX) ----------
+
+@app.route("/ncr/defect-types")
+@perm_required("ncr", "approve")
+def defect_types_list():
+    return jsonify({"types": db.list_defect_types()})
+
+
+@app.route("/ncr/defect-types/add", methods=["POST"])
+@perm_required("ncr", "approve")
+def defect_types_add():
+    name = request.form.get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "이름을 입력해줘."}), 400
+    canonical = db.add_defect_type(name)
+    record_change("불량 유형 등록", "defect_type", None, canonical)
+    return jsonify({"ok": True, "name": canonical})
+
+
+@app.route("/ncr/defect-types/rename", methods=["POST"])
+@perm_required("ncr", "approve")
+def defect_types_rename():
+    old_name = request.form.get("old_name", "").strip()
+    new_name = request.form.get("new_name", "").strip()
+    ok, error = db.rename_defect_type(old_name, new_name)
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 400
+    record_change("불량 유형 이름변경", "defect_type", None, f"{old_name} → {new_name}")
+    return jsonify({"ok": True, "name": new_name})
+
+
+@app.route("/ncr/defect-types/delete", methods=["POST"])
+@perm_required("ncr", "approve")
+def defect_types_delete():
+    name = request.form.get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "이름이 없어."}), 400
+    db.delete_defect_type(name)
+    record_change("불량 유형 삭제", "defect_type", None, name)
+    return jsonify({"ok": True})
 
 
 @app.route("/ncr")
@@ -7136,6 +7180,7 @@ ensure_inspect_method_fill_20260825()
 ensure_supplier_contacts_migration_20260907()
 ensure_material_category_import_20260907()
 db.ensure_ncr_columns_migration()
+db.ensure_defect_types_seed_20260908()
 
 # 매일 06:00 (KST) 자동 DB 백업 이메일
 try:
