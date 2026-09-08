@@ -3,20 +3,14 @@
 {% block title %}{{ r['supplier'] }} {{ r['period'] }} 성적표{% endblock %}
 {% block content %}
 <style>
-  /* 인쇄(협력사 발송용 공식 문서) — 앱 내부 헤더/푸터는 감추고, 문서 카드는 종이에 꽉 차게
-     그림자·모서리를 없앤다. 화면에서 보이는 .card(스택 그림자)와 인쇄 결과가 다른 이유가
-     바로 이 블록 때문이니, 인쇄 미리보기를 바꾸려면 여기를 고칠 것. */
-  @media print {
-    header, footer, .no-print { display:none !important; }
-    body { background:#fff !important; }
-    main { padding:0 !important; max-width:100% !important; }
-    .doc { box-shadow:none !important; border-radius:0 !important; max-width:100% !important; }
-    .kbox, .rep-chart-grid > div, .trend-wrap, table tr { break-inside:avoid; }
-  }
+  @page { size: A4; margin: 8mm; }
   .doc { background:#fff; border-radius:12px; padding:26px; max-width:840px; margin:0 auto;
          box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .doc-titlebar { display:flex; justify-content:space-between; align-items:flex-start;
+                  gap:14px; margin-bottom:16px; }
+  .doc-titlebar .t-main { flex:1; }
   .doc h1 { font-size:21px; text-align:center; margin:0 0 4px; letter-spacing:1px; }
-  .doc .sub { text-align:center; color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .doc .sub { text-align:center; color:var(--muted); font-size:13px; margin-bottom:0; }
   .kpi4 { display:grid; grid-template-columns:repeat(5,1fr); gap:9px; margin-bottom:18px; }
   @media (max-width:820px){ .kpi4{ grid-template-columns:repeat(3,1fr); } }
   @media (max-width:480px){ .kpi4{ grid-template-columns:repeat(2,1fr); } }
@@ -30,9 +24,26 @@
   .doc td { padding:7px 10px; border:1px solid var(--border); }
   .num { text-align:right; font-variant-numeric:tabular-nums; }
   .sec { font-size:13.5px; font-weight:800; color:#2B3140; margin:18px 0 8px; }
-  .signrow { display:flex; justify-content:flex-end; margin-top:26px; }
-  .signbox { border:1px solid var(--border); border-radius:9px; padding:11px 18px; text-align:center; min-width:190px; }
-  .signbox .role { font-size:11.5px; color:var(--muted); font-weight:700; margin-bottom:6px; }
+  .signbox-top { border:1px solid var(--border); border-radius:9px; padding:8px 16px;
+                 text-align:center; min-width:170px; flex-shrink:0; }
+  .signbox-top .role { font-size:11px; color:var(--muted); font-weight:700; margin-bottom:4px; }
+  .signbox-top img { height:32px; object-fit:contain; }
+
+  /* 상태 배지 · 확인 바 · 버튼 바 — templates/ncr_detail.html과 같은 시각 언어 (2026-09-08) */
+  .rep-status { display:inline-flex; align-items:center; gap:6px; padding:6px 14px;
+                border-radius:999px; font-size:13px; font-weight:800; margin-bottom:14px; }
+  .rep-status.draft    { background:#fef9c3; color:#854d0e; border:1px solid #fbbf24; }
+  .rep-status.approved { background:#dbeafe; color:#24344F; border:1px solid #93c5fd; }
+  .rep-status.sent     { background:#dcfce7; color:#15803d; border:1px solid #86efac; }
+  .sent-banner { background:#f0fdf4; border:1px solid #86efac; border-radius:10px;
+                 padding:10px 16px; margin-bottom:14px; font-size:13px; color:#15803d; }
+  .btn-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .btn-bar button, .btn-bar a {
+    padding:10px 20px; font-size:14px; font-weight:600; border-radius:8px;
+    cursor:pointer; text-decoration:none; border:none; margin-top:0;
+  }
+  .rep-panel { background:#fff; border:1px solid var(--border); border-radius:10px;
+               padding:14px; margin-bottom:16px; }
 
   .rate-pill { display:inline-block; border-radius:6px; padding:2px 8px; font-weight:700; font-size:12px; }
   .r-ok  { background:#dcfce7; color:#166534; }
@@ -41,7 +52,47 @@
   .r-mut { background:#ECEEF2; color:#6b7280; }
 
   .rep-chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:18px 0; }
-  @media print { .rep-chart-grid { grid-template-columns:1fr; } }
+
+  /* 인쇄(협력사 발송용 공식 문서) — 앱 내부 헤더/푸터는 감추고, 문서 카드는 종이에 꽉 차게
+     그림자·모서리를 없앤다. 화면에서 보이는 .card(스택 그림자)와 인쇄 결과가 다른 이유가
+     바로 이 블록 때문이니, 인쇄 미리보기를 바꾸려면 여기를 고칠 것.
+     ※ 이 블록은 반드시 <style> 안의 다른 모든 선언보다 "뒤"에 와야 한다 — CSS 우선순위가
+     같은 선택자는 소스에서 나중에 나온 규칙이 이긴다. 이 블록이 위쪽에 있으면 인쇄 시에도
+     이 아래의 기본(화면용) 선언이 그대로 이겨버려서 축소가 적용되지 않는다
+     (2026-09-08, 실제로 1페이지 압축이 안 먹히던 원인이었음 — 재배치로 수정). */
+  @media print {
+    header, footer, .no-print { display:none !important; }
+    body { background:#fff !important; }
+    main { padding:0 !important; max-width:100% !important; }
+    .doc { box-shadow:none !important; border-radius:0 !important; max-width:100% !important; padding:6px !important; }
+    .kbox, .rep-chart-grid > div, .trend-wrap, table tr { break-inside:avoid; }
+    .rep-chart-grid { grid-template-columns:1fr; gap:6px !important; margin:6px 0 !important; }
+    .doc-titlebar { margin-bottom:4px !important; }
+    .doc h1 { font-size:17px !important; margin-bottom:2px !important; }
+    .doc .sub { margin-bottom:0 !important; }
+    .signbox-top { padding:5px 10px !important; min-width:150px !important; }
+    .signbox-top img { height:26px !important; }
+    .hl-box { padding:4px 6px !important; margin-bottom:4px !important; }
+    .hl-box p { font-size:12.5px !important; line-height:1.35 !important; }
+    .kpi4 { gap:6px !important; margin-bottom:4px !important; }
+    .kbox { padding:4px !important; }
+    .kbox .v { font-size:16px !important; margin-top:1px !important; }
+    .sec { margin:5px 0 2px !important; }
+    /* 불량률 안내문·"비어있음" 안내문 — 같은 인라인 패턴(padding:9px 0)을 공유하는
+       두 곳(월별추이/지적사항 빈 상태 문구)을 한 번에 줄인다. */
+    p[style*="padding:9px 0"] { padding:2px 0 !important; }
+    .rep-chart-grid > div { padding:3px !important; }
+    .rep-chart-grid > div > div[style*="font-size:12px"] { margin-bottom:3px !important; }
+    /* Chart.js는 캔버스에 인라인 style(height)을 직접 넣기 때문에, 아래 wrapper를 줄여도
+       캔버스 자체는 화면(screen) 미디어 기준 크기를 그대로 유지해 다음 내용을 덮어써 버릴 수
+       있다(2026-09-08, 실제 PDF에서 확인된 겹침 버그). beforeprint 시점에 JS로 강제
+       resize()하지만(아래 스크립트), 그 이벤트가 안 먹히는 경로(예: 헤드리스 변환)에서도
+       레이아웃이 깨지지 않도록 wrapper에 overflow:hidden을 걸어 넘치는 부분을 잘라낸다. */
+    .rep-chart-grid > div > div[style*="height:200px"] { height:75px !important; overflow:hidden !important; }
+    .trend-wrap { height:112px !important; margin-bottom:5px !important; overflow:hidden !important; }
+    .doc table { font-size:9.5px !important; margin-bottom:6px !important; }
+    .doc th, .doc td { padding:2px 4px !important; }
+  }
 </style>
 
 {# Chart.js CDN — dashboard.html과 동일 버전 #}
@@ -54,20 +105,39 @@
   }
 </script>
 
-<div class="no-print">
-  <a href="{{ url_for('supplier_report_list') }}" class="btn secondary" style="margin-top:0;">← 성적표 목록</a>
+{# ── 상태 배지 (templates/ncr_detail.html의 .ncr-status와 같은 시각 언어, 2026-09-08) ── #}
+{% set status = r['status'] or 'draft' %}
+<div class="no-print" style="max-width:840px; margin:0 auto 0;">
+  <span class="rep-status {{ status }}">
+    {% if status == 'draft' %}📝 초안 (승인 전)
+    {% elif status == 'approved' %}✅ 승인 완료
+    {% else %}📤 발송 완료{% endif %}
+  </span>
 </div>
 
-{# ── 상태별 액션 ── #}
-{% if r['status'] == 'draft' %}
-<div class="card no-print" style="border-left:4px solid #f59e0b; background:#fffbeb;">
-  <b style="font-size:14px; color:#92400e;">초안 — 아직 발송할 수 없어</b>
+{% if status == 'sent' %}
+<div class="no-print sent-banner" style="max-width:840px; margin:0 auto 14px;">
+  발송 완료: <strong>{{ r['sent_to'] }}</strong> · {{ r['sent_at'] | datetime_korean }}
+  &nbsp;|&nbsp; 승인 {{ r['approved_by'] }}
+</div>
+{% endif %}
+
+{# ── 버튼 바 ── #}
+<div class="btn-bar no-print" style="max-width:840px; margin:0 auto 16px;">
+  <button type="button" onclick="window.print()" style="background:#2B3140; color:#fff;">🖨️ 인쇄 / PDF</button>
+  <a href="{{ url_for('supplier_report_list') }}"
+     style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">← 목록</a>
+</div>
+
+{# ── 상태별 조치 패널(승인 서명 / 발송 폼) — 인라인 유지, 틀 스타일만 버튼바 톤에 맞춤 ── #}
+{% if status == 'draft' %}
+<div class="no-print rep-panel" style="max-width:840px; margin:0 auto 16px; border-left:4px solid #f59e0b; background:#fffbeb;">
   {% if not can_approve %}
-  <p style="margin:7px 0 0; font-size:13px; color:#991b1b;">
+  <p style="margin:0; font-size:13px; color:#991b1b;">
     🔒 승인은 최종결정권자만 할 수 있어. {{ approve_block_reason }}
   </p>
   {% else %}
-  <p style="margin:6px 0 10px; font-size:13px; color:#78350f;">
+  <p style="margin:0 0 10px; font-size:13px; color:#78350f;">
     협력사로 나가는 문서라 <b>최종결정권자 승인 서명</b>이 있어야 발송할 수 있어.
   </p>
   <form method="POST" action="{{ url_for('supplier_report_approve', report_id=r['id']) }}"
@@ -97,20 +167,26 @@
             padding:6px 14px; font-size:12.5px; margin:0;">초안 삭제</button>
   </form>
 </div>
-{% elif r['status'] == 'approved' %}
-<div class="card no-print" style="border-left:4px solid #3D5A8A; background:#eff6ff;">
-  <b style="font-size:14px; color:#24344F;">승인 완료 — 발송할 수 있어</b>
-  <div class="muted" style="font-size:12.5px; margin-top:3px;">
+{% elif status == 'approved' %}
+<div class="no-print rep-panel" style="max-width:840px; margin:0 auto 16px; border-left:4px solid #3D5A8A; background:#eff6ff;">
+  <div class="muted" style="font-size:12.5px; margin-bottom:9px;">
     승인 {{ r['approved_by'] }} · {{ r['approved_at'] | datetime_korean }}
   </div>
   <form method="POST" action="{{ url_for('supplier_report_send', report_id=r['id']) }}"
-        style="display:flex; gap:9px; align-items:flex-end; flex-wrap:wrap; margin-top:11px;"
+        style="display:flex; gap:9px; align-items:flex-end; flex-wrap:wrap;"
         onsubmit="return confirm('이 성적표를 협력사에 발송 처리할까?');">
     <div style="flex:1; min-width:210px;">
-      <label>받는 사람 이메일</label>
+      <label style="font-size:12px; font-weight:700; color:#4b5563; margin-bottom:6px; display:block;">
+        받는 사람 이메일
+      </label>
       <input type="email" name="to_email" id="reportToEmail" required
              value="{{ default_contact_email if default_contact_email else (supplier_info['email'] if supplier_info and supplier_info['email'] else '') }}"
-             placeholder="supplier@example.com">
+             placeholder="supplier@example.com"
+             style="width:100%; margin:0; font-size:14px; padding:9px 12px; border:1.5px solid #DDE0E6;
+                    border-radius:8px; box-sizing:border-box;">
+      {# 받는사람 선택 UI는 ncr_detail.html의 이메일 발송 팝업과 동일한 스타일로 맞춤
+         (2026-09-08, 사용자 요청) — 실제 발송 방식(이건 서버 POST 발송, NCR은 mailto:
+         메일앱 열기)은 서로 다른 이유가 있어 그대로 두고, "받는 사람 고르는 UI"만 통일함. #}
       {% if supplier_contacts %}
       <select onchange="if(this.value){document.getElementById('reportToEmail').value=this.value;}"
               style="width:100%; margin-top:6px; font-size:12.5px; padding:6px 8px;">
@@ -121,29 +197,32 @@
       </select>
       {% endif %}
     </div>
-    <button type="submit" style="margin:0;">발송</button>
+    <button type="submit" style="background:var(--primary); color:#fff; padding:10px 20px;
+            font-size:14px; font-weight:600; border:none; border-radius:8px; cursor:pointer;">📧 발송</button>
   </form>
-</div>
-{% else %}
-<div class="card no-print" style="border-left:4px solid #16a34a; background:#f0fdf4;">
-  <b style="font-size:14px; color:#166534;">발송 완료</b>
-  <div class="muted" style="font-size:12.5px; margin-top:3px;">
-    {{ r['sent_to'] }} · {{ r['sent_at'] | datetime_korean }}
-    &nbsp;|&nbsp; 승인 {{ r['approved_by'] }}
-  </div>
 </div>
 {% endif %}
 
-<div class="no-print" style="margin-bottom:12px;">
-  <button type="button" class="btn secondary" style="margin-top:0;" onclick="window.print()">🖨️ 인쇄 / PDF</button>
-</div>
-
 {# ── 문서 본문 ── #}
 <div class="doc">
-  <h1>월간 품질 성적표</h1>
-  <div class="sub">
-    <b>{{ r['supplier'] }}</b> · {{ r['period'] }}
-    ({{ r['start_date'] | date_korean }} ~ {{ r['end_date'] | date_korean }})
+  <div class="doc-titlebar">
+    <div class="t-main">
+      <h1>월간 품질 성적표</h1>
+      <div class="sub">
+        <b>{{ r['supplier'] }}</b> · {{ r['period'] }}
+        ({{ r['start_date'] | date_korean }} ~ {{ r['end_date'] | date_korean }})
+      </div>
+    </div>
+    <div class="signbox-top">
+      <div class="role">최종결정권자 승인</div>
+      {% if signature_url %}
+        <img src="{{ signature_url }}" alt="승인 서명">
+      {% else %}
+        <div style="height:32px;"></div>
+      {% endif %}
+      <div style="font-size:11px; color:#6b7280;">{{ r['approved_at'] | date_korean }}</div>
+      <div style="font-weight:700; font-size:12.5px;">{{ r['approved_by'] or '' }}</div>
+    </div>
   </div>
 
   {% if not payload %}
@@ -153,7 +232,7 @@
 
   {# ─────────────────────── 핵심 요약 ─────────────────────── #}
   {% set h = highlights %}
-  <div style="background:#F9F9F8; border:1px solid var(--border); border-radius:10px;
+  <div class="hl-box" style="background:#F9F9F8; border:1px solid var(--border); border-radius:10px;
               padding:14px 16px; margin-bottom:18px; border-left:4px solid
       {{ '#dc2626' if h['톤']=='경고' else ('#d97706' if h['톤']=='주의' else ('#16a34a' if h['톤']=='양호' else '#9ca3af')) }};">
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -180,7 +259,7 @@
 
   {# ─────────────────────── KPI 카드 5개 ─────────────────────── #}
   <div class="kpi4">
-    <div class="kbox"><div class="l">검사 로트수</div>
+    <div class="kbox"><div class="l">{{ term('lot', '검사 로트수') }}</div>
       <div class="v kpi-value" data-value="{{ s['로트'] }}">{{ s['로트'] }}</div>
       <div class="s">입고 기준 로트</div></div>
     <div class="kbox"><div class="l">입고 수량</div>
@@ -193,7 +272,7 @@
     <div class="kbox"><div class="l">규격이탈률 {{ term('deviation_rate') }}</div>
       <div class="v kpi-value {{ 'warn' if s['규격이탈률']>0 else 'ok' }}"
            data-value="{{ s['규격이탈률'] }}" data-suffix="%" data-decimals="1">{{ s['규격이탈률'] }}%</div>
-      <div class="s">특채 {{ "{:,}".format(s['특채수량']) }}개</div></div>
+      <div class="s">특채 {{ term('special') }} {{ "{:,}".format(s['특채수량']) }}개</div></div>
     <div class="kbox"><div class="l">NCR 건수 {{ term('ncr') }}</div>
       <div class="v kpi-value {{ 'bad' if s.get('ncr_건수', 0)>0 else 'ok' }}"
            data-value="{{ s.get('ncr_건수', 0) }}">{{ s.get('ncr_건수', 0) }}</div>
@@ -203,7 +282,7 @@
      이 필드가 없어서 .get()으로 기본값 0 처리해야 KeyError 없이 열린다 #}
   <p style="font-size:11.5px; color:var(--muted); margin:-8px 0 14px;">
     ※ 불량률은 <b>수량 기준</b>입니다 (불합격 확정 수량 ÷ 판정 확정 수량 {{ "{:,}".format(s['확정수량']) }}, PPM {{ "{:,}".format(s['PPM']) }}).
-    특채 {{ "{:,}".format(s['특채수량']) }}개는 별도 집계되며, 규격이탈률은 {{ s['규격이탈률'] }}%입니다.
+    특채 {{ term('special') }} {{ "{:,}".format(s['특채수량']) }}개는 별도 집계되며, 규격이탈률은 {{ s['규격이탈률'] }}%입니다.
     {% if s.get('표본불량률') is not none %}검사 표본 {{ s['검사표본수'] }}개 중 {{ s['표본불량수'] }}개 불량 ({{ s['표본불량률'] }}%).{% endif %}
   </p>
 
@@ -267,7 +346,7 @@
   {% endif %}
 
   {% if payload['변경점'] %}
-  <div class="sec">기간 내 4M 변경 사항</div>
+  <div class="sec">기간 내 {{ term('4m', '4M') }} 변경 사항</div>
   <table>
     <tr><th>변경일</th><th>구분</th><th>대상</th><th>내용</th></tr>
     {% for c in payload['변경점'] %}
@@ -277,58 +356,11 @@
   </table>
   {% endif %}
   {% endif %}
-
-  <div class="signrow">
-    <div class="signbox">
-      <div class="role">최종결정권자 승인</div>
-      {% if signature_url %}
-        <img src="{{ signature_url }}" alt="승인 서명" style="height:42px; object-fit:contain;">
-      {% else %}
-        <div style="height:42px;"></div>
-      {% endif %}
-      <div style="font-size:11.5px; color:#6b7280;">{{ (r['approved_at'] or '')[:10] }}</div>
-      <div style="font-weight:700; font-size:13px;">{{ r['approved_by'] or '' }}</div>
-    </div>
-  </div>
 </div>
 
 {% if payload %}
+<script src="{{ url_for('static', filename='kpi_countup.js') }}"></script>
 <script>
-/* ══════════════════════════════════════════════
-   KPI 카운트업 애니메이션 — dashboard.html 로직 인라인 복제
-══════════════════════════════════════════════ */
-document.addEventListener('DOMContentLoaded', function() {
-  var kpis = document.querySelectorAll('.kpi-value');
-  kpis.forEach(function(el) {
-    var target   = parseFloat(el.getAttribute('data-value')) || 0;
-    var suffix   = el.getAttribute('data-suffix') || '';
-    var decimals = parseInt(el.getAttribute('data-decimals') || '0', 10);
-    var start    = performance.now();
-    var duration = 900;
-
-    function tick(now) {
-      var elapsed = Math.min(now - start, duration);
-      var t       = elapsed / duration;
-      var ease    = 1 - Math.pow(1 - t, 3); // easeOutCubic
-      var val     = target * ease;
-      if (decimals > 0) {
-        el.textContent = val.toFixed(decimals) + suffix;
-      } else {
-        var rounded = Math.round(val);
-        el.textContent = (target > 999)
-          ? rounded.toLocaleString() + suffix
-          : rounded + suffix;
-      }
-      if (t < 1) requestAnimationFrame(tick);
-      else {
-        if (decimals > 0) el.textContent = target.toFixed(decimals) + suffix;
-        else el.textContent = (target > 999) ? Math.round(target).toLocaleString() + suffix : Math.round(target) + suffix;
-      }
-    }
-    requestAnimationFrame(tick);
-  });
-});
-
 /* ══════════════════════════════════════════════
    월별 추이 (Mixed 차트) — payload에 이미 저장된 값만 사용
 ══════════════════════════════════════════════ */
@@ -374,7 +406,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return ds;
   });
 
-  new Chart(ctx, {
+  var chart = new Chart(ctx, {
     type: 'bar',
     data: { labels: labels, datasets: datasets },
     options: {
@@ -388,6 +420,8 @@ document.addEventListener('DOMContentLoaded', function() {
       },
     },
   });
+  window.__repCharts = window.__repCharts || [];
+  window.__repCharts.push(chart);
 })();
 
 /* ══════════════════════════════════════════════
@@ -402,7 +436,7 @@ document.addEventListener('DOMContentLoaded', function() {
     ctx.parentElement.innerHTML = '<p style="text-align:center; color:#9ca3af; font-size:12px; padding:20px 0;">데이터 없음</p>';
     return;
   }
-  new Chart(ctx, {
+  var chart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: top.map(function(m) {
@@ -423,6 +457,8 @@ document.addEventListener('DOMContentLoaded', function() {
       scales: { x: { beginAtZero: true }, y: { ticks: { font: { size: 11 } } } },
     },
   });
+  window.__repCharts = window.__repCharts || [];
+  window.__repCharts.push(chart);
 })();
 
 /* ══════════════════════════════════════════════
@@ -438,7 +474,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
   var palette = ['#fca5a5', '#fde68a', '#bbf7d0', '#bfdbfe', '#e9d5ff', '#d1d5db'];
-  new Chart(ctx, {
+  var chart = new Chart(ctx, {
     type: 'doughnut',
     data: { labels: labels, datasets: [{ data: labels.map(function(k) { return dist[k]; }), backgroundColor: palette }] },
     options: {
@@ -449,7 +485,17 @@ document.addEventListener('DOMContentLoaded', function() {
       },
     },
   });
+  window.__repCharts = window.__repCharts || [];
+  window.__repCharts.push(chart);
 })();
+
+/* 차트(Chart.js)는 캔버스를 생성할 때(화면 미디어 기준) 크기를 확정하는데, 인쇄용 CSS가
+   차트 영역을 더 줄여도 캔버스가 그 축소를 자동으로 따라가지 않는 경우가 있어(리사이즈
+   타이밍 문제) 인쇄 시 차트가 아래 내용과 겹쳐 보일 수 있다. 인쇄 직전 강제로 리사이즈해서
+   실제 인쇄본 캔버스 크기를 축소된 컨테이너에 맞춘다 (2026-09-08, 1페이지 압축 검증 중 발견). */
+window.addEventListener('beforeprint', function () {
+  (window.__repCharts || []).forEach(function (c) { if (c) c.resize(); });
+});
 </script>
 {% endif %}
 

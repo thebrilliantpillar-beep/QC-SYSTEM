@@ -27,11 +27,12 @@
 </div>
 
 {% if not can_approve %}
-<div class="card" style="border-left:4px solid #f59e0b; background:#fffbeb;">
-  <p style="margin:0; font-size:13px; color:#92400e;">
-    🔒 성적표 <b>생성</b>은 할 수 있지만 <b>승인·발송</b>은 최종결정권자만 가능해.
+<div class="notice notice-warning">
+  <span style="font-size:18px; line-height:1.2;">🔒</span>
+  <span>
+    성적표 <b>생성</b>은 할 수 있지만 <b>승인·발송</b>은 최종결정권자만 가능해.
     {% if approve_block_reason %}<br><span style="font-size:12.5px;">{{ approve_block_reason }}</span>{% endif %}
-  </p>
+  </span>
 </div>
 {% endif %}
 

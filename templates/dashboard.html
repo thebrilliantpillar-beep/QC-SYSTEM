@@ -624,6 +624,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
+<script src="{{ url_for('static', filename='kpi_countup.js') }}"></script>
 <script>
 /* ══════════════════════════════════════════════
    선택 칩 (업체 / 로트번호)
@@ -704,42 +705,6 @@ document.getElementById('periodSelect').addEventListener('change', function() {
   var range = fn();
   document.getElementById('startInput').value = _fmt(range[0]);
   document.getElementById('endInput').value   = _fmt(range[1]);
-});
-
-/* ══════════════════════════════════════════════
-   KPI 카운트업 애니메이션 (DOMContentLoaded)
-══════════════════════════════════════════════ */
-document.addEventListener('DOMContentLoaded', function() {
-  var kpis = document.querySelectorAll('.kpi-value');
-  kpis.forEach(function(el) {
-    var target   = parseFloat(el.getAttribute('data-value')) || 0;
-    var suffix   = el.getAttribute('data-suffix') || '';
-    var decimals = parseInt(el.getAttribute('data-decimals') || '0', 10);
-    var start    = performance.now();
-    var duration = 900;
-
-    function tick(now) {
-      var elapsed = Math.min(now - start, duration);
-      var t       = elapsed / duration;
-      var ease    = 1 - Math.pow(1 - t, 3); // easeOutCubic
-      var val     = target * ease;
-      if (decimals > 0) {
-        el.textContent = val.toFixed(decimals) + suffix;
-      } else {
-        var rounded = Math.round(val);
-        el.textContent = (target > 999)
-          ? rounded.toLocaleString() + suffix
-          : rounded + suffix;
-      }
-      if (t < 1) requestAnimationFrame(tick);
-      else {
-        // 최종값 정확히 표시
-        if (decimals > 0) el.textContent = target.toFixed(decimals) + suffix;
-        else el.textContent = (target > 999) ? Math.round(target).toLocaleString() + suffix : Math.round(target) + suffix;
-      }
-    }
-    requestAnimationFrame(tick);
-  });
 });
 
 /* ══════════════════════════════════════════════
