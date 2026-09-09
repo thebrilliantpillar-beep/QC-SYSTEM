@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}자재 찾기{% endblock %}
+{% block content %}
+<style>
+  .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
+          border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
+          font-size:12.5px; font-weight:700; }
+  .chip button { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px;
+                 line-height:1; padding:0 4px; margin:0; border-radius:50%; }
+  .chip button:hover { background:#c7d2fe; color:#312e81; }
+  .chip-empty { color:#9ca3af; font-size:12px; padding:3px 0; }
+  .lv-row { display:flex; gap:7px; flex-wrap:wrap; }
+  .lv-chk { display:inline-flex; align-items:center; gap:6px; border:1.5px solid var(--border);
+            border-radius:8px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer;
+            background:#fff; margin:0; color:#4b5563; }
+  .lv-chk input { width:auto; margin:0; }
+  .lv-chk.on { border-color:var(--primary); background:#eff6ff; color:var(--primary-dark); }
+  #mf-table td.name-cell { text-align:left; padding-left:14px; }
+</style>
+
+<h2>🔎 자재 찾기</h2>
+<p class="hint">통합BOM에서 임포트한 계층 정보(모델·Lv·상위품목코드)로 자재를 검색·필터링해.
+  조립품 자동전개("조립품 관리")와는 별개 기능이라, 여기서 필터링해도 입고·검사 흐름에는 영향이 없어.</p>
+
+<div class="card">
+  <form method="GET" id="mfForm">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:2; min-width:180px;">
+        <label>검색어</label>
+        <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 자재명...">
+      </div>
+      <div style="flex:1; min-width:150px;">
+        <label>상위품목코드</label>
+        <input type="text" name="parent" value="{{ parent_no }}" placeholder="상위품목코드 일부">
+      </div>
+      <div style="flex:1; min-width:130px;">
+        <label>자재 분류</label>
+        <select name="category">
+          <option value="">전체</option>
+          {% for c in (categories or []) %}
+          <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" style="margin-top:0;">검색</button>
+      {% if query or levels or models or parent_no or category %}
+      <a href="{{ url_for('material_find') }}" class="btn secondary" style="margin-top:0;">초기화</a>
+      {% endif %}
+    </div>
+
+    <div style="margin-top:13px;">
+      <label style="margin:0 0 6px;">Lv <span class="muted" style="font-weight:400;">(안 고르면 전체)</span></label>
+      <div class="lv-row">
+        {% for lv in [1,2,3,4,5] %}
+        <label class="lv-chk {% if lv|string in levels %}on{% endif %}">
+          <input type="checkbox" name="level" value="{{ lv }}"
+                 {% if lv|string in levels %}checked{% endif %}
+                 onchange="this.closest('.lv-chk').classList.toggle('on', this.checked)">
+          Lv{{ lv }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div style="margin-top:13px;">
+      <label style="margin:0 0 5px;">모델 <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span></label>
+      <div style="display:flex; gap:7px; flex-wrap:wrap;">
+        <input list="modelList" id="modelPick" placeholder="모델명 검색 후 선택"
+               style="flex:1; min-width:180px;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addModelChip();}">
+        <datalist id="modelList">{% for m in model_options %}<option value="{{ m }}">{% endfor %}</datalist>
+        <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                onclick="addModelChip()">추가</button>
+      </div>
+      <div class="chip-box" id="chips-model"></div>
+    </div>
+  </form>
+</div>
+
+<div style="overflow-x:auto; margin-top:14px;">
+<table id="mf-table">
+  <tr>
+    <th style="text-align:left; padding-left:14px;">자재번호</th>
+    <th>자재명</th>
+    <th>모델</th>
+    <th>Lv</th>
+    <th>상위품목코드</th>
+    <th>구분</th>
+    <th>자재분류</th>
+  </tr>
+  {% for r in rows %}
+  <tr>
+    <td class="name-cell">
+      {% if r['material_name'] is not none %}
+      <a href="{{ url_for('spec_detail', material_no=r['material_no']) }}">{{ r['material_no'] }}</a>
+      {% else %}
+      {{ r['material_no'] }} <span class="badge fail" style="font-size:11px;">⚠ 자재 미등록</span>
+      {% endif %}
+    </td>
+    <td>{{ r['material_name'] or '—' }}</td>
+    <td>{{ r['model_name'] }}</td>
+    <td><span class="badge muted">Lv{{ r['level'] }}</span></td>
+    <td>{{ r['parent_material_no'] or '—' }}</td>
+    <td>{{ r['kind'] or '—' }}</td>
+    <td>{{ r['category'] or '—' }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% set p = pager %}{% include "_pager.html" %}
+
+<script>
+var MODEL_CHIPS = {{ models | tojson }};
+
+function renderModelChips() {
+  var box = document.getElementById('chips-model');
+  box.innerHTML = '';
+  if (!MODEL_CHIPS.length) {
+    box.innerHTML = '<span class="chip-empty">선택 안 함 — 전체 모델</span>';
+    return;
+  }
+  MODEL_CHIPS.forEach(function(val, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(val));
+    var x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+    x.onclick = (function(idx) {
+      return function() { MODEL_CHIPS.splice(idx, 1); renderModelChips(); };
+    })(i);
+    chip.appendChild(x);
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = 'model'; hidden.value = val;
+    chip.appendChild(hidden);
+    box.appendChild(chip);
+  });
+}
+
+function addModelChip() {
+  var el = document.getElementById('modelPick');
+  var val = (el.value || '').trim();
+  if (!val) return;
+  if (MODEL_CHIPS.indexOf(val) === -1) MODEL_CHIPS.push(val);
+  el.value = '';
+  renderModelChips();
+}
+
+renderModelChips();
+</script>
+{% endblock %}

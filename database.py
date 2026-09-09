@@ -342,6 +342,27 @@ def init_db():
         )
     """)
 
+    # 4-1-1. 통합BOM 계층 정보 (2026-09-09) — assembly_masters/components와는 완전히 별개.
+    #        조회/필터링 전용("자재 찾기" 화면). 재임포트 시 전량 삭제 후 재삽입한다.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS material_bom_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            material_no        TEXT NOT NULL,
+            parent_material_no TEXT,
+            model_name          TEXT NOT NULL,
+            level               INTEGER NOT NULL,
+            kind                TEXT,
+            qty_per_parent      REAL,
+            qty_per_model       REAL,
+            unit                TEXT,
+            source_row_no       INTEGER,
+            imported_at         TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bom_material_no ON material_bom_links(material_no)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bom_model_name ON material_bom_links(model_name)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bom_parent ON material_bom_links(parent_material_no)")
+
     # 4-1. 검사 입력 임시저장 — 검사자가 입력하는 즉시 서버에 저장된다.
     #      예전엔 브라우저 localStorage에만 있어서 태블릿이 꺼지거나 기기를 바꾸면 날아갔다.
     cur.execute("""
@@ -2753,6 +2774,169 @@ def import_assembly_from_excel(excel_filepath):
         conn.close()
 
     return imported, None
+
+
+# ---------- 통합BOM 계층 정보 (assembly_masters와 무관, 조회/필터 전용) ----------
+
+_BOM_ALLOWED_UNITS = {"pc", "set", "ea"}
+
+
+def import_bom_from_excel(filepath):
+    """통합BOM 엑셀("통합BOM" 시트)에서 자재별 계층(모델/Lv/상위품목코드) 정보를 읽어
+    material_bom_links에 전량 재삽입한다(재임포트 시 기존 데이터는 전부 삭제 후 다시 채움).
+
+    시트 구조(2026-09-09 확인, 헤더 2행/데이터 3행부터):
+      1~5=Lv1~Lv5(그 중 하나만 값 있음)  6=모델명  7=Rev(안씀)  8=품목코드  9=SPEC(안씀)
+      10=소요량  11=단위  12=1대당누적  13=상위품목코드  14=구분  15=적용모델수(안씀)  16~=모델별 매트릭스(안씀)
+
+    구분이 '완제품'인 행은 제외. 단위가 Pc/SET/EA(대소문자·공백 무시)가 아니면 제외.
+    반환: {"imported", "skipped_unit", "skipped_no_code", "skipped_finished_good", "skipped_no_level"}"""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(filepath, data_only=True)
+    try:
+        ws = wb["통합BOM"]
+        rows_raw = list(ws.iter_rows(min_row=3, values_only=True))
+    finally:
+        wb.close()
+
+    summary = {"imported": 0, "skipped_unit": 0, "skipped_no_code": 0,
+               "skipped_finished_good": 0, "skipped_no_level": 0}
+    rows_to_insert = []
+
+    for row_no, row in enumerate(rows_raw, start=3):
+        if row is None or all(v is None for v in row):
+            continue
+        row = list(row) + [None] * max(0, 15 - len(row))  # 15열 미만 방어
+
+        kind = str(row[13]).strip() if row[13] is not None else None
+        if kind == "완제품":
+            summary["skipped_finished_good"] += 1
+            continue
+
+        unit_raw = row[10]
+        unit_norm = str(unit_raw).strip().lower() if unit_raw is not None else ""
+        if unit_norm not in _BOM_ALLOWED_UNITS:
+            summary["skipped_unit"] += 1
+            continue
+
+        material_no = str(row[7]).strip() if row[7] is not None else ""
+        if not material_no:
+            summary["skipped_no_code"] += 1
+            continue
+
+        level = None
+        for lv_idx in range(0, 5):
+            v = row[lv_idx]
+            if v is not None and str(v).strip() != "":
+                try:
+                    level = int(v)
+                except (TypeError, ValueError):
+                    level = lv_idx + 1
+                break
+        if level is None:
+            summary["skipped_no_level"] += 1
+            continue
+
+        model_name = str(row[5]).strip() if row[5] is not None else ""
+        parent_no = str(row[12]).strip() if row[12] is not None else None
+
+        def _num(v):
+            if v is None:
+                return None
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        rows_to_insert.append((
+            material_no, parent_no or None, model_name, level, kind,
+            _num(row[9]), _num(row[11]), str(row[10]).strip() if row[10] is not None else None,
+            row_no,
+        ))
+        summary["imported"] += 1
+
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM material_bom_links")
+        conn.executemany("""
+            INSERT INTO material_bom_links
+                (material_no, parent_material_no, model_name, level, kind,
+                 qty_per_parent, qty_per_model, unit, source_row_no)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows_to_insert)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return summary
+
+
+def get_bom_links_for_material(material_no):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM material_bom_links WHERE material_no = ? ORDER BY model_name, level",
+        (material_no,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def list_bom_model_names():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT DISTINCT model_name FROM material_bom_links ORDER BY model_name"
+    ).fetchall()
+    conn.close()
+    return [r["model_name"] for r in rows]
+
+
+def search_bom_materials(query="", levels=None, models=None, parent_no="", category=None):
+    """material_bom_links를 materials에 LEFT JOIN해서 조회("자재 찾기" 화면 전용).
+    search_materials()와는 완전히 별개 함수(책임 분리)."""
+    conn = get_conn()
+    where = ["1=1"]
+    params = []
+
+    query = (query or "").strip()
+    if query:
+        where.append("(b.material_no LIKE ? OR m.material_name LIKE ?)")
+        like = f"%{query}%"
+        params += [like, like]
+
+    levels = [l for l in (levels or []) if str(l).strip()]
+    if levels:
+        placeholders = ",".join("?" * len(levels))
+        where.append(f"b.level IN ({placeholders})")
+        params += [int(l) for l in levels]
+
+    models = [mo for mo in (models or []) if mo]
+    if models:
+        placeholders = ",".join("?" * len(models))
+        where.append(f"b.model_name IN ({placeholders})")
+        params += models
+
+    parent_no = (parent_no or "").strip()
+    if parent_no:
+        where.append("b.parent_material_no LIKE ?")
+        params.append(f"%{parent_no}%")
+
+    category = (category or "").strip()
+    if category:
+        where.append("m.category = ?")
+        params.append(category)
+
+    sql = f"""
+        SELECT b.material_no, m.material_name, b.level, b.model_name, b.parent_material_no,
+               b.kind, b.qty_per_parent, b.qty_per_model, b.unit, m.category
+        FROM material_bom_links b
+        LEFT JOIN materials m ON m.material_no = b.material_no
+        WHERE {" AND ".join(where)}
+        ORDER BY b.material_no, b.model_name, b.level
+    """
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return rows
 
 
 def get_assembly_by_no(assembly_no):

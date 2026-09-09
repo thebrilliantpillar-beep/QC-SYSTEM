@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}통합BOM 계층 정보 임포트{% endblock %}
+{% block content %}
+<h2>통합BOM 계층 정보 임포트</h2>
+
+<div class="card">
+  <p class="hint">
+    통합BOM 엑셀("통합BOM" 시트)에서 자재별 계층 정보(어느 모델, 어느 Lv, 어느 상위품목코드 아래
+    있는지)를 읽어서 DB에 등록해. 이걸 해두면 "자재 찾기" 화면에서 모델·Lv·상위품목코드로
+    자재를 검색·필터링할 수 있어.
+  </p>
+  <p class="hint" style="color:#dc2626; font-weight:600;">
+    ⚠ 재실행하면 기존 BOM 연동 데이터는 전부 삭제되고 이번에 올린 파일 내용으로 새로 채워져.
+  </p>
+  <p class="hint">
+    이 기능은 입고 화면의 "조립품 자동전개"(조립품 관리 메뉴)와는 완전히 별개야 — 조회/필터링
+    용도로만 쓰이고, 입고·검사 흐름에는 영향을 주지 않아.
+  </p>
+
+  <form method="POST" enctype="multipart/form-data">
+    <label>통합BOM 엑셀 파일</label>
+    <input type="file" name="bom_file" accept=".xlsx,.xlsm" required>
+
+    <button type="submit" style="margin-top:14px; padding:12px 28px;">📥 임포트</button>
+  </form>
+</div>
+{% endblock %}

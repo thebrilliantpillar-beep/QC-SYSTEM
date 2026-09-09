@@ -169,7 +169,7 @@ PERM_GROUPS = [
     ("자재", [
         ("material_view",   "자재 열람"),
         ("material_edit",   "자재 등록·수정·삭제(일괄등록 포함)"),
-        ("material_import", "자재 규격 엑셀 업로드(메뉴 미노출, URL 직접 접근용)"),
+        ("material_import", "자재 규격 엑셀 업로드(메뉴 미노출) / 통합BOM 계층 임포트"),
     ]),
     ("마스터", [
         ("gauge",    "계측기 관리"),
@@ -1820,7 +1820,7 @@ def spec_new():
     return render_template("spec_detail.html", material_no="", specs=[], material_name="",
                            material=None, drawing_no=None, drawing_pdf=None, drawing_has_auto=False,
                            full_inspect_config=None, method_options=gauge_method_options(),
-                           categories=db.list_material_categories(), is_new=True)
+                           categories=db.list_material_categories(), is_new=True, bom_links=[])
 
 
 @app.route("/spec/<material_no>")
@@ -1834,12 +1834,18 @@ def spec_detail(material_no):
     drawing_auto = os.path.join(DRAWING_DIR, f"{material_no}.pdf")
     drawing_has_auto = os.path.exists(drawing_auto)
     full_inspect_config = db.get_full_inspect_config(material_no)
+    bom_links = db.get_bom_links_for_material(material_no)
+    bom_parent_exists = {
+        b["parent_material_no"]: bool(db.get_material(b["parent_material_no"]))
+        for b in bom_links if b["parent_material_no"]
+    }
     return render_template("spec_detail.html", material_no=material_no, specs=specs,
                            material_name=material_name, material=material, drawing_no=drawing_no,
                            drawing_pdf=drawing_pdf, drawing_has_auto=drawing_has_auto,
                            full_inspect_config=full_inspect_config,
                            method_options=gauge_method_options(),
-                           categories=db.list_material_categories())
+                           categories=db.list_material_categories(),
+                           bom_links=bom_links, bom_parent_exists=bom_parent_exists)
 
 
 @app.route("/spec/<material_no>/full-inspect-config", methods=["POST"])
@@ -6432,6 +6438,67 @@ def import_assembly():
         flash(f"임포트 중 오류: {e}")
 
     return redirect(url_for("import_assembly"))
+
+
+# ---------- 통합BOM 계층 정보 임포트 (assembly_masters와 무관, 조회/필터 전용) ----------
+
+@app.route("/admin/import-bom", methods=["GET", "POST"])
+@perm_required("material_import")
+def import_bom():
+    """통합BOM 엑셀("통합BOM" 시트)에서 자재별 계층(모델/Lv/상위품목코드) 정보를 임포트.
+    조립품 자동전개(assembly_masters)와는 완전히 별개 — 순수 조회/필터링용. CLAUDE.md 참고."""
+    if request.method == "GET":
+        return render_template("import_bom.html")
+
+    file = request.files.get("bom_file")
+    if not file:
+        flash("엑셀 파일을 선택해줘.")
+        return redirect(url_for("import_bom"))
+
+    import tempfile
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+            file.save(tmp.name)
+        summary = db.import_bom_from_excel(tmp_path)
+        flash(f"BOM 임포트 완료 — 등록 {summary['imported']}건 "
+              f"(스킵: 단위 {summary['skipped_unit']} / 품목코드없음 {summary['skipped_no_code']} / "
+              f"완제품 {summary['skipped_finished_good']} / Lv없음 {summary['skipped_no_level']})")
+        record_change("BOM 계층 임포트", "material", None,
+                      f"등록 {summary['imported']}건, 스킵 {summary['skipped_unit']+summary['skipped_no_code']+summary['skipped_finished_good']+summary['skipped_no_level']}건")
+    except KeyError:
+        flash("엑셀 파일에 '통합BOM' 시트가 없어. 시트명을 확인해줘.")
+    except Exception as e:
+        flash(f"임포트 중 오류: {e}")
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+    return redirect(url_for("import_bom"))
+
+
+@app.route("/materials/find")
+@perm_required("material_view")
+def material_find():
+    """자재 찾기 — 통합BOM 계층 정보(모델/Lv/상위품목코드)로 자재를 검색/필터링.
+    assembly_masters(조립품 자동전개)와는 별개 화면."""
+    query = request.args.get("q", "").strip()
+    levels = _multi_arg("level")
+    models = _multi_arg("model")
+    parent_no = request.args.get("parent", "").strip()
+    category = request.args.get("category", "").strip()
+
+    rows = list(db.search_bom_materials(query=query, levels=levels, models=models,
+                                         parent_no=parent_no, category=category))
+    pager = _paginate(rows)
+    return render_template("material_find.html", rows=pager["items"], pager=pager,
+                           query=query, levels=levels, models=models, parent_no=parent_no,
+                           category=category, model_options=db.list_bom_model_names(),
+                           categories=db.list_material_categories())
 
 
 # ---------- 조립품 관리 (MA 외 다른 조립품도 직접 등록) ----------

@@ -873,3 +873,26 @@ Claude 세션이 시차를 두고 건드릴 수 있고, 사용자 본인도 시�
 영향을 주는 속성이 있으면, 특정 화면에서 그 속성을 "끄고 싶을 때" 단순히 그 화면의
 스타일에서 선언을 **지우면 안 되고 반대값으로 명시적으로 덮어써야 한다.** 이런
 범용 규칙이 뭐가 있는지 먼저 `base.html`을 확인하는 습관을 들일 것.
+
+## 18. 통합BOM 계층 정보 — "자재 찾기" (2026-09-09, `assembly_masters`와 완전히 별개)
+
+28개 모델 ERP BOM(Lv1~Lv5 계층)에서 자재별 소속 정보(어느 모델, 어느 Lv, 어느 상위품목코드
+아래 있는지)를 뽑아 조회/필터링만 하는 기능. **5-0절의 `assembly_masters`/
+`assembly_components`(입고 시 파츠 자동전개)와는 목적·테이블·라우트 전부 무관하다 —
+헷갈려서 서로 건드리지 말 것.** 이쪽은 순수 조회용이라 입고·검사 흐름에 아무 영향이 없다.
+
+- 테이블: `material_bom_links` (`material_no`/`parent_material_no`/`model_name`/`level`/
+  `kind`/`qty_per_parent`/`qty_per_model`/`unit`/`source_row_no`). `materials`에 FK 없음
+  (느슨한 문자열 연결 — 기존 관례, 화면에서 "자재 미등록"만 표시).
+- **같은 자재가 여러 모델/여러 상위품목코드 아래 다른 Lv로 나타나면 대표값으로 뭉개지 않고
+  전부 별도 행으로 저장한다**(사용자 확정).
+- 임포트(`database.import_bom_from_excel()`, `/admin/import-bom`, `material_import` 권한):
+  **재임포트 시 전량 삭제 후 재삽입**(부분 갱신 아님) — 최신 통합BOM 파일 전체를 매번
+  올려야 한다. 엑셀 시트명 `"통합BOM"` 고정, 헤더 2행/데이터 3행부터.
+- **단위가 `Pc`/`SET`/`EA`(대소문자·공백 무시)인 행만 연동 대상**이다. 그 외 단위(ml, g, M
+  등)와 단위 없는 행, `구분`이 `완제품`인 행은 스킵한다.
+- 조회: `database.search_bom_materials()`(신규, `search_materials()`와 별개 함수 —
+  8-1절 원칙에 따라 책임 분리) → `/materials/find` 화면("자재 찾기"). Lv·모델 다중선택
+  필터는 `_multi_arg()` 재사용(대시보드 8-2-13절과 같은 방식).
+- 자재 상세(`spec_detail.html`)에 "BOM 계층 정보" 카드로도 보여준다(읽기 전용,
+  `is_new=True`일 때는 숨김 — 15절의 `is_new` 가드 패턴 그대로 따름).

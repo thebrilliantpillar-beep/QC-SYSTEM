@@ -119,6 +119,47 @@
   {% endif %}
 </div>
 
+{% if bom_links %}
+<div class="card">
+  <h3 style="margin-top:0;">BOM 계층 정보</h3>
+  <p class="hint" style="margin-top:0;">통합BOM에서 임포트된 계층 정보야(읽기 전용). 같은 자재가 여러
+    모델·상위품목코드 아래 나타나면 각각 별도 줄로 보여줘.</p>
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <thead>
+      <tr style="text-align:left; color:#4b5563; border-bottom:1px solid #DDE0E6;">
+        <th style="padding:6px 4px;">Lv</th>
+        <th style="padding:6px 4px;">모델</th>
+        <th style="padding:6px 4px;">상위품목코드</th>
+        <th style="padding:6px 4px;">소요량(부모당 / 1대당)</th>
+        <th style="padding:6px 4px;">구분</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in bom_links %}
+      <tr style="border-bottom:1px solid #ECEEF2;">
+        <td style="padding:6px 4px;"><span class="badge muted">Lv{{ b['level'] }}</span></td>
+        <td style="padding:6px 4px;">{{ b['model_name'] }}</td>
+        <td style="padding:6px 4px;">
+          {% if b['parent_material_no'] %}
+            {% if bom_parent_exists.get(b['parent_material_no']) %}
+            <a href="{{ url_for('spec_detail', material_no=b['parent_material_no']) }}">{{ b['parent_material_no'] }}</a>
+            {% else %}
+            {{ b['parent_material_no'] }}
+            {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td style="padding:6px 4px;">
+          {{ b['qty_per_parent'] if b['qty_per_parent'] is not none else '—' }} /
+          {{ b['qty_per_model'] if b['qty_per_model'] is not none else '—' }} {{ b['unit'] or '' }}
+        </td>
+        <td style="padding:6px 4px;">{{ b['kind'] or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="card">
   <h3 style="margin-top:0;">기준서 정보</h3>
   <p class="hint" style="margin-top:0;">
