@@ -18,6 +18,8 @@
   .lv-chk input { width:auto; margin:0; }
   .lv-chk.on { border-color:var(--primary); background:#eff6ff; color:var(--primary-dark); }
   #mf-table td.name-cell { text-align:left; padding-left:14px; }
+  .spec-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:14px 0 0; }
+  .spec-toolbar .btn.danger-outline { margin-top:0; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626; }
 </style>
 
 <h2>🔎 자재 찾기</h2>
@@ -96,9 +98,21 @@
   </form>
 </div>
 
+{% if can_edit %}
+<div class="spec-toolbar">
+  <button type="submit" form="bomBulkDeleteForm" class="btn danger-outline">선택 삭제</button>
+  <span class="muted" style="font-size:12.5px;">— BOM 연동 정보만 지워져. 자재 자체나 규격은 안 지워짐.</span>
+</div>
+<form id="bomBulkDeleteForm" method="POST" action="{{ url_for('materials_bom_links_delete_bulk') }}"
+      onsubmit="return confirm('선택한 BOM 연동 정보를 삭제할까? 자재 자체는 안 지워지고, 이 화면의 목록에서만 빠져.');">
+  <input type="hidden" name="next" value="{{ request.full_path }}">
+</form>
+{% endif %}
+
 <div style="overflow-x:auto; margin-top:14px;">
 <table id="mf-table">
   <tr>
+    {% if can_edit %}<th style="width:26px;"><input type="checkbox" id="checkAllBom" onclick="document.querySelectorAll('.bom-link-check').forEach(c=>c.checked=this.checked)"></th>{% endif %}
     <th style="text-align:left; padding-left:14px;">자재번호</th>
     <th>자재명</th>
     <th>모델</th>
@@ -109,6 +123,11 @@
   </tr>
   {% for r in rows %}
   <tr>
+    {% if can_edit %}
+    <td>
+      <input type="checkbox" class="bom-link-check" form="bomBulkDeleteForm" name="link_ids" value="{{ r['id'] }}">
+    </td>
+    {% endif %}
     <td class="name-cell">
       {% if r['material_name'] is not none %}
       <a href="{{ url_for('spec_detail', material_no=r['material_no']) }}">{{ r['material_no'] }}</a>
@@ -125,6 +144,7 @@
         <input type="hidden" name="material_no" value="{{ r['material_no'] }}">
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <input type="text" name="material_name" placeholder="자재명 입력" required
+               value="{{ r['bom_name'] or '' }}"
                style="width:150px; padding:4px 6px; font-size:12.5px;">
         <select name="category" style="padding:4px; font-size:12.5px;">
           <option value="">(미지정)</option>
@@ -162,7 +182,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="7" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
+  <tr><td colspan="{{ 8 if can_edit else 7 }}" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
   {% endfor %}
 </table>
 </div>

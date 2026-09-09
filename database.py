@@ -362,6 +362,11 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bom_material_no ON material_bom_links(material_no)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bom_model_name ON material_bom_links(model_name)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bom_parent ON material_bom_links(parent_material_no)")
+    existing_bom_cols = [row[1] for row in cur.execute("PRAGMA table_info(material_bom_links)").fetchall()]
+    if "bom_name" not in existing_bom_cols:
+        # BOM 원본의 "규격사양(SPEC)" 열 — materials.material_name은 절대 안 건드리고,
+        # "자재 찾기"에서 미등록 자재를 등록할 때 이름을 자동으로 채워주는 참고용 값.
+        cur.execute("ALTER TABLE material_bom_links ADD COLUMN bom_name TEXT")
 
     # 4-1. 검사 입력 임시저장 — 검사자가 입력하는 즉시 서버에 저장된다.
     #      예전엔 브라우저 localStorage에만 있어서 태블릿이 꺼지거나 기기를 바꾸면 날아갔다.
@@ -2786,7 +2791,8 @@ def import_bom_from_excel(filepath):
     material_bom_links에 전량 재삽입한다(재임포트 시 기존 데이터는 전부 삭제 후 다시 채움).
 
     시트 구조(2026-09-09 확인, 헤더 2행/데이터 3행부터):
-      1~5=Lv1~Lv5(그 중 하나만 값 있음)  6=모델명  7=Rev(안씀)  8=품목코드  9=SPEC(안씀)
+      1~5=Lv1~Lv5(그 중 하나만 값 있음)  6=모델명  7=Rev(안씀)  8=품목코드
+      9=규격사양(SPEC, bom_name으로 참고 저장 — materials.material_name은 안 건드림)
       10=소요량  11=단위  12=1대당누적  13=상위품목코드  14=구분  15=적용모델수(안씀)  16~=모델별 매트릭스(안씀)
 
     구분이 '완제품'인 행은 제외. 단위가 Pc/SET/EA(대소문자·공백 무시)가 아니면 제외.
@@ -2840,6 +2846,7 @@ def import_bom_from_excel(filepath):
 
         model_name = str(row[5]).strip() if row[5] is not None else ""
         parent_no = str(row[12]).strip() if row[12] is not None else None
+        bom_name = str(row[8]).strip() if row[8] is not None else None
 
         def _num(v):
             if v is None:
@@ -2852,7 +2859,7 @@ def import_bom_from_excel(filepath):
         rows_to_insert.append((
             material_no, parent_no or None, model_name, level, kind,
             _num(row[9]), _num(row[11]), str(row[10]).strip() if row[10] is not None else None,
-            row_no,
+            row_no, bom_name or None,
         ))
         summary["imported"] += 1
 
@@ -2862,8 +2869,8 @@ def import_bom_from_excel(filepath):
         conn.executemany("""
             INSERT INTO material_bom_links
                 (material_no, parent_material_no, model_name, level, kind,
-                 qty_per_parent, qty_per_model, unit, source_row_no)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 qty_per_parent, qty_per_model, unit, source_row_no, bom_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows_to_insert)
         conn.commit()
     finally:
@@ -2931,8 +2938,8 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
         params.append(category)
 
     sql = f"""
-        SELECT b.material_no, m.material_name, b.level, b.model_name, b.parent_material_no,
-               b.kind, b.qty_per_parent, b.qty_per_model, b.unit, m.category
+        SELECT b.id, b.material_no, m.material_name, b.bom_name, b.level, b.model_name,
+               b.parent_material_no, b.kind, b.qty_per_parent, b.qty_per_model, b.unit, m.category
         FROM material_bom_links b
         LEFT JOIN materials m ON m.material_no = b.material_no
         WHERE {" AND ".join(where)}
@@ -2941,6 +2948,18 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return rows
+
+
+def delete_bom_links_bulk(link_ids):
+    """'자재 찾기'에서 선택한 BOM 연동 행만 삭제. 자재(materials)나 규격은 안 건드림 —
+    material_bom_links는 조회/필터 전용 참고 데이터라 잘못 들어온 행만 지워도 안전하다."""
+    if not link_ids:
+        return
+    conn = get_conn()
+    placeholders = ",".join("?" * len(link_ids))
+    conn.execute(f"DELETE FROM material_bom_links WHERE id IN ({placeholders})", link_ids)
+    conn.commit()
+    conn.close()
 
 
 def count_unregistered_bom_materials():

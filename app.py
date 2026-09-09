@@ -1902,15 +1902,22 @@ def material_category_add():
     return redirect(url_for("spec_list"))
 
 
+def _find_return_to(fallback):
+    """POST 폼의 next 값이 '/materials/find'(그 화면) 자신일 때만 허용하고, 그 외엔
+    fallback으로 보낸다(오픈 리다이렉트 방지). 자재 찾기 화면 여러 라우트가 공유."""
+    next_url = request.form.get("next", "").strip()
+    if next_url == "/materials/find" or next_url.startswith("/materials/find?"):
+        return next_url
+    return fallback
+
+
 @app.route("/spec/<material_no>/category", methods=["POST"])
 @perm_required("material_edit")
 def spec_material_category_update(material_no):
     category = request.form.get("category", "").strip()
     # "자재 찾기" 화면 등 다른 화면에서 이 라우트를 재사용할 때, 저장 후 그 화면으로
     # 돌아가기 위한 파라미터(CLAUDE.md의 return_to 관례와 동일한 목적).
-    next_url = request.form.get("next", "").strip()
-    fallback = url_for("spec_detail", material_no=material_no)
-    return_to = next_url if (next_url == "/materials/find" or next_url.startswith("/materials/find?")) else fallback
+    return_to = _find_return_to(url_for("spec_detail", material_no=material_no))
     if category == "__new__":
         flash("새 분류를 먼저 등록해줘.")
         return redirect(return_to)
@@ -1928,8 +1935,7 @@ def materials_quick_register():
     material_no = request.form.get("material_no", "").strip()
     material_name = request.form.get("material_name", "").strip()
     category = request.form.get("category", "").strip()
-    next_url = request.form.get("next", "").strip()
-    return_to = next_url if (next_url == "/materials/find" or next_url.startswith("/materials/find?")) else url_for("material_find")
+    return_to = _find_return_to(url_for("material_find"))
     if not material_no or not material_name:
         flash("자재명을 입력해줘.")
         return redirect(return_to)
@@ -1938,6 +1944,22 @@ def materials_quick_register():
         db.update_material_category(material_no, category)
     record_change("자재 신규 등록(자재 찾기)", "material", material_no, material_name)
     flash(f"'{material_no}' 등록됐어.")
+    return redirect(return_to)
+
+
+@app.route("/materials/bom-links/delete_bulk", methods=["POST"])
+@perm_required("material_edit")
+def materials_bom_links_delete_bulk():
+    """'자재 찾기'에서 선택한 BOM 연동 행 삭제. material_bom_links만 지우고 자재 자체는
+    안 건드림 — BOM 재임포트하면 어차피 다시 채워지는 참고 데이터라 되돌리기도 쉽다."""
+    link_ids = [int(i) for i in request.form.getlist("link_ids") if i.isdigit()]
+    return_to = _find_return_to(url_for("material_find"))
+    if not link_ids:
+        flash("삭제할 항목을 선택해줘.")
+        return redirect(return_to)
+    db.delete_bom_links_bulk(link_ids)
+    record_change("BOM 연동 정보 선택 삭제", "material_bom_links", None, f"{len(link_ids)}건")
+    flash(f"{len(link_ids)}건 삭제됐어.")
     return redirect(return_to)
 
 
