@@ -2891,12 +2891,16 @@ def list_bom_model_names():
     return [r["model_name"] for r in rows]
 
 
-def search_bom_materials(query="", levels=None, models=None, parent_no="", category=None):
+def search_bom_materials(query="", levels=None, models=None, parent_no="", category=None,
+                          unregistered_only=False):
     """material_bom_links를 materials에 LEFT JOIN해서 조회("자재 찾기" 화면 전용).
     search_materials()와는 완전히 별개 함수(책임 분리)."""
     conn = get_conn()
     where = ["1=1"]
     params = []
+
+    if unregistered_only:
+        where.append("m.material_no IS NULL")
 
     query = (query or "").strip()
     if query:
@@ -2937,6 +2941,18 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return rows
+
+
+def count_unregistered_bom_materials():
+    """material_bom_links에는 있는데 materials에는 없는 자재번호 수(자재 찾기 화면 상단 안내용)."""
+    conn = get_conn()
+    n = conn.execute("""
+        SELECT COUNT(DISTINCT b.material_no) FROM material_bom_links b
+        LEFT JOIN materials m ON m.material_no = b.material_no
+        WHERE m.material_no IS NULL
+    """).fetchone()[0]
+    conn.close()
+    return n
 
 
 def get_assembly_by_no(assembly_no):

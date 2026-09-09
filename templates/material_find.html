@@ -23,6 +23,18 @@
 <p class="hint">통합BOM에서 임포트한 계층 정보(모델·Lv·상위품목코드)로 자재를 검색·필터링해.
   조립품 자동전개("조립품 관리")와는 별개 기능이라, 여기서 필터링해도 입고·검사 흐름에는 영향이 없어.</p>
 
+{% if unregistered_count %}
+<div class="card" style="background:#fef2f2; border-color:#fecaca; display:flex; align-items:center;
+                          justify-content:space-between; gap:10px; flex-wrap:wrap;">
+  <span style="color:#991b1b; font-weight:600;">⚠ BOM에는 있는데 자재 마스터에 아직 없는 자재 {{ unregistered_count }}건</span>
+  {% if not unregistered_only %}
+  <a href="{{ url_for('material_find', unregistered=1) }}" class="btn secondary" style="margin:0;">미등록 자재만 보기</a>
+  {% else %}
+  <a href="{{ url_for('material_find') }}" class="btn secondary" style="margin:0;">전체 보기로 돌아가기</a>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card">
   <form method="GET" id="mfForm">
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
@@ -43,8 +55,13 @@
           {% endfor %}
         </select>
       </div>
+      <label class="lv-chk {% if unregistered_only %}on{% endif %}" style="margin-top:0;">
+        <input type="checkbox" name="unregistered" value="1" {% if unregistered_only %}checked{% endif %}
+               onchange="this.closest('.lv-chk').classList.toggle('on', this.checked)">
+        미등록만
+      </label>
       <button type="submit" style="margin-top:0;">검색</button>
-      {% if query or levels or models or parent_no or category %}
+      {% if query or levels or models or parent_no or category or unregistered_only %}
       <a href="{{ url_for('material_find') }}" class="btn secondary" style="margin-top:0;">초기화</a>
       {% endif %}
     </div>

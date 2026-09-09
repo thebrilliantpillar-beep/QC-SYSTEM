@@ -6491,13 +6491,17 @@ def material_find():
     models = _multi_arg("model")
     parent_no = request.args.get("parent", "").strip()
     category = request.args.get("category", "").strip()
+    unregistered_only = request.args.get("unregistered") == "1"
 
     rows = list(db.search_bom_materials(query=query, levels=levels, models=models,
-                                         parent_no=parent_no, category=category))
+                                         parent_no=parent_no, category=category,
+                                         unregistered_only=unregistered_only))
     pager = _paginate(rows)
     return render_template("material_find.html", rows=pager["items"], pager=pager,
                            query=query, levels=levels, models=models, parent_no=parent_no,
-                           category=category, model_options=db.list_bom_model_names(),
+                           category=category, unregistered_only=unregistered_only,
+                           unregistered_count=db.count_unregistered_bom_materials(),
+                           model_options=db.list_bom_model_names(),
                            categories=db.list_material_categories())
 
 
