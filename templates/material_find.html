@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}자재 찾기{% endblock %}
 {% block content %}
+{% set can_edit = 'material_edit' in user_perms %}
 <style>
   .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
   .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
@@ -115,12 +116,50 @@
       {{ r['material_no'] }} <span class="badge fail" style="font-size:11px;">⚠ 자재 미등록</span>
       {% endif %}
     </td>
-    <td>{{ r['material_name'] or '—' }}</td>
+    <td>
+      {% if r['material_name'] is not none %}
+      {{ r['material_name'] }}
+      {% elif can_edit %}
+      <form method="POST" action="{{ url_for('materials_quick_register') }}"
+            style="display:flex; gap:4px; align-items:center;">
+        <input type="hidden" name="material_no" value="{{ r['material_no'] }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="text" name="material_name" placeholder="자재명 입력" required
+               style="width:150px; padding:4px 6px; font-size:12.5px;">
+        <select name="category" style="padding:4px; font-size:12.5px;">
+          <option value="">(미지정)</option>
+          {% for c in (categories or []) %}
+          <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" style="margin:0; padding:5px 10px; font-size:12.5px;">등록</button>
+      </form>
+      {% else %}
+      —
+      {% endif %}
+    </td>
     <td>{{ r['model_name'] }}</td>
     <td><span class="badge muted">Lv{{ r['level'] }}</span></td>
     <td>{{ r['parent_material_no'] or '—' }}</td>
     <td>{{ r['kind'] or '—' }}</td>
-    <td>{{ r['category'] or '—' }}</td>
+    <td>
+      {% if r['material_name'] is none %}
+      —
+      {% elif can_edit %}
+      <form method="POST" action="{{ url_for('spec_material_category_update', material_no=r['material_no']) }}"
+            style="margin:0;">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <select name="category" onchange="this.form.submit()" style="padding:4px; font-size:12.5px;">
+          <option value="" {% if not r['category'] %}selected{% endif %}>(미지정)</option>
+          {% for c in (categories or []) %}
+          <option value="{{ c }}" {% if r['category']==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% else %}
+      {{ r['category'] or '—' }}
+      {% endif %}
+    </td>
   </tr>
   {% else %}
   <tr><td colspan="7" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>

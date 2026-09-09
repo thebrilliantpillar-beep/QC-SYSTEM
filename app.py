@@ -1906,13 +1906,39 @@ def material_category_add():
 @perm_required("material_edit")
 def spec_material_category_update(material_no):
     category = request.form.get("category", "").strip()
+    # "자재 찾기" 화면 등 다른 화면에서 이 라우트를 재사용할 때, 저장 후 그 화면으로
+    # 돌아가기 위한 파라미터(CLAUDE.md의 return_to 관례와 동일한 목적).
+    next_url = request.form.get("next", "").strip()
+    fallback = url_for("spec_detail", material_no=material_no)
+    return_to = next_url if (next_url == "/materials/find" or next_url.startswith("/materials/find?")) else fallback
     if category == "__new__":
         flash("새 분류를 먼저 등록해줘.")
-        return redirect(url_for("spec_detail", material_no=material_no))
+        return redirect(return_to)
     canonical = db.update_material_category(material_no, category)
     record_change("자재 분류 지정", "material", material_no, canonical or "(미지정으로 해제)")
     flash(f"분류가 '{canonical}'(으)로 저장됐어." if canonical else "분류를 미지정으로 해제했어.")
-    return redirect(url_for("spec_detail", material_no=material_no))
+    return redirect(return_to)
+
+
+@app.route("/materials/quick-register", methods=["POST"])
+@perm_required("material_edit")
+def materials_quick_register():
+    """'자재 찾기'의 미등록 자재 행에서 자재명(+분류)만 채워 바로 등록. spec_new처럼
+    자재번호+자재명만 받는 최소 등록 — 규격/항목은 여기서 다루지 않는다."""
+    material_no = request.form.get("material_no", "").strip()
+    material_name = request.form.get("material_name", "").strip()
+    category = request.form.get("category", "").strip()
+    next_url = request.form.get("next", "").strip()
+    return_to = next_url if (next_url == "/materials/find" or next_url.startswith("/materials/find?")) else url_for("material_find")
+    if not material_no or not material_name:
+        flash("자재명을 입력해줘.")
+        return redirect(return_to)
+    db.upsert_material(material_no, material_name)
+    if category:
+        db.update_material_category(material_no, category)
+    record_change("자재 신규 등록(자재 찾기)", "material", material_no, material_name)
+    flash(f"'{material_no}' 등록됐어.")
+    return redirect(return_to)
 
 
 @app.route("/spec/<material_no>/rename", methods=["POST"])
