@@ -20,6 +20,7 @@
   #mf-table td.name-cell { text-align:left; padding-left:14px; }
   .spec-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:14px 0 0; }
   .spec-toolbar .btn.danger-outline { margin-top:0; padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626; }
+  .drawing-empty { color:#9ca3af; font-size:12px; }
 </style>
 
 <h2>🔎 자재 찾기</h2>
@@ -120,6 +121,7 @@
     <th>상위품목코드</th>
     <th>구분</th>
     <th>자재분류</th>
+    <th>도면</th>
   </tr>
   {% for r in rows %}
   <tr>
@@ -180,12 +182,21 @@
       {{ r['category'] or '—' }}
       {% endif %}
     </td>
+    <td>
+      {% if r['material_no'] in drawing_materials %}
+      <a href="javascript:void(0)" onclick="openDrawingModal('{{ r['material_no'] }}')"
+         class="btn secondary" style="padding:4px 10px; font-size:12px; margin-top:0;">📐 도면보기</a>
+      {% else %}
+      <span class="drawing-empty">미등록</span>
+      {% endif %}
+    </td>
   </tr>
   {% else %}
-  <tr><td colspan="{{ 8 if can_edit else 7 }}" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
+  <tr><td colspan="{{ 9 if can_edit else 8 }}" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
   {% endfor %}
 </table>
 </div>
+{% include "_drawing_modal.html" %}
 {% set p = pager %}{% include "_pager.html" %}
 
 <script>

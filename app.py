@@ -6545,10 +6545,12 @@ def material_find():
                                          parent_no=parent_no, category=category,
                                          unregistered_only=unregistered_only))
     pager = _paginate(rows)
+    drawing_materials = materials_with_drawings(r["material_no"] for r in pager["items"])
     return render_template("material_find.html", rows=pager["items"], pager=pager,
                            query=query, levels=levels, models=models, parent_no=parent_no,
                            category=category, unregistered_only=unregistered_only,
                            unregistered_count=db.count_unregistered_bom_materials(),
+                           drawing_materials=drawing_materials,
                            model_options=db.list_bom_model_names(),
                            categories=db.list_material_categories())
 
