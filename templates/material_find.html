@@ -148,7 +148,7 @@
         <input type="text" name="material_name" placeholder="자재명 입력" required
                value="{{ r['bom_name'] or '' }}"
                style="width:150px; padding:4px 6px; font-size:12.5px;">
-        <select name="category" style="padding:4px; font-size:12.5px;">
+        <select name="category" style="width:auto; min-width:120px; padding:4px; font-size:12.5px;">
           <option value="">(미지정)</option>
           {% for c in (categories or []) %}
           <option value="{{ c }}">{{ c }}</option>
@@ -171,7 +171,7 @@
       <form method="POST" action="{{ url_for('spec_material_category_update', material_no=r['material_no']) }}"
             style="margin:0;">
         <input type="hidden" name="next" value="{{ request.full_path }}">
-        <select name="category" onchange="this.form.submit()" style="padding:4px; font-size:12.5px;">
+        <select name="category" onchange="this.form.submit()" style="width:auto; min-width:120px; padding:4px; font-size:12.5px;">
           <option value="" {% if not r['category'] %}selected{% endif %}>(미지정)</option>
           {% for c in (categories or []) %}
           <option value="{{ c }}" {% if r['category']==c %}selected{% endif %}>{{ c }}</option>
