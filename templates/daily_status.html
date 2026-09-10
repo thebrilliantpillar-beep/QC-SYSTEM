@@ -113,6 +113,66 @@
   </div>
 </div>
 
+{# ───────── 오늘 검사자별 실적 (2026-09-10: 지금 손대야 할 일보다 위로 이동) ───────── #}
+<h3 style="margin:22px 0 0; font-size:15px;">👥 오늘 검사자별 실적</h3>
+<details class="sec" data-sec="today-staff" open>
+  <summary>인원별 처리량 <span class="cnt gray">{{ s['인원별']|length }}명</span><span class="arrow">▶</span></summary>
+  <div class="body">
+    {% if s['인원별'] %}
+    <div class="tblw">
+      <table>
+        <thead><tr><th>검사자</th><th class="num">건수</th><th class="num">검사수량</th>
+                   <th class="num">불량</th><th class="num">총 시간</th><th class="num">건당 평균</th></tr></thead>
+        <tbody>
+        {% for p in s['인원별'] %}
+        <tr>
+          <td><b>{{ p['검사자'] }}</b></td>
+          <td class="num">{{ p['건수'] }}</td>
+          <td class="num">{{ "{:,}".format(p['수량']) }}</td>
+          <td class="num" style="color:{{ '#dc2626' if p['불량'] else '#9ca3af' }};">{{ p['불량'] }}</td>
+          <td class="num">{{ (p['총초'] // 60) }}분</td>
+          <td class="num">{{ '%.1f'|format(p['평균초'] / 60) }}분</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="none">오늘 검사 기록이 아직 없어.</div>
+    {% endif %}
+  </div>
+</details>
+
+{# 오늘 검사한 성적서 — "오늘 검사자별 실적"의 소항목으로 인원별 처리량 바로 아래에 둠.
+   소항목 자체는 펼친 상태(open)로 두되, 안의 개별 행까지 더 펼칠 필요는 없음. #}
+<details class="sec" data-sec="today-list" open>
+  <summary>📋 오늘 검사한 성적서 <span class="cnt gray">{{ s['검사']['목록']|length }}</span><span class="arrow">▶</span></summary>
+  <div class="body">
+    {% if s['검사']['목록'] %}
+    <div class="tblw">
+      <table>
+        <thead><tr><th>자재번호</th><th>제품명</th><th>업체</th><th class="num">수량</th><th>판정</th><th>상태</th></tr></thead>
+        <tbody>
+        {% for r in s['검사']['목록'] %}
+        <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r['id']) }}'">
+          <td>{{ r['material_no'] }}</td>
+          <td>{{ r['material_name'] or '-' }}</td>
+          <td>{{ r['supplier'] or '-' }}</td>
+          <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
+          <td style="color:{{ '#dc2626' if (r['overall_result'] or '') not in ('합격','') else '#16a34a' }};">
+            {{ r['overall_result'] or '-' }}</td>
+          <td>{{ status_display(r)[0] }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="none">오늘 검사한 성적서가 없어.</div>
+    {% endif %}
+  </div>
+</details>
+
 {# ───────── 지금 손대야 할 일 ───────── #}
 {% set t = s['해야할일'] %}
 {% set total_todo = t['재검사필요']|length + t['통보서작성필요']|length + t['통보서확인필요']|length + t['통보서발송필요']|length %}
@@ -194,65 +254,6 @@
   </div>
   {% endfor %}
 {% endcall %}
-
-{# ───────── 오늘 검사자별 실적 ───────── #}
-<h3 style="margin:22px 0 0; font-size:15px;">👥 오늘 검사자별 실적</h3>
-<details class="sec" data-sec="today-staff" open>
-  <summary>인원별 처리량 <span class="cnt gray">{{ s['인원별']|length }}명</span><span class="arrow">▶</span></summary>
-  <div class="body">
-    {% if s['인원별'] %}
-    <div class="tblw">
-      <table>
-        <thead><tr><th>검사자</th><th class="num">건수</th><th class="num">검사수량</th>
-                   <th class="num">불량</th><th class="num">총 시간</th><th class="num">건당 평균</th></tr></thead>
-        <tbody>
-        {% for p in s['인원별'] %}
-        <tr>
-          <td><b>{{ p['검사자'] }}</b></td>
-          <td class="num">{{ p['건수'] }}</td>
-          <td class="num">{{ "{:,}".format(p['수량']) }}</td>
-          <td class="num" style="color:{{ '#dc2626' if p['불량'] else '#9ca3af' }};">{{ p['불량'] }}</td>
-          <td class="num">{{ (p['총초'] // 60) }}분</td>
-          <td class="num">{{ '%.1f'|format(p['평균초'] / 60) }}분</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="none">오늘 검사 기록이 아직 없어.</div>
-    {% endif %}
-  </div>
-</details>
-
-{# ───────── 오늘 검사한 성적서 ───────── #}
-<details class="sec" data-sec="today-list">
-  <summary>📋 오늘 검사한 성적서 <span class="cnt gray">{{ s['검사']['목록']|length }}</span><span class="arrow">▶</span></summary>
-  <div class="body">
-    {% if s['검사']['목록'] %}
-    <div class="tblw">
-      <table>
-        <thead><tr><th>자재번호</th><th>제품명</th><th>업체</th><th class="num">수량</th><th>판정</th><th>상태</th></tr></thead>
-        <tbody>
-        {% for r in s['검사']['목록'] %}
-        <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r['id']) }}'">
-          <td>{{ r['material_no'] }}</td>
-          <td>{{ r['material_name'] or '-' }}</td>
-          <td>{{ r['supplier'] or '-' }}</td>
-          <td class="num">{{ "{:,}".format(r['quantity'] or 0) }}</td>
-          <td style="color:{{ '#dc2626' if (r['overall_result'] or '') not in ('합격','') else '#16a34a' }};">
-            {{ r['overall_result'] or '-' }}</td>
-          <td>{{ status_display(r)[0] }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="none">오늘 검사한 성적서가 없어.</div>
-    {% endif %}
-  </div>
-</details>
 
 {# ───────── 오늘 입고 (업체별 접기·펼치기 한 섹션) ─────────
    예전엔 "업체별 요약표"와 "전체 목록" 두 섹션이 따로였는데, 업체별로 접었다가
