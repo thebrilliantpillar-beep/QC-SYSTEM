@@ -2500,14 +2500,18 @@ def inspect_auto_batch():
             "inspector": inspector_val,
             "quantity": intake_row["quantity"],
         }
-        inspection_id = db.create_inspection(
-            header, items_with_results, overall_result,
-            intake_id=intake_id,
-            est_time_label=est_time_label,
-            actual_time_sec=per_item_sec,
-            total_time_sec=total_time_sec_val,
-            created_by_user_id=g.user["id"],
-        )
+        try:
+            inspection_id = db.create_inspection(
+                header, items_with_results, overall_result,
+                intake_id=intake_id,
+                est_time_label=est_time_label,
+                actual_time_sec=per_item_sec,
+                total_time_sec=total_time_sec_val,
+                created_by_user_id=g.user["id"],
+            )
+        except ValueError:
+            skip_cnt += 1
+            continue
         record_change("자동 입력 (테스트)", "inspection", inspection_id,
                       f"자재 {material_no}, 업체 {intake_row['supplier']}, 검사자 {inspector_val}, 판정 {overall_result}")
         db.clear_inspection_progress(intake_id)
@@ -2725,11 +2729,15 @@ def inspect_form(intake_id):
         actual_time_sec = int(actual_time_sec) if actual_time_sec.isdigit() else 0
         est_time_label = format_duration(actual_time_sec)
         total_time_sec = compute_total_time_sec(specs_with_sample, actual_time_sec) if actual_time_sec else 0
-        inspection_id = db.create_inspection(header, items_with_results, overall_result,
-                                              intake_id=intake_id, est_time_label=est_time_label,
-                                              actual_time_sec=actual_time_sec,
-                                              total_time_sec=total_time_sec,
-                                              created_by_user_id=g.user["id"])
+        try:
+            inspection_id = db.create_inspection(header, items_with_results, overall_result,
+                                                  intake_id=intake_id, est_time_label=est_time_label,
+                                                  actual_time_sec=actual_time_sec,
+                                                  total_time_sec=total_time_sec,
+                                                  created_by_user_id=g.user["id"])
+        except ValueError:
+            flash("이 입고 건은 방금 다른 요청으로 이미 검사가 등록됐어. 목록에서 확인해줘.")
+            return redirect(url_for("inspect_select"))
         record_change("성적서 등록", "inspection", inspection_id,
                       f"자재 {material_no}, 업체 {intake_row['supplier']}, 판정 {overall_result}")
 
@@ -2992,7 +3000,7 @@ def _out_of_spec_flags(measured_value, judge_type, lower, upper):
             except ValueError:
                 flags.append(True)   # 숫자로 못 읽는 값도 눈에 띄게 강조
                 continue
-            bad = (lower is not None and n < lower) or (upper is not None and n > upper)
+            bad = report_builder.is_out_of_range(n, lower, upper)
             flags.append(bad)
         return flags
     return [v.upper() in _BAD_MARKERS for v in vals]
@@ -3605,7 +3613,11 @@ def _can_make_final_decision(user, what="승인·특채·불합격 확정"):
     반환: (가능여부, 안 되는 이유)
     """
     approvers = db.list_final_approvers()
-    if not approvers or (user and user["is_final_approver"]):
+    if not approvers:
+        if user and "approve" in _user_perms(user):
+            return True, None
+        return False, f"{what}은(는) '승인' 권한이 있어야 할 수 있어."
+    if user and user["is_final_approver"]:
         return True, None
     names = ", ".join((a["display_name"] or a["username"]) for a in approvers)
     return False, f"{what}은(는) 최종결정권자만 할 수 있어. (현재 최종결정권자: {names})"
@@ -3774,9 +3786,16 @@ def approve_batch():
     if selected_approver_name and "users" in user_perms:
         final_approvers = db.list_final_approvers()
         fa_names = {(a["display_name"] or a["username"]) for a in final_approvers}
-        if final_approvers and selected_approver_name not in fa_names:
-            flash("선택한 승인자가 최종결정권자로 지정되지 않은 계정이야.")
-            return redirect(url_for("approve_list", tab="pending"))
+        if final_approvers:
+            if selected_approver_name not in fa_names:
+                flash("선택한 승인자가 최종결정권자로 지정되지 않은 계정이야.")
+                return redirect(url_for("approve_list", tab="pending"))
+        else:
+            # 최종결정권자가 아직 아무도 지정 안 된 상태 — 그래도 실존 계정인지는 확인
+            all_names = {(u["display_name"] or u["username"]) for u in db.list_users()}
+            if selected_approver_name not in all_names:
+                flash("존재하지 않는 계정이야.")
+                return redirect(url_for("approve_list", tab="pending"))
         approver = selected_approver_name
     else:
         allowed, why = _can_make_final_decision(g.user)
@@ -5313,11 +5332,17 @@ def reinspect_submit(inspection_id):
     # 반려된 이전 건을 superseded로 표시하고 intake를 다시 대기로 돌림
     db.update_inspection_status(inspection_id, "superseded")
     db.set_intake_status(intake_id, "대기")
-    new_id = db.create_inspection(header, items_with_results, overall_result,
-                                   intake_id=intake_id, est_time_label=est_time_label,
-                                   actual_time_sec=actual_time_sec,
-                                   total_time_sec=total_time_sec,
-                                   created_by_user_id=g.user["id"])
+    try:
+        new_id = db.create_inspection(header, items_with_results, overall_result,
+                                       intake_id=intake_id, est_time_label=est_time_label,
+                                       actual_time_sec=actual_time_sec,
+                                       total_time_sec=total_time_sec,
+                                       created_by_user_id=g.user["id"])
+    except ValueError:
+        flash("이 입고 건은 방금 다른 요청으로 이미 재검사 성적서가 등록됐어. 목록에서 확인해줘.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    db.clear_inspection_progress(intake_id)
+    db.delete_inspection_draft(intake_id)
     flash("재검사 성적서가 생성됐어. 다시 승인을 요청해줘.")
     record_change("재검사 성적서 등록", "inspection", new_id,
                   f"자재 {material_no}, 이전 성적서 #{inspection_id}, 판정 {overall_result}")
@@ -5890,7 +5915,7 @@ def ncr_new(inspection_id):
         for v in parts:
             try:
                 fv = float(v)
-                bad = (lower is not None and fv < lower) or (upper is not None and fv > upper)
+                bad = report_builder.is_out_of_range(fv, lower, upper)
                 result.append(f"☞{v}" if bad else v)
             except ValueError:
                 result.append(v)
@@ -6214,12 +6239,8 @@ def ncr_confirm(ncr_id):
         flash("이미 확인 완료된 통보서야.")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
-    # 협력사로 나가는 문서이므로 최종결정권자의 승인 서명이 반드시 있어야 한다
-    allowed, why = _can_make_final_decision(g.user, "부적합 통보서 확인")
-    if not allowed:
-        flash(why)
-        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
-
+    # 2026-09-10: NCR 확인은 최종결정권자 게이트를 쓰지 않기로 함(사용자 확정) —
+    # 라우트에 걸린 @perm_required("ncr_confirm")만 있으면 되고, 서명은 그대로 필수.
     # 캔버스 드로잉 우선, 없으면 업로드 파일 → 어느쪽도 없으면 에러
     sig_source = request.form.get("signature_source", "draw")
     stamp_type = request.form.get("signature_stamp_type", "sign")

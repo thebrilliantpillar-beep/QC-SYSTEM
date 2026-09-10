@@ -8,6 +8,23 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-10 (추가2)**: 전체 워크플로우 로직 감사(4개 영역 병렬 fork) → 실제 결함
+  7건 + 설계변경 1건 발견 즉시 수정, quality-watcher 검증 통과(결함 0). 보안 구멍
+  1건(`_can_make_final_decision()` 폴백이 'approve' 권한을 안 보던 버그, NCR 확인
+  경로로 실제 뚫림 — 그 김에 NCR 확인은 최종결정권자 게이트 자체를 떼기로 사용자
+  확정), BOM Lv 판별 로직 반대로 짜여있던 버그, 재검사 제출 시 draft 삭제 누락,
+  도면번호 "P" 전체치환 버그, 판정이탈 로직 3중복 통합, 일괄승인 대리자 미검증,
+  성적서 중복생성 경합조건(TOCTOU) 방어 추가. 상세는 CLAUDE.md 20절.
+- **2026-09-10 (추가)**: git 안전장치(하드 차단) 신규 구축 — `~/.claude/hooks/git-guardrail.py`
+  + 전역 `~/.claude/settings.json`의 `PreToolUse`(matcher: Bash) 훅. `git reset --hard`,
+  `git push --force`(-with-lease 포함), `git clean -f*`, `git checkout .`/`git restore .`,
+  `git branch -D`를 `permissionDecision:"deny"`로 하드 차단(자동모드 승인이어도 못 뚫음).
+  전역 배치 이유: git 사고 방지는 iqc-app 한정이 아니라 일반적 위험이라서 — "QMS는
+  포트폴리오라 지금 만들어두자"는 사용자 명시적 지시(2026-09-10)에 따라 구축.
+  임시 테스트 저장소에서 `git reset --hard`가 실제로 막히고(파일 내용 그대로 보존
+  확인) `git status`/`cat` 등 정상 명령은 그대로 통과하는 걸 라이브로 검증 완료.
+  이 세션 전에 있었던 PreCompact(메모리 점검)·PostToolUse(진행기록 점검) 훅에 이어
+  세 번째 안전장치.
 - **2026-09-10**: (1) 통합BOM(28개 모델) Lv1~5 계층 정보 연동 신규 기능 — `material_bom_links`
   테이블, "자재 찾기"/"BOM 임포트" 화면(assembly_masters와는 별개, CLAUDE.md 18절). BOM 기준
   구매자재 573건을 신규등록/이름동기화, 키워드 기반 자동분류(※완제품/★완전포장제품/

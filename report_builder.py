@@ -35,7 +35,19 @@ STD_LAST_ROW = 29   # 기준서 항목표 마지막 행(순번 T, 최대 20항�
 
 def compute_drawing_no(material_no):
     """자재번호에서 도면번호 계산: 앞에 'A' 붙이고 'P'를 '-'로 치환. 예: 602106P246 -> A602106-246"""
-    return "A" + (material_no or "").replace("P", "-")
+    return "A" + (material_no or "").replace("P", "-", 1)
+
+
+def is_out_of_range(v, lower, upper):
+    """수치 v가 하한/상한을 벗어났는지 — 하한·상한 중 하나가 None이어도 안전(judge_numeric과
+    같은 패턴). 성적서 xlsx 빨간 글씨·웹 성적서 상세·NCR 통보서 세 곳이 예전엔 이 판정을
+    각자 따로 구현해서 드리프트 위험이 있었다(2026-09-10 감사에서 발견) — 이제 이 함수
+    하나만 쓴다."""
+    if lower is not None and v < lower:
+        return True
+    if upper is not None and v > upper:
+        return True
+    return False
 
 
 def _logo_aspect_ratio():
@@ -419,12 +431,7 @@ def _fill_sheet(ws, material_no, product_name, header, results, overall,
             val = r["values"][i] if i < len(r["values"]) else None
             cell = ws[f"{col}{row}"]
             cell.value = val
-            out_of_spec = False
-            if isinstance(val, (int, float)) and (lower is not None or upper is not None):
-                if lower is not None and val < lower:
-                    out_of_spec = True
-                if upper is not None and val > upper:
-                    out_of_spec = True
+            out_of_spec = isinstance(val, (int, float)) and is_out_of_range(val, lower, upper)
             cell.font = Font(name="맑은 고딕", size=15, color="FF0000" if out_of_spec else "000000")
 
         if r["max"] is not None:

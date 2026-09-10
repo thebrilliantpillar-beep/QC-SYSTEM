@@ -1394,8 +1394,24 @@ def create_inspection(header, items_with_results, overall_result, intake_id=None
     header: dict (material_no, material_name, supplier, po_number,
                    receive_date, inspect_date, inspector, quantity)
     items_with_results: list of dict (item_name, measured_value, max_value, min_value, result)
+
+    intake_id가 있으면 BEGIN IMMEDIATE로 잠근 뒤 활성 성적서가 없는지 다시 한 번
+    확인하고 INSERT한다 — 호출부(라우트)가 미리 active_inspection_for_intake()로
+    걸러내지만, 그 확인과 이 INSERT 사이에 동시 요청이 끼어들 수 있는 경합
+    (TOCTOU)이 이론적으로 있었다(2026-09-10 감사에서 발견). 이미 있으면
+    ValueError를 낸다 — 호출부가 이를 "이미 등록됨"으로 처리해야 한다.
     """
     conn = get_conn()
+    if intake_id:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id FROM inspections WHERE intake_id = ? AND status != 'superseded'",
+            (intake_id,),
+        ).fetchone()
+        if existing is not None:
+            conn.rollback()
+            conn.close()
+            raise ValueError(f"intake_id={intake_id}에 이미 활성 성적서(#{existing['id']})가 있어.")
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO inspections (intake_id, material_no, material_name, supplier, po_number,
@@ -2851,10 +2867,7 @@ def import_bom_from_excel(filepath):
         for lv_idx in range(0, 5):
             v = row[lv_idx]
             if v is not None and str(v).strip() != "":
-                try:
-                    level = int(v)
-                except (TypeError, ValueError):
-                    level = lv_idx + 1
+                level = lv_idx + 1
                 break
         if level is None:
             summary["skipped_no_level"] += 1
