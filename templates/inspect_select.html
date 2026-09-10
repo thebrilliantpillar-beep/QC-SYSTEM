@@ -5,6 +5,7 @@
 {% if query %}{% set _ = _qs_parts.append('q=' ~ (query | urlencode)) %}{% endif %}
 {% if f and f.recv_start %}{% set _ = _qs_parts.append('recv_start=' ~ (f.recv_start | urlencode)) %}{% endif %}
 {% if f and f.recv_end %}{% set _ = _qs_parts.append('recv_end=' ~ (f.recv_end | urlencode)) %}{% endif %}
+{% if sort_dir and sort_dir != 'asc' %}{% set _ = _qs_parts.append('sort=' ~ sort_dir) %}{% endif %}
 {% set inspect_qs = ('?' ~ (_qs_parts | join('&'))) if _qs_parts else '' %}
 <h2>검사 대기 목록</h2>
 <p class="muted">입고 리스트에 등록됐지만 아직 검사하지 않은 건이야. 클릭하면 헤더정보는 자동으로 채워지고 측정값만 입력하면 돼.</p>
@@ -23,8 +24,15 @@
         <input type="date" name="recv_end" value="{{ f.recv_end if f else '' }}" style="padding:9px 8px;">
       </div>
     </div>
+    <div>
+      <label>정렬</label>
+      <select name="sort" style="width:auto; min-width:110px; padding:9px 8px;">
+        <option value="asc" {% if sort_dir != 'desc' %}selected{% endif %}>입고일 오름차순</option>
+        <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>입고일 내림차순</option>
+      </select>
+    </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or (f and (f.recv_start or f.recv_end)) %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or (f and (f.recv_start or f.recv_end)) or sort_dir == 'desc' %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
   </form>
 </div>
 

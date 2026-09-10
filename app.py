@@ -2271,6 +2271,18 @@ def inspect_select():
     f = _list_search_params()
     if f["recv_start"] or f["recv_end"]:
         pending = [r for r in pending if _row_passes_search(f, recv_date=r["receive_date"])]
+
+    # 입고일 오름/내림차순 — 기본은 오름차순(먼저 입고된 것부터). 날짜를 못 읽는 행은
+    # 정렬 방향과 무관하게 항상 맨 뒤로 보낸다(방향을 뒤집었다고 이 행들까지 맨 앞으로
+    # 튀어나오면 혼란스러우니까).
+    sort_dir = request.args.get("sort", "asc")
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "asc"
+    dated = [(r, _parse_any_date(r["receive_date"])) for r in pending]
+    with_date = sorted((x for x in dated if x[1] is not None), key=lambda x: x[1], reverse=(sort_dir == "desc"))
+    without_date = [x for x in dated if x[1] is None]
+    pending = [r for r, _ in with_date] + [r for r, _ in without_date]
+
     mats = db.get_materials()
     registered = {m["material_no"] for m in mats}
     name_map = {m["material_no"]: m["material_name"] for m in mats}
@@ -2280,6 +2292,7 @@ def inspect_select():
     all_users = db.list_users()
     gauges = db.list_gauges()
     return render_template("inspect_select.html", pending=pending, query=query, f=f,
+                           sort_dir=sort_dir,
                            registered=registered, group_nos=set(),
                            progress_map=progress_map, name_map=name_map,
                            drawing_materials=drawing_materials,
