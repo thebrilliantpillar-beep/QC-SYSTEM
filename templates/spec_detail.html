@@ -121,8 +121,11 @@
 
 {% if bom_links %}
 <div class="card">
-  <h3 style="margin-top:0;">BOM 계층 정보</h3>
-  <p class="hint" style="margin-top:0;">통합BOM에서 임포트된 계층 정보야(읽기 전용). 같은 자재가 여러
+  <details open>
+    <summary style="cursor:pointer; font-weight:700; font-size:16px; color:var(--text, #2B3140);">
+      BOM 계층 정보 <span class="muted" style="font-weight:400; font-size:12.5px;">({{ bom_links|length }}건)</span>
+    </summary>
+  <p class="hint" style="margin-top:8px;">통합BOM에서 임포트된 계층 정보야(읽기 전용). 같은 자재가 여러
     모델·상위품목코드 아래 나타나면 각각 별도 줄로 보여줘.</p>
   <table style="width:100%; border-collapse:collapse; font-size:13px;">
     <thead>
@@ -157,6 +160,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </details>
 </div>
 {% endif %}
 
