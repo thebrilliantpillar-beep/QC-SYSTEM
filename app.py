@@ -2266,6 +2266,11 @@ def inspect_select():
     """입고 리스트 중 미검사(대기) 건만 표로 보여줌"""
     query = request.args.get("q", "").strip()
     pending = db.search_intake(query, status="대기") if query else db.list_intake(status="대기")
+    # 입고일 범위 검색 — 검사이력 등 4개 화면이 쓰는 공용 필터(_row_passes_search)를
+    # 재사용. 이 화면엔 검사자/업체/제품/판정 등 다른 필드가 없으므로 recv_date만 넘긴다.
+    f = _list_search_params()
+    if f["recv_start"] or f["recv_end"]:
+        pending = [r for r in pending if _row_passes_search(f, recv_date=r["receive_date"])]
     mats = db.get_materials()
     registered = {m["material_no"] for m in mats}
     name_map = {m["material_no"]: m["material_name"] for m in mats}
@@ -2274,7 +2279,7 @@ def inspect_select():
     drawing_materials = materials_with_drawings(r["material_no"] for r in pending)
     all_users = db.list_users()
     gauges = db.list_gauges()
-    return render_template("inspect_select.html", pending=pending, query=query,
+    return render_template("inspect_select.html", pending=pending, query=query, f=f,
                            registered=registered, group_nos=set(),
                            progress_map=progress_map, name_map=name_map,
                            drawing_materials=drawing_materials,

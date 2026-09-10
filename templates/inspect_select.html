@@ -1,18 +1,30 @@
 {% extends "base.html" %}
 {% block title %}검사 입력 - 대상 선택{% endblock %}
 {% block content %}
-{% set inspect_qs = ('?q=' ~ (query | urlencode)) if query else '' %}
+{% set _qs_parts = [] %}
+{% if query %}{% set _ = _qs_parts.append('q=' ~ (query | urlencode)) %}{% endif %}
+{% if f and f.recv_start %}{% set _ = _qs_parts.append('recv_start=' ~ (f.recv_start | urlencode)) %}{% endif %}
+{% if f and f.recv_end %}{% set _ = _qs_parts.append('recv_end=' ~ (f.recv_end | urlencode)) %}{% endif %}
+{% set inspect_qs = ('?' ~ (_qs_parts | join('&'))) if _qs_parts else '' %}
 <h2>검사 대기 목록</h2>
 <p class="muted">입고 리스트에 등록됐지만 아직 검사하지 않은 건이야. 클릭하면 헤더정보는 자동으로 채워지고 측정값만 입력하면 돼.</p>
 
 <div class="card">
-  <form method="GET" style="display:flex; gap:8px; align-items:flex-end;">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
     <div style="flex:1; min-width:180px;">
       <label>검색어</label>
       <input type="text" name="q" value="{{ query }}" placeholder="자재번호, 제품명, 납품업체, 로트번호...">
     </div>
+    <div>
+      <label>입고일</label>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <input type="date" name="recv_start" value="{{ f.recv_start if f else '' }}" style="padding:9px 8px;">
+        <span style="color:#9ca3af;">~</span>
+        <input type="date" name="recv_end" value="{{ f.recv_end if f else '' }}" style="padding:9px 8px;">
+      </div>
+    </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or (f and (f.recv_start or f.recv_end)) %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
   </form>
 </div>
 
