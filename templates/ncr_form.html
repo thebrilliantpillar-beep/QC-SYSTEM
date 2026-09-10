@@ -12,6 +12,7 @@
 .defect-item { display: flex; justify-content: space-between; padding: 8px 12px;
                background: #fef2f2; border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
 .defect-item .d-name { font-weight: 700; color: var(--fail); }
+.drawing-empty { color:#9ca3af; font-size:12px; }
 </style>
 
 <h2>📋 부적합 통보서 작성</h2>
@@ -19,7 +20,15 @@
 <div class="ncr-section">
   <h3>📦 검사 정보 (자동 입력)</h3>
   <div class="info-grid">
-    <div><div class="i-label">자재번호</div><div class="i-val">{{ header['material_no'] }}</div></div>
+    <div><div class="i-label">자재번호</div><div class="i-val">
+      {{ header['material_no'] }}
+      {% if header['material_no'] in drawing_materials %}
+      <a href="javascript:void(0)" onclick="openDrawingModal('{{ header['material_no'] }}')"
+         class="btn secondary" style="padding:2px 8px; font-size:11px; margin-top:0; margin-left:4px;">📐 도면보기</a>
+      {% else %}
+      <span class="drawing-empty">(도면 미등록)</span>
+      {% endif %}
+    </div></div>
     <div><div class="i-label">제품명</div><div class="i-val">{{ header['material_name'] or '-' }}</div></div>
     <div><div class="i-label">업체</div><div class="i-val">{{ header['supplier'] or '-' }}</div></div>
     <div><div class="i-label">검사일</div><div class="i-val">{{ (header['inspect_date'] | date_korean) or '-' }}</div></div>
@@ -157,4 +166,5 @@
   </button>
 </form>
 {% include "_defect_type_modal.html" %}
+{% include "_drawing_modal.html" %}
 {% endblock %}

@@ -212,6 +212,14 @@
 
   <!-- 추가 정보 (화면 전용) -->
   <div class="extra-meta no-print" style="margin-top:10px;">
+    <span>자재번호&ensp;{{ ncr['material_no'] }}
+      {% if ncr['material_no'] in drawing_materials %}
+      <a href="javascript:void(0)" onclick="openDrawingModal('{{ ncr['material_no'] }}')"
+         style="color:var(--primary); font-weight:600; text-decoration:none; margin-left:4px;">📐 도면보기</a>
+      {% else %}
+      <span class="drawing-empty" style="color:#9ca3af;">(도면 미등록)</span>
+      {% endif %}
+    </span>
     {% if ncr_receive_date %}<span>입고일&ensp;{{ ncr_receive_date | date_korean }}</span>{% endif %}
     {% if po_number %}<span>로트번호&ensp;{{ po_number }}</span>{% endif %}
     {% if supplier_info and supplier_info['contact'] %}<span>담당자&ensp;{{ supplier_info['contact'] }}</span>{% endif %}
@@ -361,5 +369,5 @@
   </div>
 </div>
 
-
+{% include "_drawing_modal.html" %}
 {% endblock %}

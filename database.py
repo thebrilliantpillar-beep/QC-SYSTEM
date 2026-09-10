@@ -1858,6 +1858,22 @@ def list_gauges():
     conn.close()
     return rows
 
+def search_gauges(query=None):
+    """계측기 검색 — 관리번호/이름/모델/위치를 단일 자유텍스트로 훑는다
+    (suppliers.html과 동일한 방식, 필드가 적어 드롭다운형 검색은 과함)."""
+    conn = get_conn()
+    if not query:
+        rows = conn.execute("SELECT * FROM gauge_master").fetchall()
+        conn.close()
+        return rows
+    like = f"%{query}%"
+    rows = conn.execute("""
+        SELECT * FROM gauge_master
+         WHERE gauge_no LIKE ? OR name LIKE ? OR model LIKE ? OR location LIKE ?
+    """, (like, like, like, like)).fetchall()
+    conn.close()
+    return rows
+
 def get_gauge(gauge_id):
     conn = get_conn()
     row = conn.execute("SELECT * FROM gauge_master WHERE id = ?", (gauge_id,)).fetchone()

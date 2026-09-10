@@ -48,12 +48,15 @@
   <div id="batchGaugeFields"></div>
 </form>
 
+{% set can_delete_pending = ('inspect_input' in user_perms) or ('intake' in user_perms) %}
 {% if pending %}
 <div style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 10px; align-items:center;">
+  {% if can_delete_pending %}
   <button type="submit" form="deleteForm"
           style="padding:9px 18px; background:#fff; color:#dc2626; border:1px solid #dc2626; margin-top:0;">
     선택 삭제
   </button>
+  {% endif %}
   {% if 'users' in user_perms %}
   <button type="button" onclick="openAutoBatchModal()"
           style="padding:9px 18px; background:#4f46e5; color:#fff; border:none;
@@ -253,15 +256,19 @@
 
 <table>
   <tr>
+    {% if can_delete_pending %}
     <th style="width:26px;"><input type="checkbox" id="checkAllPending" onclick="document.querySelectorAll('.pending-check').forEach(c=>c.checked=this.checked)"></th>
+    {% endif %}
     <th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th><th>검사원</th><th>도면</th>
   </tr>
   {% for r in pending %}
   {% set inspectors = progress_map.get(r['id'], []) %}
   <tr>
+    {% if can_delete_pending %}
     <td onclick="event.stopPropagation()">
       <input type="checkbox" class="pending-check" form="deleteForm" name="intake_ids" value="{{ r['id'] }}">
     </td>
+    {% endif %}
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['supplier'] or '-' }}</td>
     <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['po_number'] or '-' }}</td>

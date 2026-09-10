@@ -7,6 +7,7 @@
 .ret-badge.반품완료  { background:#fef3c7; color:#92400e; }
 .ret-badge.재납품대기 { background:#dbeafe; color:#24344F; }
 .ret-badge.재검사완료 { background:#dcfce7; color:#15803d; }
+.drawing-empty { color:#9ca3af; font-size:12px; }
 </style>
 
 <a href="{{ url_for('return_list') }}" style="font-size:13px; color:var(--muted); text-decoration:none;">← 반품 목록</a>
@@ -18,7 +19,14 @@
 
 <div class="card">
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:14px;">
-    <div><span style="color:var(--muted); font-size:12px;">자재번호</span><br><strong>{{ rr['material_no'] }}</strong></div>
+    <div><span style="color:var(--muted); font-size:12px;">자재번호</span><br><strong>{{ rr['material_no'] }}</strong>
+      {% if rr['material_no'] in drawing_materials %}
+      <a href="javascript:void(0)" onclick="openDrawingModal('{{ rr['material_no'] }}')"
+         class="btn secondary" style="padding:2px 8px; font-size:11px; margin-top:0; margin-left:4px;">📐 도면보기</a>
+      {% else %}
+      <span class="drawing-empty">(도면 미등록)</span>
+      {% endif %}
+    </div>
     <div><span style="color:var(--muted); font-size:12px;">제품명</span><br>{{ rr['material_name'] or '-' }}</div>
     <div><span style="color:var(--muted); font-size:12px;">업체</span><br>{{ rr['supplier'] or '-' }}</div>
     <div><span style="color:var(--muted); font-size:12px;">반품 날짜</span><br>{{ (rr['return_date'] | date_korean) if rr['return_date'] else '-' }}</div>
@@ -54,4 +62,5 @@
 </div>
 {% endif %}
 
+{% include "_drawing_modal.html" %}
 {% endblock %}

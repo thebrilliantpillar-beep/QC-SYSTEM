@@ -7,6 +7,8 @@
      (2026-09-07 디자인 감사: 화면 자체 색상 대신 공용 .badge 톤으로 통일) */
   .badge.gauge-warn30 { color:#b45309; background:#fffbeb; }
 
+  .card-eyebrow { font-size:12.5px; font-weight:700; color:var(--muted); text-transform:uppercase;
+                  letter-spacing:.03em; margin:0 0 10px; }
   .gauge-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
   .gauge-header h2 { margin:0; }
   .gauge-header .actions { display:flex; gap:8px; flex-wrap:wrap; }
@@ -34,6 +36,18 @@
     자재 규격의 '측정 방식'에 적힌 계측기 종류와 이름이 같으면(띄어쓰기 무시), 검사 입력 화면에서 그 항목의 유효기간이 자동으로 채워져.
     종류를 불러온 뒤 각 계측기의 <b>만료일</b>을 넣어줘.
   </span>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <p class="card-eyebrow">🔍 계측기 검색</p>
+  <form method="GET" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:2; min-width:200px;">
+      <label>검색어</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="관리번호, 계측기명, 모델, 보관위치...">
+    </div>
+    <button type="submit" style="margin-top:0;">검색</button>
+    {% if q %}<a href="{{ url_for('gauge_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+  </form>
 </div>
 
 {% if gauges %}
@@ -98,7 +112,7 @@
 </div>
 {% else %}
 <div style="text-align:center; padding:40px 0; color:var(--muted);">
-  등록된 계측기가 없어. 오른쪽 위 버튼으로 추가해줘.
+  {% if q %}검색 결과가 없어.{% else %}등록된 계측기가 없어. 오른쪽 위 버튼으로 추가해줘.{% endif %}
 </div>
 {% endif %}
 

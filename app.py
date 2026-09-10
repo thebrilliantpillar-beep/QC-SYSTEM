@@ -3844,6 +3844,11 @@ def _resolve_return_to(default="history"):
     return _ADMIN_DELETE_RETURNS.get(key, default)
 
 
+# 14절: 승인목록/승인이력/출력대기/출력이력 4개 화면 몫의 선택삭제는 admin 전용 정책
+# (2026-09-08 사용자 확정). history_delete 권한만으로는 이 4개를 못 지우게 여기서 강제한다.
+_ADMIN_ONLY_DELETE_RETURNS = {"approve_list", "approval_history", "output_list", "output_history"}
+
+
 @app.route("/history/delete-selected", methods=["POST"])
 @perm_required("history_delete")
 def history_delete_selected():
@@ -3856,6 +3861,10 @@ def history_delete_selected():
         except ValueError:
             pass
     back = _resolve_return_to("history")
+    if back in _ADMIN_ONLY_DELETE_RETURNS:
+        guard = _admin_only()
+        if guard:
+            return guard
     if not ids:
         flash("삭제할 성적서를 선택해줘.")
         return redirect(url_for(back))
@@ -4428,11 +4437,15 @@ def defect_history():
     completed_pager = _paginate(data.get("completed", []), page_arg="page")
     data["completed"] = completed_pager["items"]
 
+    all_material_nos = [r.get("material_no") for rows in data.values() for r in rows if r.get("material_no")]
+    drawing_materials = materials_with_drawings(all_material_nos)
+
     return render_template("defect_history.html",
                            data=data,
                            preset=preset, start=start, end=end,
                            pager=completed_pager,
-                           f=f, show_result=False, show_status=False)
+                           f=f, show_result=False, show_status=False,
+                           drawing_materials=drawing_materials)
 
 
 # ---------- 전수검사 기록지 ----------
@@ -5367,7 +5380,8 @@ def gauge_list():
         parts = _re.split(r"(\d+)", val)
         return [int(p) if p.isdigit() else p.lower() for p in parts]
 
-    raw = sorted(db.list_gauges(), key=_natural_key)
+    q = (request.args.get("q") or "").strip()
+    raw = sorted(db.search_gauges(q or None), key=_natural_key)
     gauges = []
     for row in raw:
         g = dict(row)
@@ -5380,7 +5394,7 @@ def gauge_list():
         else:
             g["days_left"] = None
         gauges.append(g)
-    return render_template("gauge_master.html", gauges=gauges, today=today, d15=d15, d30=d30)
+    return render_template("gauge_master.html", gauges=gauges, today=today, d15=d15, d30=d30, q=q)
 
 @app.route("/gauges/save", methods=["POST"])
 @perm_required("gauge")
@@ -5931,13 +5945,15 @@ def ncr_new(inspection_id):
             auto_defect_qty = str(next(g for g in m.groups() if g is not None))
 
     supplier_info = db.get_supplier(header["supplier"] or "")
+    drawing_materials = materials_with_drawings([header["material_no"]])
     return render_template("ncr_form.html", header=header, items=defect_items,
                            today=date.today().isoformat(), supplier_info=supplier_info,
                            auto_defect_description=auto_defect_description,
                            auto_lot_qty=auto_lot_qty,
                            auto_sample_qty=auto_sample_qty,
                            auto_defect_qty=auto_defect_qty,
-                           defect_types=db.list_defect_types())
+                           defect_types=db.list_defect_types(),
+                           drawing_materials=drawing_materials)
 
 
 # ---------- 불량 유형 마스터 관리 (NCR 작성화면 드롭다운 옆 팝업, AJAX) ----------
@@ -6041,6 +6057,7 @@ def ncr_detail(ncr_id):
     supplier_email = default_contact["email"]
     contact_person = default_contact["contact_name"]
     mailto_url = report_builder.ncr_mailto_url(dict(ncr), supplier_email, contact_person=contact_person)
+    drawing_materials = materials_with_drawings([ncr["material_no"]])
 
     return render_template("ncr_detail.html", ncr=ncr, photos=photos,
                            supplier_info=supplier_info,
@@ -6049,7 +6066,8 @@ def ncr_detail(ncr_id):
                            po_number=po_number,
                            ncr_receive_date=receive_date,
                            logo_url=url_for("static", filename="logo.png"),
-                           mailto_url=mailto_url)
+                           mailto_url=mailto_url,
+                           drawing_materials=drawing_materials)
 
 
 @app.route("/ncr/<int:ncr_id>/excel")
@@ -6383,7 +6401,7 @@ def withdraw_inspector(intake_id):
 # ---------- 반품 처리 ----------
 
 @app.route("/returns")
-@login_required
+@perm_required("return")
 def return_list():
     from datetime import date
     status_filter = request.args.get("status", "")
@@ -6438,13 +6456,14 @@ def return_new(inspection_id):
 
 
 @app.route("/return/<int:return_id>")
-@login_required
+@perm_required("return")
 def return_detail(return_id):
     rr = db.get_return_request(return_id)
     if rr is None:
         flash("반품 건을 찾을 수 없어.")
         return redirect(url_for("return_list"))
-    return render_template("return_detail.html", rr=rr)
+    drawing_materials = materials_with_drawings([rr["material_no"]])
+    return render_template("return_detail.html", rr=rr, drawing_materials=drawing_materials)
 
 
 @app.route("/return/<int:return_id>/status", methods=["POST"])

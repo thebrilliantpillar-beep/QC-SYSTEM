@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% from "_glossary.html" import term %}
 {% block title %}불량 이력 — Chardon QMS{% endblock %}
+{% macro drawing_btn(material_no) %}
+{% if material_no in drawing_materials %}
+<a href="javascript:void(0)" onclick="event.preventDefault(); event.stopPropagation(); openDrawingModal('{{ material_no }}')"
+   style="font-size:11px; font-weight:600; color:var(--primary); margin-left:4px; text-decoration:none;">📐도면</a>
+{% endif %}
+{% endmacro %}
 {% block content %}
 <style>
 /* ── 공통 레인 ── */
@@ -134,7 +140,7 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
   <div class="lane-body">
     {% for r in data.recheck %}
     <a class="fup-row" href="{{ url_for('inspection_detail', inspection_id=r.id) }}">
-      <span class="fup-mat">{{ r.material_no }}</span>
+      <span class="fup-mat">{{ r.material_no }}{{ drawing_btn(r.material_no) }}</span>
       <span class="fup-name">{{ r.material_name or '-' }}</span>
       <span class="fup-sup">{{ r.supplier or '-' }}</span>
       <span class="fup-date">검사 {{ r.inspect_date | date_korean }}</span>
@@ -158,7 +164,7 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
   <div class="lane-body">
     {% for r in data.ncr_write %}
     <a class="fup-row" href="{{ url_for('inspection_detail', inspection_id=r.id) }}">
-      <span class="fup-mat">{{ r.material_no }}</span>
+      <span class="fup-mat">{{ r.material_no }}{{ drawing_btn(r.material_no) }}</span>
       <span class="fup-name">{{ r.material_name or '-' }}</span>
       <span class="fup-sup">{{ r.supplier or '-' }}</span>
       <span class="fup-date">검사 {{ r.inspect_date | date_korean }}</span>
@@ -182,7 +188,7 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
   <div class="lane-body">
     {% for r in data.ncr_waived %}
     <a class="fup-row" href="{{ url_for('inspection_detail', inspection_id=r.id) }}">
-      <span class="fup-mat">{{ r.material_no }}</span>
+      <span class="fup-mat">{{ r.material_no }}{{ drawing_btn(r.material_no) }}</span>
       <span class="fup-name">{{ r.material_name or '-' }}</span>
       <span class="fup-sup">{{ r.supplier or '-' }}</span>
       <span class="fup-date">검사 {{ r.inspect_date | date_korean }}</span>
@@ -226,7 +232,7 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
   <div class="lane-body">
     {% for r in data.completed %}
     <a class="fup-row" href="{{ url_for('ncr_detail', ncr_id=r.ncr_id) }}">
-      <span class="fup-mat">{{ r.material_no }}</span>
+      <span class="fup-mat">{{ r.material_no }}{{ drawing_btn(r.material_no) }}</span>
       <span class="fup-name">{{ r.material_name or '-' }}</span>
       <span class="fup-sup">{{ r.supplier or '-' }}</span>
       <span class="fup-date">발송 {{ r.email_sent_at[:10] | date_korean if r.email_sent_at else '-' }}</span>
@@ -245,4 +251,5 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
 <script>
 CollapsibleSections.init('details.lane', 'defects-lane-');
 </script>
+{% include "_drawing_modal.html" %}
 {% endblock %}
