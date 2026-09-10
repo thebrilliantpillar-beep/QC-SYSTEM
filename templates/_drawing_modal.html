@@ -56,7 +56,11 @@
   var renderToken = 0;   // 모달을 빠르게 여러 번 열었을 때 옛 렌더링이 뒤늦게 끼어드는 것 방지
   var currentPdf = null;
   var zoom = 1;          // "맞춤(컨테이너 폭)" 기준의 배율
-  var rotation = 0;       // 0/90/180/270
+  // 도면 PDF 원본이 세로(portrait) 페이지에 내용이 가로로 그려진 경우가 대부분이라
+  // 기본값을 가로 보기(90도 회전)로 바꿨다(2026-09-10 요청). 방향이 반대로 보이면
+  // 이 값을 -90(=270)으로 바꿀 것 — 회전 버튼으로 한 번에 맞는 방향도 확인 가능.
+  var DEFAULT_ROTATION = 90;
+  var rotation = DEFAULT_ROTATION;       // 0/90/180/270
   var pinchStartDist = null, pinchStartZoom = 1;
 
   function zoomLabel() {
@@ -105,7 +109,7 @@
   };
   window.drawingResetView = function () {
     zoom = 1;
-    rotation = 0;
+    rotation = DEFAULT_ROTATION;
     renderAll();
   };
 
@@ -140,7 +144,7 @@
     document.getElementById('drawingModalOpenNew').href = url;
     currentPdf = null;
     zoom = 1;
-    rotation = 0;
+    rotation = DEFAULT_ROTATION;
     zoomLabel();
     wrap.style.transform = '';
     wrap.innerHTML = '<div id="drawingModalMsg" style="color:#DDE0E6; font-size:13.5px; padding:20px;">불러오는 중…</div>';
