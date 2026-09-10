@@ -7,8 +7,20 @@
   @media (max-width:700px){ .flow{ grid-template-columns:repeat(2,1fr); } }
   .step { background:#fff; border-radius:12px; padding:13px 12px; text-align:center;
           box-shadow:0 1px 3px rgba(0,0,0,.06); text-decoration:none; color:inherit; display:block;
-          border:2px solid transparent; }
+          border:2px solid transparent; position:relative; overflow:hidden; isolation:isolate; }
   .step:hover { border-color:var(--primary); }
+  /* home.html .action-card와 같은 회전 테두리 빛 (base.html borderSpin 공용, 2026-09-10) */
+  .step::before {
+    content:""; position:absolute; inset:-60%;
+    background: conic-gradient(var(--primary) 0deg 55deg, transparent 110deg 360deg);
+    animation: borderSpin 4s linear infinite; transition:opacity .15s; z-index:0;
+  }
+  .step::after {
+    content:""; position:absolute; inset:2px; background:#fff; border-radius:10px;
+    transition:opacity .15s; z-index:0;
+  }
+  .step:hover::before, .step:hover::after { opacity:0; }
+  .step > * { position:relative; z-index:1; }
   .step .s-l { font-size:11.5px; color:var(--muted); font-weight:700; }
   .step .s-v { font-size:27px; font-weight:800; margin-top:4px; line-height:1.1; }
   .step .s-u { font-size:11px; color:#9ca3af; margin-top:2px; }

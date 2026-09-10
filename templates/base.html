@@ -40,17 +40,15 @@
      글자가 겹쳐 보이던 문제가 있었다. 열린 드롭다운만 z-index로 확실히 위에 올린다. */
   .nav-dropdown { position: relative; }
   .nav-dropdown.open { z-index: 1000; }
-  @keyframes tapHintLight {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.035); }
-  }
+  /* 2026-09-10: 상단 메뉴 트리거는 상시 펄스 없이 — 누르면 반응하는 것만으로 충분하다는
+     사용자 피드백(눌러도 되는 건 hover/active로 이미 알 수 있음). 카드형 메뉴(할 일 카드 등)
+     쪽엔 대신 회전 테두리 빛 효과(borderSpin, 아래)를 쓴다. */
   .nav-dropdown > button { background: none; border: none; color: #DDE0E6; font-size: 14px; padding: 6px 10px;
                             border-radius: 6px; cursor: pointer; font-family: inherit;
-                            transition: background .1s, color .1s, transform .08s ease-out;
-                            animation: tapHintLight 2.4s ease-in-out infinite; }
-  .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); animation: none; }
+                            transition: background .1s, color .1s, transform .08s ease-out; }
+  .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); }
   .nav-dropdown > button:hover { transform: translateY(-1px); }
-  .nav-dropdown > button:active { color: #fff; background: rgba(255,255,255,.22); transform: scale(.92); animation: none; }
+  .nav-dropdown > button:active { color: #fff; background: rgba(255,255,255,.22); transform: scale(.92); }
   /* 드롭다운이 켜고 끄는 걸 즉시 나타났다 사라지게 하지 않고 살짝 아래로 미끄러지며
      페이드인 되게 — "눌러도 되는 메뉴구나"가 눈에 보이도록(2026-09-10 요청). display만
      토글하면 transition이 안 먹어서 opacity+transform 조합으로 바꿈. */
@@ -77,9 +75,19 @@
   th, td { border-bottom: 1px solid var(--border); padding: 12px 10px; text-align: center; font-size: 13.5px; }
   th { background: #ECEEF2; color: #4b5563; font-weight: 700; }
   tr:last-child td { border-bottom: none; }
+  /* 2026-09-10: 호버 색을 화면마다 다른 하드코딩 파랑(#f0f5ff 등) 대신 테마 --primary에서
+     파생된 값으로 통일. */
   tr.clickable { transition: background .1s; }
-  tr.clickable:hover { background: #f0f5ff; cursor: pointer; }
-  tr.clickable:active { background: #dbe6ff; }
+  tr.clickable:hover { background: rgba(61,90,138,.08); cursor: pointer; }
+  tr.clickable:active { background: rgba(61,90,138,.16); }
+  /* 펼치기/접기(<details>) 화살표가 방향에 맞게 부드럽게 회전 — daily_status.html에서
+     쓰던 패턴을 여기 한 곳으로 모아서 재사용(2026-09-10, spec_detail.html/_list_search.html/
+     intake.html 3곳에 복붙돼 있던 걸 정리 — CLAUDE.md 8-1절 중복 금지 원칙). */
+  .arrow-details > summary { list-style: none; }
+  .arrow-details > summary::-webkit-details-marker { display: none; }
+  .arrow-details .arrow { display: inline-block; margin-left: 6px; color: #9ca3af; font-size: 12px;
+                           transition: transform .18s; }
+  .arrow-details[open] .arrow { transform: rotate(90deg); }
   input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #DDE0E6;
                              border-radius: 8px; font-family: inherit; background: #fff; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary);
@@ -97,6 +105,11 @@
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.035); }
   }
+  /* 카드형 메뉴(할 일 카드, 금일 현황 스텝 등)의 "눌러도 되는 메뉴구나" 표시는 스케일 펄스
+     대신 테두리를 따라 도는 빛으로 — 사용자가 명시적으로 구분해서 요청함(2026-09-10).
+     home.html의 .action-card, daily_status.html의 .step이 이 keyframe을 쓴다.
+     새 카드형 메뉴를 추가할 때도 이 keyframe 하나를 재사용할 것(중복 정의 금지). */
+  @keyframes borderSpin { to { transform: rotate(1turn); } }
   button, .btn { display: inline-block; padding: 12px 22px; background: var(--primary); color: #fff; border: none;
                  border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
                  margin-top: 16px; transition: background .12s, transform .08s ease-out, box-shadow .12s;

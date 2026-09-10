@@ -33,13 +33,15 @@
   body.dragging-cells, body.dragging-cells .intake-grid input { user-select:none; -webkit-user-select:none; }
   .fill-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
   #fillBtn:disabled { opacity:.45; cursor:not-allowed; }
+
 </style>
 
 <h2>입고 리스트</h2>
 
-<details class="card" style="padding:0; border:1px solid var(--border); border-radius:12px;">
-  <summary style="cursor:pointer; padding:14px 18px; font-weight:700; color:#111; font-size:15px; list-style:none; user-select:none;">
+<details class="card arrow-details" style="padding:0; border:1px solid var(--border); border-radius:12px;">
+  <summary style="cursor:pointer; padding:14px 18px; font-weight:700; color:#111; font-size:15px; user-select:none;">
     ➕ 새 입고 등록 <span class="muted" style="font-weight:500; font-size:12.5px;">(누르면 펼침)</span>
+    <span class="arrow">▶</span>
   </summary>
   <div style="padding:0 18px 18px;">
   <form method="POST" id="intakeForm">

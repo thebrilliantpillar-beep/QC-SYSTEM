@@ -20,7 +20,10 @@
   .bar-ok{ background:#16a34a; }
   .chk-title { font-weight:700; font-size:14.5px; }
   .chk-desc { color:var(--muted); font-size:12.5px; margin-top:4px; line-height:1.55; }
-  .chk-count { margin-left:auto; font-weight:800; font-size:15px; white-space:nowrap; padding-left:10px; }
+  .chk-count { font-weight:800; font-size:15px; white-space:nowrap; padding-left:10px; }
+  /* 펼치기/접기 화살표가 방향에 맞게 부드럽게 회전 — daily_status.html의 .arrow 패턴 재사용(2026-09-10) */
+  .chk .arrow { color:#9ca3af; font-size:12px; margin-left:10px; align-self:center; transition:transform .18s; }
+  .chk[open] .arrow { transform:rotate(90deg); }
   .chk-body { border-top:1px solid var(--border); padding:0; max-height:420px; overflow:auto; }
   .chk-body table { width:100%; border-collapse:collapse; font-size:12.5px; }
   .chk-body th { position:sticky; top:0; background:#F9F9F8; text-align:left;
@@ -60,6 +63,7 @@
     <span class="chk-count" style="color:{{ '#16a34a' if not n else ('#dc2626' if c['severity']=='high' else ('#d97706' if c['severity']=='mid' else '#3D5A8A')) }};">
       {{ '없음' if not n else n ~ '건' }}
     </span>
+    <span class="arrow">▶</span>
   </summary>
   <div class="chk-body">
     {% if not n %}

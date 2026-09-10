@@ -38,6 +38,7 @@
   .form-field-wide { flex:2; min-width:200px; }
   .form-subrow { display:none; gap:6px; align-items:flex-end; }
   .view-row { display:flex; gap:20px; flex-wrap:wrap; font-size:13.5px; }
+
 </style>
 
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
@@ -121,9 +122,10 @@
 
 {% if bom_links %}
 <div class="card">
-  <details open>
+  <details open class="arrow-details">
     <summary style="cursor:pointer; font-weight:700; font-size:16px; color:var(--text, #2B3140);">
       BOM 계층 정보 <span class="muted" style="font-weight:400; font-size:12.5px;">({{ bom_links|length }}건)</span>
+      <span class="arrow">▶</span>
     </summary>
   <p class="hint" style="margin-top:8px;">통합BOM에서 임포트된 계층 정보야(읽기 전용). 같은 자재가 여러
     모델·상위품목코드 아래 나타나면 각각 별도 줄로 보여줘.</p>
