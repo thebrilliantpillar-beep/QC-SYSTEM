@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(pip install*)",
+      "Bash(npm install*)",
+      "Bash(sudo*)"
+    ],
+    "ask": [
+      "Bash(git commit*)",
+      "Bash(git push*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[진행기록 점검] 방금 커밋했다. 이번 작업이 의미있는 단위였다면 PROGRESS.md 최근 작업 이력에 한 줄 추가할 것. 사용자 개인 취향/작업방식에 관한 교훈이 나왔으면 auto-memory에도 저장할 것.\"}}'"
+          }
+        ]
+      }
+    ]
+  }
+}
