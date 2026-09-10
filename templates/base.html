@@ -32,9 +32,9 @@
            display: flex; align-items: center; gap: 20px; flex-wrap: wrap; position: relative; z-index: 50; }
   header .logo { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
   header a { color: #DDE0E6; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px;
-             transition: background .15s, color .15s, transform .15s; display: inline-block; }
+             transition: background .1s, color .1s, transform .08s ease-out; display: inline-block; }
   header a:hover, header a.active { color: #fff; background: rgba(255,255,255,.1); transform: translateY(-1px); }
-  header a:active { transform: translateY(0) scale(.96); }
+  header a:active { color: #fff; background: rgba(255,255,255,.22); transform: scale(.92); }
   /* 드롭다운 메뉴
      화면이 좁으면 상단 메뉴가 두 줄로 접히는데, 이때 열린 목록이 아랫줄 버튼 뒤로 깔려서
      글자가 겹쳐 보이던 문제가 있었다. 열린 드롭다운만 z-index로 확실히 위에 올린다. */
@@ -42,10 +42,10 @@
   .nav-dropdown.open { z-index: 1000; }
   .nav-dropdown > button { background: none; border: none; color: #DDE0E6; font-size: 14px; padding: 6px 10px;
                             border-radius: 6px; cursor: pointer; font-family: inherit;
-                            transition: background .15s, color .15s, transform .15s; }
+                            transition: background .1s, color .1s, transform .08s ease-out; }
   .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); }
   .nav-dropdown > button:hover { transform: translateY(-1px); }
-  .nav-dropdown > button:active { transform: translateY(0) scale(.96); }
+  .nav-dropdown > button:active { color: #fff; background: rgba(255,255,255,.22); transform: scale(.92); }
   /* 드롭다운이 켜고 끄는 걸 즉시 나타났다 사라지게 하지 않고 살짝 아래로 미끄러지며
      페이드인 되게 — "눌러도 되는 메뉴구나"가 눈에 보이도록(2026-09-10 요청). display만
      토글하면 transition이 안 먹어서 opacity+transform 조합으로 바꿈. */
@@ -56,8 +56,9 @@
                          pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
   .nav-dropdown.open .menu { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
   .nav-dropdown .menu a { display: block; padding: 8px 10px; white-space: nowrap; border-radius: 6px;
-                           transition: background .12s, transform .12s; }
+                           transition: background .1s, transform .08s ease-out; }
   .nav-dropdown .menu a:hover { background: rgba(255,255,255,.1); transform: translateX(2px); }
+  .nav-dropdown .menu a:active { background: rgba(255,255,255,.28); transform: scale(.96); }
   /* 화면 오른쪽 끝 메뉴는 목록이 화면 밖으로 나가지 않게 오른쪽 기준으로 편다 */
   @media (max-width: 560px) {
     .nav-dropdown .menu { min-width: 150px; }
@@ -71,8 +72,9 @@
   th, td { border-bottom: 1px solid var(--border); padding: 12px 10px; text-align: center; font-size: 13.5px; }
   th { background: #ECEEF2; color: #4b5563; font-weight: 700; }
   tr:last-child td { border-bottom: none; }
-  tr.clickable { transition: background .12s; }
+  tr.clickable { transition: background .1s; }
   tr.clickable:hover { background: #f0f5ff; cursor: pointer; }
+  tr.clickable:active { background: #dbe6ff; }
   input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #DDE0E6;
                              border-radius: 8px; font-family: inherit; background: #fff; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary);
@@ -80,14 +82,17 @@
   label { font-weight: 600; font-size: 13px; color: #4b5563; display: block; margin: 14px 0 6px; }
   button, .btn { display: inline-block; padding: 12px 22px; background: var(--primary); color: #fff; border: none;
                  border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
-                 margin-top: 16px; transition: background .15s, transform .12s, box-shadow .15s; }
-  /* "눌러도 되는 버튼이구나"가 느껴지도록 호버 시 살짝 뜨고, 누르면 살짝 눌리는 느낌
-     (2026-09-10 요청 — 랜딩페이지·메뉴·버튼 전반에 클릭 유도 애니메이션 추가). */
+                 margin-top: 16px; transition: background .12s, transform .08s ease-out, box-shadow .12s; }
+  /* 호버는 태블릿(터치)에서는 아예 안 일어나므로 "눌러도 되는구나"를 알려주는 신호가
+     못 된다 — 대신 실제로 누르는 순간(:active) 확실히 반응하게 만드는 게 핵심
+     (2026-09-10 사용자 피드백: 호버 말고 누르는 반응을 보여달라). 눌림은 빠르게
+     들어가고(.08s) 색도 같이 바뀌어야 "반응했다"가 눈에 보인다. */
   button:hover, .btn:hover { background: var(--primary-dark); transform: translateY(-1px);
                               box-shadow: 0 4px 10px rgba(43,49,64,.18); }
-  button:active, .btn:active { transform: translateY(0) scale(.97); box-shadow: none; }
+  button:active, .btn:active { background: var(--primary-dark); transform: scale(.93); box-shadow: none; }
   .btn.secondary { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
   .btn.secondary:hover { background: #eff6ff; }
+  .btn.secondary:active { background: #dbeafe; transform: scale(.93); }
   .btn.block { display: block; text-align: left; margin-bottom: 8px; }
   .card { background: var(--card); padding: 18px; border-radius: 12px; margin-bottom: 14px;
           box-shadow: 0 1px 3px rgba(0,0,0,.06); }
@@ -356,6 +361,11 @@ function toggleNav(btn) {
   document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
   if (!wasOpen) box.classList.add('open');
 }
+
+// 터치 기기(특히 iOS Safari)는 문서에 touch 리스너가 하나라도 없으면 :active
+// 가상클래스를 아예 켜주지 않는다 — 태블릿에서 버튼을 눌러도 CSS로 만든 "눌림"
+// 반응이 하나도 안 보이던 이유. 리스너만 있으면 되고 내용은 필요 없다.
+document.addEventListener('touchstart', function () {}, { passive: true });
 </script>
 <main>
   {% with messages = get_flashed_messages() %}
