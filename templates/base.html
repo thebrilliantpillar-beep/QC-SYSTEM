@@ -85,9 +85,15 @@
      intake.html 3곳에 복붙돼 있던 걸 정리 — CLAUDE.md 8-1절 중복 금지 원칙). */
   .arrow-details > summary { list-style: none; }
   .arrow-details > summary::-webkit-details-marker { display: none; }
+  /* 펼치기/접기 화살표(▶/▼)는 손 안 대도 계속 살짝 움직여서 "여긴 열리는 항목이야"를
+     알려준다(2026-09-10) — 접힌 상태(▶)는 좌우로, 펼친 상태(▼, 90도 돌린 것)는 위아래로.
+     이 keyframes는 daily_status.html(.sec .arrow)·data_health.html(.chk .arrow)도 같이
+     재사용한다(중복 정의 금지, CLAUDE.md 8-1절). */
+  @keyframes arrowBounceX { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
+  @keyframes arrowBounceY { 0%, 100% { transform: rotate(90deg) translateY(-2px); } 50% { transform: rotate(90deg) translateY(2px); } }
   .arrow-details .arrow { display: inline-block; margin-left: 6px; color: #9ca3af; font-size: 12px;
-                           transition: transform .18s; }
-  .arrow-details[open] .arrow { transform: rotate(90deg); }
+                           animation: arrowBounceX 1.6s ease-in-out infinite; }
+  .arrow-details[open] .arrow { animation: arrowBounceY 1.6s ease-in-out infinite; }
   input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #DDE0E6;
                              border-radius: 8px; font-family: inherit; background: #fff; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary);

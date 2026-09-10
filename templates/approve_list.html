@@ -24,10 +24,38 @@
              padding:0 7px; font-size:11px; margin-left:4px; }
 .tab-btn:not([class*="active"]) .cnt-badge { background:#ECEEF2; color:#6b7280; }
 
+/* 손 안 대도 "눌러도 되는 버튼이구나"가 보이도록 은은한 회전 테두리 빛(base.html의
+   borderSpin 공용 keyframe 재사용) — 이미 선택된(active) 탭은 이미 눈에 띄니 제외하고
+   나머지 탭에만 건다(2026-09-10). */
+.tab-btn:not([class*="active"]) { position:relative; overflow:hidden; isolation:isolate; }
+.tab-btn:not([class*="active"])::before {
+  content:""; position:absolute; inset:-6px;
+  background: conic-gradient(var(--primary) 0deg 45deg, transparent 90deg 360deg);
+  animation: borderSpin 4s linear infinite; transition:opacity .15s; z-index:0;
+}
+.tab-btn:not([class*="active"])::after {
+  content:""; position:absolute; inset:2px; background:#fff; border-radius:999px;
+  transition:opacity .15s; z-index:0;
+}
+.tab-btn:not([class*="active"]):hover::before, .tab-btn:not([class*="active"]):hover::after { opacity:0; }
+.tab-btn > * { position:relative; z-index:1; }
+
 .search-row { display:flex; gap:8px; margin-bottom:14px; }
 .search-row input { flex:1; padding:9px 12px; border:1px solid #DDE0E6; border-radius:8px; font-size:14px; }
 .search-row button { padding:9px 16px; border-radius:8px; background:#3D5A8A; color:#fff;
-                     border:none; font-size:14px; font-weight:700; cursor:pointer; }
+                     border:none; font-size:14px; font-weight:700; cursor:pointer;
+                     position:relative; overflow:hidden; isolation:isolate; }
+.search-row button::before {
+  content:""; position:absolute; inset:-6px;
+  background: conic-gradient(rgba(255,255,255,.8) 0deg 45deg, transparent 90deg 360deg);
+  animation: borderSpin 4s linear infinite; transition:opacity .15s; z-index:0;
+}
+.search-row button::after {
+  content:""; position:absolute; inset:2px; background:#3D5A8A; border-radius:6px;
+  transition:opacity .15s; z-index:0;
+}
+.search-row button:hover::before, .search-row button:hover::after { opacity:0; }
+.search-row button > * { position:relative; z-index:1; }
 
 .revoke-btn {
   font-size:11px; padding:3px 10px; border-radius:6px; border:1px solid #DDE0E6;
@@ -82,7 +110,7 @@ canvas#batchSigPad {
   {% for key, label, cls in tabs %}
   <a href="{{ url_for('approve_list', tab=key, q=q) }}"
      class="tab-btn {% if tab == key %}active-{{ cls }}{% endif %}">
-    {{ label }}<span class="cnt-badge">{{ counts[key] }}</span>
+    <span>{{ label }}</span><span class="cnt-badge">{{ counts[key] }}</span>
   </a>
   {% endfor %}
 </div>
@@ -91,7 +119,7 @@ canvas#batchSigPad {
 <form method="get" action="{{ url_for('approve_list') }}" class="search-row">
   <input type="hidden" name="tab" value="{{ tab }}">
   <input type="text" name="q" value="{{ q }}" placeholder="자재번호 / 자재명 / 업체 / 검사자 검색">
-  <button type="submit">🔍 검색</button>
+  <button type="submit"><span>🔍 검색</span></button>
   {% if q %}
   <a href="{{ url_for('approve_list', tab=tab) }}"
      style="padding:9px 14px; border-radius:8px; border:1px solid #DDE0E6; color:#6b7280;

@@ -21,9 +21,11 @@
   .chk-title { font-weight:700; font-size:14.5px; }
   .chk-desc { color:var(--muted); font-size:12.5px; margin-top:4px; line-height:1.55; }
   .chk-count { font-weight:800; font-size:15px; white-space:nowrap; padding-left:10px; }
-  /* 펼치기/접기 화살표가 방향에 맞게 부드럽게 회전 — daily_status.html의 .arrow 패턴 재사용(2026-09-10) */
-  .chk .arrow { color:#9ca3af; font-size:12px; margin-left:10px; align-self:center; transition:transform .18s; }
-  .chk[open] .arrow { transform:rotate(90deg); }
+  /* 펼치기/접기 화살표가 손 안 대도 방향에 맞게 살짝 움직임 — base.html의 arrowBounceX/Y
+     keyframes 재사용(2026-09-10) */
+  .chk .arrow { color:#9ca3af; font-size:12px; margin-left:10px; align-self:center;
+                animation: arrowBounceX 1.6s ease-in-out infinite; }
+  .chk[open] .arrow { animation: arrowBounceY 1.6s ease-in-out infinite; }
   .chk-body { border-top:1px solid var(--border); padding:0; max-height:420px; overflow:auto; }
   .chk-body table { width:100%; border-collapse:collapse; font-size:12.5px; }
   .chk-body th { position:sticky; top:0; background:#F9F9F8; text-align:left;
