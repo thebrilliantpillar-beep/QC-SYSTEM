@@ -31,22 +31,33 @@
   header { background: linear-gradient(135deg, #2B3140, #24344F); color: #fff; padding: 16px 20px;
            display: flex; align-items: center; gap: 20px; flex-wrap: wrap; position: relative; z-index: 50; }
   header .logo { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
-  header a { color: #DDE0E6; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px; }
-  header a:hover, header a.active { color: #fff; background: rgba(255,255,255,.1); }
+  header a { color: #DDE0E6; text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 6px;
+             transition: background .15s, color .15s, transform .15s; display: inline-block; }
+  header a:hover, header a.active { color: #fff; background: rgba(255,255,255,.1); transform: translateY(-1px); }
+  header a:active { transform: translateY(0) scale(.96); }
   /* 드롭다운 메뉴
      화면이 좁으면 상단 메뉴가 두 줄로 접히는데, 이때 열린 목록이 아랫줄 버튼 뒤로 깔려서
      글자가 겹쳐 보이던 문제가 있었다. 열린 드롭다운만 z-index로 확실히 위에 올린다. */
   .nav-dropdown { position: relative; }
   .nav-dropdown.open { z-index: 1000; }
   .nav-dropdown > button { background: none; border: none; color: #DDE0E6; font-size: 14px; padding: 6px 10px;
-                            border-radius: 6px; cursor: pointer; font-family: inherit; }
+                            border-radius: 6px; cursor: pointer; font-family: inherit;
+                            transition: background .15s, color .15s, transform .15s; }
   .nav-dropdown > button:hover, .nav-dropdown.open > button { color: #fff; background: rgba(255,255,255,.1); }
-  .nav-dropdown .menu { display: none; position: absolute; top: 100%; left: 0; background: #2B3140;
+  .nav-dropdown > button:hover { transform: translateY(-1px); }
+  .nav-dropdown > button:active { transform: translateY(0) scale(.96); }
+  /* 드롭다운이 켜고 끄는 걸 즉시 나타났다 사라지게 하지 않고 살짝 아래로 미끄러지며
+     페이드인 되게 — "눌러도 되는 메뉴구나"가 눈에 보이도록(2026-09-10 요청). display만
+     토글하면 transition이 안 먹어서 opacity+transform 조합으로 바꿈. */
+  .nav-dropdown .menu { display: block; position: absolute; top: 100%; left: 0; background: #2B3140;
                          border-radius: 8px; padding: 6px; min-width: 170px;
                          box-shadow: 0 8px 20px rgba(0,0,0,.45); margin-top:4px;
-                         z-index: 1001; }
-  .nav-dropdown.open .menu { display: block; }
-  .nav-dropdown .menu a { display: block; padding: 8px 10px; white-space: nowrap; }
+                         z-index: 1001; opacity: 0; transform: translateY(-6px) scale(.98);
+                         pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
+  .nav-dropdown.open .menu { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  .nav-dropdown .menu a { display: block; padding: 8px 10px; white-space: nowrap; border-radius: 6px;
+                           transition: background .12s, transform .12s; }
+  .nav-dropdown .menu a:hover { background: rgba(255,255,255,.1); transform: translateX(2px); }
   /* 화면 오른쪽 끝 메뉴는 목록이 화면 밖으로 나가지 않게 오른쪽 기준으로 편다 */
   @media (max-width: 560px) {
     .nav-dropdown .menu { min-width: 150px; }
@@ -60,6 +71,7 @@
   th, td { border-bottom: 1px solid var(--border); padding: 12px 10px; text-align: center; font-size: 13.5px; }
   th { background: #ECEEF2; color: #4b5563; font-weight: 700; }
   tr:last-child td { border-bottom: none; }
+  tr.clickable { transition: background .12s; }
   tr.clickable:hover { background: #f0f5ff; cursor: pointer; }
   input, select, textarea { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #DDE0E6;
                              border-radius: 8px; font-family: inherit; background: #fff; }
@@ -68,13 +80,20 @@
   label { font-weight: 600; font-size: 13px; color: #4b5563; display: block; margin: 14px 0 6px; }
   button, .btn { display: inline-block; padding: 12px 22px; background: var(--primary); color: #fff; border: none;
                  border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
-                 margin-top: 16px; transition: background .15s; }
-  button:hover, .btn:hover { background: var(--primary-dark); }
+                 margin-top: 16px; transition: background .15s, transform .12s, box-shadow .15s; }
+  /* "눌러도 되는 버튼이구나"가 느껴지도록 호버 시 살짝 뜨고, 누르면 살짝 눌리는 느낌
+     (2026-09-10 요청 — 랜딩페이지·메뉴·버튼 전반에 클릭 유도 애니메이션 추가). */
+  button:hover, .btn:hover { background: var(--primary-dark); transform: translateY(-1px);
+                              box-shadow: 0 4px 10px rgba(43,49,64,.18); }
+  button:active, .btn:active { transform: translateY(0) scale(.97); box-shadow: none; }
   .btn.secondary { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
   .btn.secondary:hover { background: #eff6ff; }
   .btn.block { display: block; text-align: left; margin-bottom: 8px; }
   .card { background: var(--card); padding: 18px; border-radius: 12px; margin-bottom: 14px;
           box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .001ms !important; animation-duration: .001ms !important; }
+  }
   .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700; }
   .badge.pass { color: var(--pass); background: #dcfce7; }
   .badge.fail { color: var(--fail); background: #fee2e2; }
