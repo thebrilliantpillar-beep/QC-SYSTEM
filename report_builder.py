@@ -1453,8 +1453,23 @@ def build_outbound_excel(batch, items):
 QR_LABEL_TEXT_COL_WIDTH = 24.86  # S/N 텍스트 열 너비(엑셀 열너비 단위)
 QR_LABEL_QR_COL_WIDTH = 16.86    # QR 이미지 열 너비(엑셀 열너비 단위)
 QR_LABEL_ROW_HEIGHT_PT = 90.8    # 행 높이(포인트, 엑셀 행높이 단위)
-_QR_CHAR_TO_EMU = 7 * 9525  # 열너비 단위 -> EMU 근사 변환(_build_ncr_photo_sheet와 동일 계수)
-_QR_PT_TO_EMU = 12700       # 포인트 -> EMU(1pt = 1/72인치 = 12700 EMU, 고정값)
+_QR_PT_TO_EMU = 12700       # 포인트 -> EMU(1pt = 1/72인치 = 12700 EMU, 고정값·정확함)
+
+
+def _excel_col_width_to_emu(width_chars, mdw=8):
+    """엑셀 "열 너비"(문자 단위)를 실제 렌더 픽셀폭으로 바꾸는 엑셀 공식 그대로
+    구현한 것(ECMA-376: pixels = floor(((256*width + floor(128/MDW))/256) * MDW)).
+
+    MDW(최대 자릿수 폭)는 워크북 기본 글꼴에 따라 달라진다 — 이 워크북 기본 글꼴은
+    "맑은 고딕" 11pt인데, 이전엔 다른 곳(_build_ncr_photo_sheet)에서 쓰던 Calibri
+    기준 계수(7px/문자)를 그대로 가져다 썼다가 실제로는 안 맞았다(2026-09-15).
+    사용자가 QR 이미지를 실제 엑셀에서 화살표로 옮겨가며 눈으로 정중앙을 맞춰본 뒤
+    "15칸 이동"이라고 알려준 값을 역산해보니 맑은 고딕 11pt의 MDW는 8px이었다
+    (Calibri 11pt는 7px). **워크북 기본 글꼴이 바뀌면 이 값도 다시 확인해야 한다** —
+    임의로 다른 폰트 계수(7 등)를 재사용하지 말 것."""
+    import math as _math
+    pixels = int(_math.floor(((256 * width_chars + (128 // mdw)) / 256) * mdw))
+    return pixels * 9525
 
 
 def qr_png_bytes(data, box_size=8, border=2):
@@ -1512,18 +1527,18 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     # QR 칸의 실제 픽셀 크기(EMU) — 이미지를 이 크기에 꽉 채우되 정사각형은 유지해야
     # 하므로(QR을 찌그러뜨리면 스캔이 안 될 수 있음) 열너비/행높이 중 더 작은 쪽에
     # 맞추고, 남는 여백만큼은 anchor의 colOff/rowOff로 밀어서 칸 한가운데 오게 한다.
-    qr_col_emu = QR_LABEL_QR_COL_WIDTH * _QR_CHAR_TO_EMU
+    qr_col_emu = _excel_col_width_to_emu(QR_LABEL_QR_COL_WIDTH)
     row_h_emu = QR_LABEL_ROW_HEIGHT_PT * _QR_PT_TO_EMU
     qr_size_emu = int(min(qr_col_emu, row_h_emu))
     qr_col_off = int((qr_col_emu - qr_size_emu) / 2)
     qr_row_off = int((row_h_emu - qr_size_emu) / 2)
-    font = Font(name="맑은 고딕", size=18, bold=True)
-    # 텍스트 칸은 왼쪽정렬 + shrink_to_fit — 긴 S/N이 18pt로는 열 너비(24.86)를
-    # 넘쳐서 옆 QR 이미지에 가려 잘려 보이는 문제가 실측(LibreOffice PDF 변환)으로
-    # 발견됐다(2026-09-15, 24자 안팎 S/N 기준). shrink_to_fit을 주면 LibreOffice/Excel이
-    # 셀 너비에 맞춰 글자 크기를 자동으로 줄여서 넘치지 않게 표시한다 — S/N 길이가
-    # 자재마다 달라도(11~23자 등) 항상 한 줄에 다 보이게 하려는 목적.
-    left_mid = Alignment(horizontal="left", vertical="center", shrink_to_fit=True)
+    # S/N 폰트는 12pt 고정(2026-09-15 사용자 확정) + 정중앙 정렬. shrink_to_fit도
+    # 같이 줘서, 혹시 유난히 긴 S/N이 들어와 12pt로도 열 너비(24.86)를 넘치면 그때만
+    # 자동으로 살짝 줄어들게 한다(앞서 18pt에서 실제로 겪은 잘림 버그 재발 방지용
+    # 안전장치 — 12pt는 평소엔 넘치지 않아 그대로 유지되고, shrink_to_fit은 "필요할
+    # 때만" 동작하므로 정중앙 폰트가 기본이라는 원칙과 안 어긋난다).
+    font = Font(name="맑은 고딕", size=12, bold=True)
+    center_mid = Alignment(horizontal="center", vertical="center", shrink_to_fit=True)
     thin = Side(style="thin", color="000000")
     box_border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
@@ -1553,7 +1568,7 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
 
             c = ws.cell(row=row, column=text_col, value=serial_no)
             c.font = font
-            c.alignment = left_mid
+            c.alignment = center_mid
             c.border = box_border
             ws.cell(row=row, column=qr_col).border = box_border
 
