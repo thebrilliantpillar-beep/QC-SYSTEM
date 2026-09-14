@@ -1453,7 +1453,13 @@ def build_outbound_excel(batch, items):
 QR_LABEL_TEXT_COL_WIDTH = 24.86  # S/N 텍스트 열 너비(엑셀 열너비 단위)
 QR_LABEL_QR_COL_WIDTH = 16.86    # QR 이미지 열 너비(엑셀 열너비 단위)
 QR_LABEL_ROW_HEIGHT_PT = 90.8    # 행 높이(포인트, 엑셀 행높이 단위)
+# QR 이미지 높이는 행높이(90.8pt)보다 일부러 작게(3cm) 잡는다 — 이전엔 행높이에 꽉 채워서
+# 위아래 테두리(절취선 겸용)를 이미지가 덮어 안 보이는 문제가 있었다(2026-09-15).
+QR_LABEL_QR_HEIGHT_CM = 3.0
+QR_LABEL_QR_DOWN_SHIFT_PX = 6  # 3cm로 줄여도 절취선이 여전히 안 보인다는 피드백으로,
+# 세로 중앙보다 6px 더 아래로 내림(2026-09-15 사용자 지정값).
 _QR_PT_TO_EMU = 12700       # 포인트 -> EMU(1pt = 1/72인치 = 12700 EMU, 고정값·정확함)
+_QR_PX_TO_EMU = 9525        # 픽셀(96dpi 기준) -> EMU, 고정값
 
 
 def _excel_col_width_to_emu(width_chars, mdw=8):
@@ -1529,9 +1535,14 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     # 맞추고, 남는 여백만큼은 anchor의 colOff/rowOff로 밀어서 칸 한가운데 오게 한다.
     qr_col_emu = _excel_col_width_to_emu(QR_LABEL_QR_COL_WIDTH)
     row_h_emu = QR_LABEL_ROW_HEIGHT_PT * _QR_PT_TO_EMU
-    qr_size_emu = int(min(qr_col_emu, row_h_emu))
+    qr_height_emu = cm_to_EMU(QR_LABEL_QR_HEIGHT_CM)
+    qr_size_emu = int(min(qr_col_emu, qr_height_emu))
     qr_col_off = int((qr_col_emu - qr_size_emu) / 2)
-    qr_row_off = int((row_h_emu - qr_size_emu) / 2)
+    # 6px 하향 이동은 절취선(윗변)을 드러내기 위한 것이지만, 그대로 더하면 이미지
+    # 아랫변이 행 경계를 넘어(quality-watcher가 계산으로 지적, 2026-09-15) 아래쪽
+    # 절취선을 오히려 가릴 수 있다 — 행 경계(row_h_emu - qr_size_emu)를 넘지 않게 clamp.
+    qr_row_off = min(int((row_h_emu - qr_size_emu) / 2) + QR_LABEL_QR_DOWN_SHIFT_PX * _QR_PX_TO_EMU,
+                      row_h_emu - qr_size_emu)
     # S/N 폰트는 12pt 고정(2026-09-15 사용자 확정) + 정중앙 정렬. shrink_to_fit도
     # 같이 줘서, 혹시 유난히 긴 S/N이 들어와 12pt로도 열 너비(24.86)를 넘치면 그때만
     # 자동으로 살짝 줄어들게 한다(앞서 18pt에서 실제로 겪은 잘림 버그 재발 방지용
