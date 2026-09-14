@@ -8,6 +8,18 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-14**: (1) 오늘 실적 집계(`/today`, 홈 화면 "오늘 현황")가 제출 시각
+  (created_at) 기준이라 검사한 날과 제출한 날이 다르면 실적이 어긋나던 버그 수정 —
+  `get_today_stats()`/`daily_status()` 모두 실제 검사한 날짜(inspect_date) 기준으로
+  변경. (2) 포함/제외 단어 다중 검색 신규 — 검사이력·불량이력·부적합통보서·반품처리·
+  과거입고이력(공유 `_list_search.html`) + 자재 관리 + 자재 찾기 3그룹에 적용.
+  포함 단어 여러 개=OR(하나라도 있으면 통과), 제외 단어=OR(하나라도 걸리면 제외),
+  자재 관리/자재 찾기는 자재번호+자재명만 대상(규격표기 등은 LEFT JOIN 다중행
+  문제로 의도적 제외). `database.py`에 공용 SQL 헬퍼 `_include_exclude_clause()`
+  신설 — 구현 중 LEFT JOIN NULL 컬럼에서 `NOT(NULL)` 3치논리로 미등록 자재가
+  제외검색 때 부당하게 다 빠지는 실제 버그를 발견해 COALESCE로 방지(헬퍼에 내장).
+  planner→developer→quality-watcher 순서로 진행, 헤드리스 Chrome 스크린샷으로
+  3개 화면 실제 렌더링까지 확인 후 커밋(dc8df8b).
 - **2026-09-10 (추가2)**: 전체 워크플로우 로직 감사(4개 영역 병렬 fork) → 실제 결함
   7건 + 설계변경 1건 발견 즉시 수정, quality-watcher 검증 통과(결함 0). 보안 구멍
   1건(`_can_make_final_decision()` 폴백이 'approve' 권한을 안 보던 버그, NCR 확인
