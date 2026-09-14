@@ -8,6 +8,21 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-14 (추가4)**: 출고(완제품 S/N·QR·사진) 관리 신규 기능 추가(커밋 `a07d7ec`) —
+  IQC 입고검사와 완전히 별개인 새 하위시스템. 생산완료 직후 S/N 발급(QR생성+인쇄) →
+  출고 시 QR스캔/수동입력으로 S/N 자동입력+제품명/수량+사진여러장을 배치 단위로
+  리스트업 후 저장 → 배치별 엑셀출력. 새 테이블 4개(finished_goods_serials/
+  outbound_batches/outbound_items/outbound_item_photos, 기존 테이블 FK 없이 느슨한
+  연결), 새 권한 `outbound`, 새 메뉴 "출고". QR생성은 서버 `qrcode` 패키지, QR스캔은
+  `html5-qrcode`(CDN), 사진첨부는 NCR의 `_save_ncr_photo()` 재사용. 미등록 S/N·이미
+  다른 배치에 쓰인 S/N은 경고만 하고 진행 허용(사용자 확정 원칙), 저장 후에도 항목
+  추가/수정/삭제 항상 가능(성적서처럼 안 잠김). 엑셀은 우선 기본 표 형태(사용자가
+  실제 양식 파일 제공하면 NCR/성적서와 같은 템플릿-복사 방식으로 교체 예정).
+  brainstorming 스킬로 설계 확정(여러 차례 확인 질문) → planner → developer →
+  quality-watcher 순서로 진행. quality-watcher가 사진 서빙 라우트에 권한 데코레이터
+  누락된 보안 결함 1건 발견해 즉시 수정. 설계/계획 문서:
+  `docs/superpowers/specs/2026-09-14-outbound-shipment-design.md`,
+  `docs/superpowers/plans/2026-09-14-outbound-shipment-plan.md`.
 - **2026-09-14 (추가3)**: 검사 대기 목록(`/inspect/new`)에도 포함/제외 다중 단어 검색
   추가(커밋 `c1e5587`) — 자재관리/자재찾기/검사이력 등과 같은 패턴(`_include_exclude_clause()`
   재사용). 구현 중 quality-watcher가 실사용 버그 발견: 입고일 범위검색과 동시에 쓰면
