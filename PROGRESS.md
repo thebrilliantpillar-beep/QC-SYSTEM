@@ -8,6 +8,23 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-15 (추가7, 중요)**: 사용자가 "엑셀 화면엔 절취선이 보이는데 인쇄(PDF)엔
+  왜 가려지냐"고 문의 → 실제 원인은 QR 이미지가 지정한 3cm가 아니라 **셀 전체를
+  꽉 채워서** 위아래 절취선을 덮는 버그였고, 이게 **LibreOffice로는 재현이 안 되고
+  진짜 윈도우 엑셀에서만 나타나는** 문제였다(PDF 메타데이터로 "Microsoft: Print To
+  PDF" 확인). 이 세션이 그동안 LibreOffice 변환으로 여러 번 "실측 검증"했다고
+  믿었던 게 이미지 배치에 한해서는 불충분했다는 뜻 — 중요한 방법론적 교훈이라
+  CLAUDE.md 7-4-2절/11절에 크게 기록해둠. 이 PC에 실제 Excel이 설치돼 있어
+  PowerShell+COM 자동화(`Excel.Application` → `ExportAsFixedFormat`)로 직접
+  재현·검증했고, `pymupdf`로 PDF를 고배율(4x) 렌더링해서 셀 경계와 이미지 경계를
+  픽셀 단위로 대조하는 방법도 이번에 확립. 원인은 openpyxl이 `OneCellAnchor` 그림의
+  `spPr`에 `xfrm`을 안 써주는데 실제 엑셀은 이게 없으면 `ext` 크기를 무시하고
+  셀 전체로 늘리는 것으로 추정 — `build_outbound_qr_labels_excel()`의 QR 이미지
+  배치를 `OneCellAnchor`+`ext`에서 `TwoCellAnchor(editAs="oneCell")`+`from`/`to`
+  좌표 직접 지정 방식으로 교체해서 해결(Excel COM+LibreOffice 둘 다 정상 확인).
+  `_insert_logo()`/서명 스탬프/`_place_photos_in_area()`는 여전히 OneCellAnchor라
+  같은 위험이 잠재해있음 — 다음에 이 함수들을 고칠 일이 있으면 실제 엑셀로도
+  검증할 것(미리 전부 바꾸진 않음, 과설계 방지).
 - **2026-09-15 (추가6)**: QR 라벨 엑셀 2건 추가 조정. (1) 사용자가 실제 엑셀에서
   QR 이미지를 위 화살표로 6번 옮긴 위치로 재배치 요청 → 예전에 실측했던 "화살표
   한 번 이동거리"(81644/15 EMU, 오른쪽 15번 이동 실측값을 역산) 상수를 세로에도

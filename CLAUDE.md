@@ -339,6 +339,66 @@ Calibri 기준 계수(`CHAR_TO_EMU = 7 * 9525`)를 그대로 쓰고 있다** —
 `포인트 * 12700`(1pt = 1/72인치 = 12700 EMU)이 항상 정확하다. 가로(열너비, 문자단위)만
 폰트 의존적이라는 점을 헷갈리지 말 것.
 
+### 7-4-2. **중요** — `OneCellAnchor`+`ext`로 넣은 이미지는 실제 엑셀에서 셀 전체를
+꽉 채워버릴 수 있다. LibreOffice로는 이 버그를 절대 못 잡는다 (2026-09-15)
+
+이 세션(과 아마 이전 세션들)이 반복해온 검증 방식 — "LibreOffice로 xlsx→PDF 변환해서
+눈으로 확인하면 실제 엑셀과 같다고 본다" — 이 **이미지 삽입에 한해서는 틀렸다**는 게
+실제로 드러난 사고다. QR 라벨 엑셀에서 이미지를 3cm 크기로 셀 한가운데 넣었는데,
+사용자가 **진짜 윈도우 엑셀**(LibreOffice 아님, PDF 메타데이터의 producer가
+`Microsoft: Print To PDF`)로 인쇄해보니 QR 이미지가 3cm가 아니라 **셀 전체(열너비×
+행높이)를 꽉 채워서** 위아래 절취선(테두리)을 통째로 가려버렸다. 그런데 이 세션이
+그동안 수없이 LibreOffice로 변환해서 확인했을 땐 매번 정상(의도한 3cm 크기, 여백
+있음)으로 보였다 — **LibreOffice가 이 버그를 재현을 안 해줘서 여러 번의 "실측 검증"을
+거치고도 못 잡은 것.**
+
+**원인(추정, openpyxl 소스코드로 확인)**: `openpyxl.drawing.spreadsheet_drawing.SpreadsheetDrawing._picture_frame()`이
+그림을 워크북에 쓸 때 `<xdr:pic><xdr:spPr>`에 `prstGeom`만 넣고 **`<a:xfrm>`(도형의
+절대 위치/크기를 명시하는 하위 요소)은 절대 안 넣는다** — `OneCellAnchor`의 `_from`+
+`ext`만으로 위치/크기가 이미 정의되니 spPr에 또 xfrm을 안 넣어도 스펙상 문제는 없어야
+하는데, **실제 윈도우 엑셀(적어도 "인쇄" 경로)은 spPr에 xfrm이 없는 그림을 만나면
+`ext` 크기를 무시하고 앵커된 셀 전체 크기로 늘려서 그리는 것으로 보인다.**
+LibreOffice는 스펙대로 `ext`만 보고 정확히 그려서 이 차이가 안 드러났다.
+
+**확인 방법 — 실제 엑셀로 직접 재현/검증**: 이 PC엔 (사용자가 실제로 쓰는) 진짜
+Microsoft Excel이 깔려 있고, **PowerShell + COM 자동화로 headless하게 열어서 PDF로
+내보낼 수 있다** — LibreOffice만으로는 이런 버그를 못 잡으므로, 이미지 배치가 걸린
+엑셀 출력을 새로 만들거나 고칠 땐 이 방법도 같이 써서 검증할 것:
+```powershell
+$excel = New-Object -ComObject Excel.Application
+$excel.Visible = $false
+$excel.DisplayAlerts = $false
+$wb = $excel.Workbooks.Open("<입력 xlsx 절대경로>")
+$wb.ExportAsFixedFormat(0, "<출력 pdf 절대경로>")  # 0 = xlTypePDF
+$wb.Close($false)
+$excel.Quit()
+```
+(Bash 도구에서 `powershell -ExecutionPolicy Bypass -File 스크립트.ps1 -InPath ... -OutPath ...`
+형태로 호출. 변환된 PDF는 기존처럼 `pymupdf`/`fitz`로 이미지화해서 확인하면 된다 —
+필요하면 4배율(`fitz.Matrix(4,4)`) 이상으로 확대해서 셀 경계와 이미지 경계가 겹치는지
+픽셀 단위로 대조할 것, 일반 배율로는 1mm 미만의 여백 소실이 눈에 잘 안 띈다.)
+
+**고친 방법**: `build_outbound_qr_labels_excel()`의 QR 이미지 배치를
+`OneCellAnchor(_from=marker, ext=size)` 대신 **`TwoCellAnchor(editAs="oneCell",
+_from=marker_start, to=marker_end)`**로 바꿨다 — `to` 마커를 `_from`과 같은 셀(같은
+col/row) 안에서 `colOff+ext`/`rowOff+ext`로 계산해서, "이미지가 차지할 사각 영역"을
+`ext`/`xfrm` 없이 **두 좌표만으로 직접 정의**한다. 이러면 xfrm 유무와 무관하게
+렌더러가 정확한 크기를 알 수 있다 — TwoCellAnchor는 이 버그가 원천적으로 발생할
+수 없는 구조다. `editAs="oneCell"`은 "칸이 이동하면 같이 이동하되 칸 크기가
+바뀌어도 이미지 크기는 안 바뀐다"는 뜻으로, `OneCellAnchor`가 주던 것과 같은
+동작을 준다.
+
+**아직 안 고친, 잠재적 위험으로 남아있는 곳**: `_insert_logo()`(성적서/기준서 로고),
+서명 스탬프(485~486줄 부근), `_place_photos_in_area()`(NCR 사진/출고 이력 사진) —
+전부 여전히 `OneCellAnchor`+`ext` 방식을 쓴다. 지금까지 실사용자 신고가 없었던 건
+①로고/서명은 이미 자기 셀 크기에 거의 맞춰 넣어서 "꽉 채워짐"의 차이가 육안으로
+안 드러났거나, ②아무도 진짜 윈도우 엑셀로 인쇄해서 자세히 안 봤을 가능성이 있다.
+**이 함수들 중 하나를 다시 고칠 일이 생기면, 이번처럼 실제 엑셀(COM 자동화)로도
+검증할 것 — LibreOffice 결과만 믿고 "됐다"고 하지 말 것.** 여유가 되면 전부
+TwoCellAnchor로 통일하는 것도 고려해볼 만하지만, 지금은 이번에 실제로 문제가
+드러난 QR 라벨 함수만 고쳤다(과설계 방지 — 문제가 확인 안 된 곳까지 미리 다
+바꾸지 않음).
+
 ### 7-5. 페이지를 1페이지로 강제 (fit-to-page)
 
 ```python
@@ -720,6 +780,13 @@ AQL·PPM·Cpk·Cp·NCR·4M·로트·특채 등 **약어나 품질 용어가 나�
   단정하지 말고, 안 봤다는 것 자체를 사용자에게 알릴 것** (17절의 헤드리스 크롬 캡처
   방법을 CSS 레이아웃뿐 아니라 애니메이션류 확인에도 먼저 쓸 것 — 배포 후 사용자 피드백에
   의존하는 사이클을 기본값으로 삼지 말 것).
+- **엑셀에 이미지를 삽입/배치하는 로직은 LibreOffice 검증만으로 "됐다"고 하지 말 것**
+  (2026-09-15, 7-4-2절 참고). `OneCellAnchor`+`ext`로 넣은 이미지가 실제 윈도우 엑셀에서는
+  앵커된 셀 전체를 꽉 채워버리는(지정한 크기 무시) 실제 버그가 있었는데, 이 세션이
+  LibreOffice로 수차례 "실측 검증"했을 때도 매번 정상으로 보여서 못 잡았다 — 이미지
+  배치·크기가 걸린 엑셀 출력은 **PowerShell+Excel COM 자동화로 진짜 엑셀에서도 인쇄
+  결과를 확인할 것**(7-4-2절에 스크립트 예시 있음). 표/폰트/색상 등 이미지가 없는
+  엑셀 로직은 LibreOffice 검증으로 충분하다 — 이 항목은 "이미지 삽입"에 한정된 예외.
 
 ## 12. 업체(suppliers) 담당자 역할별 다중 등록 (2026-09-07 신규)
 

@@ -1575,10 +1575,11 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
                         "미분류"): [serial_no, ...], ...}
     반환: BytesIO (디스크 저장 안 함 — 호출부가 다운로드 응답으로 바로 스트리밍한다).
 
-    이미지 배치는 _insert_logo()/_build_ncr_photo_sheet()와 같은 OneCellAnchor 정밀배치
-    기법을 쓴다 — 단 여기는 그리드가 항상 규칙적(고정폭 열/행)이라 _build_ncr_photo_sheet
-    처럼 복잡한 _resolve() 서브셀 계산 없이, 이미지 크기와 열너비/행높이를 똑같이 맞춰서
-    셀 경계에 딱 맞게 앉히기만 하면 된다(더 단순한 경우).
+    이미지 배치는 TwoCellAnchor(editAs="oneCell")로 from/to 두 좌표를 직접 지정해서
+    QR이 차지할 사각 영역을 정의한다(2026-09-15, 7-4-2절 참고 — OneCellAnchor+ext
+    방식은 실제 윈도우 엑셀에서 지정 크기를 무시하고 셀 전체를 채워버리는 버그가
+    있어서 여기서만 이 방식으로 바꿨다). 그리드가 항상 규칙적(고정폭 열/행)이라
+    _build_ncr_photo_sheet처럼 복잡한 _resolve() 서브셀 계산은 필요 없다(더 단순한 경우).
 
     S/N 텍스트 칸·QR 칸 둘 다 얇은 테두리를 그린다 — 참고 원본 샘플(사용자 제공 이미지)이
     표 형태로 테두리가 있었는데 1차 버전은 showGridLines=False만 해서 테두리 자체가
@@ -1651,11 +1652,22 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
 
             png_bytes = qr_png_bytes(serial_no, box_size=8, border=1)
             img = XLImage(_io.BytesIO(png_bytes))
-            # 칸 왼쪽위 모서리에서 (qr_col_off, qr_row_off)만큼 안쪽으로 들어간 자리에
+            # 칸 왼쪽위 모서리에서 (qr_col_off, qr_row_off)만큼 안쪽으로 들어간 자리에서
             # qr_size_emu 크기로 앉혀서, 칸 전체 안에서 정사각형 QR이 가운데 오게 한다.
-            marker = AnchorMarker(col=qr_col - 1, colOff=qr_col_off, row=row - 1, rowOff=qr_row_off)
-            size = XDRPositiveSize2D(qr_size_emu, qr_size_emu)
-            img.anchor = OneCellAnchor(_from=marker, ext=size)
+            #
+            # OneCellAnchor(_from=..., ext=...)가 아니라 TwoCellAnchor(editAs="oneCell")를
+            # 쓴다 — 실제 Excel(Microsoft Print to PDF 포함)에서 실측해보니 OneCellAnchor의
+            # ext는 openpyxl이 spPr에 별도 xfrm을 안 써주면 무시되고 이미지가 셀 전체를
+            # 꽉 채워버려서 위아래 절취선(테두리)을 통째로 가리는 실제 버그가 있었다
+            # (2026-09-15, 사용자가 실제 인쇄한 PDF에서 발견 — LibreOffice 변환에서는
+            # 재현이 안 돼서 그동안 못 잡았다). TwoCellAnchor는 from/to 두 좌표로 사각
+            # 영역 자체를 직접 정의하므로 ext/xfrm 불일치 문제가 구조적으로 없다.
+            # editAs="oneCell"은 "칸을 따라 이동은 하되 칸 크기 변경에 맞춰 늘어나진
+            # 않는다"는 뜻 — 우리가 원하는 "고정 크기, 셀 이동 시 같이 이동"과 일치한다.
+            _from = AnchorMarker(col=qr_col - 1, colOff=qr_col_off, row=row - 1, rowOff=qr_row_off)
+            _to = AnchorMarker(col=qr_col - 1, colOff=qr_col_off + qr_size_emu,
+                                row=row - 1, rowOff=qr_row_off + qr_size_emu)
+            img.anchor = TwoCellAnchor(editAs="oneCell", _from=_from, to=_to)
             ws.add_image(img)
 
     buf = _io.BytesIO()
