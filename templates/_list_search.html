@@ -2,8 +2,18 @@
    검색 폼. 사용: {% include "_list_search.html" %}  (호출부에서 f, result_options,
    status_options, show_result, show_status, show_inspector, show_lot을 미리 set 해두면
    그대로 씀 — show_result/show_status/show_inspector 기본은 표시, show_lot 기본은 숨김) #}
+<style>
+  .lst-chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
+  .lst-chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
+              border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
+              font-size:12.5px; font-weight:700; }
+  .lst-chip button { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px;
+                      line-height:1; padding:0 4px; margin:0; border-radius:50%; }
+  .lst-chip button:hover { background:#c7d2fe; color:#312e81; }
+  .lst-chip-empty { color:#9ca3af; font-size:12px; padding:3px 0; }
+</style>
 <details class="arrow-details" style="background:#fff; border:1px solid #DDE0E6; border-radius:10px; padding:10px 14px; margin-bottom:14px;"
-    {% if f and (f.q_inspector or f.q_supplier or f.q_product or f.q_material or f.q_lot or f.f_result or f.f_status or f.insp_start or f.insp_end or f.recv_start or f.recv_end) %}open{% endif %}>
+    {% if f and (f.q_inspector or f.q_supplier or f.q_product or f.q_material or f.q_lot or f.f_result or f.f_status or f.insp_start or f.insp_end or f.recv_start or f.recv_end or f.include or f.exclude) %}open{% endif %}>
   <summary style="cursor:pointer; font-weight:600; color:#2B3140; font-size:14px;">🔎 검색 <span class="arrow">▶</span></summary>
   <div>
     <form method="get" style="display:flex; flex-wrap:wrap; gap:10px 16px; align-items:flex-end; margin-top:10px;">
@@ -73,6 +83,78 @@
         <button type="submit" style="margin-top:0; padding:8px 16px; font-size:13px;">검색</button>
         <a href="{{ request.path }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</a>
       </div>
+
+      <div style="width:100%; display:flex; gap:16px; flex-wrap:wrap; margin-top:2px;">
+        <div style="min-width:220px;">
+          <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">포함 단어 <span style="font-weight:400;">(여러 개 = 하나라도 있으면 포함)</span></label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="lstIncludePick" placeholder="단어 입력 후 Enter"
+                   style="flex:1; min-width:150px; padding:7px 8px; font-size:13px;"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();lstAddChip('include','lstIncludePick');}">
+            <button type="button" class="btn secondary" style="margin:0; padding:7px 12px; font-size:13px;"
+                    onclick="lstAddChip('include','lstIncludePick')">추가</button>
+          </div>
+          <div class="lst-chip-box" id="lst-chips-include"></div>
+        </div>
+        <div style="min-width:220px;">
+          <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">제외 단어 <span style="font-weight:400;">(여러 개 = 하나라도 있으면 제외)</span></label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="lstExcludePick" placeholder="단어 입력 후 Enter"
+                   style="flex:1; min-width:150px; padding:7px 8px; font-size:13px;"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();lstAddChip('exclude','lstExcludePick');}">
+            <button type="button" class="btn secondary" style="margin:0; padding:7px 12px; font-size:13px;"
+                    onclick="lstAddChip('exclude','lstExcludePick')">추가</button>
+          </div>
+          <div class="lst-chip-box" id="lst-chips-exclude"></div>
+        </div>
+      </div>
     </form>
   </div>
 </details>
+
+<script>
+(function() {
+  var LST_CHIPS = {
+    include: {{ (f.include if f else []) | tojson }},
+    exclude: {{ (f.exclude if f else []) | tojson }}
+  };
+  var LST_CHIP_LABEL = { include: '포함 단어', exclude: '제외 단어' };
+
+  function lstRenderChips(name) {
+    var box = document.getElementById('lst-chips-' + name);
+    if (!box) return;
+    box.innerHTML = '';
+    if (!LST_CHIPS[name].length) {
+      box.innerHTML = '<span class="lst-chip-empty">없음</span>';
+      return;
+    }
+    LST_CHIPS[name].forEach(function(val, i) {
+      var chip = document.createElement('span');
+      chip.className = 'lst-chip';
+      chip.appendChild(document.createTextNode(val));
+      var x = document.createElement('button');
+      x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+      x.onclick = (function(idx) {
+        return function() { LST_CHIPS[name].splice(idx, 1); lstRenderChips(name); };
+      })(i);
+      chip.appendChild(x);
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
+      chip.appendChild(hidden);
+      box.appendChild(chip);
+    });
+  }
+
+  window.lstAddChip = function(name, inputId) {
+    var el = document.getElementById(inputId);
+    var val = (el.value || '').trim();
+    if (!val) return;
+    if (LST_CHIPS[name].indexOf(val) === -1) LST_CHIPS[name].push(val);
+    el.value = '';
+    lstRenderChips(name);
+  };
+
+  lstRenderChips('include');
+  lstRenderChips('exclude');
+})();
+</script>

@@ -15,6 +15,14 @@
   #spec-table td.mono { font-variant-numeric: tabular-nums; }
   #spec-table td.name-cell { text-align:left; padding-left:14px; font-weight:600; }
   .drawing-empty { color:#9ca3af; font-size:12px; }
+  .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
+          border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
+          font-size:12.5px; font-weight:700; }
+  .chip button { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px;
+                 line-height:1; padding:0 4px; margin:0; border-radius:50%; }
+  .chip button:hover { background:#c7d2fe; color:#312e81; }
+  .chip-empty { color:#9ca3af; font-size:12px; padding:3px 0; }
 </style>
 
 <div class="spec-header">
@@ -55,7 +63,32 @@
       </select>
     </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or search_by != 'all' or category %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or search_by != 'all' or category or include or exclude %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+
+    <div style="width:100%; display:flex; gap:16px; flex-wrap:wrap; margin-top:2px;">
+      <div style="min-width:220px;">
+        <label>포함 단어 <span class="muted" style="font-weight:400;">(여러 개 = 하나라도 있으면 포함, 자재번호·자재명 대상)</span></label>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="specIncludePick" placeholder="단어 입력 후 Enter"
+                 style="flex:1; min-width:150px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();specAddChip('include','specIncludePick');}">
+          <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                  onclick="specAddChip('include','specIncludePick')">추가</button>
+        </div>
+        <div class="chip-box" id="spec-chips-include"></div>
+      </div>
+      <div style="min-width:220px;">
+        <label>제외 단어 <span class="muted" style="font-weight:400;">(여러 개 = 하나라도 있으면 제외)</span></label>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="specExcludePick" placeholder="단어 입력 후 Enter"
+                 style="flex:1; min-width:150px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();specAddChip('exclude','specExcludePick');}">
+          <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                  onclick="specAddChip('exclude','specExcludePick')">추가</button>
+        </div>
+        <div class="chip-box" id="spec-chips-exclude"></div>
+      </div>
+    </div>
   </form>
   <p class="hint">'검사방식 미입력'을 고르면 검색어 없이도 검사방식이 비어 있는 항목을 가진 자재만 모아 보여줘.</p>
 </div>
@@ -107,4 +140,47 @@
 </div>
 {% set p = pager %}{% include "_pager.html" %}
 {% include "_drawing_modal.html" %}
+
+<script>
+var SPEC_CHIPS = {
+  include: {{ (include or []) | tojson }},
+  exclude: {{ (exclude or []) | tojson }}
+};
+
+function specRenderChips(name) {
+  var box = document.getElementById('spec-chips-' + name);
+  box.innerHTML = '';
+  if (!SPEC_CHIPS[name].length) {
+    box.innerHTML = '<span class="chip-empty">없음</span>';
+    return;
+  }
+  SPEC_CHIPS[name].forEach(function(val, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(val));
+    var x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+    x.onclick = (function(idx) {
+      return function() { SPEC_CHIPS[name].splice(idx, 1); specRenderChips(name); };
+    })(i);
+    chip.appendChild(x);
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
+    chip.appendChild(hidden);
+    box.appendChild(chip);
+  });
+}
+
+function specAddChip(name, inputId) {
+  var el = document.getElementById(inputId);
+  var val = (el.value || '').trim();
+  if (!val) return;
+  if (SPEC_CHIPS[name].indexOf(val) === -1) SPEC_CHIPS[name].push(val);
+  el.value = '';
+  specRenderChips(name);
+}
+
+specRenderChips('include');
+specRenderChips('exclude');
+</script>
 {% endblock %}

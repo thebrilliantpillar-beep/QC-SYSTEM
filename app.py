@@ -534,8 +534,8 @@ def _paginate(items, page_arg="page", per_page=PAGE_SIZE):
 
 
 def _list_search_params():
-    """4개 목록 화면(검사이력/불량이력/부적합통보서/반품처리)이 공통으로 쓰는 검색 조건을
-    쿼리스트링에서 뽑아 dict로 정리."""
+    """5개 목록 화면(검사이력/불량이력/부적합통보서/반품처리/과거입고이력)이 공통으로 쓰는
+    검색 조건을 쿼리스트링에서 뽑아 dict로 정리."""
     a = request.args
     return {
         "q_inspector": (a.get("q_inspector") or "").strip(),
@@ -549,13 +549,34 @@ def _list_search_params():
         "insp_end": (a.get("insp_end") or "").strip(),
         "recv_start": (a.get("recv_start") or "").strip(),
         "recv_end": (a.get("recv_end") or "").strip(),
+        "include": _multi_arg("include"),
+        "exclude": _multi_arg("exclude"),
     }
+
+
+def _matches_word_filter(include_words, exclude_words, *field_values):
+    """포함/제외 다중 단어 필터 판정(자재 관리/자재 찾기와 공유하는 규칙 — 2026-09-14).
+    포함 단어 여러 개 = OR(하나라도 걸리면 통과), 제외 단어 여러 개 = OR(하나라도 걸리면
+    제외). field_values를 공백으로 이어붙인 haystack 하나에 대소문자 구분 없이 매칭한다."""
+    if not include_words and not exclude_words:
+        return True
+    haystack = " ".join(str(v) for v in field_values if v).lower()
+    if include_words and not any(w.lower() in haystack for w in include_words):
+        return False
+    if exclude_words and any(w.lower() in haystack for w in exclude_words):
+        return False
+    return True
 
 
 def _row_passes_search(f, inspector=None, supplier=None, product=None, material=None,
                         result=None, status=None, insp_date=None, recv_date=None, lot=None):
     """공통 검색 필터 한 건 판정. 필드가 그 화면에 아예 없으면(None) 그 조건은 건너뛰고,
     있는데 값이 비어 있으면(빈 문자열) 정상적으로 걸러진다."""
+    if not _matches_word_filter(
+        f["include"], f["exclude"],
+        *(v for v in (inspector, supplier, product, material, lot) if v is not None)
+    ):
+        return False
     if f["q_inspector"] and inspector is not None and f["q_inspector"] not in inspector:
         return False
     if f["q_supplier"] and supplier is not None and f["q_supplier"] not in supplier:
@@ -1646,16 +1667,20 @@ def spec_list():
     query = request.args.get("q", "").strip()
     search_by = request.args.get("by", "all")
     category = request.args.get("category", "").strip()
+    include = _multi_arg("include")
+    exclude = _multi_arg("exclude")
     # 검사방식 미입력(method_empty)은 검색어가 없어도 조회한다.
-    if query or search_by == "method_empty" or category:
-        materials = db.search_materials(query, search_by, category=category or None)
+    if query or search_by == "method_empty" or category or include or exclude:
+        materials = db.search_materials(query, search_by, category=category or None,
+                                         include=include, exclude=exclude)
     else:
         materials = db.get_materials()
     materials = list(materials)
     pager = _paginate(materials)
     drawing_materials = materials_with_drawings(m["material_no"] for m in pager["items"])
     return render_template("spec.html", materials=pager["items"], query=query, search_by=search_by,
-                            category=category, categories=db.list_material_categories(),
+                            category=category, include=include, exclude=exclude,
+                            categories=db.list_material_categories(),
                             drawing_materials=drawing_materials, pager=pager)
 
 
@@ -6598,15 +6623,19 @@ def material_find():
     parent_no = request.args.get("parent", "").strip()
     category = request.args.get("category", "").strip()
     unregistered_only = request.args.get("unregistered") == "1"
+    include = _multi_arg("include")
+    exclude = _multi_arg("exclude")
 
     rows = list(db.search_bom_materials(query=query, levels=levels, models=models,
                                          parent_no=parent_no, category=category,
-                                         unregistered_only=unregistered_only))
+                                         unregistered_only=unregistered_only,
+                                         include=include, exclude=exclude))
     pager = _paginate(rows)
     drawing_materials = materials_with_drawings(r["material_no"] for r in pager["items"])
     return render_template("material_find.html", rows=pager["items"], pager=pager,
                            query=query, levels=levels, models=models, parent_no=parent_no,
                            category=category, unregistered_only=unregistered_only,
+                           include=include, exclude=exclude,
                            unregistered_count=db.count_unregistered_bom_materials(),
                            drawing_materials=drawing_materials,
                            model_options=db.list_bom_model_names(),

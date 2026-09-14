@@ -65,7 +65,7 @@
         미등록만
       </label>
       <button type="submit" style="margin-top:0;">검색</button>
-      {% if query or levels or models or parent_no or category or unregistered_only %}
+      {% if query or levels or models or parent_no or category or unregistered_only or include or exclude %}
       <a href="{{ url_for('material_find') }}" class="btn secondary" style="margin-top:0;">초기화</a>
       {% endif %}
     </div>
@@ -95,6 +95,31 @@
                 onclick="addModelChip()">추가</button>
       </div>
       <div class="chip-box" id="chips-model"></div>
+    </div>
+
+    <div style="margin-top:13px; display:flex; gap:16px; flex-wrap:wrap;">
+      <div style="min-width:220px;">
+        <label style="margin:0 0 5px;">포함 단어 <span class="muted" style="font-weight:400;">(여러 개 = 하나라도 있으면 포함, 자재번호·자재명 대상)</span></label>
+        <div style="display:flex; gap:7px;">
+          <input type="text" id="wordIncludePick" placeholder="단어 입력 후 Enter"
+                 style="flex:1; min-width:150px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();addWordChip('include','wordIncludePick');}">
+          <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                  onclick="addWordChip('include','wordIncludePick')">추가</button>
+        </div>
+        <div class="chip-box" id="chips-include"></div>
+      </div>
+      <div style="min-width:220px;">
+        <label style="margin:0 0 5px;">제외 단어 <span class="muted" style="font-weight:400;">(여러 개 = 하나라도 있으면 제외)</span></label>
+        <div style="display:flex; gap:7px;">
+          <input type="text" id="wordExcludePick" placeholder="단어 입력 후 Enter"
+                 style="flex:1; min-width:150px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();addWordChip('exclude','wordExcludePick');}">
+          <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                  onclick="addWordChip('exclude','wordExcludePick')">추가</button>
+        </div>
+        <div class="chip-box" id="chips-exclude"></div>
+      </div>
     </div>
   </form>
 </div>
@@ -236,5 +261,47 @@ function addModelChip() {
 }
 
 renderModelChips();
+
+/* 포함/제외 단어 칩 — MODEL_CHIPS와 완전히 별개 (이름 충돌 방지) */
+var WORD_CHIPS = {
+  include: {{ (include or []) | tojson }},
+  exclude: {{ (exclude or []) | tojson }}
+};
+
+function renderWordChips(name) {
+  var box = document.getElementById('chips-' + name);
+  box.innerHTML = '';
+  if (!WORD_CHIPS[name].length) {
+    box.innerHTML = '<span class="chip-empty">없음</span>';
+    return;
+  }
+  WORD_CHIPS[name].forEach(function(val, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(val));
+    var x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+    x.onclick = (function(idx) {
+      return function() { WORD_CHIPS[name].splice(idx, 1); renderWordChips(name); };
+    })(i);
+    chip.appendChild(x);
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
+    chip.appendChild(hidden);
+    box.appendChild(chip);
+  });
+}
+
+function addWordChip(name, inputId) {
+  var el = document.getElementById(inputId);
+  var val = (el.value || '').trim();
+  if (!val) return;
+  if (WORD_CHIPS[name].indexOf(val) === -1) WORD_CHIPS[name].push(val);
+  el.value = '';
+  renderWordChips(name);
+}
+
+renderWordChips('include');
+renderWordChips('exclude');
 </script>
 {% endblock %}

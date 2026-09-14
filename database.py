@@ -924,35 +924,75 @@ def update_material_category(material_no, category):
     return canonical
 
 
-def search_materials(query=None, search_by="all", category=None):
+def _include_exclude_clause(columns, include_words=None, exclude_words=None):
+    """포함/제외 다중 단어 검색 조건 생성 — 자재 관리(search_materials)/자재 찾기
+    (search_bom_materials) 공용 헬퍼(8-1절 원칙, 복붙 금지). 포함 단어 여러 개 = OR
+    (하나라도 매칭 컬럼에 있으면 통과), 제외 단어 여러 개 = OR(하나라도 있으면 제외 —
+    드모르간 법칙으로 NOT (OR 그룹) 하나로 표현).
+
+    columns: SQL 컬럼 표현식 리스트(예: ["m.material_no", "m.material_name"]).
+    반환: (조건식 문자열 — 괄호 포함, 앞에 "AND" 없음, params 리스트). 조건이 없으면 ("", []).
+    호출부에서 기존 SQL 조립 방식(리스트에 append 하거나 " AND {식}"으로 이어붙이는 등)에
+    맞춰 붙이면 된다."""
+    include_words = [w.strip() for w in (include_words or []) if w and w.strip()]
+    exclude_words = [w.strip() for w in (exclude_words or []) if w and w.strip()]
+    parts, params = [], []
+
+    def _or_group(words):
+        # COALESCE 필수 — search_bom_materials처럼 LEFT JOIN이라 컬럼이 NULL일 수 있으면
+        # "NOT (... OR NULL ...)" 이 SQL 3치논리상 NULL이 되어 조건 없는 exclude에서도
+        # 그 행이 통째로 빠져버린다(실측으로 확인한 버그, 2026-09-14).
+        ors = []
+        for w in words:
+            like = f"%{w}%"
+            for col in columns:
+                ors.append(f"COALESCE({col}, '') LIKE ?")
+                params.append(like)
+        return "(" + " OR ".join(ors) + ")"
+
+    if include_words:
+        parts.append(_or_group(include_words))
+    if exclude_words:
+        parts.append("NOT " + _or_group(exclude_words))
+
+    if not parts:
+        return "", []
+    return " AND ".join(parts), params
+
+
+def search_materials(query=None, search_by="all", category=None, include=None, exclude=None):
     """
     query: 검색어. search_by: 'material_no' / 'material_name' / 'method' / 'spec' / 'all'
     'method'(검사방식)는 specs.inspect_method에서, 'spec'(규격 표기)는 specs.spec_display에서 매칭.
     'all'(전체)은 자재번호·자재명·규격 표기·검사방식을 모두 훑는다.
     category: 지정하면 그 분류(정확일치)로만 추가 필터링. search_by(어디서 찾을지)와는
     별개 축이라 AND 조건으로 얹는다.
+    include/exclude: 포함/제외 다중 단어(자재번호·자재명만 대상, 규격표기/검사방식은
+    제외 — 확정된 결정). _include_exclude_clause() 참고.
     """
     conn = get_conn()
     category = (category or "").strip() or None
     cat_sql = " AND m.category = ?" if category else ""
     cat_params = (category,) if category else ()
+    ie_expr, ie_params = _include_exclude_clause(["m.material_no", "m.material_name"], include, exclude)
+    ie_sql = f" AND {ie_expr}" if ie_expr else ""
 
     if search_by == "method_empty":
         # 검사방식(inspect_method)이 비어 있는 항목을 가진 자재. 검색어와 무관하게 동작한다.
         rows = conn.execute(f"""
             SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             JOIN specs s ON s.material_no = m.material_no
-            WHERE (s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''){cat_sql}
+            WHERE (s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''){cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, cat_params).fetchall()
+        """, (*cat_params, *ie_params)).fetchall()
         conn.close()
         return rows
     if not query:
         rows = conn.execute(f"""
             SELECT m.material_no, m.material_name, m.category FROM materials m
-            WHERE 1=1{cat_sql}
+            WHERE 1=1{cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, cat_params).fetchall()
+        """, (*cat_params, *ie_params)).fetchall()
         conn.close()
         return rows
 
@@ -960,29 +1000,29 @@ def search_materials(query=None, search_by="all", category=None):
     if search_by == "material_no":
         rows = conn.execute(f"""
             SELECT m.material_no, m.material_name, m.category FROM materials m
-            WHERE m.material_no LIKE ?{cat_sql}
+            WHERE m.material_no LIKE ?{cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params)).fetchall()
+        """, (like, *cat_params, *ie_params)).fetchall()
     elif search_by == "material_name":
         rows = conn.execute(f"""
             SELECT m.material_no, m.material_name, m.category FROM materials m
-            WHERE m.material_name LIKE ?{cat_sql}
+            WHERE m.material_name LIKE ?{cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params)).fetchall()
+        """, (like, *cat_params, *ie_params)).fetchall()
     elif search_by == "method":
         rows = conn.execute(f"""
             SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.inspect_method LIKE ?{cat_sql}
+            WHERE s.inspect_method LIKE ?{cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params)).fetchall()
+        """, (like, *cat_params, *ie_params)).fetchall()
     elif search_by == "spec":
         rows = conn.execute(f"""
             SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.spec_display LIKE ?{cat_sql}
+            WHERE s.spec_display LIKE ?{cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params)).fetchall()
+        """, (like, *cat_params, *ie_params)).fetchall()
     else:
         # 전체: 자재번호·자재명·규격 표기·검사방식 어디에 있든 잡는다.
         # (규격 표기 spec_display를 빠뜨려서 규격에만 있는 검색어가 안 걸리던 버그 수정)
@@ -990,9 +1030,9 @@ def search_materials(query=None, search_by="all", category=None):
             SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
             LEFT JOIN specs s ON s.material_no = m.material_no
             WHERE (m.material_no LIKE ? OR m.material_name LIKE ?
-               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?){cat_sql}
+               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?){cat_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, like, like, like, *cat_params)).fetchall()
+        """, (like, like, like, like, *cat_params, *ie_params)).fetchall()
     conn.close()
     return rows
 
@@ -1599,14 +1639,15 @@ def get_today_stats():
         (today,)
     ).fetchone()
 
-    # 오늘 검사 완료 건수
+    # 오늘 검사 완료 건수 — 제출(created_at)이 아니라 실제 검사한 날짜(inspect_date) 기준.
+    # 검사를 오늘 했어도 제출은 나중에(또는 그 반대) 할 수 있어서 created_at으로 집계하면 어긋난다.
     inspected = conn.execute(
-        "SELECT COUNT(*) FROM inspections WHERE date(created_at) = ?", (today,)
+        "SELECT COUNT(*) FROM inspections WHERE date(inspect_date) = ?", (today,)
     ).fetchone()[0]
 
     # 오늘 불량/검토필요 건수
     defects = conn.execute(
-        "SELECT COUNT(*) FROM inspections WHERE date(created_at) = ? AND overall_result NOT IN ('합격', '')",
+        "SELECT COUNT(*) FROM inspections WHERE date(inspect_date) = ? AND overall_result NOT IN ('합격', '')",
         (today,)
     ).fetchone()[0]
 
@@ -1615,7 +1656,7 @@ def get_today_stats():
         SELECT inspector,
                SUM(COALESCE(total_time_sec, actual_time_sec, 0)) as total_sec
         FROM inspections
-        WHERE date(created_at) = ?
+        WHERE date(inspect_date) = ?
           AND (total_time_sec > 0 OR actual_time_sec > 0)
         GROUP BY inspector
     """, (today,)).fetchall()
@@ -2928,9 +2969,11 @@ def list_bom_model_names():
 
 
 def search_bom_materials(query="", levels=None, models=None, parent_no="", category=None,
-                          unregistered_only=False):
+                          unregistered_only=False, include=None, exclude=None):
     """material_bom_links를 materials에 LEFT JOIN해서 조회("자재 찾기" 화면 전용).
-    search_materials()와는 완전히 별개 함수(책임 분리)."""
+    search_materials()와는 완전히 별개 함수(책임 분리).
+    include/exclude: 포함/제외 다중 단어(자재번호·자재명만 대상 — 확정된 결정).
+    _include_exclude_clause() 참고."""
     conn = get_conn()
     where = ["1=1"]
     params = []
@@ -2965,6 +3008,11 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
     if category:
         where.append("m.category = ?")
         params.append(category)
+
+    ie_expr, ie_params = _include_exclude_clause(["b.material_no", "m.material_name"], include, exclude)
+    if ie_expr:
+        where.append(ie_expr)
+        params += ie_params
 
     sql = f"""
         SELECT b.id, b.material_no, m.material_name, b.bom_name, b.level, b.model_name,
@@ -3363,8 +3411,9 @@ def daily_status(day=None):
         b["목록"].append(r)
     by_supplier_list = sorted(by_supplier.values(), key=lambda x: -x["건수"])
 
-    # ── 오늘 검사한 것 ──
-    inspected = rows("""SELECT * FROM inspections WHERE date(created_at)=? AND status!='superseded'
+    # ── 오늘 검사한 것 ── 제출(created_at)이 아니라 실제 검사한 날짜(inspect_date) 기준으로 집계한다.
+    # 검사를 그날 했어도 제출은 다른 날 할 수 있어서, created_at으로 걸러면 검사자별 실적이 어긋난다.
+    inspected = rows("""SELECT * FROM inspections WHERE date(inspect_date)=? AND status!='superseded'
                          ORDER BY id DESC""", (day,))
     insp_qty = sum(int(r["quantity"] or 0) for r in inspected)
     defect_today = [r for r in inspected if (r["overall_result"] or "") not in ("합격", "")]
