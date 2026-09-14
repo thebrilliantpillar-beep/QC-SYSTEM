@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}모델명 분류 규칙 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>🚚 모델명 분류 규칙 관리</h2>
+
+<div class="card">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    S/N 문자열 패턴(예: CKMR7K0902USA5771H(42P))으로 제품명을 자동 판별할 때 쓰는 매핑표야.
+    여기서 값을 추가·수정·삭제하면 S/N 발급·차수 입력·출고 스캔·QR 라벨 출력에 즉시 반영돼.
+    패턴 구조 자체(CKMR.../CKCB...)는 바꿀 수 없고, 코드→라벨 값만 바꿀 수 있어.
+  </p>
+</div>
+
+{% for kind, label in kind_labels.items() %}
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">{{ label }}</h3>
+  <table>
+    <thead><tr><th style="width:120px;">코드</th><th>라벨</th><th style="width:160px;"></th></tr></thead>
+    <tbody>
+      {% for r in rules[kind] %}
+      <tr>
+        <td>{{ r['code'] }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('outbound_rule_update', kind=kind, code=r['code']) }}"
+                style="display:flex; gap:6px;">
+            <input type="text" name="label" value="{{ r['label'] }}" style="flex:1;">
+            <button type="submit" class="btn secondary" style="margin-top:0;">저장</button>
+          </form>
+        </td>
+        <td>
+          <form method="POST" action="{{ url_for('outbound_rule_delete', kind=kind, code=r['code']) }}"
+                onsubmit="return confirm('이 규칙을 지울까?');">
+            <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" style="text-align:center; color:var(--muted);">등록된 규칙이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="POST" action="{{ url_for('outbound_rule_add', kind=kind) }}"
+        style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+    <input type="text" name="code" placeholder="코드 (예: 7, HAT1, 32)" required style="width:160px;">
+    <input type="text" name="label" placeholder="라벨 (예: 15kV)" required style="flex:1; min-width:160px;">
+    <button type="submit" style="margin-top:0;">추가</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,103 @@
+<div class="fill-toolbar" style="margin-bottom:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+  <button type="button" id="snAddRowBtn" class="btn secondary" style="margin-top:0;">+ 행 추가</button>
+  <span class="muted" style="font-size:12px;">
+    S/N 칸에 엑셀에서 복사한 여러 줄을 붙여넣으면(Ctrl+V) 한 번에 채워지고, 오른쪽에 자동분류 미리보기가 떠.
+  </span>
+</div>
+<div style="overflow-x:auto;">
+  <table class="sn-grid" id="snGrid">
+    <tr><th></th><th style="min-width:220px;">S/N</th><th style="min-width:220px;">분류 미리보기 (자동)</th><th></th></tr>
+  </table>
+</div>
+<input type="hidden" name="serials_json" id="serialsJsonField">
+
+<style>
+  .sn-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
+             overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:12.5px; }
+  .sn-grid th { background:#ECEEF2; color:#4b5563; padding:8px 6px; font-size:11.5px; }
+  .sn-grid td { border:1px solid #DDE0E6; padding:0; }
+  .sn-grid input { width:100%; box-sizing:border-box; padding:8px 7px; font-size:13px;
+                   border:none; margin:0; background:transparent; }
+  .sn-grid td.rownum { background:#F9F9F8; text-align:center; color:#9ca3af; font-size:11px; width:26px; }
+  .sn-grid td.del-cell { width:30px; text-align:center; }
+  .sn-grid .label-cell { padding:8px 8px; color:#24344F; }
+  .sn-grid .label-cell.unclassified { color:#9ca3af; }
+  .sn-del-row-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:14px; padding:4px; }
+</style>
+
+<script>
+(function () {
+  const grid = document.getElementById('snGrid');
+  let rowCount = 0;
+  let debounceTimer = null;
+
+  function addRow() {
+    rowCount++;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="rownum">${rowCount}</td>` +
+      `<td><input type="text" data-col="serial_no"></td>` +
+      `<td class="label-cell unclassified">-</td>` +
+      `<td class="del-cell"><button type="button" class="sn-del-row-btn" onclick="this.closest('tr').remove()">✕</button></td>`;
+    grid.appendChild(tr);
+    tr.querySelector('input').addEventListener('input', scheduleClassify);
+    return tr;
+  }
+  for (let i = 0; i < 10; i++) addRow();
+  document.getElementById('snAddRowBtn').addEventListener('click', () => addRow());
+
+  function rows() {
+    return Array.from(grid.querySelectorAll('tr')).filter(tr => tr.querySelector('input[data-col="serial_no"]'));
+  }
+
+  grid.addEventListener('paste', function (e) {
+    const target = e.target;
+    if (!target.matches('input[data-col="serial_no"]')) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text.includes('\n')) return;  // 한 줄만 붙여넣으면 기본 동작 유지
+    e.preventDefault();
+    const lines = text.replace(/\r/g, '').split('\n').filter((l, i, arr) => !(i === arr.length - 1 && l === ''));
+    let currentRow = target.closest('tr');
+    lines.forEach((line, idx) => {
+      if (idx > 0) {
+        currentRow = currentRow.nextElementSibling;
+        if (!currentRow) currentRow = addRow();
+      }
+      currentRow.querySelector('input[data-col="serial_no"]').value = line.trim();
+    });
+    scheduleClassify();
+  });
+
+  function scheduleClassify() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(runClassify, 250);
+  }
+
+  function runClassify() {
+    const rs = rows();
+    const serials = rs.map(tr => tr.querySelector('input[data-col="serial_no"]').value.trim());
+    const nonEmptyIdx = [];
+    const nonEmptySerials = [];
+    serials.forEach((s, i) => { if (s) { nonEmptyIdx.push(i); nonEmptySerials.push(s); } });
+    if (!nonEmptySerials.length) return;
+    fetch('/outbound/classify-bulk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serials: nonEmptySerials })
+    }).then(r => r.json()).then(data => {
+      nonEmptyIdx.forEach((rowIdx, i) => {
+        const cell = rs[rowIdx].querySelector('.label-cell');
+        const label = data.labels[i];
+        cell.textContent = label || '미분류';
+        cell.className = 'label-cell' + (label ? '' : ' unclassified');
+      });
+    }).catch(() => {});
+  }
+
+  // 부모 폼이 제출 직전 이 함수를 호출해서 hidden 필드를 채운다.
+  window.collectSerialGridValues = function () {
+    const values = rows().map(tr => tr.querySelector('input[data-col="serial_no"]').value.trim()).filter(Boolean);
+    document.getElementById('serialsJsonField').value = JSON.stringify(values);
+    return values;
+  };
+})();
+</script>

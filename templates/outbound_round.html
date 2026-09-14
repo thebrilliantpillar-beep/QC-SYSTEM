@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}차수 입력 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>🚚 차수 입력
+  {% if batch %}<span class="muted" style="font-size:14px; font-weight:400;">— {{ batch.round_no or ('#' ~ batch.id) }} 수정</span>{% endif %}
+</h2>
+
+<div class="card">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    차수(=출고 배치) 하나를 등록하고, 이번 차수에 나갈 예정인 S/N 목록을 미리 붙여넣어 계획해둘 수 있어.
+    나중에 출고 스캔 화면에서 이 계획과 실제 스캔된 항목을 대조해서 진행상황을 보여줘.
+  </p>
+</div>
+
+<form method="POST" id="roundForm">
+  <div class="card">
+    <h3 style="margin-top:0; font-size:15px;">차수 정보</h3>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:120px;">
+        <label>차수 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="round_no" required placeholder="예: 3차" value="{{ batch.round_no if batch else '' }}">
+      </div>
+      <div style="flex:1; min-width:170px;">
+        <label>거래처 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="customer" required placeholder="예: ACE" value="{{ batch.customer if batch else '' }}">
+      </div>
+      <div style="flex:1; min-width:150px;">
+        <label>출고예정일</label>
+        <input type="date" name="ship_date" value="{{ batch.ship_date if batch else today }}">
+      </div>
+      <div style="flex:1; min-width:150px;">
+        <label>담당자</label>
+        <input type="text" name="handler" value="{{ default_handler }}">
+      </div>
+    </div>
+  </div>
+
+  {% if planned %}
+  <div class="card">
+    <h3 style="margin-top:0; font-size:15px;">이미 등록된 계획 S/N ({{ planned|length }}건)</h3>
+    <table>
+      <thead><tr><th>S/N</th><th></th></tr></thead>
+      <tbody>
+        {% for p in planned %}
+        <tr>
+          <td>{{ p.serial_no }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('outbound_planned_item_delete', planned_id=p.id) }}"
+                  onsubmit="return confirm('이 계획 항목을 지울까?');">
+              <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3 style="margin-top:0; font-size:15px;">{{ '계획 S/N 추가' if batch else '계획 S/N 목록' }}</h3>
+    {% include "_serial_paste_grid.html" %}
+  </div>
+
+  {% if batch %}
+  <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="{{ url_for('outbound_qr_labels', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0;">📄 QR 라벨 엑셀 출력</a>
+    <a href="{{ url_for('outbound_scan_edit', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0;">🔍 출고 스캔 시작</a>
+  </div>
+  {% endif %}
+
+  <button type="submit" style="width:100%; font-size:16px; padding:15px; margin-top:4px;">저장</button>
+</form>
+
+<script>
+document.getElementById('roundForm').addEventListener('submit', function () {
+  window.collectSerialGridValues();
+});
+</script>
+{% endblock %}

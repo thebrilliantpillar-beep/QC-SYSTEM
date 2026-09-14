@@ -19,19 +19,29 @@
 <div class="card">
   <table>
     <thead>
-      <tr><th>거래처</th><th>출고일</th><th>담당자</th><th>항목수</th><th>엑셀</th></tr>
+      <tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>항목수</th><th>엑셀</th><th>확인</th></tr>
     </thead>
     <tbody>
       {% for b in batches %}
       <tr>
+        <td>{{ b.round_no or '-' }}</td>
         <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}">{{ b.customer or '-' }}</a></td>
         <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
         <td>{{ b.handler or '-' }}</td>
         <td>{{ b.item_count }}</td>
         <td><a href="{{ url_for('outbound_batch_excel', batch_id=b.id) }}">📊 엑셀</a></td>
+        <td>
+          {% if b.confirmed_at %}
+          <span style="color:var(--pass); font-size:12.5px;">✅ {{ b.confirmed_by }}<br>{{ b.confirmed_at | datetime_korean }}</span>
+          {% else %}
+          <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=b.id) }}">
+            <button type="submit" class="btn secondary" style="margin-top:0; font-size:12px; padding:4px 10px;">확인</button>
+          </form>
+          {% endif %}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" style="text-align:center; color:var(--muted);">출고 이력이 없어.</td></tr>
+      <tr><td colspan="7" style="text-align:center; color:var(--muted);">출고 이력이 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -1444,3 +1444,93 @@ def build_outbound_excel(batch, items):
     return buf
 
     return outer.as_bytes()
+
+
+QR_LABEL_BOX_CM = 3.2       # QR 이미지 정사각형 한 변
+QR_LABEL_TEXT_COL_CM = 4.5  # S/N 텍스트 열 너비
+_QR_CHAR_TO_EMU = 7 * 9525  # _build_ncr_photo_sheet와 동일한 근사 변환(문자폭->EMU)
+_QR_CM_PER_PT = 2.54 / 72
+
+
+def qr_png_bytes(data, box_size=8, border=2):
+    """QR PNG 바이트를 생성한다 — /outbound/qr 라우트와 QR 라벨 엑셀 출력 양쪽이
+    이 함수 하나를 공유한다(8-1절 원칙, 1차 구현은 app.py 라우트 안에 인라인으로
+    qrcode를 호출했는데 엑셀 출력에서도 똑같은 호출이 필요해져서 여기로 뽑았다)."""
+    import io as _io, qrcode
+    img = qrcode.make(data, box_size=box_size, border=border)
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _sanitize_outbound_sheet_name(name, used_names):
+    """엑셀 시트명 규칙(31자 제한, \\/?*[]: 금지) 적용 + 잘려서 겹치면 (2),(3)... 부여.
+    파일명 금지문자 정규식(report_builder가 build_outbound_excel/성적서 등에서 쓰는
+    r'[\\\\/:*?"<>|]')과는 별개다 — 이건 "엑셀 시트명" 규칙이라 대상 문자가 다르다."""
+    import re as _re
+    cleaned = _re.sub(r'[\\/\?\*\[\]:]', '', name or "").strip() or "미분류"
+    base = cleaned[:31]
+    candidate = base
+    n = 2
+    while candidate in used_names:
+        suffix = f"({n})"
+        candidate = base[:31 - len(suffix)] + suffix
+        n += 1
+    used_names.add(candidate)
+    return candidate
+
+
+def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
+    """차수의 계획 S/N을 분류 카테고리별로 시트를 나눠, 시트마다 "S/N 텍스트 | QR이미지 |
+    S/N 텍스트 | QR이미지"를 한 줄에 2세트씩 반복 배치한 QR 라벨 엑셀을 만든다.
+    실제 라벨을 인쇄해서 제품에 부착하는 용도(물류 체크리스트 아님).
+
+    categorized_items: {카테고리라벨(예: "15kV 일반 수평 (42P)", "제어함 - RA",
+                        "미분류"): [serial_no, ...], ...}
+    반환: BytesIO (디스크 저장 안 함 — 호출부가 다운로드 응답으로 바로 스트리밍한다).
+
+    이미지 배치는 _insert_logo()/_build_ncr_photo_sheet()와 같은 OneCellAnchor 정밀배치
+    기법을 쓴다 — 단 여기는 그리드가 항상 규칙적(고정폭 열/행)이라 _build_ncr_photo_sheet
+    처럼 복잡한 _resolve() 서브셀 계산 없이, 이미지 크기와 열너비/행높이를 똑같이 맞춰서
+    셀 경계에 딱 맞게 앉히기만 하면 된다(더 단순한 경우)."""
+    import io as _io
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    used_names = set()
+
+    text_col_w = cm_to_EMU(QR_LABEL_TEXT_COL_CM) / _QR_CHAR_TO_EMU
+    qr_col_w = cm_to_EMU(QR_LABEL_BOX_CM) / _QR_CHAR_TO_EMU
+    row_h_pt = QR_LABEL_BOX_CM / _QR_CM_PER_PT
+    font = Font(name="맑은 고딕", size=18, bold=True)
+    center = Alignment(horizontal="center", vertical="center")
+
+    for category, serials in categorized_items.items():
+        label = category or "미분류"
+        ws = wb.create_sheet(title=_sanitize_outbound_sheet_name(label, used_names))
+        ws.sheet_view.showGridLines = False
+        ws.column_dimensions['A'].width = text_col_w
+        ws.column_dimensions['B'].width = qr_col_w
+        ws.column_dimensions['C'].width = text_col_w
+        ws.column_dimensions['D'].width = qr_col_w
+
+        for i, serial_no in enumerate(serials):
+            row = i // 2 + 1
+            text_col, qr_col = (1, 2) if i % 2 == 0 else (3, 4)
+            ws.row_dimensions[row].height = row_h_pt
+
+            c = ws.cell(row=row, column=text_col, value=serial_no)
+            c.font = font
+            c.alignment = center
+
+            png_bytes = qr_png_bytes(serial_no, box_size=8, border=1)
+            img = XLImage(_io.BytesIO(png_bytes))
+            marker = AnchorMarker(col=qr_col - 1, colOff=0, row=row - 1, rowOff=0)
+            size = XDRPositiveSize2D(cm_to_EMU(QR_LABEL_BOX_CM), cm_to_EMU(QR_LABEL_BOX_CM))
+            img.anchor = OneCellAnchor(_from=marker, ext=size)
+            ws.add_image(img)
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf

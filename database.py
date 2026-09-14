@@ -690,6 +690,58 @@ def init_db():
             uploaded_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+
+    # ---- 2026-09-15 확장: 모델명 자동분류 규칙 3개 매핑표 ----
+    # 정규식 패턴 구조(CKMR.../CKCB...)는 코드에 고정하고, 여기 값(코드->라벨)만
+    # 화면에서 CRUD 가능하게 한다(YAGNI — 패턴 구조 자체를 바꿀 요구가 생기면 재설계).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_rule_voltage (
+            code  TEXT PRIMARY KEY,
+            label TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_rule_suffix (
+            code  TEXT PRIMARY KEY,
+            label TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_rule_pcode (
+            code  TEXT PRIMARY KEY,
+            label TEXT NOT NULL
+        )
+    """)
+    # ---- 2026-09-15 확장(모델명 분류 규칙) 끝 ----
+
+    # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
+    existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
+    for col in ("round_no", "confirmed_by", "confirmed_at"):
+        if col not in existing_ob_cols:
+            cur.execute(f"ALTER TABLE outbound_batches ADD COLUMN {col} TEXT")
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_planned_items (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id   INTEGER NOT NULL REFERENCES outbound_batches(id),
+            serial_no  TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    # ---- 2026-09-15 확장(차수 계획) 끝 ----
+
+    # ---- 2026-09-15 확장: QR 라벨 출력 이력 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_qr_exports (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id      INTEGER NOT NULL REFERENCES outbound_batches(id),
+            generated_by  TEXT,
+            generated_at  TEXT DEFAULT (datetime('now','localtime')),
+            item_count    INTEGER
+        )
+    """)
+    # ---- 2026-09-15 확장(QR 라벨 출력 이력) 끝 ----
+
     # ---- 신규 삽입 끝 ----
 
     conn.commit()
@@ -3465,6 +3517,40 @@ def create_serial(serial_no, issued_by):
         conn.close()
 
 
+def create_serials_bulk(serial_nos, issued_by):
+    """여러 S/N을 한 번에 발급 — 이미 발급된 것(제출 목록 내 중복 포함)은 조용히
+    건너뛰고 나머지는 계속 진행한다(create_serial()과 달리 예외를 던지지 않는다 —
+    붙여넣기 특성상 한 줄이 실패했다고 전체를 막으면 안 되기 때문).
+    반환: (added: [str], skipped: [str])."""
+    conn = get_conn()
+    added, skipped, seen = [], [], set()
+    for sn in serial_nos:
+        sn = (sn or "").strip()
+        if not sn:
+            continue
+        if sn in seen:
+            skipped.append(sn)
+            continue
+        seen.add(sn)
+        try:
+            conn.execute(
+                "INSERT INTO finished_goods_serials (serial_no, issued_by) VALUES (?, ?)",
+                (sn, issued_by))
+            added.append(sn)
+        except sqlite3.IntegrityError:
+            skipped.append(sn)
+    conn.commit()
+    conn.close()
+    return added, skipped
+
+
+def delete_serial(serial_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM finished_goods_serials WHERE id=?", (serial_id,))
+    conn.commit()
+    conn.close()
+
+
 def list_serials(query=None, limit=50):
     """S/N 발급 이력 최신순. query가 있으면 부분일치로 거른다."""
     conn = get_conn()
@@ -3496,25 +3582,37 @@ def find_outbound_item_batch(serial_no, exclude_batch_id=None):
 
 # ---------- 출고 배치/항목/사진 ----------
 
-def create_outbound_batch(customer, ship_date, handler, created_by):
+def create_outbound_batch(customer, ship_date, handler, created_by, round_no=None):
     conn = get_conn()
     cur = conn.execute("""
-        INSERT INTO outbound_batches (customer, ship_date, handler, created_by)
-        VALUES (?, ?, ?, ?)
-    """, (customer, ship_date, handler, created_by))
+        INSERT INTO outbound_batches (customer, ship_date, handler, created_by, round_no)
+        VALUES (?, ?, ?, ?, ?)
+    """, (customer, ship_date, handler, created_by, round_no))
     conn.commit()
     batch_id = cur.lastrowid
     conn.close()
     return batch_id
 
 
-def update_outbound_batch(batch_id, customer, ship_date, handler):
+def update_outbound_batch(batch_id, customer, ship_date, handler, round_no=None):
     conn = get_conn()
     conn.execute("""
-        UPDATE outbound_batches SET customer=?, ship_date=?, handler=?,
+        UPDATE outbound_batches SET customer=?, ship_date=?, handler=?, round_no=?,
                updated_at=datetime('now','localtime')
         WHERE id=?
-    """, (customer, ship_date, handler, batch_id))
+    """, (customer, ship_date, handler, round_no, batch_id))
+    conn.commit()
+    conn.close()
+
+
+def confirm_outbound_batch(batch_id, confirmed_by):
+    """확인은 잠금이 아니라 순수 기록용 — 확인 후에도 항목 추가·수정·삭제가 계속
+    가능하다(설계문서 확정사항, 성적서 승인과는 다른 개념)."""
+    conn = get_conn()
+    conn.execute("""
+        UPDATE outbound_batches SET confirmed_by=?, confirmed_at=datetime('now','localtime')
+        WHERE id=?
+    """, (confirmed_by, batch_id))
     conn.commit()
     conn.close()
 
@@ -3631,6 +3729,197 @@ def delete_outbound_item_photo(photo_id):
     conn.commit()
     conn.close()
     return row["file_path"] if row else None
+
+
+# ---------- 2026-09-15 확장: 모델명 자동분류 규칙 ----------
+
+_OUTBOUND_RULE_TABLES = {
+    "voltage": "outbound_rule_voltage",
+    "suffix":  "outbound_rule_suffix",
+    "pcode":   "outbound_rule_pcode",
+}
+
+# 리클로저 본체: CKMR{전압코드}K####USA####{접미사}(({P}P))?
+_CKMR_RE = re.compile(r"^CKMR(\d)K\d{4}USA\d{4}([A-Z0-9]*)(?:\((\d+)P\))?$")
+# 제어함: CKCB####-{꼬리표}
+_CKCB_RE = re.compile(r"^CKCB\d+-(.+)$")
+
+
+def list_classify_rules(kind):
+    """kind: 'voltage'/'suffix'/'pcode'. code 오름차순으로 반환."""
+    table = _OUTBOUND_RULE_TABLES[kind]
+    conn = get_conn()
+    rows = conn.execute(f"SELECT code, label FROM {table} ORDER BY code").fetchall()
+    conn.close()
+    return rows
+
+
+def upsert_classify_rule(kind, code, label):
+    """code가 이미 있으면 라벨만 갱신, 없으면 새로 추가 — 화면의 추가/수정 폼 하나로 겸용."""
+    table = _OUTBOUND_RULE_TABLES[kind]
+    conn = get_conn()
+    conn.execute(
+        f"INSERT INTO {table} (code, label) VALUES (?, ?) "
+        f"ON CONFLICT(code) DO UPDATE SET label=excluded.label",
+        (code, label))
+    conn.commit()
+    conn.close()
+
+
+def delete_classify_rule(kind, code):
+    table = _OUTBOUND_RULE_TABLES[kind]
+    conn = get_conn()
+    conn.execute(f"DELETE FROM {table} WHERE code=?", (code,))
+    conn.commit()
+    conn.close()
+
+
+def get_classify_rules():
+    """세 매핑표를 한 번에 읽어 classify_serial_no()에 넘길 dict로 반환한다.
+    여러 S/N을 한 번에 분류할 때(QR 라벨 엑셀 출력 등) 매번 DB를 다시 열지 않도록
+    호출부가 이 함수를 한 번만 불러서 재사용할 수 있게 만든 캐시 겸용 함수다."""
+    conn = get_conn()
+    voltage = {r["code"]: r["label"] for r in
+               conn.execute("SELECT code, label FROM outbound_rule_voltage").fetchall()}
+    suffix_rows = conn.execute("SELECT code, label FROM outbound_rule_suffix").fetchall()
+    pcode = {r["code"]: r["label"] for r in
+             conn.execute("SELECT code, label FROM outbound_rule_pcode").fetchall()}
+    conn.close()
+    # 접미사는 긴 코드부터 검사해야 한다 — "HAT3"가 "HA"/"H"보다 먼저 매칭돼야
+    # "CKMR8K0803USA6622HAT3"의 접미사가 "HA"로 잘못 분류되는 걸 막을 수 있다.
+    suffix = sorted(((r["code"], r["label"]) for r in suffix_rows), key=lambda kv: -len(kv[0]))
+    return {"voltage": voltage, "suffix": suffix, "pcode": pcode}
+
+
+def classify_serial_no(serial_no, rules=None):
+    """S/N 문자열로 제품 분류 라벨을 계산한다.
+
+    - 리클로저 본체: CKMR{전압코드}K####USA####{접미사}(({P}P))?
+      예: CKMR7K0902USA5771H(42P) -> "15kV 일반 수평 (42P)"
+          CKMR8K0803USA6622HAT3(32P) -> "27kV 트리플 3핸들 앵글 (32P) 155V"
+          (P코드가 특수값표에 있으면 "(NNP)" 뒤에 그 특수값도 덧붙인다)
+          CKMR9K0912USA8775H -> "38kV 일반 수평"
+    - 제어함: CKCB####-{꼬리표}  예: CKCB2758-RA -> "제어함 - RA"
+    - 둘 다 매칭 안 되거나, 매칭은 됐는데 전압코드/접미사가 매핑표에 없으면 None(미분류).
+
+    rules를 안 넘기면 이 함수가 직접 get_classify_rules()로 조회한다(단건 호출용).
+    여러 건을 한 번에 분류할 때는 호출부가 get_classify_rules()를 한 번만 불러 넘길 것
+    (매번 DB를 다시 여는 낭비를 막기 위함)."""
+    serial_no = (serial_no or "").strip()
+    if not serial_no:
+        return None
+    if rules is None:
+        rules = get_classify_rules()
+
+    m = _CKMR_RE.match(serial_no)
+    if m:
+        volt_code, suffix_raw, pcode = m.group(1), m.group(2), m.group(3)
+        volt_label = rules["voltage"].get(volt_code)
+        if volt_label is None:
+            return None
+        suffix_label = None
+        for code, label in rules["suffix"]:
+            if suffix_raw.startswith(code):
+                suffix_label = label
+                break
+        if suffix_raw and suffix_label is None:
+            return None  # 접미사가 있는데 매핑표에 없으면 분류 불가(미확정 접미사)
+        parts = [volt_label]
+        if suffix_label:
+            parts.append(suffix_label)
+        label = " ".join(parts)
+        if pcode:
+            label += f" ({pcode}P)"
+            special = rules["pcode"].get(pcode)
+            if special:
+                label += f" {special}"
+        return label
+
+    m2 = _CKCB_RE.match(serial_no)
+    if m2:
+        return f"제어함 - {m2.group(1)}"
+
+    return None
+
+
+# ---------- 2026-09-15 확장: 차수(=배치) 계획 항목 ----------
+
+def add_planned_items_bulk(batch_id, serial_nos):
+    """차수 계획 S/N을 한 번에 등록. 빈 값과, 이미 이 배치에 등록된 S/N은 건너뛴다.
+    반환: 실제로 새로 추가된 건수."""
+    conn = get_conn()
+    seen = {r["serial_no"] for r in conn.execute(
+        "SELECT serial_no FROM outbound_planned_items WHERE batch_id=?", (batch_id,)).fetchall()}
+    added = 0
+    for sn in serial_nos:
+        sn = (sn or "").strip()
+        if not sn or sn in seen:
+            continue
+        seen.add(sn)
+        conn.execute(
+            "INSERT INTO outbound_planned_items (batch_id, serial_no) VALUES (?, ?)",
+            (batch_id, sn))
+        added += 1
+    conn.commit()
+    conn.close()
+    return added
+
+
+def list_planned_items(batch_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM outbound_planned_items WHERE batch_id=? ORDER BY id", (batch_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def planned_item_exists(batch_id, serial_no):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM outbound_planned_items WHERE batch_id=? AND serial_no=?",
+        (batch_id, serial_no)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def delete_planned_item(planned_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM outbound_planned_items WHERE id=?", (planned_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------- 2026-09-15 확장: QR 라벨 출력 이력 ----------
+
+def record_qr_export(batch_id, generated_by, item_count):
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO outbound_qr_exports (batch_id, generated_by, item_count)
+        VALUES (?, ?, ?)
+    """, (batch_id, generated_by, item_count))
+    conn.commit()
+    export_id = cur.lastrowid
+    conn.close()
+    return export_id
+
+
+def list_qr_exports(query=None, limit=200):
+    conn = get_conn()
+    sql = """
+        SELECT e.*, b.round_no, b.customer, b.ship_date
+          FROM outbound_qr_exports e
+          JOIN outbound_batches b ON b.id = e.batch_id
+         WHERE 1=1
+    """
+    params = []
+    if query:
+        sql += " AND (b.customer LIKE ? OR b.round_no LIKE ?)"
+        params += [f"%{query}%", f"%{query}%"]
+    sql += " ORDER BY e.id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return rows
 
 
 # ---------- 성적서 위변조 검증 ----------

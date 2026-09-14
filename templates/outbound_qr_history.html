@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}QR 라벨 출력 이력 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>🚚 QR 라벨 출력 이력</h2>
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+    <div style="flex:1; min-width:170px;">
+      <label>차수/거래처로 찾기</label>
+      <input type="text" name="q" value="{{ q }}">
+    </div>
+    <button type="submit" style="margin-top:0;">조회</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>생성일시</th><th>생성자</th><th>건수</th><th></th></tr></thead>
+    <tbody>
+      {% for e in exports %}
+      <tr>
+        <td>{{ e.round_no or '-' }}</td>
+        <td>{{ e.customer or '-' }}</td>
+        <td>{{ e.ship_date | date_korean if e.ship_date else '-' }}</td>
+        <td>{{ e.generated_at | datetime_korean }}</td>
+        <td>{{ e.generated_by or '-' }}</td>
+        <td>{{ e.item_count }}</td>
+        <td><a href="{{ url_for('outbound_qr_labels', batch_id=e.batch_id) }}">📄 다시 받기</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="text-align:center; color:var(--muted);">출력 이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
