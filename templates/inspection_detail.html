@@ -249,9 +249,9 @@ if (window.top !== window.self) {
           <span class="badge {{ 'pass' if eff=='합격' else ('fail' if eff=='불합격' else 'pending') }}">{{ eff }}</span>
           {% if it['override_result'] %}
           <span class="info-anchor">
-            <button type="button" class="info-btn" data-pop="ovrinfo-{{ it['id'] }}"
+            <button type="button" class="info-btn info-btn-warn" data-pop="ovrinfo-{{ it['id'] }}"
                     title="수동변경 내역 보기" aria-label="수동변경 내역 보기">i</button>
-            <span class="info-pop" id="ovrinfo-{{ it['id'] }}" style="text-align:left; min-width:190px;">
+            <span class="info-pop info-pop-left" id="ovrinfo-{{ it['id'] }}" style="text-align:left; min-width:190px;">
               <button type="button" class="info-pop-close" aria-label="닫기">✕</button>
               <b>수동변경됨</b><br>
               <span style="color:#6b7280;">자동판정: {{ it['result'] }}</span>
