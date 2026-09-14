@@ -362,6 +362,15 @@ ws.sheet_properties.pageSetUpPr.fitToPage = True
 반드시 실제 LibreOffice PDF 변환으로 모든 열이 다 보이는지 확인할 것** — "openpyxl로
 읽었을 때 값이 있다"는 "PDF에 보인다"의 증명이 아니다.
 
+**예외 — `build_outbound_qr_labels_excel()`(QR 라벨 엑셀)은 fit-to-page를 안 쓴다
+(2026-09-15)**: 위 원칙과 달리 이 함수는 세로 A4 + 고정 인쇄배율 95%(`ws.page_setup.scale
+= 95`)만 쓰고 `fitToWidth`/`fitToHeight`/`pageSetUpPr.fitToPage`는 아예 설정하지 않는다.
+사용자가 실제 엑셀에서 인쇄까지 해보고 확정한 설정을 그대로 옮긴 것 — 한 줄에 2세트
+(S/N+QR)를 나란히 두는 배치가 예전엔(가로 방향+폭맞춤 없이) 페이지가 갈라지는 버그가
+있었지만, 이 고정배율 95% 설정으로는 실측(LibreOffice PDF, 4개/15개 항목 두 케이스)
+결과 페이지가 안 갈라지는 게 확인됐다. **이 함수를 또 고칠 일이 있으면 "fit-to-page가
+없다"고 버그로 오인해서 함부로 되돌리지 말 것** — 의도된 예외다.
+
 ### 7-6. 그 외 openpyxl/LibreOffice 함정 모음
 
 - **wrap_text 필수**: 비고란처럼 여러 줄 텍스트가 들어가는 셀에 `Alignment(wrap_text=True)`를

@@ -1514,6 +1514,12 @@ QR_LABEL_QR_DOWN_SHIFT_PX = 6  # 3cm로 줄여도 절취선이 여전히 안 보
 # 세로 중앙보다 6px 더 아래로 내림(2026-09-15 사용자 지정값).
 _QR_PT_TO_EMU = 12700       # 포인트 -> EMU(1pt = 1/72인치 = 12700 EMU, 고정값·정확함)
 _QR_PX_TO_EMU = 9525        # 픽셀(96dpi 기준) -> EMU, 고정값
+# 엑셀에서 그림(도형)을 방향키로 한 번 옮길 때 실제로 이동하는 거리(EMU) — 이론값이
+# 아니라 사용자가 예전에 QR 이미지를 실제 엑셀에서 화살표로 오른쪽으로 15번 옮겨
+# 눈으로 정중앙을 맞춘 결과(그 15번 이동 = 81644 EMU)를 역산한 실측값이다
+# (_excel_col_width_to_emu 독스트링 참고). 엑셀의 도형 화살표 이동은 화면 픽셀 기준
+# 고정거리라 가로/세로 방향이 달라도 크기가 같다고 보고 세로 이동에도 그대로 쓴다.
+QR_LABEL_ARROW_STEP_EMU = 81644 / 15
 
 
 def _excel_col_width_to_emu(width_chars, mdw=8):
@@ -1595,8 +1601,13 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     # 6px 하향 이동은 절취선(윗변)을 드러내기 위한 것이지만, 그대로 더하면 이미지
     # 아랫변이 행 경계를 넘어(quality-watcher가 계산으로 지적, 2026-09-15) 아래쪽
     # 절취선을 오히려 가릴 수 있다 — 행 경계(row_h_emu - qr_size_emu)를 넘지 않게 clamp.
-    qr_row_off = min(int((row_h_emu - qr_size_emu) / 2) + QR_LABEL_QR_DOWN_SHIFT_PX * _QR_PX_TO_EMU,
-                      row_h_emu - qr_size_emu)
+    _qr_row_off_base = min(int((row_h_emu - qr_size_emu) / 2) + QR_LABEL_QR_DOWN_SHIFT_PX * _QR_PX_TO_EMU,
+                            row_h_emu - qr_size_emu)
+    # 실제 출력물을 엑셀에서 열어본 사용자가 "위 화살표 6번 누른 위치로" 옮겨달라고
+    # 요청함(2026-09-15) — 위 clamp된 위치에서 6칸만큼 위로 뺀다. max(0, ...)는 혹시
+    # 나중에 QR_LABEL_QR_HEIGHT_CM/QR_LABEL_ROW_HEIGHT_PT 값이 바뀌어 이 뺄셈이
+    # 음수가 되더라도 죽지 않게 하는 안전장치 — 그 경우 rowOff=0(칸 맨 위)이 된다.
+    qr_row_off = int(max(0, _qr_row_off_base - 6 * QR_LABEL_ARROW_STEP_EMU))
     # S/N 폰트는 12pt 고정(2026-09-15 사용자 확정) + 정중앙 정렬. shrink_to_fit도
     # 같이 줘서, 혹시 유난히 긴 S/N이 들어와 12pt로도 열 너비(24.86)를 넘치면 그때만
     # 자동으로 살짝 줄어들게 한다(앞서 18pt에서 실제로 겪은 잘림 버그 재발 방지용
@@ -1616,15 +1627,16 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
         ws.column_dimensions['C'].width = QR_LABEL_TEXT_COL_WIDTH
         ws.column_dimensions['D'].width = QR_LABEL_QR_COL_WIDTH
 
-        # 텍스트 열을 넓힌 만큼(위 QR_LABEL_TEXT_COL_WIDTH 참고) 2세트를 한 줄에 나란히
-        # 두면 총 폭이 세로용지 폭을 넘어서, 인쇄/PDF 변환 시 오른쪽 세트가 다음
-        # 페이지로 잘려나가 항목 순서가 뒤섞이는 문제가 실측으로 발견됐다(2026-09-15).
-        # 가로 방향 + "폭만 한 페이지에 맞추기"(높이는 제한 없음 — 행이 많으면 아래로는
-        # 계속 다음 페이지로 넘어가도 된다, 7-5절 fit-to-page 우회 패턴과 동일)로 해결.
-        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        # 2026-09-15: 사용자가 실제 엑셀에서 직접 인쇄 설정을 맞춰본 참고 파일
+        # ("QR 출력.xlsx")을 그대로 반영 — A4·세로·인쇄배율 95%(고정 배율, fit-to-page
+        # 아님)·머리글에 시트이름 자동필드. 예전엔 가로+폭맞춤으로 페이지분할 버그를
+        # 해결했었는데, 사용자가 실제 인쇄까지 해보고 이 설정(세로+고정배율 95%)으로
+        # 바꿔달라고 확정했다 — 이 설정으로 되돌리면 그 버그가 재발할 수 있으니
+        # 반드시 실제 LibreOffice PDF 변환으로 페이지가 안 갈라지는지 재확인할 것.
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.scale = 95
+        ws.oddHeader.center.text = "&A"  # 엑셀 머리글 자동필드: 현재 시트 이름
 
         for i, serial_no in enumerate(serials):
             row = i // 2 + 1
