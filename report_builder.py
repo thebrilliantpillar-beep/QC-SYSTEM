@@ -1446,15 +1446,15 @@ def build_outbound_excel(batch, items):
     return outer.as_bytes()
 
 
-QR_LABEL_BOX_CM = 3.2       # QR 이미지 정사각형 한 변
-QR_LABEL_TEXT_COL_CM = 10   # S/N 텍스트 열 너비 (18pt 볼드로 26자 안팎까지도 QR과 안 겹치게 —
-                            # 2026-09-15 실사용 검증(LibreOffice PDF 변환)에서 두 차례 문제
-                            # 발견 후 수정: ① 4.5cm가 좁아서 가운데정렬 텍스트가 시트 왼쪽
-                            # 경계 밖으로 잘려나감(왼쪽정렬로 변경해서 해결) ② 7.5cm로 늘려도
-                            # 26자짜리(예: CKMR8K0803USA6622HAT3(32P))가 QR 이미지에 가려짐
-                            # (10cm로 재확장, PDF 재확인 후 겹침 해소 확인됨)
-_QR_CHAR_TO_EMU = 7 * 9525  # _build_ncr_photo_sheet와 동일한 근사 변환(문자폭->EMU)
-_QR_CM_PER_PT = 2.54 / 72
+# 2026-09-15: 사용자가 실제 엑셀에서 보기 좋게 맞춰본 값을 그대로 받아 고정값으로 씀
+# (열너비/행높이는 여기 적힌 숫자가 엑셀 "열 너비"/"행 높이" 설정 대화상자에 뜨는 값과
+# 정확히 같은 단위 — openpyxl의 column_dimensions[...].width/row_dimensions[...].height도
+# 같은 단위라 변환 없이 그대로 대입하면 된다).
+QR_LABEL_TEXT_COL_WIDTH = 24.86  # S/N 텍스트 열 너비(엑셀 열너비 단위)
+QR_LABEL_QR_COL_WIDTH = 16.86    # QR 이미지 열 너비(엑셀 열너비 단위)
+QR_LABEL_ROW_HEIGHT_PT = 90.8    # 행 높이(포인트, 엑셀 행높이 단위)
+_QR_CHAR_TO_EMU = 7 * 9525  # 열너비 단위 -> EMU 근사 변환(_build_ncr_photo_sheet와 동일 계수)
+_QR_PT_TO_EMU = 12700       # 포인트 -> EMU(1pt = 1/72인치 = 12700 EMU, 고정값)
 
 
 def qr_png_bytes(data, box_size=8, border=2):
@@ -1509,16 +1509,21 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     wb.remove(wb.active)
     used_names = set()
 
-    text_col_w = cm_to_EMU(QR_LABEL_TEXT_COL_CM) / _QR_CHAR_TO_EMU
-    qr_col_w = cm_to_EMU(QR_LABEL_BOX_CM) / _QR_CHAR_TO_EMU
-    row_h_pt = QR_LABEL_BOX_CM / _QR_CM_PER_PT
+    # QR 칸의 실제 픽셀 크기(EMU) — 이미지를 이 크기에 꽉 채우되 정사각형은 유지해야
+    # 하므로(QR을 찌그러뜨리면 스캔이 안 될 수 있음) 열너비/행높이 중 더 작은 쪽에
+    # 맞추고, 남는 여백만큼은 anchor의 colOff/rowOff로 밀어서 칸 한가운데 오게 한다.
+    qr_col_emu = QR_LABEL_QR_COL_WIDTH * _QR_CHAR_TO_EMU
+    row_h_emu = QR_LABEL_ROW_HEIGHT_PT * _QR_PT_TO_EMU
+    qr_size_emu = int(min(qr_col_emu, row_h_emu))
+    qr_col_off = int((qr_col_emu - qr_size_emu) / 2)
+    qr_row_off = int((row_h_emu - qr_size_emu) / 2)
     font = Font(name="맑은 고딕", size=18, bold=True)
-    # 텍스트 칸은 왼쪽정렬로 — 가운데정렬은 칸보다 긴 글자가 양쪽으로 넘치는데,
-    # 텍스트 칸이 시트 맨 왼쪽 열(A/C)이라 왼쪽으로 넘친 부분이 시트/페이지 경계
-    # 밖으로 나가면서 PDF 인쇄 시 잘려 보이지 않게 되던 문제가 실측(LibreOffice
-    # PDF 변환)으로 발견됐다(2026-09-15). 왼쪽정렬이면 넘쳐도 오른쪽(QR 쪽)으로만
-    # 넘치므로 최소한 안 보이게 잘리지는 않는다.
-    left_mid = Alignment(horizontal="left", vertical="center")
+    # 텍스트 칸은 왼쪽정렬 + shrink_to_fit — 긴 S/N이 18pt로는 열 너비(24.86)를
+    # 넘쳐서 옆 QR 이미지에 가려 잘려 보이는 문제가 실측(LibreOffice PDF 변환)으로
+    # 발견됐다(2026-09-15, 24자 안팎 S/N 기준). shrink_to_fit을 주면 LibreOffice/Excel이
+    # 셀 너비에 맞춰 글자 크기를 자동으로 줄여서 넘치지 않게 표시한다 — S/N 길이가
+    # 자재마다 달라도(11~23자 등) 항상 한 줄에 다 보이게 하려는 목적.
+    left_mid = Alignment(horizontal="left", vertical="center", shrink_to_fit=True)
     thin = Side(style="thin", color="000000")
     box_border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
@@ -1526,12 +1531,12 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
         label = category or "미분류"
         ws = wb.create_sheet(title=_sanitize_outbound_sheet_name(label, used_names))
         ws.sheet_view.showGridLines = False
-        ws.column_dimensions['A'].width = text_col_w
-        ws.column_dimensions['B'].width = qr_col_w
-        ws.column_dimensions['C'].width = text_col_w
-        ws.column_dimensions['D'].width = qr_col_w
+        ws.column_dimensions['A'].width = QR_LABEL_TEXT_COL_WIDTH
+        ws.column_dimensions['B'].width = QR_LABEL_QR_COL_WIDTH
+        ws.column_dimensions['C'].width = QR_LABEL_TEXT_COL_WIDTH
+        ws.column_dimensions['D'].width = QR_LABEL_QR_COL_WIDTH
 
-        # 텍스트 열을 넓힌 만큼(위 QR_LABEL_TEXT_COL_CM 참고) 2세트를 한 줄에 나란히
+        # 텍스트 열을 넓힌 만큼(위 QR_LABEL_TEXT_COL_WIDTH 참고) 2세트를 한 줄에 나란히
         # 두면 총 폭이 세로용지 폭을 넘어서, 인쇄/PDF 변환 시 오른쪽 세트가 다음
         # 페이지로 잘려나가 항목 순서가 뒤섞이는 문제가 실측으로 발견됐다(2026-09-15).
         # 가로 방향 + "폭만 한 페이지에 맞추기"(높이는 제한 없음 — 행이 많으면 아래로는
@@ -1544,7 +1549,7 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
         for i, serial_no in enumerate(serials):
             row = i // 2 + 1
             text_col, qr_col = (1, 2) if i % 2 == 0 else (3, 4)
-            ws.row_dimensions[row].height = row_h_pt
+            ws.row_dimensions[row].height = QR_LABEL_ROW_HEIGHT_PT
 
             c = ws.cell(row=row, column=text_col, value=serial_no)
             c.font = font
@@ -1554,8 +1559,10 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
 
             png_bytes = qr_png_bytes(serial_no, box_size=8, border=1)
             img = XLImage(_io.BytesIO(png_bytes))
-            marker = AnchorMarker(col=qr_col - 1, colOff=0, row=row - 1, rowOff=0)
-            size = XDRPositiveSize2D(cm_to_EMU(QR_LABEL_BOX_CM), cm_to_EMU(QR_LABEL_BOX_CM))
+            # 칸 왼쪽위 모서리에서 (qr_col_off, qr_row_off)만큼 안쪽으로 들어간 자리에
+            # qr_size_emu 크기로 앉혀서, 칸 전체 안에서 정사각형 QR이 가운데 오게 한다.
+            marker = AnchorMarker(col=qr_col - 1, colOff=qr_col_off, row=row - 1, rowOff=qr_row_off)
+            size = XDRPositiveSize2D(qr_size_emu, qr_size_emu)
             img.anchor = OneCellAnchor(_from=marker, ext=size)
             ws.add_image(img)
 
