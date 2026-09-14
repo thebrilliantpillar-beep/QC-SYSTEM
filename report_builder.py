@@ -1447,7 +1447,12 @@ def build_outbound_excel(batch, items):
 
 
 QR_LABEL_BOX_CM = 3.2       # QR 이미지 정사각형 한 변
-QR_LABEL_TEXT_COL_CM = 4.5  # S/N 텍스트 열 너비
+QR_LABEL_TEXT_COL_CM = 10   # S/N 텍스트 열 너비 (18pt 볼드로 26자 안팎까지도 QR과 안 겹치게 —
+                            # 2026-09-15 실사용 검증(LibreOffice PDF 변환)에서 두 차례 문제
+                            # 발견 후 수정: ① 4.5cm가 좁아서 가운데정렬 텍스트가 시트 왼쪽
+                            # 경계 밖으로 잘려나감(왼쪽정렬로 변경해서 해결) ② 7.5cm로 늘려도
+                            # 26자짜리(예: CKMR8K0803USA6622HAT3(32P))가 QR 이미지에 가려짐
+                            # (10cm로 재확장, PDF 재확인 후 겹침 해소 확인됨)
 _QR_CHAR_TO_EMU = 7 * 9525  # _build_ncr_photo_sheet와 동일한 근사 변환(문자폭->EMU)
 _QR_CM_PER_PT = 2.54 / 72
 
@@ -1492,8 +1497,13 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     이미지 배치는 _insert_logo()/_build_ncr_photo_sheet()와 같은 OneCellAnchor 정밀배치
     기법을 쓴다 — 단 여기는 그리드가 항상 규칙적(고정폭 열/행)이라 _build_ncr_photo_sheet
     처럼 복잡한 _resolve() 서브셀 계산 없이, 이미지 크기와 열너비/행높이를 똑같이 맞춰서
-    셀 경계에 딱 맞게 앉히기만 하면 된다(더 단순한 경우)."""
+    셀 경계에 딱 맞게 앉히기만 하면 된다(더 단순한 경우).
+
+    S/N 텍스트 칸·QR 칸 둘 다 얇은 테두리를 그린다 — 참고 원본 샘플(사용자 제공 이미지)이
+    표 형태로 테두리가 있었는데 1차 버전은 showGridLines=False만 해서 테두리 자체가
+    아예 없었다(2026-09-15 사용자 지적). 인쇄해서 낱개로 자를 때 절취선 역할도 겸한다."""
     import io as _io
+    from openpyxl.styles import Border, Side
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -1503,7 +1513,14 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     qr_col_w = cm_to_EMU(QR_LABEL_BOX_CM) / _QR_CHAR_TO_EMU
     row_h_pt = QR_LABEL_BOX_CM / _QR_CM_PER_PT
     font = Font(name="맑은 고딕", size=18, bold=True)
-    center = Alignment(horizontal="center", vertical="center")
+    # 텍스트 칸은 왼쪽정렬로 — 가운데정렬은 칸보다 긴 글자가 양쪽으로 넘치는데,
+    # 텍스트 칸이 시트 맨 왼쪽 열(A/C)이라 왼쪽으로 넘친 부분이 시트/페이지 경계
+    # 밖으로 나가면서 PDF 인쇄 시 잘려 보이지 않게 되던 문제가 실측(LibreOffice
+    # PDF 변환)으로 발견됐다(2026-09-15). 왼쪽정렬이면 넘쳐도 오른쪽(QR 쪽)으로만
+    # 넘치므로 최소한 안 보이게 잘리지는 않는다.
+    left_mid = Alignment(horizontal="left", vertical="center")
+    thin = Side(style="thin", color="000000")
+    box_border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     for category, serials in categorized_items.items():
         label = category or "미분류"
@@ -1514,6 +1531,16 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
         ws.column_dimensions['C'].width = text_col_w
         ws.column_dimensions['D'].width = qr_col_w
 
+        # 텍스트 열을 넓힌 만큼(위 QR_LABEL_TEXT_COL_CM 참고) 2세트를 한 줄에 나란히
+        # 두면 총 폭이 세로용지 폭을 넘어서, 인쇄/PDF 변환 시 오른쪽 세트가 다음
+        # 페이지로 잘려나가 항목 순서가 뒤섞이는 문제가 실측으로 발견됐다(2026-09-15).
+        # 가로 방향 + "폭만 한 페이지에 맞추기"(높이는 제한 없음 — 행이 많으면 아래로는
+        # 계속 다음 페이지로 넘어가도 된다, 7-5절 fit-to-page 우회 패턴과 동일)로 해결.
+        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+
         for i, serial_no in enumerate(serials):
             row = i // 2 + 1
             text_col, qr_col = (1, 2) if i % 2 == 0 else (3, 4)
@@ -1521,7 +1548,9 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
 
             c = ws.cell(row=row, column=text_col, value=serial_no)
             c.font = font
-            c.alignment = center
+            c.alignment = left_mid
+            c.border = box_border
+            ws.cell(row=row, column=qr_col).border = box_border
 
             png_bytes = qr_png_bytes(serial_no, box_size=8, border=1)
             img = XLImage(_io.BytesIO(png_bytes))

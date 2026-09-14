@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}차수 목록 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>🚚 차수 목록</h2>
+
+<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    이미 등록된 차수를 다시 열어서 계획 S/N을 더 추가하거나 QR 라벨을 다시 출력할 수 있어.
+  </p>
+  <a href="{{ url_for('outbound_round_new') }}" class="btn secondary" style="margin-top:0; white-space:nowrap;">+ 새 차수 등록</a>
+</div>
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+    <div style="flex:1; min-width:170px;">
+      <label>거래처/담당자로 찾기</label>
+      <input type="text" name="q" value="{{ q }}">
+    </div>
+    <button type="submit" style="margin-top:0;">조회</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
+    <tbody>
+      {% for b in batches %}
+      <tr>
+        <td>{{ b.round_no or '-' }}</td>
+        <td><a href="{{ url_for('outbound_round_edit', batch_id=b.id) }}">{{ b.customer or '-' }}</a></td>
+        <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
+        <td>{{ b.handler or '-' }}</td>
+        <td>{{ b.item_count }}</td>
+        <td style="display:flex; gap:6px; flex-wrap:wrap;">
+          <a href="{{ url_for('outbound_round_edit', batch_id=b.id) }}" class="btn secondary" style="margin-top:0;">차수/계획 수정</a>
+          <a href="{{ url_for('outbound_qr_labels', batch_id=b.id) }}" class="btn secondary" style="margin-top:0;">QR 라벨 출력</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="text-align:center; color:var(--muted);">등록된 차수가 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

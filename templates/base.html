@@ -311,9 +311,9 @@
   <div class="nav-dropdown">
     <button type="button" onclick="toggleNav(this)">🚚 출고 ▾</button>
     <div class="menu">
+      <a href="{{ url_for('outbound_round_list') }}">차수 입력</a>
       <a href="{{ url_for('outbound_serial_new') }}">S/N 발급</a>
       <a href="{{ url_for('outbound_rules') }}">분류 규칙 관리</a>
-      <a href="{{ url_for('outbound_round_new') }}">차수 입력</a>
       <a href="{{ url_for('outbound_scan_list') }}">출고 스캔</a>
       <a href="{{ url_for('outbound_history') }}">출고 이력</a>
       <a href="{{ url_for('outbound_qr_export_history') }}">QR 출력 이력</a>

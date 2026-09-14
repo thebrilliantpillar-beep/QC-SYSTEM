@@ -7922,6 +7922,18 @@ def outbound_classify_bulk():
     return jsonify({"labels": labels})
 
 
+@app.route("/outbound/round")
+@perm_required("outbound")
+def outbound_round_list():
+    """등록된 차수 목록 — 이미 만든 차수를 다시 열어서 계획 S/N을 더 추가하거나
+    QR 라벨을 다시 출력하려 해도 갈 곳이 없던 문제(2026-09-15 사용자 지적)를 고치기
+    위해 신설. outbound_scan_list()와 완전히 같은 패턴(조회만, 배치 생성은
+    outbound_round_new의 책임)."""
+    q = request.args.get("q", "").strip()
+    batches = db.list_outbound_batches(query=q or None)
+    return render_template("outbound_round_list.html", batches=batches, q=q)
+
+
 @app.route("/outbound/round/new", methods=["GET", "POST"])
 @perm_required("outbound")
 def outbound_round_new():
