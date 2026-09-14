@@ -1317,24 +1317,31 @@ def list_intake(status=None):
     return rows
 
 
-def search_intake(query, status=None):
-    """자재번호/제품명/납품업체/발주번호 기준으로 입고 리스트 검색."""
-    conn = get_conn()
-    like = f"%{query}%"
+def search_intake(query, status=None, include=None, exclude=None):
+    """자재번호/제품명/납품업체/발주번호 기준으로 입고 리스트 검색.
+    include/exclude(포함/제외 다중 단어)도 같은 4개 필드를 대상으로 본다(_include_exclude_clause 재사용,
+    8-1절 원칙, 검사대기목록 화면의 포함/제외 검색 — 2026-09-14)."""
+    cols = ["material_no", "product_name", "supplier", "po_number"]
+    where = ["1=1"]
+    params = []
     if status:
-        rows = conn.execute("""
-            SELECT * FROM intake_list
-            WHERE status = ? AND (material_no LIKE ? OR product_name LIKE ?
-                                  OR supplier LIKE ? OR po_number LIKE ?)
-            ORDER BY id DESC
-        """, (status, like, like, like, like)).fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT * FROM intake_list
-            WHERE material_no LIKE ? OR product_name LIKE ?
-                  OR supplier LIKE ? OR po_number LIKE ?
-            ORDER BY id DESC
-        """, (like, like, like, like)).fetchall()
+        where.append("status = ?")
+        params.append(status)
+    if query:
+        like = f"%{query}%"
+        where.append("(material_no LIKE ? OR product_name LIKE ? OR supplier LIKE ? OR po_number LIKE ?)")
+        params += [like, like, like, like]
+    ie_sql, ie_params = _include_exclude_clause(cols, include, exclude)
+    if ie_sql:
+        where.append(ie_sql)
+        params += ie_params
+
+    conn = get_conn()
+    rows = conn.execute(f"""
+        SELECT * FROM intake_list
+        WHERE {' AND '.join(where)}
+        ORDER BY id DESC
+    """, params).fetchall()
     conn.close()
     return rows
 

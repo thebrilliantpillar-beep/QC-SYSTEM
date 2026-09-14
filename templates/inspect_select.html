@@ -5,8 +5,20 @@
 {% if query %}{% set _ = _qs_parts.append('q=' ~ (query | urlencode)) %}{% endif %}
 {% if f and f.recv_start %}{% set _ = _qs_parts.append('recv_start=' ~ (f.recv_start | urlencode)) %}{% endif %}
 {% if f and f.recv_end %}{% set _ = _qs_parts.append('recv_end=' ~ (f.recv_end | urlencode)) %}{% endif %}
+{% if f and f.include %}{% for w in f.include %}{% set _ = _qs_parts.append('include=' ~ (w | urlencode)) %}{% endfor %}{% endif %}
+{% if f and f.exclude %}{% for w in f.exclude %}{% set _ = _qs_parts.append('exclude=' ~ (w | urlencode)) %}{% endfor %}{% endif %}
 {% if sort_dir and sort_dir != 'asc' %}{% set _ = _qs_parts.append('sort=' ~ sort_dir) %}{% endif %}
 {% set inspect_qs = ('?' ~ (_qs_parts | join('&'))) if _qs_parts else '' %}
+<style>
+  .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
+          border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
+          font-size:12.5px; font-weight:700; }
+  .chip button { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px;
+                 line-height:1; padding:0 4px; margin:0; border-radius:50%; }
+  .chip button:hover { background:#c7d2fe; color:#312e81; }
+  .chip-empty { color:#9ca3af; font-size:12px; padding:3px 0; }
+</style>
 <h2>검사 대기 목록</h2>
 <p class="muted">입고 리스트에 등록됐지만 아직 검사하지 않은 건이야. 클릭하면 헤더정보는 자동으로 채워지고 측정값만 입력하면 돼.</p>
 
@@ -32,7 +44,32 @@
       </select>
     </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or (f and (f.recv_start or f.recv_end)) or sort_dir == 'desc' %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or (f and (f.recv_start or f.recv_end or f.include or f.exclude)) or sort_dir == 'desc' %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+
+    <div style="width:100%; display:flex; gap:16px; flex-wrap:wrap; margin-top:2px;">
+      <div style="min-width:220px;">
+        <label>포함 단어 <span class="muted" style="font-weight:400;">(여러 개 = 하나라도 있으면 포함)</span></label>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="intakeIncludePick" placeholder="단어 입력 후 Enter"
+                 style="flex:1; min-width:150px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();intakeAddChip('include','intakeIncludePick');}">
+          <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                  onclick="intakeAddChip('include','intakeIncludePick')">추가</button>
+        </div>
+        <div class="chip-box" id="intake-chips-include"></div>
+      </div>
+      <div style="min-width:220px;">
+        <label>제외 단어 <span class="muted" style="font-weight:400;">(여러 개 = 하나라도 있으면 제외)</span></label>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="intakeExcludePick" placeholder="단어 입력 후 Enter"
+                 style="flex:1; min-width:150px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();intakeAddChip('exclude','intakeExcludePick');}">
+          <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                  onclick="intakeAddChip('exclude','intakeExcludePick')">추가</button>
+        </div>
+        <div class="chip-box" id="intake-chips-exclude"></div>
+      </div>
+    </div>
   </form>
 </div>
 
@@ -321,7 +358,7 @@
   </tr>
   {% else %}
   <tr><td colspan="9">
-    {% if query %}검색 결과가 없어.{% else %}
+    {% if query or (f and (f.include or f.exclude)) %}검색 결과가 없어.{% else %}
     대기 중인 입고 건이 없어.
     {% if 'intake' in user_perms %}<a href="{{ url_for('intake') }}">입고 리스트 등록</a>부터 해줘.{% endif %}
     {% endif %}
@@ -329,4 +366,47 @@
   {% endfor %}
 </table>
 {% include "_drawing_modal.html" %}
+
+<script>
+var INTAKE_CHIPS = {
+  include: {{ (f.include if f else []) | tojson }},
+  exclude: {{ (f.exclude if f else []) | tojson }}
+};
+
+function intakeRenderChips(name) {
+  var box = document.getElementById('intake-chips-' + name);
+  box.innerHTML = '';
+  if (!INTAKE_CHIPS[name].length) {
+    box.innerHTML = '<span class="chip-empty">없음</span>';
+    return;
+  }
+  INTAKE_CHIPS[name].forEach(function(val, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(val));
+    var x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+    x.onclick = (function(idx) {
+      return function() { INTAKE_CHIPS[name].splice(idx, 1); intakeRenderChips(name); };
+    })(i);
+    chip.appendChild(x);
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
+    chip.appendChild(hidden);
+    box.appendChild(chip);
+  });
+}
+
+function intakeAddChip(name, inputId) {
+  var el = document.getElementById(inputId);
+  var val = (el.value || '').trim();
+  if (!val) return;
+  if (INTAKE_CHIPS[name].indexOf(val) === -1) INTAKE_CHIPS[name].push(val);
+  el.value = '';
+  intakeRenderChips(name);
+}
+
+intakeRenderChips('include');
+intakeRenderChips('exclude');
+</script>
 {% endblock %}

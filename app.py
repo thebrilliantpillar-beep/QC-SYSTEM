@@ -2290,12 +2290,20 @@ def intake_confirm_dups():
 def inspect_select():
     """입고 리스트 중 미검사(대기) 건만 표로 보여줌"""
     query = request.args.get("q", "").strip()
-    pending = db.search_intake(query, status="대기") if query else db.list_intake(status="대기")
     # 입고일 범위 검색 — 검사이력 등 4개 화면이 쓰는 공용 필터(_row_passes_search)를
-    # 재사용. 이 화면엔 검사자/업체/제품/판정 등 다른 필드가 없으므로 recv_date만 넘긴다.
+    # 재사용. include/exclude(포함/제외 검색어)도 이 헬퍼가 같이 뽑아준다(2026-09-14).
     f = _list_search_params()
+    pending = (db.search_intake(query, status="대기", include=f["include"], exclude=f["exclude"])
+               if (query or f["include"] or f["exclude"]) else db.list_intake(status="대기"))
     if f["recv_start"] or f["recv_end"]:
-        pending = [r for r in pending if _row_passes_search(f, recv_date=r["receive_date"])]
+        # include/exclude는 search_intake()에서 이미 SQL로 걸러졌지만, _row_passes_search가
+        # 내부적으로 _matches_word_filter도 같이 검사한다 — material/supplier/product/lot을
+        # 안 넘기면 recv_date 하나만 놓고 재검사하게 돼서 이미 통과한 행이 부당하게 다시
+        # 걸러지는 버그가 있었다(2026-09-14 quality-watcher 발견). 같은 필드를 다시 넘겨서
+        # 이 재검사가 SQL 결과와 항상 같은 값을 보게 한다.
+        pending = [r for r in pending if _row_passes_search(
+            f, material=r["material_no"], supplier=r["supplier"], product=r["product_name"],
+            lot=r["po_number"], recv_date=r["receive_date"])]
 
     # 입고일 오름/내림차순 — 기본은 오름차순(먼저 입고된 것부터). 날짜를 못 읽는 행은
     # 정렬 방향과 무관하게 항상 맨 뒤로 보낸다(방향을 뒤집었다고 이 행들까지 맨 앞으로
