@@ -1382,4 +1382,65 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
         except Exception:
             pass
 
+
+# ---------- 출고(완제품 S/N·QR·사진) — 입고검사(IQC)와 별개의 신규 하위시스템 ----------
+
+def build_outbound_excel(batch, items):
+    """출고 배치 1건을 기본 표 형태의 xlsx로 만들어 BytesIO로 반환한다(디스크 저장 안 함).
+    사용자가 실제 양식 파일을 제공하면 NCR/성적서와 같은 shutil.copy 템플릿 방식으로
+    이 함수 하나만 재작업하면 된다 — 그 전까지는 openpyxl로 직접 표를 그린다.
+    batch: {"customer", "ship_date", "handler"} 등을 가진 dict.
+    items: database.list_outbound_items()가 돌려주는 형태(각 item에 "photos" 리스트 포함)."""
+    import io as _io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "출고내역"
+
+    bold = Font(bold=True)
+    center = Alignment(horizontal="center", vertical="center")
+    thin = Side(style="thin", color="B7BEC9")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="E7EAF0")
+
+    ws["A1"] = "출고 내역서"
+    ws["A1"].font = Font(bold=True, size=16)
+    ws.merge_cells("A1:E1")
+    ws["A1"].alignment = center
+
+    ws["A3"] = "거래처"; ws["B3"] = batch.get("customer") or ""
+    ws["A4"] = "출고일"; ws["B4"] = batch.get("ship_date") or ""
+    ws["A5"] = "담당자"; ws["B5"] = batch.get("handler") or ""
+    for cell in ("A3", "A4", "A5"):
+        ws[cell].font = bold
+
+    headers = ["번호", "S/N", "제품명/모델명", "수량", "사진 매수"]
+    for i, h in enumerate(headers, start=1):
+        c = ws.cell(row=7, column=i, value=h)
+        c.font = bold
+        c.fill = header_fill
+        c.alignment = center
+        c.border = border
+
+    for row_i, it in enumerate(items, start=8):
+        values = [row_i - 7, it["serial_no"], it.get("product_name") or "",
+                  it.get("quantity") if it.get("quantity") is not None else "",
+                  len(it.get("photos") or [])]
+        for j, v in enumerate(values, start=1):
+            c = ws.cell(row=row_i, column=j, value=v)
+            c.border = border
+            c.alignment = center
+
+    widths = [8, 22, 32, 10, 10]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
     return outer.as_bytes()

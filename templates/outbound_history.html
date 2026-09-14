@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}출고 이력 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>🚚 출고 이력</h2>
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+    <div style="flex:1; min-width:170px;">
+      <label>거래처/담당자로 찾기</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="예: ACE">
+    </div>
+    <button type="submit" style="margin-top:0;">조회</button>
+    {% if q %}
+    <a href="{{ url_for('outbound_history') }}" class="btn secondary" style="margin-top:0;">초기화</a>
+    {% endif %}
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>거래처</th><th>출고일</th><th>담당자</th><th>항목수</th><th>엑셀</th></tr>
+    </thead>
+    <tbody>
+      {% for b in batches %}
+      <tr>
+        <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}">{{ b.customer or '-' }}</a></td>
+        <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
+        <td>{{ b.handler or '-' }}</td>
+        <td>{{ b.item_count }}</td>
+        <td><a href="{{ url_for('outbound_batch_excel', batch_id=b.id) }}">📊 엑셀</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" style="text-align:center; color:var(--muted);">출고 이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

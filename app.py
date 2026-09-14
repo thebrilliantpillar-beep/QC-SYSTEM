@@ -162,6 +162,9 @@ PERM_GROUPS = [
         ("approve",        "승인·반려·특채·불합격 확정"),
         ("approve_revoke", "결정 회수"),
     ]),
+    ("출고", [
+        ("outbound", "출고(S/N 발급/스캔/이력) 관리"),
+    ]),
     ("출력", [
         ("output", "성적서 출력"),
         ("custom_template", "커스텀 성적서 양식 제작·지정"),
@@ -7504,6 +7507,254 @@ def assembly_delete_bulk():
     flash(f"{len(assembly_ids)}개 조립품을 삭제했어.")
     record_change("조립품 일괄 삭제", "assembly", None, ", ".join(str(i) for i in assembly_ids[:10]))
     return redirect(url_for("assembly_list"))
+
+
+# =========================================================================
+# 출고(완제품 S/N·QR·사진) 관리 — 입고검사(IQC)와 별개의 신규 하위시스템
+# =========================================================================
+
+@app.route("/outbound/qr")
+@perm_required("outbound")
+def outbound_qr_image():
+    """S/N 문자열을 QR PNG로 즉석 생성해서 돌려준다 — 파일로 저장하지 않고
+    필요할 때마다(화면 표시/인쇄) 매번 다시 만든다. 저장할 게 없어 정리도 필요 없다."""
+    serial_no = (request.args.get("serial_no") or "").strip()
+    if not serial_no:
+        return "", 400
+    import qrcode
+    img = qrcode.make(serial_no, box_size=10, border=2)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
+
+@app.route("/outbound/serial/new", methods=["GET", "POST"])
+@perm_required("outbound")
+def outbound_serial_new():
+    """완제품 S/N 발급. 발급 시점엔 제품 정보를 연결하지 않는다(설계문서 확정사항) —
+    S/N 문자열만 등록하고 QR을 보여준다. 이미 발급된 S/N은 재발급 자체를 막는다."""
+    if request.method == "POST":
+        serial_no = request.form.get("serial_no", "").strip()
+        if not serial_no:
+            flash("S/N을 입력해줘.")
+            return redirect(url_for("outbound_serial_new"))
+        try:
+            db.create_serial(serial_no, g.user["display_name"] or g.user["username"])
+        except ValueError as e:
+            flash(str(e))
+            return redirect(url_for("outbound_serial_new"))
+        record_change("완제품 S/N 발급", "outbound_serial", None, serial_no)
+        flash(f"S/N '{serial_no}' 발급 완료. 아래 QR을 인쇄해서 라벨로 붙여줘.")
+        return redirect(url_for("outbound_serial_new", issued=serial_no))
+
+    issued = request.args.get("issued", "").strip()
+    q = request.args.get("q", "").strip()
+    recent = db.list_serials(query=q or None, limit=50)
+    return render_template("outbound_serial.html", issued=issued, recent=recent, q=q)
+
+
+OUTBOUND_PHOTO_DIR = os.path.join(db.DATA_DIR, "outbound_photos")
+os.makedirs(OUTBOUND_PHOTO_DIR, exist_ok=True)
+
+
+@app.route("/static/outbound_photos/<path:filename>")
+@perm_required("outbound")
+def outbound_photo_file(filename):
+    return send_from_directory(OUTBOUND_PHOTO_DIR, filename)
+
+
+@app.route("/outbound/serial-check")
+@perm_required("outbound")
+def outbound_serial_check():
+    """스캔/입력된 S/N의 상태를 JSON으로 돌려준다 — 미등록/다른배치사용 여부.
+    둘 다 진행을 막지 않고 경고만 표시하는 용도(설계문서 확정사항)."""
+    serial_no = (request.args.get("serial_no") or "").strip()
+    exclude_batch_id = request.args.get("exclude_batch_id", type=int)
+    if not serial_no:
+        return jsonify({"registered": False, "used_in_other_batch": None,
+                        "used_in_other_batch_customer": None})
+    registered = db.serial_exists(serial_no)
+    other_batch_id = db.find_outbound_item_batch(serial_no, exclude_batch_id=exclude_batch_id)
+    other_batch_customer = None
+    if other_batch_id:
+        b = db.get_outbound_batch(other_batch_id)
+        other_batch_customer = b["customer"] if b else None
+    return jsonify({
+        "registered": registered,
+        "used_in_other_batch": other_batch_id,
+        "used_in_other_batch_customer": other_batch_customer,
+    })
+
+
+def _outbound_scan_submit(batch_id):
+    """배치 헤더 저장(신규 생성 또는 갱신) + items_json/photos_N으로 넘어온 새 항목들을
+    추가한다. 신규 배치든 기존 배치에 항목을 더 추가하는 것이든 이 함수 하나로 처리한다
+    — '새 항목 추가' 로직이 완전히 같기 때문(중복 방지, 8-1절 원칙)."""
+    import json as _json, uuid
+
+    customer = request.form.get("customer", "").strip()
+    ship_date = request.form.get("ship_date", "").strip()
+    handler = request.form.get("handler", "").strip()
+    if not customer:
+        flash("거래처를 입력해줘.")
+        return redirect(request.referrer or url_for("outbound_scan_new"))
+
+    is_new_batch = batch_id is None
+    if is_new_batch:
+        batch_id = db.create_outbound_batch(customer, ship_date, handler,
+                                             g.user["display_name"] or g.user["username"])
+    else:
+        db.update_outbound_batch(batch_id, customer, ship_date, handler)
+
+    raw_items = request.form.get("items_json", "")
+    try:
+        new_items = _json.loads(raw_items) if raw_items else []
+    except (ValueError, TypeError):
+        new_items = []
+
+    if is_new_batch and not new_items:
+        flash("신규 출고 건은 최소 1개 항목을 추가한 뒤 저장해줘.")
+        conn = db.get_conn(); conn.execute("DELETE FROM outbound_batches WHERE id=?", (batch_id,)); conn.commit(); conn.close()
+        return redirect(url_for("outbound_scan_new"))
+
+    added = 0
+    for idx, it in enumerate(new_items):
+        serial_no = str(it.get("serial_no", "")).strip()
+        if not serial_no:
+            continue
+        product_name = str(it.get("product_name", "")).strip()
+        quantity_raw = it.get("quantity")
+        try:
+            quantity = int(quantity_raw)
+        except (ValueError, TypeError):
+            quantity = None
+
+        item_id = db.add_outbound_item(batch_id, serial_no, product_name, quantity)
+        added += 1
+        for file in request.files.getlist(f"photos_{idx}"):
+            if not file or not file.filename:
+                continue
+            ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                continue
+            base = f"ob{batch_id}_{item_id}_{uuid.uuid4().hex[:8]}"
+            fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base)
+            db.add_outbound_item_photo(item_id, fname)
+
+    action = "출고 배치 생성" if is_new_batch else "출고 배치 정보 수정"
+    record_change(action, "outbound_batch", batch_id, f"{customer} (신규 항목 {added}건)")
+    flash(f"출고 배치가 저장됐어. (신규 항목 {added}건 추가)" if added else "출고 배치 정보가 저장됐어.")
+    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
+
+@app.route("/outbound/scan/new", methods=["GET", "POST"])
+@perm_required("outbound")
+def outbound_scan_new():
+    if request.method == "POST":
+        return _outbound_scan_submit(batch_id=None)
+    return render_template("outbound_scan.html", batch=None, items=[],
+                           today=_dt.now().strftime("%Y-%m-%d"),
+                           default_handler=g.user["display_name"] or g.user["username"])
+
+
+@app.route("/outbound/scan/<int:batch_id>", methods=["GET", "POST"])
+@perm_required("outbound")
+def outbound_scan_edit(batch_id):
+    batch = db.get_outbound_batch(batch_id)
+    if batch is None:
+        flash("존재하지 않는 출고 배치야.")
+        return redirect(url_for("outbound_history"))
+    if request.method == "POST":
+        return _outbound_scan_submit(batch_id=batch_id)
+    items = db.list_outbound_items(batch_id)
+    return render_template("outbound_scan.html", batch=batch, items=items,
+                           today=_dt.now().strftime("%Y-%m-%d"),
+                           default_handler=batch["handler"] or "")
+
+
+@app.route("/outbound/item/<int:item_id>/edit", methods=["POST"])
+@perm_required("outbound")
+def outbound_item_edit(item_id):
+    item = db.get_outbound_item(item_id)
+    if item is None:
+        return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    product_name = request.form.get("product_name", "").strip()
+    quantity_raw = request.form.get("quantity", "").strip()
+    try:
+        quantity = int(quantity_raw) if quantity_raw else None
+    except ValueError:
+        quantity = None
+    db.update_outbound_item(item_id, product_name, quantity)
+    record_change("출고 항목 수정", "outbound_item", item_id,
+                  f"{item['serial_no']} / {product_name} / {quantity}")
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash("항목이 수정됐어.")
+    return redirect(url_for("outbound_scan_edit", batch_id=item["batch_id"]))
+
+
+@app.route("/outbound/item/<int:item_id>/delete", methods=["POST"])
+@perm_required("outbound")
+def outbound_item_delete(item_id):
+    item = db.get_outbound_item(item_id)
+    if item is None:
+        return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    batch_id = item["batch_id"]
+    photo_names = db.delete_outbound_item(item_id)
+    for fname in photo_names:
+        try:
+            os.remove(os.path.join(OUTBOUND_PHOTO_DIR, fname))
+        except OSError:
+            pass
+    record_change("출고 항목 삭제", "outbound_item", item_id, item["serial_no"])
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash("항목이 삭제됐어.")
+    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
+
+@app.route("/outbound/photo/<int:photo_id>/delete", methods=["POST"])
+@perm_required("outbound")
+def outbound_photo_delete(photo_id):
+    photo = db.get_outbound_item_photo(photo_id)
+    if photo is None:
+        return jsonify({"ok": False, "error": "사진을 찾을 수 없어."}), 404
+    item = db.get_outbound_item(photo["item_id"])
+    fname = db.delete_outbound_item_photo(photo_id)
+    if fname:
+        try:
+            os.remove(os.path.join(OUTBOUND_PHOTO_DIR, fname))
+        except OSError:
+            pass
+    record_change("출고 사진 삭제", "outbound_item", photo["item_id"], "")
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    flash("사진이 삭제됐어.")
+    return redirect(url_for("outbound_scan_edit", batch_id=item["batch_id"] if item else 0))
+
+
+@app.route("/outbound/history")
+@perm_required("outbound")
+def outbound_history():
+    q = request.args.get("q", "").strip()
+    batches = db.list_outbound_batches(query=q or None)
+    return render_template("outbound_history.html", batches=batches, q=q)
+
+
+@app.route("/outbound/batch/<int:batch_id>/excel")
+@perm_required("outbound")
+def outbound_batch_excel(batch_id):
+    batch = db.get_outbound_batch(batch_id)
+    if batch is None:
+        flash("존재하지 않는 출고 배치야.")
+        return redirect(url_for("outbound_history"))
+    items = db.list_outbound_items(batch_id)
+    buf = report_builder.build_outbound_excel(dict(batch), items)
+    raw_name = f"출고_{(batch['ship_date'] or '')[:10].replace('-', '')}_{batch['customer'] or ''}.xlsx"
+    safe = re.sub(r'[\\/:*?"<>|]', '', raw_name)
+    return send_file(buf, as_attachment=True, download_name=safe,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 db.init_db()

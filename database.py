@@ -645,6 +645,53 @@ def init_db():
     if "gauge_name" not in existing_fi_cols:
         cur.execute("ALTER TABLE full_inspection_units ADD COLUMN gauge_name TEXT DEFAULT ''")
 
+    # ---- 여기부터 신규 삽입 ----
+    # 출고(완제품 S/N·QR·사진) 관리 — 입고검사(IQC)와 완전히 별개의 신규 하위시스템.
+    # finished_goods_serials/outbound_items는 FK 없이 문자열(serial_no)로만 느슨하게 연결한다
+    # — 미등록 S/N, 다른 배치에 이미 쓰인 S/N도 경고만 하고 출고 항목으로 받아들여야 하기
+    # 때문에 FK로 강제하면 안 된다(material_bom_links가 materials에 FK 없는 것과 같은 이유).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS finished_goods_serials (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            serial_no   TEXT NOT NULL UNIQUE,
+            issued_by   TEXT,
+            issued_at   TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_batches (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer      TEXT,
+            ship_date     TEXT,
+            handler       TEXT,
+            created_by    TEXT,
+            created_at    TEXT DEFAULT (datetime('now','localtime')),
+            updated_at    TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id        INTEGER NOT NULL REFERENCES outbound_batches(id),
+            serial_no       TEXT NOT NULL,
+            product_name    TEXT,
+            quantity        INTEGER,
+            created_at      TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS outbound_item_photos (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id     INTEGER NOT NULL REFERENCES outbound_items(id),
+            file_path   TEXT NOT NULL,
+            uploaded_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    # ---- 신규 삽입 끝 ----
+
     conn.commit()
     conn.close()
 
@@ -3387,6 +3434,203 @@ def recent_change_points_for(supplier, material_no, within_days=90):
     """, (supplier, material_no, f"-{int(within_days)} days")).fetchall()
     conn.close()
     return rows
+
+
+# ---------- 출고 완제품 S/N ----------
+
+def serial_exists(serial_no):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM finished_goods_serials WHERE serial_no=?", (serial_no,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def create_serial(serial_no, issued_by):
+    """완제품 S/N을 발급 이력에 등록. 이미 발급된 S/N이면 재발급 자체를 막는다(ValueError)."""
+    if serial_exists(serial_no):
+        raise ValueError(f"'{serial_no}'는 이미 발급된 S/N이야.")
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO finished_goods_serials (serial_no, issued_by) VALUES (?, ?)",
+            (serial_no, issued_by))
+        conn.commit()
+        return cur.lastrowid
+    except sqlite3.IntegrityError:
+        # UNIQUE 제약이 최종 방어선(동시 발급 경합 시). 위의 사전체크가 거의 다 잡아내므로
+        # 실제로 여기 걸릴 일은 드물지만, 걸리면 같은 메시지로 통일해서 처리한다.
+        raise ValueError(f"'{serial_no}'는 이미 발급된 S/N이야.")
+    finally:
+        conn.close()
+
+
+def list_serials(query=None, limit=50):
+    """S/N 발급 이력 최신순. query가 있으면 부분일치로 거른다."""
+    conn = get_conn()
+    sql = "SELECT * FROM finished_goods_serials WHERE 1=1"
+    params = []
+    if query:
+        sql += " AND serial_no LIKE ?"
+        params.append(f"%{query}%")
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return rows
+
+
+def find_outbound_item_batch(serial_no, exclude_batch_id=None):
+    """이 S/N이 이미 다른 출고 배치에 쓰였으면 그 batch_id, 아니면 None.
+    exclude_batch_id(현재 편집 중인 배치)는 '다른 배치'로 치지 않는다."""
+    conn = get_conn()
+    sql = "SELECT batch_id FROM outbound_items WHERE serial_no=?"
+    params = [serial_no]
+    if exclude_batch_id is not None:
+        sql += " AND batch_id != ?"
+        params.append(exclude_batch_id)
+    row = conn.execute(sql + " ORDER BY id DESC LIMIT 1", params).fetchone()
+    conn.close()
+    return row["batch_id"] if row else None
+
+
+# ---------- 출고 배치/항목/사진 ----------
+
+def create_outbound_batch(customer, ship_date, handler, created_by):
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO outbound_batches (customer, ship_date, handler, created_by)
+        VALUES (?, ?, ?, ?)
+    """, (customer, ship_date, handler, created_by))
+    conn.commit()
+    batch_id = cur.lastrowid
+    conn.close()
+    return batch_id
+
+
+def update_outbound_batch(batch_id, customer, ship_date, handler):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE outbound_batches SET customer=?, ship_date=?, handler=?,
+               updated_at=datetime('now','localtime')
+        WHERE id=?
+    """, (customer, ship_date, handler, batch_id))
+    conn.commit()
+    conn.close()
+
+
+def get_outbound_batch(batch_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM outbound_batches WHERE id=?", (batch_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def list_outbound_batches(query=None, limit=200):
+    conn = get_conn()
+    sql = """
+        SELECT b.*, COUNT(i.id) AS item_count
+          FROM outbound_batches b
+          LEFT JOIN outbound_items i ON i.batch_id = b.id
+         WHERE 1=1
+    """
+    params = []
+    if query:
+        sql += " AND (b.customer LIKE ? OR b.handler LIKE ?)"
+        params += [f"%{query}%", f"%{query}%"]
+    sql += " GROUP BY b.id ORDER BY b.id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return rows
+
+
+def add_outbound_item(batch_id, serial_no, product_name, quantity):
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO outbound_items (batch_id, serial_no, product_name, quantity)
+        VALUES (?, ?, ?, ?)
+    """, (batch_id, serial_no, product_name, quantity))
+    conn.commit()
+    item_id = cur.lastrowid
+    conn.close()
+    return item_id
+
+
+def get_outbound_item(item_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM outbound_items WHERE id=?", (item_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def list_outbound_items(batch_id):
+    """배치의 항목 + 각 항목의 사진 목록을 함께 반환.
+    반환: [{...item 컬럼.., "photos": [{"id":.., "file_path":.., "uploaded_at":..}, ...]}, ...]"""
+    conn = get_conn()
+    items = conn.execute(
+        "SELECT * FROM outbound_items WHERE batch_id=? ORDER BY id", (batch_id,)).fetchall()
+    result = []
+    for it in items:
+        photos = conn.execute(
+            "SELECT * FROM outbound_item_photos WHERE item_id=? ORDER BY id",
+            (it["id"],)).fetchall()
+        row = dict(it)
+        row["photos"] = [dict(p) for p in photos]
+        result.append(row)
+    conn.close()
+    return result
+
+
+def update_outbound_item(item_id, product_name, quantity):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE outbound_items SET product_name=?, quantity=? WHERE id=?",
+        (product_name, quantity, item_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_outbound_item(item_id):
+    """항목 삭제. 첨부 사진의 실제 파일명 목록을 반환하니 호출부가 파일도 지울 것
+    (FK 제약이 있으므로 사진 행 먼저 지우고 항목을 지운다)."""
+    conn = get_conn()
+    photo_paths = [r["file_path"] for r in conn.execute(
+        "SELECT file_path FROM outbound_item_photos WHERE item_id=?", (item_id,)).fetchall()]
+    conn.execute("DELETE FROM outbound_item_photos WHERE item_id=?", (item_id,))
+    conn.execute("DELETE FROM outbound_items WHERE id=?", (item_id,))
+    conn.commit()
+    conn.close()
+    return photo_paths
+
+
+def add_outbound_item_photo(item_id, file_path):
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO outbound_item_photos (item_id, file_path) VALUES (?, ?)",
+        (item_id, file_path))
+    conn.commit()
+    photo_id = cur.lastrowid
+    conn.close()
+    return photo_id
+
+
+def get_outbound_item_photo(photo_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM outbound_item_photos WHERE id=?", (photo_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def delete_outbound_item_photo(photo_id):
+    """사진 1장 삭제. 실제 파일명을 반환(호출부가 파일 삭제)."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT file_path FROM outbound_item_photos WHERE id=?", (photo_id,)).fetchone()
+    conn.execute("DELETE FROM outbound_item_photos WHERE id=?", (photo_id,))
+    conn.commit()
+    conn.close()
+    return row["file_path"] if row else None
 
 
 # ---------- 성적서 위변조 검증 ----------

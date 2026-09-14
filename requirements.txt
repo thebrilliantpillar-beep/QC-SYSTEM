@@ -5,3 +5,4 @@ Pillow
 pypdf
 gunicorn
 APScheduler
+qrcode

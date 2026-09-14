@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}S/N 발급 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+@media print {
+  header, footer, .no-print { display: none !important; }
+  main { padding: 0 !important; max-width: 100% !important; }
+  body { background: #fff !important; }
+}
+.qr-print-block { display: none; }
+@media print {
+  .qr-print-block { display: block !important; text-align: center; margin-top: 60px; }
+}
+</style>
+
+<div class="no-print">
+<h2>🚚 S/N 발급</h2>
+
+<div class="card">
+  <p class="muted" style="margin:0; font-size:13.5px;">
+    생산 완료 직후 완제품에 부여할 S/N을 입력하면 QR코드가 생성돼. 인쇄해서 제품에 라벨로 붙여줘.
+    이미 발급된 S/N은 다시 발급할 수 없어.
+  </p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">S/N 발급</h3>
+  <form method="POST">
+    <label>S/N <span style="color:var(--fail);">*</span></label>
+    <input type="text" name="serial_no" required placeholder="예: SN-2026-000123" autofocus>
+    <button type="submit" style="margin-top:12px;">QR 생성</button>
+  </form>
+</div>
+
+{% if issued %}
+<div class="card" style="border-left:4px solid var(--pass);">
+  <h3 style="margin-top:0; font-size:15px;">발급 완료</h3>
+  <div style="text-align:center;">
+    <img src="{{ url_for('outbound_qr_image', serial_no=issued) }}" alt="QR" style="width:220px; height:220px;">
+    <div style="font-size:15px; font-weight:700; margin-top:8px;">{{ issued }}</div>
+    <button type="button" onclick="window.print()" class="btn secondary" style="margin-top:12px;">🖨️ 인쇄</button>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">최근 발급 이력</h3>
+  <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px;">
+    <div style="flex:1; min-width:170px;">
+      <label>S/N 검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="S/N 일부 입력">
+    </div>
+    <button type="submit" style="margin-top:0;">조회</button>
+    {% if q %}
+    <a href="{{ url_for('outbound_serial_new') }}" class="btn secondary" style="margin-top:0;">초기화</a>
+    {% endif %}
+  </form>
+  <table>
+    <thead><tr><th>S/N</th><th>발급자</th><th>발급일시</th></tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td>{{ r['serial_no'] }}</td>
+        <td>{{ r['issued_by'] or '-' }}</td>
+        <td>{{ r['issued_at'] | datetime_korean }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" style="text-align:center; color:var(--muted);">발급 이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div>
+
+{% if issued %}
+<div class="qr-print-block">
+  <img src="{{ url_for('outbound_qr_image', serial_no=issued) }}" alt="QR" style="width:260px; height:260px;">
+  <div style="font-size:18px; font-weight:700; margin-top:10px;">{{ issued }}</div>
+</div>
+{% endif %}
+{% endblock %}
