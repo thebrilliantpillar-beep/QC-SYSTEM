@@ -40,6 +40,14 @@
   <span class="badge pending">{{ header['status'] }}</span>
 </div>
 
+{% if has_active_override and header['status'] == 'approved' %}
+<div class="notice notice-danger" style="margin-bottom:10px;">
+  <span style="font-size:20px; line-height:1.2;">⚠</span>
+  <span>항목 판정이 수동변경돼 승인 당시 판정(결과)과 달라졌어. 최종 승인 상태(합격승인/특채/불합격확정)는
+  그대로 유지되고 있어 — 이것 자체를 다시 결정하려면 승인회수 후 다시 진행해줘.</span>
+</div>
+{% endif %}
+
 {% if request.args.get('from_submit') == '1' %}
 {% set _back_q = request.args.get('q', '') %}
 <div class="card" style="background:#ecfdf5; border:1px solid #a7f3d0; display:flex;
@@ -235,7 +243,63 @@ if (window.top !== window.self) {
         {% endif %}
       </td>
       <td style="font-size:12.5px;">{{ sm.get('sample_qty') or '-' }}</td>
-      <td><span class="badge {{ 'pass' if it['result']=='합격' else ('fail' if it['result']=='불합격' else 'pending') }}">{{ it['result'] }}</span></td>
+      <td>
+        {% set eff = it | effective_result %}
+        <div style="display:flex; align-items:center; justify-content:center; gap:2px;">
+          <span class="badge {{ 'pass' if eff=='합격' else ('fail' if eff=='불합격' else 'pending') }}">{{ eff }}</span>
+          {% if it['override_result'] %}
+          <span class="info-anchor">
+            <button type="button" class="info-btn" data-pop="ovrinfo-{{ it['id'] }}"
+                    title="수동변경 내역 보기" aria-label="수동변경 내역 보기">i</button>
+            <span class="info-pop" id="ovrinfo-{{ it['id'] }}" style="text-align:left; min-width:190px;">
+              <button type="button" class="info-pop-close" aria-label="닫기">✕</button>
+              <b>수동변경됨</b><br>
+              <span style="color:#6b7280;">자동판정: {{ it['result'] }}</span>
+              {% if ('ncr' in user_perms or 'approve' in user_perms) %}
+              <br><br>사유: {{ it['override_reason'] }}<br>
+              <span style="color:#6b7280; font-size:11.5px;">{{ it['override_by'] }} · {{ it['override_at'] | datetime_korean }}</span>
+              {% endif %}
+            </span>
+          </span>
+          {% endif %}
+        </div>
+        {% if ('ncr' in user_perms or 'approve' in user_perms) and header['status'] != 'superseded' and it['result'] in ('합격', '불합격') %}
+        <div style="margin-top:5px;">
+          {% if it['override_result'] %}
+          <form method="POST" action="{{ url_for('inspection_item_override', inspection_id=header['id']) }}">
+            <input type="hidden" name="item_name" value="{{ it['item_name'] }}">
+            <input type="hidden" name="part_material_no" value="{{ it['part_material_no'] or header['material_no'] }}">
+            <input type="hidden" name="action" value="revert">
+            <button type="submit" style="font-size:11px; padding:4px 8px; background:#fff; color:#2B3140;
+                    border:1px solid #DDE0E6; border-radius:6px; cursor:pointer;">되돌리기</button>
+          </form>
+          {% else %}
+          <button type="button" onclick="toggleOverrideForm('ovr-{{ it['id'] }}')"
+                  style="font-size:11px; padding:4px 8px; background:#fff; color:#6b7280;
+                         border:1px solid #DDE0E6; border-radius:6px; cursor:pointer;">
+            판정 수동변경
+          </button>
+          <div id="ovr-{{ it['id'] }}" style="display:none; margin-top:6px; text-align:left; max-width:170px;">
+            <form method="POST" action="{{ url_for('inspection_item_override', inspection_id=header['id']) }}">
+              <input type="hidden" name="item_name" value="{{ it['item_name'] }}">
+              <input type="hidden" name="part_material_no" value="{{ it['part_material_no'] or header['material_no'] }}">
+              <input type="hidden" name="action" value="set">
+              <select name="override_result" style="font-size:12px; margin-bottom:4px; width:100%;">
+                <option value="합격" {{ 'selected' if it['result']=='불합격' else '' }}>합격</option>
+                <option value="불합격" {{ 'selected' if it['result']=='합격' else '' }}>불합격</option>
+              </select>
+              <textarea name="reason" rows="2" placeholder="사유 (필수)" required
+                        style="font-size:12px; width:100%;"></textarea>
+              <button type="submit" style="margin-top:4px; font-size:11px; padding:4px 10px;
+                      background:#3D5A8A; color:#fff; border:none; border-radius:6px; cursor:pointer;">
+                저장
+              </button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+      </td>
       <td style="font-size:12px;">
         {% if it['gauge_name'] %}<div style="color:#2B3140; font-weight:600;">{{ it['gauge_name'] }}</div>{% endif %}
         {% if it['gauge_expiry'] %}
@@ -251,6 +315,12 @@ if (window.top !== window.self) {
     </tbody>
   </table>
 </div>
+<script>
+function toggleOverrideForm(id) {
+  var f = document.getElementById(id);
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+</script>
 
 {% if full_inspect_config %}
 {# ===== 전수검사 기록지 ===== #}

@@ -3005,6 +3005,28 @@ def judge_visual(raw_value, allowed_defects=0):
     return ("합격" if ok else "불합격"), None, None
 
 
+def effective_result(it):
+    """항목의 '실제로 적용되는' 판정 — 수동 오버라이드가 있으면 그 값,
+    없으면 자동판정 결과 그대로. inspection_items.result 원본은 안 바꾸고,
+    이 함수를 거치는 곳(NCR 자동생성, 승인 전 검토 화면, 상세화면 배지)에서만
+    반영된다 — 공식 xlsx/PDF 출력물은 이 함수를 쓰지 않는다."""
+    override = it["override_result"] if "override_result" in it.keys() else None
+    return override or (it["result"] or "")
+
+
+app.jinja_env.filters['effective_result'] = effective_result
+
+
+def _recompute_overall_result(inspection_id):
+    """항목 오버라이드 반영 후 성적서 전체 판정(표시용)을 다시 계산해서 필요하면 갱신한다.
+    status/approval_type/서명/해시는 안 건드린다. 반환값은 새 overall_result 문자열."""
+    header, items = db.get_inspection(inspection_id)
+    new_overall = "합격" if all(effective_result(it) == "합격" for it in items) else "검토필요"
+    if header["overall_result"] != new_overall:
+        db.update_inspection_overall_result(inspection_id, new_overall)
+    return new_overall
+
+
 _BAD_MARKERS = {"X", "NG", "×", "불합격", "FAIL"}
 
 
@@ -3105,8 +3127,9 @@ def inspection_detail(inspection_id):
     return_requests = db.get_return_requests_by_inspection(inspection_id)
     prior_defect_count = db.get_defect_count_for(header["supplier"], header["material_no"])
     is_failed = header["overall_result"] not in ("합격", "", None)
-    has_fail_items = any(it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT, None)
+    has_fail_items = any(effective_result(it) not in ("합격", "미측정", "", NO_SPEC_RESULT, None)
                          for it in items)
+    has_active_override = any(it["override_result"] for it in items)
     # 전수검사 — 자재에 설정이 있으면 현황 같이 넘긴다
     full_inspect_config = db.get_full_inspect_config(header["material_no"])
     full_inspect = db.get_full_inspection(inspection_id) if full_inspect_config else None
@@ -3122,6 +3145,7 @@ def inspection_detail(inspection_id):
                            prior_defect_count=prior_defect_count,
                            specs_map=specs_map, is_failed=is_failed,
                            has_fail_items=has_fail_items,
+                           has_active_override=has_active_override,
                            full_inspect_config=full_inspect_config,
                            full_inspect=full_inspect,
                            stale_spec_items=stale_spec_items,
@@ -3154,6 +3178,66 @@ def inspection_ncr_waive(inspection_id):
         conn.commit()
         record_change("NCR 생략 취소", "inspection", inspection_id, "")
         flash("생략 처리가 취소됐어. 통보서 발행 섹션이 다시 나타나.")
+    return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+
+@app.route("/inspection/<int:inspection_id>/item-override", methods=["POST"])
+@perm_required("ncr", "approve")
+def inspection_item_override(inspection_id):
+    """검사 항목 판정을 자동판정과 무관하게 수동으로 합격/불합격 전환(또는 취소)."""
+    header, items = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("home"))
+    if header["status"] == "superseded":
+        flash("대체된 성적서는 판정을 변경할 수 없어.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    item_name = request.form.get("item_name", "")
+    part_material_no = request.form.get("part_material_no") or header["material_no"]
+    target = next((it for it in items
+                   if it["item_name"] == item_name
+                   and (it["part_material_no"] or header["material_no"]) == part_material_no), None)
+    if target is None:
+        flash("항목을 찾을 수 없어.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    action = request.form.get("action", "set")
+
+    if action == "revert":
+        was_override = target["override_result"]
+        db.clear_item_override(inspection_id, part_material_no, item_name)
+        new_overall = _recompute_overall_result(inspection_id)
+        flash("수동판정이 취소됐어. 자동판정 결과로 돌아가.")
+        record_change("항목 판정 수동변경 취소", "inspection", inspection_id,
+                      f"{item_name}: 수동 {was_override} → 자동판정({target['result']})으로 복귀"
+                      f" / 성적서 전체 판정: {new_overall}")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    if target["result"] not in ("합격", "불합격"):
+        flash("측정이 끝나지 않았거나 규격이 없는 항목은 판정을 수동으로 바꿀 수 없어.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    new_result = request.form.get("override_result", "").strip()
+    reason = request.form.get("reason", "").strip()
+    if new_result not in ("합격", "불합격"):
+        flash("합격 또는 불합격 중에서 골라줘.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    if not reason:
+        flash("판정을 수동으로 바꾸는 사유를 입력해줘.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    if new_result == target["result"] and not target["override_result"]:
+        flash("자동판정과 같은 값이야 — 바꿀 필요 없어.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    user_name = g.user["display_name"] or g.user["username"]
+    db.set_item_override(inspection_id, part_material_no, item_name, new_result, reason,
+                          g.user["id"], user_name)
+    new_overall = _recompute_overall_result(inspection_id)
+    flash(f"'{item_name}' 항목 판정을 '{new_result}'(으)로 수동 변경했어.")
+    record_change("항목 판정 수동변경", "inspection", inspection_id,
+                  f"{item_name}: 자동판정 {target['result']} → 수동 {new_result} (사유: {reason})"
+                  f" / 성적서 전체 판정: {new_overall}")
     return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
 
@@ -3263,7 +3347,7 @@ def edit_inspection(inspection_id):
 @app.route("/inspection/<int:inspection_id>/edit", methods=["POST"])
 @perm_required("inspect_input")
 def edit_inspection_submit(inspection_id):
-    header, _ = db.get_inspection(inspection_id)
+    header, old_items = db.get_inspection(inspection_id)
     if header is None or header["status"] != "pending":
         flash("수정할 수 없는 상태야.")
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
@@ -3302,6 +3386,23 @@ def edit_inspection_submit(inspection_id):
             "part_material_no": spec["material_no"],
         })
 
+    # 측정값 자체가 바뀌어 자동판정이 달라진 항목의 옛 수동 오버라이드는 새 데이터에
+    # 그대로 적용하면 위험하므로 자동 해제한다(오버라이드는 (inspection_id, part_material_no,
+    # item_name) 키로 저장돼 전량 재삽입에도 안 지워지는 게 대체로 바람직하지만, 이 경우는 예외).
+    old_by_key = {(it["part_material_no"] or header["material_no"], it["item_name"]): it
+                  for it in old_items}
+    cleared_overrides = []
+    for new_it in items_with_results:
+        key = (new_it["part_material_no"], new_it["item_name"])
+        old_it = old_by_key.get(key)
+        if (old_it is not None and old_it["override_result"]
+                and old_it["result"] != new_it["result"]):
+            db.clear_item_override(inspection_id, new_it["part_material_no"], new_it["item_name"])
+            cleared_overrides.append(new_it["item_name"])
+    if cleared_overrides:
+        flash("측정값이 바뀌어서 다음 항목의 수동판정이 초기화됐어(자동판정으로 복귀): "
+              + ", ".join(cleared_overrides))
+
     overall_result = "합격" if overall_ok else "검토필요"
     actual_time_sec = request.form.get("actual_time_sec", "").strip()
     actual_time_sec = int(actual_time_sec) if actual_time_sec.isdigit() else None
@@ -3319,12 +3420,17 @@ def edit_inspection_submit(inspection_id):
         actual_time_sec=actual_time_sec,
         total_time_sec=total_time_sec,
     )
+    # 안 바뀐 항목에 살아있는 오버라이드가 있으면 update_inspection_items()가 원본 결과 기준으로
+    # 저장한 overall_result를 오버라이드 반영값으로 다시 덮어씌운다.
+    _recompute_overall_result(inspection_id)
     remark_inspector = (request.form.get("remark_inspector") or "").strip()
     db.update_inspection_remark(inspection_id, "inspector", remark_inspector)
 
     flash("측정값이 수정됐어.")
-    record_change("성적서 수정", "inspection", inspection_id,
-                  f"자재 {header['material_no']}, 판정 {overall_result}")
+    log_detail = f"자재 {header['material_no']}, 판정 {overall_result}"
+    if cleared_overrides:
+        log_detail += f" / 측정값 변경으로 수동판정 초기화: {', '.join(cleared_overrides)}"
+    record_change("성적서 수정", "inspection", inspection_id, log_detail)
     return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
 
@@ -3509,6 +3615,11 @@ def compute_content_hash(inspection_id):
     header, items = db.get_inspection(inspection_id)
     if header is None:
         return None
+    # overall_result는 저장된 컬럼이 아니라 원본 항목 result로 그 자리에서 재계산한다 —
+    # 항목 수동 오버라이드가 inspections.overall_result 컬럼을 승인 이후에도 갱신하므로,
+    # 저장된 값을 그대로 쓰면 오버라이드할 때마다 승인 시점 해시가 어긋나 "변조 의심"으로
+    # 오탐한다(2026-09-14, 항목 판정 수동 오버라이드 기능과 함께 도입).
+    raw_overall_result = "합격" if all((it["result"] or "") == "합격" for it in (items or [])) else "검토필요"
     payload = {
         "material_no":  header["material_no"],
         "material_name": header["material_name"],
@@ -3518,7 +3629,7 @@ def compute_content_hash(inspection_id):
         "inspect_date": header["inspect_date"],
         "inspector":    header["inspector"],
         "quantity":     header["quantity"],
-        "overall_result": header["overall_result"],
+        "overall_result": raw_overall_result,
         "items": sorted(
             [{"item": it["item_name"], "value": it["measured_value"], "result": it["result"]}
              for it in (items or [])],
@@ -4139,10 +4250,11 @@ def approve_view(inspection_id):
     NOT_READY_RESULTS = ("미측정", "입력오류", NO_SPEC_RESULT)
 
     all_items = [_parse_item(it) for it in items]
-    problem_items  = [it for it in all_items if it["result"] == "불합격"]
+    problem_items  = [it for it in all_items
+                       if it["result"] not in NOT_READY_RESULTS and effective_result(it) == "불합격"]
     pending_items  = [it for it in all_items if it["result"] in NOT_READY_RESULTS]
     pass_items     = [it for it in all_items
-                       if it["result"] != "불합격" and it["result"] not in NOT_READY_RESULTS]
+                       if it["result"] not in NOT_READY_RESULTS and effective_result(it) != "불합격"]
 
     problem_count = len(problem_items)
     pending_count = len(pending_items)
@@ -4281,7 +4393,7 @@ def _collect_approval_history():
     all_pos = set()
 
     for r in all_rows:
-        state = db._lot_state(r["status"], r["approval_type"])
+        state = db._lot_state(r["status"], r["approval_type"], r["overall_result"])
         if state not in APPROVAL_HISTORY_STATES:
             continue
         # 승인 이력 후보 전체에서 필터 선택지(업체·발주번호) 뽑아낸다 —
@@ -5869,7 +5981,7 @@ def ncr_new(inspection_id):
         flash("대체된 성적서에는 부적합 통보서를 작성할 수 없어.")
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
     # 불합격 항목 없으면 차단 (규격미입력·미측정 제외)
-    has_fail = any(it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT, None)
+    has_fail = any(effective_result(it) not in ("합격", "미측정", "", NO_SPEC_RESULT, None)
                    for it in items)
     if not has_fail:
         flash("불합격 항목이 없는 성적서에는 부적합 통보서를 작성할 수 없어.")
@@ -5927,7 +6039,7 @@ def ncr_new(inspection_id):
     # 부적합 통보서에는 '협력사 귀책'인 항목만 올린다.
     # 규격미입력은 우리 쪽 데이터 누락이므로 업체에 보내는 통보서에 넣으면 안 됨.
     defect_items = [it for it in items
-                    if it["result"] not in ("합격", "미측정", "", NO_SPEC_RESULT)]
+                    if effective_result(it) not in ("합격", "미측정", "", NO_SPEC_RESULT)]
 
     def _mark_vals(val_str, lower, upper, judge_type):
         """허용편차를 벗어난 수치에 ☞ 접두어를 붙인다. 수치 판정이 아니면 원문 그대로."""

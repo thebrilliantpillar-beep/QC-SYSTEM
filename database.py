@@ -380,6 +380,25 @@ def init_db():
         )
     """)
 
+    # 4-1-1. 항목 판정 수동 오버라이드 — 자동판정(AQL 허용범위 등)과 무관하게
+    #        사후에 사람이 개별 항목 합격/불합격을 뒤집을 때 쓴다.
+    #        inspection_items.result 원본은 절대 안 건드리고 별도 주석 레이어로만 존재한다.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS inspection_item_overrides (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id      INTEGER NOT NULL,
+            part_material_no   TEXT NOT NULL,
+            item_name          TEXT NOT NULL,
+            override_result    TEXT NOT NULL,
+            reason             TEXT NOT NULL,
+            created_by_user_id INTEGER,
+            created_by_name    TEXT,
+            created_at         TEXT DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (inspection_id) REFERENCES inspections(id),
+            UNIQUE(inspection_id, part_material_no, item_name)
+        )
+    """)
+
     # 4-2. 4M 변경점 — 협력사가 사람/설비/자재/방법을 바꾼 시점 기록.
     #      변경 전후 불량률을 비교하려면 "언제 바뀌었는지"가 남아 있어야 한다(IATF 변경점 관리).
     cur.execute("""
@@ -1494,6 +1513,52 @@ def rename_inspection_item(item_id, new_item_name):
     conn.close()
 
 
+def set_item_override(inspection_id, part_material_no, item_name, override_result, reason,
+                       user_id, user_name):
+    """검사 항목의 자동판정 결과를 사람이 사후에 합격/불합격으로 덮어쓴다.
+    inspection_items.result 원본은 건드리지 않는다."""
+    conn = get_conn()
+    existing = conn.execute(
+        "SELECT id FROM inspection_item_overrides WHERE inspection_id=? AND part_material_no=? AND item_name=?",
+        (inspection_id, part_material_no, item_name)).fetchone()
+    if existing:
+        conn.execute("""
+            UPDATE inspection_item_overrides
+               SET override_result=?, reason=?, created_by_user_id=?, created_by_name=?,
+                   created_at=datetime('now','localtime')
+             WHERE id=?
+        """, (override_result, reason, user_id, user_name, existing["id"]))
+    else:
+        conn.execute("""
+            INSERT INTO inspection_item_overrides
+                (inspection_id, part_material_no, item_name, override_result, reason,
+                 created_by_user_id, created_by_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (inspection_id, part_material_no, item_name, override_result, reason, user_id, user_name))
+    conn.commit()
+    conn.close()
+
+
+def clear_item_override(inspection_id, part_material_no, item_name):
+    """오버라이드를 지워서 자동판정 결과로 되돌린다."""
+    conn = get_conn()
+    conn.execute(
+        "DELETE FROM inspection_item_overrides WHERE inspection_id=? AND part_material_no=? AND item_name=?",
+        (inspection_id, part_material_no, item_name))
+    conn.commit()
+    conn.close()
+
+
+def update_inspection_overall_result(inspection_id, overall_result):
+    """항목 오버라이드 반영 후 성적서 전체 판정(표시용)을 갱신한다.
+    status/approval_type/서명/content_hash/pdf_hash는 절대 건드리지 않는다 —
+    최종 결정 자체를 바꾸려면 여전히 승인회수 후 재결정이 필요하다."""
+    conn = get_conn()
+    conn.execute("UPDATE inspections SET overall_result=? WHERE id=?", (overall_result, inspection_id))
+    conn.commit()
+    conn.close()
+
+
 def sync_material_names_from_master():
     """specs.material_name(등록 당시 복사본)이 materials.material_name(정본)과 어긋난
     자재들을 바로잡고, 그 여파로 material_name이 빈 채 저장된 성적서(inspections)도
@@ -1566,15 +1631,24 @@ def get_inspection(inspection_id):
                s.lower_limit AS lower_limit,
                s.upper_limit AS upper_limit,
                s.judge_type AS judge_type,
-               s.material_name AS part_material_name
+               s.material_name AS part_material_name,
+               io.override_result AS override_result,
+               io.reason          AS override_reason,
+               io.created_by_name AS override_by,
+               io.created_at      AS override_at
         FROM inspection_items ii
         LEFT JOIN specs s
                ON s.material_no = COALESCE(ii.part_material_no,
                                             (SELECT material_no FROM inspections WHERE id = ?))
               AND s.item_name   = ii.item_name
+        LEFT JOIN inspection_item_overrides io
+               ON io.inspection_id = ii.inspection_id
+              AND io.part_material_no = COALESCE(ii.part_material_no,
+                                            (SELECT material_no FROM inspections WHERE id = ?))
+              AND io.item_name = ii.item_name
         WHERE ii.inspection_id = ?
         ORDER BY ii.id
-    """, (inspection_id, inspection_id)).fetchall()
+    """, (inspection_id, inspection_id, inspection_id)).fetchall()
     conn.close()
     return header, items
 
@@ -3356,12 +3430,20 @@ def _period_key(date_str, period_type):
     return str(dt.year)
 
 
-def _lot_state(status, approval_type):
+def _lot_state(status, approval_type, overall_result=None):
     """로트 하나의 최종 상태. 불량률은 '판정이 확정된 것'만으로 계산한다.
 
     superseded(재검사로 대체된 옛 성적서)는 집계에서 아예 빼야 한다.
     같은 입고 건을 재검사하면 성적서가 하나 더 생기는데, 옛 건까지 세면
     같은 로트의 수량이 두 번 잡혀서 검사 수량이 부풀려진다.
+
+    overall_result 인자(2026-09-14, 항목 판정 수동 오버라이드 기능과 함께 도입):
+    - 넘기면(집계·통계용 호출) 항목 오버라이드가 반영된 로트 상태를 돌려준다 —
+      '합격승인(normal)'인데 오버라이드로 overall_result가 '합격'이 아니게 됐으면 '불합격'으로 재분류.
+    - 안 넘기면(기본값 None, 공식 출력물용 호출) 예전 그대로 status+approval_type만 본다.
+      공식 출력물(커스텀 자유양식 성적서 등)을 만드는 호출부는 절대 이 인자를 넘기면 안 된다.
+    - 특채/불합격확정 로트는 오버라이드가 나중에 뭐가 되든 재분류하지 않는다
+      (이미 서명받은 최종 결정을 오버라이드로 되돌리지 않기 위함).
     """
     if status == "superseded":
         return "대체됨"
@@ -3370,6 +3452,8 @@ def _lot_state(status, approval_type):
             return "불합격"
         if approval_type == "special":
             return "특채"
+        if overall_result is not None and overall_result != "합격":
+            return "불합격"
         return "합격"
     return "미결"      # pending / rejected
 
@@ -3545,7 +3629,8 @@ def quality_report(start_date, end_date, period_type="monthly",
     # 로트 상태(합격/특채/불합격/미결) 필터는 status+approval_type 조합이라 SQL이 지저분해진다.
     # 판정 규칙이 _lot_state() 한 곳에만 있도록 여기서 걸러낸다.
     if states:
-        rows = [r for r in rows if _lot_state(r["status"], r["approval_type"]) in states]
+        rows = [r for r in rows
+                if _lot_state(r["status"], r["approval_type"], r["overall_result"]) in states]
 
     ids = [r["id"] for r in rows]
 
@@ -3620,7 +3705,7 @@ def quality_report(start_date, end_date, period_type="monthly",
 
     def add(acc, r):
         qty = int(r["quantity"] or 0)
-        state = _lot_state(r["status"], r["approval_type"])
+        state = _lot_state(r["status"], r["approval_type"], r["overall_result"])
         acc["로트"] += 1
         acc["수량"] += qty
         acc["검사표본수"] += sample_count_map.get(r["id"], 0)

@@ -288,6 +288,9 @@ function showApproveWarn(title, msg){
       {% if it['inspect_method'] %}
       <span class="item-method-badge">{{ it['inspect_method'] }}</span>
       {% endif %}
+      {% if it['override_result'] %}
+      <span style="font-size:11px; color:#6b7280; font-weight:700;">(수동: 자동판정 {{ it['result'] }})</span>
+      {% endif %}
     </div>
 
     <div class="spec-range">
@@ -421,7 +424,11 @@ function showApproveWarn(title, msg){
             {% endfor %}
           {% else %}-{% endif %}
         </td>
-        <td><span class="badge {{ 'pass' if it['result']=='합격' else 'pending' }}">{{ it['result'] or '-' }}</span></td>
+        <td>
+          {% set eff = it | effective_result %}
+          <span class="badge {{ 'pass' if eff=='합격' else 'pending' }}">{{ eff or '-' }}</span>
+          {% if it['override_result'] %}<span style="font-size:10.5px; color:#6b7280;">(수동)</span>{% endif %}
+        </td>
       </tr>
       {% endfor %}
       </tbody>
