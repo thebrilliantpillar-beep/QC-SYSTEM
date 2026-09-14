@@ -690,6 +690,12 @@ def init_db():
             uploaded_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    existing_obp_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_item_photos)").fetchall()]
+    if "kind" not in existing_obp_cols:
+        # 'indicator'(인디케이터 사진) / 'body'(본체사진). 기존 사진은 전부 'indicator'로
+        # 간주한다 — 지금까지는 사진 종류 구분이 없어 전부 한 종류였고, 사용자가 준
+        # 실제 서식에서도 첫 번째 사진 칸이 인디케이터 사진이기 때문(합리적 기본값).
+        cur.execute("ALTER TABLE outbound_item_photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'indicator'")
 
     # ---- 2026-09-15 확장: 모델명 자동분류 규칙 3개 매핑표 ----
     # 정규식 패턴 구조(CKMR.../CKCB...)는 코드에 고정하고, 여기 값(코드->라벨)만
@@ -3702,15 +3708,21 @@ def delete_outbound_item(item_id):
     return photo_paths
 
 
-def add_outbound_item_photo(item_id, file_path):
+def add_outbound_item_photo(item_id, file_path, kind="indicator"):
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO outbound_item_photos (item_id, file_path) VALUES (?, ?)",
-        (item_id, file_path))
+        "INSERT INTO outbound_item_photos (item_id, file_path, kind) VALUES (?, ?, ?)",
+        (item_id, file_path, kind))
     conn.commit()
     photo_id = cur.lastrowid
     conn.close()
     return photo_id
+
+
+def outbound_body_photo_enabled():
+    """관리자가 켠 경우에만 True. 기본값은 꺼짐(새 기능이므로 admin이 명시적으로
+    켜기 전까지는 스캔 화면에 본체사진 입력 UI를 노출하지 않는다)."""
+    return get_setting("outbound_body_photo_enabled", "0") == "1"
 
 
 def get_outbound_item_photo(photo_id):
@@ -3871,6 +3883,54 @@ def list_planned_items(batch_id):
         "SELECT * FROM outbound_planned_items WHERE batch_id=? ORDER BY id", (batch_id,)).fetchall()
     conn.close()
     return rows
+
+
+def outbound_plan_progress(batch_id):
+    """차수 하나의 "계획 대비 스캔 진행상황"을 계산한다.
+
+    반환: {"rows": [{"serial_no", "model_label", "status"}, ...],
+           "summary": {"planned_total", "matched", "extra"}}
+    status: 'confirmed'(스캔됨 + 필요 사진 전부 있음) / 'incomplete'(스캔은 됐는데
+    사진이 부족함) / 'pending'(아직 안 스캔됨).
+
+    본체사진이 "필요 사진"에 들어가는지는 이 함수를 호출하는 시점의
+    outbound_body_photo_enabled() 값을 따른다(토글이 꺼져 있으면 인디케이터
+    사진만 있으면 confirmed로 본다 — 애초에 입력받지 않는 항목을 조건에 넣으면
+    영원히 확인 불가능해지기 때문)."""
+    items = list_outbound_items(batch_id)
+    planned = list_planned_items(batch_id)
+    body_required = outbound_body_photo_enabled()
+    rules = get_classify_rules()
+
+    items_by_serial = {}
+    for it in items:
+        items_by_serial.setdefault(it["serial_no"], []).append(it)
+    planned_serials = {p["serial_no"] for p in planned}
+
+    rows = []
+    matched = 0
+    for p in planned:
+        its = items_by_serial.get(p["serial_no"]) or []
+        scanned = bool(its)
+        photos_ok = False
+        if scanned:
+            kinds = {ph.get("kind") or "indicator" for it in its for ph in (it.get("photos") or [])}
+            photos_ok = ("indicator" in kinds) and (not body_required or "body" in kinds)
+        if scanned and photos_ok:
+            status = "confirmed"
+            matched += 1
+        elif scanned:
+            status = "incomplete"
+        else:
+            status = "pending"
+        rows.append({
+            "serial_no": p["serial_no"],
+            "model_label": classify_serial_no(p["serial_no"], rules=rules),
+            "status": status,
+        })
+
+    extra = sum(1 for it in items if it["serial_no"] not in planned_serials)
+    return {"rows": rows, "summary": {"planned_total": len(planned), "matched": matched, "extra": extra}}
 
 
 def planned_item_exists(batch_id, serial_no):

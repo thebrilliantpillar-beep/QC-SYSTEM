@@ -7622,11 +7622,11 @@ def outbound_scan_edit(batch_id):
     items = db.list_outbound_items(batch_id)
     planned = db.list_planned_items(batch_id)
     planned_serials = {p["serial_no"] for p in planned}
-    matched = sum(1 for it in items if it["serial_no"] in planned_serials)
-    extra = len(items) - matched
-    plan_summary = {"planned_total": len(planned), "matched": matched, "extra": extra}
+    progress = db.outbound_plan_progress(batch_id)
     return render_template("outbound_scan.html", batch=batch, items=items,
-                           planned_serials=planned_serials, plan_summary=plan_summary)
+                           planned_serials=planned_serials,
+                           plan_rows=progress["rows"], plan_summary=progress["summary"],
+                           body_photo_enabled=db.outbound_body_photo_enabled())
 
 
 @app.route("/outbound/batch/<int:batch_id>/update", methods=["POST"])
@@ -7666,18 +7666,27 @@ def outbound_item_add(batch_id):
     product_name = request.form.get("product_name", "").strip()
 
     item_id = db.add_outbound_item(batch_id, serial_no, product_name, None)
+    body_enabled = db.outbound_body_photo_enabled()
     photos = []
-    for file in request.files.getlist("photos"):
-        if not file or not file.filename:
-            continue
-        ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
-        if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
-            continue
-        base = f"ob{batch_id}_{item_id}_{uuid.uuid4().hex[:8]}"
-        fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base)
-        photo_id = db.add_outbound_item_photo(item_id, fname)
-        photos.append({"id": photo_id, "file_path": fname,
-                        "url": url_for("outbound_photo_file", filename=fname)})
+
+    def _save_photos(field_name, kind):
+        for file in request.files.getlist(field_name):
+            if not file or not file.filename:
+                continue
+            ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                continue
+            base = f"ob{batch_id}_{item_id}_{uuid.uuid4().hex[:8]}"
+            fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base)
+            photo_id = db.add_outbound_item_photo(item_id, fname, kind=kind)
+            photos.append({"id": photo_id, "file_path": fname, "kind": kind,
+                            "url": url_for("outbound_photo_file", filename=fname)})
+
+    _save_photos("photos_indicator", "indicator")
+    if body_enabled:
+        _save_photos("photos_body", "body")
+    # body_enabled가 꺼져 있으면 photos_body로 뭐가 오든 무시한다(관리자가 끈 기능을
+    # 클라이언트 조작으로 우회하지 못하게 하는 서버측 방어).
 
     record_change("출고 항목 추가", "outbound_item", item_id, f"{serial_no} / {product_name}")
 
@@ -7777,6 +7786,41 @@ def outbound_photo_delete(photo_id):
     return redirect(url_for("outbound_scan_edit", batch_id=item["batch_id"] if item else 0))
 
 
+@app.route("/outbound/item/<int:item_id>/add-photo", methods=["POST"])
+@perm_required("outbound")
+def outbound_item_photo_add(item_id):
+    """이미 저장된 항목에 사진을 추가로 얹는다('재업로드' = 교체가 아니라 추가,
+    기존 사진 삭제는 outbound_photo_delete가 이미 담당). kind는 'indicator'/'body' 중
+    하나여야 하고, 'body'는 관리자가 기능을 켠 상태에서만 허용된다."""
+    item = db.get_outbound_item(item_id)
+    if item is None:
+        return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    kind = request.form.get("kind", "indicator")
+    if kind not in ("indicator", "body"):
+        return jsonify({"ok": False, "error": "잘못된 사진 종류야."}), 400
+    if kind == "body" and not db.outbound_body_photo_enabled():
+        return jsonify({"ok": False, "error": "본체사진 기능이 꺼져 있어."}), 400
+
+    photos = []
+    for file in request.files.getlist("photos"):
+        if not file or not file.filename:
+            continue
+        ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+        if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            continue
+        base = f"ob{item['batch_id']}_{item_id}_{uuid.uuid4().hex[:8]}"
+        fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base)
+        photo_id = db.add_outbound_item_photo(item_id, fname, kind=kind)
+        photos.append({"id": photo_id, "file_path": fname, "kind": kind,
+                        "url": url_for("outbound_photo_file", filename=fname)})
+
+    if not photos:
+        return jsonify({"ok": False, "error": "추가된 사진이 없어."}), 400
+    record_change("출고 항목 사진 추가", "outbound_item", item_id,
+                  f"{item['serial_no']} / {kind} {len(photos)}장")
+    return jsonify({"ok": True, "photos": photos})
+
+
 @app.route("/outbound/batch/<int:batch_id>/confirm", methods=["POST"])
 @perm_required("outbound")
 def outbound_batch_confirm(batch_id):
@@ -7806,7 +7850,7 @@ def outbound_batch_excel(batch_id):
         flash("존재하지 않는 출고 배치야.")
         return redirect(url_for("outbound_history"))
     items = db.list_outbound_items(batch_id)
-    buf = report_builder.build_outbound_excel(dict(batch), items)
+    buf = report_builder.build_outbound_excel(dict(batch), items, OUTBOUND_PHOTO_DIR)
     raw_name = f"출고_{(batch['ship_date'] or '')[:10].replace('-', '')}_{batch['customer'] or ''}.xlsx"
     safe = re.sub(r'[\\/:*?"<>|]', '', raw_name)
     return send_file(buf, as_attachment=True, download_name=safe,
@@ -7857,7 +7901,22 @@ _OUTBOUND_RULE_KIND_LABELS = {"voltage": "전압코드", "suffix": "접미사", 
 def outbound_rules():
     rules = {kind: db.list_classify_rules(kind) for kind in _OUTBOUND_RULE_KIND_LABELS}
     return render_template("outbound_rules.html", rules=rules,
-                           kind_labels=_OUTBOUND_RULE_KIND_LABELS)
+                           kind_labels=_OUTBOUND_RULE_KIND_LABELS,
+                           body_photo_enabled=db.outbound_body_photo_enabled())
+
+
+@app.route("/outbound/settings/body-photo", methods=["POST"])
+@perm_required("outbound")
+def outbound_toggle_body_photo():
+    guard = _admin_only()
+    if guard:
+        return guard
+    enabled = "1" if request.form.get("enabled") == "1" else "0"
+    db.set_setting("outbound_body_photo_enabled", enabled)
+    record_change("본체사진 사용 설정 변경", "outbound_setting", None,
+                  "사용" if enabled == "1" else "미사용")
+    flash("본체사진 사용 설정이 저장됐어.")
+    return redirect(url_for("outbound_rules"))
 
 
 @app.route("/outbound/rules/<kind>/add", methods=["POST"])
@@ -7991,7 +8050,9 @@ def outbound_round_edit(batch_id):
         flash(f"차수 정보가 저장됐어. (신규 계획 S/N {added}건 추가)" if added else "차수 정보가 저장됐어.")
         return redirect(url_for("outbound_round_edit", batch_id=batch_id))
 
-    planned = db.list_planned_items(batch_id)
+    rules = db.get_classify_rules()
+    planned = [dict(p, model_label=db.classify_serial_no(p["serial_no"], rules=rules))
+               for p in db.list_planned_items(batch_id)]
     return render_template("outbound_round.html", batch=batch, planned=planned,
                            today=_dt.now().strftime("%Y-%m-%d"),
                            default_handler=batch["handler"] or "")

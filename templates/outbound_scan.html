@@ -51,15 +51,39 @@
 <div class="card">
   <h3 style="margin-top:0; font-size:15px;">계획 대비 진행상황</h3>
   <div class="plan-summary">
-    <span>계획 <b>{{ plan_summary.planned_total }}</b>개 중 <b id="planMatched">{{ plan_summary.matched }}</b>개 스캔됨</span>
+    <span>계획 <b>{{ plan_summary.planned_total }}</b>개 중 <b id="planMatched">{{ plan_summary.matched }}</b>개 확인됨</span>
     <span>계획외 <b id="planExtra">{{ plan_summary.extra }}</b>건</span>
   </div>
+  <table id="planTable" style="margin-top:10px;">
+    <thead><tr><th>S/N</th><th>모델명</th><th>상태</th></tr></thead>
+    <tbody>
+      {% for r in plan_rows %}
+      <tr data-serial="{{ r.serial_no }}">
+        <td>{{ r.serial_no }}</td>
+        <td>{{ r.model_label or '-' }}</td>
+        <td class="plan-status">
+          {% if r.status == 'confirmed' %}<span class="plan-badge ok">✅ 확인됨</span>
+          {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ 사진 미비</span>
+          {% else %}<span class="muted">⬜ 미스캔</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" style="text-align:center; color:var(--muted);">등록된 계획이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 <div class="card">
   <h3 style="margin-top:0; font-size:15px;">저장된 항목 (<span id="itemCountLabel">{{ items|length }}</span>건)</h3>
   <table id="itemsTable">
-    <thead><tr><th>S/N</th><th>제품명/모델명</th><th>사진</th><th></th></tr></thead>
+    <thead>
+      <tr>
+        <th>S/N</th><th>제품명/모델명</th><th>인디케이터 사진</th>
+        {% if body_photo_enabled %}<th>본체 사진</th>{% endif %}
+        <th></th>
+      </tr>
+    </thead>
     <tbody>
       {% for it in items %}
       <tr>
@@ -76,23 +100,45 @@
           </form>
         </td>
         <td>
-          <div class="ob-photo-grid" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); max-width:220px;">
-            {% for p in it.photos %}
+          <div class="ob-photo-grid" id="photos-indicator-{{ it.id }}" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); max-width:180px;">
+            {% for p in it.photos if (p.kind or 'indicator') == 'indicator' %}
             <div style="position:relative;">
               <img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">
               <form method="POST" action="{{ url_for('outbound_photo_delete', photo_id=p.id) }}"
-                    style="position:absolute; top:-6px; right:-6px;"
-                    onsubmit="return confirm('이 사진을 지울까?');">
-                <button type="submit" style="background:#dc2626; color:#fff; border:none;
-                        border-radius:999px; width:20px; height:20px; font-size:11px; line-height:1;
-                        cursor:pointer; padding:0; margin:0;">✕</button>
+                    style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm('이 사진을 지울까?');">
+                <button type="submit" style="background:#dc2626; color:#fff; border:none; border-radius:999px;
+                        width:20px; height:20px; font-size:11px; line-height:1; cursor:pointer; padding:0; margin:0;">✕</button>
               </form>
             </div>
-            {% else %}
-            <span class="muted" style="font-size:12px;">없음</span>
-            {% endfor %}
+            {% else %}<span class="muted no-photo-mark" style="font-size:12px;">없음</span>{% endfor %}
           </div>
+          <label class="btn secondary" style="margin-top:6px; padding:4px 10px; font-size:11.5px; cursor:pointer;">
+            + 추가
+            <input type="file" accept="image/*" multiple style="display:none;"
+                   onchange="uploadMorePhotos({{ it.id }}, 'indicator', this)">
+          </label>
         </td>
+        {% if body_photo_enabled %}
+        <td>
+          <div class="ob-photo-grid" id="photos-body-{{ it.id }}" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); max-width:180px;">
+            {% for p in it.photos if p.kind == 'body' %}
+            <div style="position:relative;">
+              <img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">
+              <form method="POST" action="{{ url_for('outbound_photo_delete', photo_id=p.id) }}"
+                    style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm('이 사진을 지울까?');">
+                <button type="submit" style="background:#dc2626; color:#fff; border:none; border-radius:999px;
+                        width:20px; height:20px; font-size:11px; line-height:1; cursor:pointer; padding:0; margin:0;">✕</button>
+              </form>
+            </div>
+            {% else %}<span class="muted no-photo-mark" style="font-size:12px;">없음</span>{% endfor %}
+          </div>
+          <label class="btn secondary" style="margin-top:6px; padding:4px 10px; font-size:11.5px; cursor:pointer;">
+            + 추가
+            <input type="file" accept="image/*" multiple style="display:none;"
+                   onchange="uploadMorePhotos({{ it.id }}, 'body', this)">
+          </label>
+        </td>
+        {% endif %}
         <td>
           <form method="POST" action="{{ url_for('outbound_item_delete', item_id=it.id) }}"
                 onsubmit="return confirm('이 항목을 삭제할까?');">
@@ -101,7 +147,7 @@
         </td>
       </tr>
       {% else %}
-      <tr class="empty-row"><td colspan="4" style="text-align:center; color:var(--muted);">저장된 항목이 없어.</td></tr>
+      <tr class="empty-row"><td colspan="{{ 5 if body_photo_enabled else 4 }}" style="text-align:center; color:var(--muted);">저장된 항목이 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -124,7 +170,10 @@
     <div style="display:flex; gap:12px; flex-wrap:wrap;">
       <div style="flex:1; min-width:150px;">
         <label>S/N</label>
-        <input name="serial_no" id="curSerial" readonly placeholder="스캔 또는 직접입력 대기중">
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input name="serial_no" id="curSerial" readonly placeholder="스캔 또는 직접입력 대기중" style="flex:1;">
+          <button type="button" class="btn secondary" style="margin-top:0; white-space:nowrap;" onclick="resetCurSerial()">↺ 다시 스캔</button>
+        </div>
       </div>
       <div style="flex:1; min-width:200px;">
         <label>제품명/모델명</label>
@@ -133,20 +182,40 @@
     </div>
 
     <div style="margin-top:10px;">
+      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">인디케이터 사진</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
           📸 카메라로 촬영
-          <input type="file" name="photos" accept="image/*" capture="environment" multiple
-                 style="display:none;" onchange="addCurPhotos()">
+          <input type="file" name="photos_indicator" accept="image/*" capture="environment" multiple
+                 style="display:none;" onchange="addCurPhotos('indicator')">
         </label>
         <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
           🖼️ 갤러리에서 선택
-          <input type="file" name="photos" accept="image/*" multiple
-                 style="display:none;" onchange="addCurPhotos()">
+          <input type="file" name="photos_indicator" accept="image/*" multiple
+                 style="display:none;" onchange="addCurPhotos('indicator')">
         </label>
       </div>
-      <div id="curPhotoPreview" class="ob-photo-grid"></div>
+      <div id="curPhotoPreviewIndicator" class="ob-photo-grid"></div>
     </div>
+
+    {% if body_photo_enabled %}
+    <div style="margin-top:14px;">
+      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">본체 사진</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          📸 카메라로 촬영
+          <input type="file" name="photos_body" accept="image/*" capture="environment" multiple
+                 style="display:none;" onchange="addCurPhotos('body')">
+        </label>
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          🖼️ 갤러리에서 선택
+          <input type="file" name="photos_body" accept="image/*" multiple
+                 style="display:none;" onchange="addCurPhotos('body')">
+        </label>
+      </div>
+      <div id="curPhotoPreviewBody" class="ob-photo-grid"></div>
+    </div>
+    {% endif %}
 
     <button type="submit" style="margin-top:14px;">리스트에 추가</button>
     <span id="addItemMsg" class="muted" style="margin-left:10px; font-size:12.5px;"></span>
@@ -159,11 +228,74 @@
   var scannedSerials = new Set([{% for it in items %}"{{ it.serial_no }}",{% endfor %}]);
   var plannedSerials = new Set([{% for s in planned_serials %}"{{ s }}",{% endfor %}]);
   var batchId = {{ batch.id }};
+  var bodyPhotoEnabled = {{ 'true' if body_photo_enabled else 'false' }};
 
-  window.addCurPhotos = function () {
-    var box = document.getElementById('curPhotoPreview');
+  var itemPhotosById = {};
+  var serialByItemId = {};
+  {% for it in items %}
+  itemPhotosById[{{ it.id }}] = [{% for p in it.photos %}"{{ p.kind or 'indicator' }}",{% endfor %}];
+  serialByItemId[{{ it.id }}] = "{{ it.serial_no }}";
+  {% endfor %}
+
+  function computeConfirmed(kinds) {
+    return kinds.indexOf('indicator') !== -1 && (!bodyPhotoEnabled || kinds.indexOf('body') !== -1);
+  }
+
+  function setPlanRowStatus(serial, confirmed) {
+    var row = document.querySelector('#planTable tr[data-serial="' + CSS.escape(serial) + '"]');
+    if (!row) return;
+    var cell = row.querySelector('.plan-status');
+    var wasConfirmed = cell.querySelector('.plan-badge.ok') != null;
+    cell.innerHTML = confirmed
+      ? '<span class="plan-badge ok">✅ 확인됨</span>'
+      : '<span class="plan-badge extra">⚠ 사진 미비</span>';
+    if (confirmed && !wasConfirmed) {
+      var el = document.getElementById('planMatched');
+      el.textContent = parseInt(el.textContent, 10) + 1;
+    }
+  }
+
+  // 알려진 단순화: 같은 S/N이 이 배치에 두 번 이상 스캔되는 드문 경우, 실시간 배지
+  // 갱신은 "가장 최근에 조작한 항목의 사진 목록"만 기준으로 삼는다(합산하지 않음).
+  // 새로고침하면 서버(db.outbound_plan_progress)가 모든 항목을 합산해 올바르게
+  // 재계산하므로 데이터 정합성 문제는 없음 — 과설계하지 않는다.
+  function refreshPlanRowByItem(itemId) {
+    var serial = serialByItemId[itemId];
+    if (!serial || !plannedSerials.has(serial)) return;
+    setPlanRowStatus(serial, computeConfirmed(itemPhotosById[itemId] || []));
+  }
+
+  window.uploadMorePhotos = function (itemId, kind, inputEl) {
+    if (!inputEl.files.length) return;
+    var fd = new FormData();
+    fd.append('kind', kind);
+    for (var i = 0; i < inputEl.files.length; i++) fd.append('photos', inputEl.files[i]);
+    fetch('/outbound/item/' + itemId + '/add-photo', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { alert(data.error || '업로드 실패'); return; }
+        var grid = document.getElementById('photos-' + kind + '-' + itemId);
+        var placeholder = grid.querySelector('.no-photo-mark');
+        if (placeholder) placeholder.remove();
+        data.photos.forEach(function (p) {
+          var div = document.createElement('div');
+          div.style.position = 'relative';
+          div.innerHTML = '<img src="' + p.url + '">' +
+            '<form method="POST" action="/outbound/photo/' + p.id + '/delete" style="position:absolute;top:-6px;right:-6px;" onsubmit="return confirm(\'이 사진을 지울까?\');">' +
+            '<button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:999px;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;margin:0;">✕</button></form>';
+          grid.appendChild(div);
+        });
+        itemPhotosById[itemId] = (itemPhotosById[itemId] || []).concat(data.photos.map(function (p) { return p.kind; }));
+        refreshPlanRowByItem(itemId);
+        inputEl.value = '';
+      }).catch(function () { alert('업로드 실패(네트워크 확인)'); });
+  };
+
+  window.addCurPhotos = function (kind) {
+    var box = document.getElementById(kind === 'body' ? 'curPhotoPreviewBody' : 'curPhotoPreviewIndicator');
+    var selector = kind === 'body' ? 'input[name=photos_body]' : 'input[name=photos_indicator]';
     var all = [];
-    document.querySelectorAll('#addItemForm input[type=file]').forEach(function (inp) {
+    document.querySelectorAll('#addItemForm ' + selector).forEach(function (inp) {
       for (var i = 0; i < inp.files.length; i++) all.push(inp.files[i]);
     });
     box.innerHTML = all.map(function (f) { return '<img src="' + URL.createObjectURL(f) + '">'; }).join('');
@@ -200,27 +332,47 @@
     var empty = tbody.querySelector('.empty-row');
     if (empty) empty.remove();
     var tr = document.createElement('tr');
-    var photosHtml = (item.photos || []).map(function (p) {
-      return '<div style="position:relative;"><img src="' + p.url + '">' +
-        '<form method="POST" action="/outbound/photo/' + p.id + '/delete" style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm(\'이 사진을 지울까?\');">' +
-        '<button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:999px;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;margin:0;">✕</button></form></div>';
-    }).join('') || '<span class="muted" style="font-size:12px;">없음</span>';
-    tr.innerHTML =
-      '<td>' + item.serial_no + ' <span class="plan-badge ' + (inPlan ? 'ok">계획' : 'extra">계획외') + '</span></td>' +
+
+    function photosCell(kind) {
+      var matched = (item.photos || []).filter(function (p) { return (p.kind || 'indicator') === kind; });
+      var html = matched.map(function (p) {
+        return '<div style="position:relative;"><img src="' + p.url + '">' +
+          '<form method="POST" action="/outbound/photo/' + p.id + '/delete" style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm(\'이 사진을 지울까?\');">' +
+          '<button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:999px;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;margin:0;">✕</button></form></div>';
+      }).join('') || '<span class="muted no-photo-mark" style="font-size:12px;">없음</span>';
+      return '<td><div class="ob-photo-grid" id="photos-' + kind + '-' + item.id + '" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr));max-width:180px;">' + html + '</div>' +
+        '<label class="btn secondary" style="margin-top:6px;padding:4px 10px;font-size:11.5px;cursor:pointer;">+ 추가' +
+        '<input type="file" accept="image/*" multiple style="display:none;" onchange="uploadMorePhotos(' + item.id + ', \'' + kind + '\', this)"></label></td>';
+    }
+
+    var html = '<td>' + item.serial_no + ' <span class="plan-badge ' + (inPlan ? 'ok">계획' : 'extra">계획외') + '</span></td>' +
       '<td><form method="POST" action="/outbound/item/' + item.id + '/edit" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
       '<input type="text" name="product_name" value="' + (item.product_name || '').replace(/"/g, '&quot;') + '" placeholder="제품명/모델명" style="flex:1;min-width:160px;">' +
       '<button type="submit" class="btn secondary" style="margin-top:0;">저장</button></form></td>' +
-      '<td><div class="ob-photo-grid" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr));max-width:220px;">' + photosHtml + '</div></td>' +
-      '<td><form method="POST" action="/outbound/item/' + item.id + '/delete" onsubmit="return confirm(\'이 항목을 삭제할까?\');">' +
+      photosCell('indicator');
+    if (bodyPhotoEnabled) html += photosCell('body');
+    html += '<td><form method="POST" action="/outbound/item/' + item.id + '/delete" onsubmit="return confirm(\'이 항목을 삭제할까?\');">' +
       '<button type="submit" class="btn secondary" style="margin-top:0;color:var(--fail);">삭제</button></form></td>';
+    tr.innerHTML = html;
     tbody.appendChild(tr);
     document.getElementById('itemCountLabel').textContent = tbody.querySelectorAll('tr:not(.empty-row)').length;
+
+    itemPhotosById[item.id] = (item.photos || []).map(function (p) { return p.kind || 'indicator'; });
+    serialByItemId[item.id] = item.serial_no;
+    refreshPlanRowByItem(item.id);
   }
 
-  function updatePlanSummary(inPlan) {
-    var el = document.getElementById(inPlan ? 'planMatched' : 'planExtra');
-    el.textContent = parseInt(el.textContent, 10) + 1;
+  function resetCurSerial() {
+    document.getElementById('curSerial').value = '';
+    document.getElementById('curProductName').value = '';
+    document.querySelectorAll('#addItemForm input[type=file]').forEach(function (inp) { inp.value = ''; });
+    document.getElementById('curPhotoPreviewIndicator').innerHTML = '';
+    var bodyBox = document.getElementById('curPhotoPreviewBody');
+    if (bodyBox) bodyBox.innerHTML = '';
+    document.getElementById('serialWarning').style.display = 'none';
+    document.getElementById('addItemMsg').textContent = '';
   }
+  window.resetCurSerial = resetCurSerial;
 
   document.getElementById('addItemForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -236,13 +388,14 @@
       var inPlan = plannedSerials.has(serial);
       scannedSerials.add(serial);
       appendItemRow(data.item, inPlan);
-      updatePlanSummary(inPlan);
+      if (inPlan) {
+        // appendItemRow가 확인됨/사진미비 상태로 이미 갱신함. 계획외는 여기서 별도 카운트.
+      } else {
+        var el = document.getElementById('planExtra');
+        el.textContent = parseInt(el.textContent, 10) + 1;
+      }
       msg.textContent = '✓ 추가됨';
-      document.getElementById('curSerial').value = '';
-      document.getElementById('curProductName').value = '';
-      document.querySelectorAll('#addItemForm input[type=file]').forEach(function (inp) { inp.value = ''; });
-      document.getElementById('curPhotoPreview').innerHTML = '';
-      document.getElementById('serialWarning').style.display = 'none';
+      resetCurSerial();
     }).catch(function () { msg.textContent = '⚠ 저장 실패(네트워크 확인)'; });
   });
 

@@ -39,11 +39,12 @@
   <div class="card">
     <h3 style="margin-top:0; font-size:15px;">이미 등록된 계획 S/N ({{ planned|length }}건)</h3>
     <table>
-      <thead><tr><th>S/N</th><th></th></tr></thead>
+      <thead><tr><th>S/N</th><th>모델명</th><th></th></tr></thead>
       <tbody>
         {% for p in planned %}
         <tr>
           <td>{{ p.serial_no }}</td>
+          <td>{{ p.model_label or '-' }}</td>
           <td>
             <form method="POST" action="{{ url_for('outbound_planned_item_delete', planned_id=p.id) }}"
                   onsubmit="return confirm('이 계획 항목을 지울까?');">

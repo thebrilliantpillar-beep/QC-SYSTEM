@@ -352,6 +352,16 @@ ws.sheet_properties.pageSetUpPr.fitToPage = True
 'sheet_properties'`가 난다. 반드시 위 코드처럼 `sheet_properties.pageSetUpPr.fitToPage`를
 직접 조작하는 우회 방식을 써야 한다.
 
+**이 fit-to-page 설정을 아예 빠뜨리면 벌어지는 일 (2026-09-15 재발)**: 열이 여러 개인
+표에서 fit-to-page/방향 지정을 빼먹으면, 넘치는 열이 다음 페이지로 넘어가는 게 아니라
+**PDF에서 그 열 자체가 통째로 안 보이게 잘려버린다** — LibreOffice 변환으로 직접 열어보지
+않으면 절대 못 알아챈다(xlsx 파일 자체엔 데이터가 멀쩡히 들어있어서 openpyxl로 다시
+읽으면 값이 다 보임). 실제로 `build_outbound_excel()`(출고 이력 5열 표)에 이 설정을
+빼먹어서 마지막 열("본체사진"과 "담당자" 정보)이 PDF에서 사라지는 사고가 있었다. **여러
+열/넓은 표를 새로 만드는 함수는 무조건 이 3줄 세트(방향+fitToWidth+fitToPage)를 넣고,
+반드시 실제 LibreOffice PDF 변환으로 모든 열이 다 보이는지 확인할 것** — "openpyxl로
+읽었을 때 값이 있다"는 "PDF에 보인다"의 증명이 아니다.
+
 ### 7-6. 그 외 openpyxl/LibreOffice 함정 모음
 
 - **wrap_text 필수**: 비고란처럼 여러 줄 텍스트가 들어가는 셀에 `Alignment(wrap_text=True)`를
@@ -407,9 +417,17 @@ ws.sheet_properties.pageSetUpPr.fitToPage = True
 | `report_builder.format_aql(aql)` | report_builder.py | 성적서·기준서·웹 **3군데** |
 | `item_label(item_name, aql)` | report_builder.py | 멱등이 아니라 `**B` 버그 |
 | `spec_import.normalize_spec_text(t)` | spec_import.py | 정규화 없이 원문 파싱 |
+| `report_builder._place_photos_in_area(...)` | report_builder.py | NCR 사진배치와 출고 엑셀 사진배치가 각자 구현될 뻔함(2026-09-15) |
 
 `build_specs_with_sample()`은 `sample_qty`(AQL·입고수량으로 계산)와
 `no_limit`(규격 미입력 여부)를 붙여준다. 검사 입력/상세/재검사/시간계산이 전부 이걸 쓴다.
+
+`_place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_s, PILImage)`는
+"사진 N장을 지정 영역 안에 가로로 등분해서 비율 유지 최대크기로 배치"하는 계산을 한 곳에
+모은 것(2026-09-15, 출고 이력 엑셀에 사진 임베드를 추가하면서 `_insert_ncr_photos()`에서
+추출) — `_insert_ncr_photos()`(불량현상사진, NCR 통보서)와 `build_outbound_excel()`(출고
+이력, 항목별 인디케이터/본체 사진 칸) 둘 다 이 함수 하나를 쓴다. **새로 "사진 여러 장을
+칸에 나눠 넣는" 화면을 만들 때 이 함수부터 재사용을 검토할 것.**
 
 ### 8-2. 최종 결정 3종 = 서명 필수 + 최종결정권자만 (2026-08-23)
 
@@ -1059,3 +1077,39 @@ brainstorming/test-driven-development/writing-skills)는 "안 맞음"으로 결�
 검증했다(문서를 믿지 않고 실제 코드로 확인) — 규모가 큰 정기 점검이 필요하면 이
 방식(영역별 병렬 감사 → 발견사항 종합 → quality-watcher로 수정 검증)을 그대로
 재사용하면 된다.
+
+## 21. 출고 관리 — 사진 종류 분리(인디케이터/본체) + 관리자 토글 (2026-09-15)
+
+출고 스캔에서 찍는 사진을 "인디케이터 사진"/"본체사진" 두 종류로 나눴다. 사용자가
+실제 회사 출고 이력 서식(엑셀)을 줬는데 이 두 항목이 별도 열로 있었기 때문.
+
+- `outbound_item_photos.kind` 컬럼('indicator'/'body', 기본값 'indicator') — 기존
+  사진은 전부 'indicator'로 간주(마이그레이션 시 자동).
+- **"본체사진" 기능 자체는 기본 꺼짐, admin 계정만 켤 수 있다** — 이 프로젝트에서
+  "관리자 전용"은 세분화된 권한(perm)이 아니라 **`admin` 계정 하나**를 가리키는
+  확립된 의미다(14절 참고, `_admin_only()` 재사용). `db.outbound_body_photo_enabled()`가
+  `db.get_setting()` 기반 전역 토글이고, "출고 → 분류 규칙 관리" 화면 상단에 카드로
+  노출된다. **끄고 켜는 걸 "outbound" 권한 세분화로 하지 말 것** — 이미 있는
+  get_setting/set_setting 관례를 그대로 따른 것이니 다른 방식으로 바꾸지 말 것.
+- 토글이 꺼져 있으면: 스캔 화면에 본체사진 입력 UI 자체가 안 뜨고, 서버(`outbound_item_add`/
+  `outbound_item_photo_add`)도 `kind='body'` 사진을 거부한다(클라이언트 조작으로
+  우회 못 하게 이중 방어). **끈다고 이미 저장된 본체사진이 지워지지도, 엑셀 출력에서
+  빠지지도 않는다** — UI 노출 여부와 데이터 보존은 별개.
+- `db.outbound_plan_progress(batch_id)` — 계획 대비 진행상황을 "S/N별 상태
+  (confirmed/incomplete/pending)" 리스트로 계산하는 신규 집계 함수. **confirmed
+  판정은 인디케이터 사진 필수 + (토글 켜져있을 때만) 본체사진도 필수** — 토글이
+  꺼져 있는데 본체사진을 필수조건에 넣으면 애초에 입력받지 않으므로 영원히
+  confirmed가 안 되는 모순이 생긴다. 새로 이 판정을 건드릴 일이 있으면 이 원칙을
+  깨지 말 것.
+- **"확인됨" 표시는 항목 추가 자체를 막지 않는다** — 사진·S/N이 부족해도 스캔
+  항목은 그대로 저장되고, "확인됨" 배지만 안 뜬다. 이 서브시스템 전체 설계원칙
+  (미등록/중복/계획외 전부 경고만 하고 진행은 막지 않음, 1차 설계 확정사항)과
+  일관되게 유지한 것 — 여기서만 하드 블로킹을 넣지 말 것.
+- 저장된 항목에 사진을 나중에 더 추가(재업로드)하는 라우트
+  `outbound_item_photo_add`(POST `/outbound/item/<id>/add-photo`)는 **기존 사진
+  삭제가 아니라 추가**다. 삭제는 이미 있던 `outbound_photo_delete`가 계속 담당.
+- 사진을 지정 영역에 여러 장 등분 배치하는 계산은 `report_builder._place_photos_in_area()`
+  하나로 공용화했다(8-1절 참고, NCR 통보서와 출고 이력 엑셀이 공유) — 새로 복사하지 말 것.
+- **`build_outbound_excel()`에 fit-to-page 설정을 처음에 빠뜨려서 5번째 열("본체사진"/
+  "담당자")이 PDF에서 통째로 사라지는 실제 사고가 있었다** — 7-5절에 재발 사례로
+  기록해뒀다. 이 함수를 또 고칠 일이 있으면 fit-to-page가 여전히 있는지 먼저 확인할 것.

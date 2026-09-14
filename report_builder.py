@@ -914,34 +914,22 @@ def build_ncr_excel(ncr, photo_paths=None):
         return None, f"엑셀 생성 중 오류: {e}"
 
 
-def _insert_ncr_photos(ws, photo_paths, PILImage=None):
-    """불량현상 사진을 D9:F20 영역에 균등 분할로 좌우 나란히 배치 (방식 A).
+def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_s, PILImage=None):
+    """photo_paths(이미 존재 확인이 끝난 절대경로 리스트)를 col_widths_emu × row_heights_emu로
+    정의된 사각 영역 안에 가로로 N등분해서, 각 슬롯 안에서 비율 유지 최대크기로 배치한다.
+    col_s/row_s: 이 영역의 좌상단이 워크시트에서 몇 번째 열/행인지(0-based).
 
     N장을 총 너비 N등분 → 각 슬롯 안에서 비율 유지하며 최대 크기로 맞춤 →
     수직 중앙 정렬. 가로/세로/혼합 모두 대응.
-    """
-    valid = [p for p in photo_paths if p and os.path.exists(p)]
-    if not valid:
+
+    _insert_ncr_photos()(불량현상사진, 고정 영역)와 build_outbound_excel()(출고 이력,
+    항목당 1열×1행 사진 칸)이 이 함수 하나를 공유한다(CLAUDE.md 8-1절 공용 헬퍼 원칙)."""
+    if not photo_paths:
         return
 
-    n = len(valid)
-    CHAR_TO_EMU = 7 * 9525  # character width → EMU 근사값
-
-    # 영역 실측: D~F 열 너비 (9~20행), 20행은 거의 0이라 실질 영역은 9~19행
-    col_widths_emu = [
-        int((ws.column_dimensions[c].width or 8.43) * CHAR_TO_EMU)
-        for c in ('D', 'E', 'F')
-    ]
-    row_heights_emu = [
-        int((ws.row_dimensions[r].height or 15) * 12700)
-        for r in range(9, 18)  # 9~17행 (D9:F17)
-    ]
+    n = len(photo_paths)
     total_w_emu = sum(col_widths_emu)
     total_h_emu = sum(row_heights_emu)
-
-    COL_S = _NCR_PHOTO_COL_S  # D = 3
-    ROW_S = _NCR_PHOTO_ROW_S  # 9행 = 8 (0-indexed)
-
     slot_w = total_w_emu // n  # 슬롯 너비 (균등 분할)
 
     def _resolve(abs_pos, offsets, base_idx):
@@ -952,7 +940,7 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
             cum += size
         return base_idx + len(offsets) - 1, abs_pos - (cum - offsets[-1])
 
-    for i, path in enumerate(valid):
+    for i, path in enumerate(photo_paths):
         # 각 사진 비율 (PIL 없으면 4:3 기본)
         aspect = 4 / 3
         if PILImage:
@@ -970,11 +958,11 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
         else:
             iw, ih = int(total_h_emu * aspect), total_h_emu
 
-        x_abs = i * slot_w                    # D열 왼쪽 기준 x 오프셋
+        x_abs = i * slot_w                    # 영역 왼쪽 기준 x 오프셋
         y_abs = (total_h_emu - ih) // 2       # 수직 중앙
 
-        img_col, img_col_off = _resolve(x_abs, col_widths_emu, COL_S)
-        img_row, img_row_off = _resolve(y_abs, row_heights_emu, ROW_S)
+        img_col, img_col_off = _resolve(x_abs, col_widths_emu, col_s)
+        img_row, img_row_off = _resolve(y_abs, row_heights_emu, row_s)
 
         img = XLImage(path)
         img.anchor = OneCellAnchor(
@@ -983,6 +971,31 @@ def _insert_ncr_photos(ws, photo_paths, PILImage=None):
             ext=XDRPositiveSize2D(iw, ih),
         )
         ws.add_image(img)
+
+
+def _insert_ncr_photos(ws, photo_paths, PILImage=None):
+    """불량현상 사진을 D9:F20 영역에 균등 분할로 좌우 나란히 배치 (방식 A).
+
+    실제 슬롯 계산·배치는 _place_photos_in_area()(공용 헬퍼)가 담당한다.
+    """
+    valid = [p for p in photo_paths if p and os.path.exists(p)]
+    if not valid:
+        return
+
+    CHAR_TO_EMU = 7 * 9525  # character width → EMU 근사값
+
+    # 영역 실측: D~F 열 너비 (9~20행), 20행은 거의 0이라 실질 영역은 9~19행
+    col_widths_emu = [
+        int((ws.column_dimensions[c].width or 8.43) * CHAR_TO_EMU)
+        for c in ('D', 'E', 'F')
+    ]
+    row_heights_emu = [
+        int((ws.row_dimensions[r].height or 15) * 12700)
+        for r in range(9, 18)  # 9~17행 (D9:F17)
+    ]
+
+    _place_photos_in_area(ws, valid, col_widths_emu, row_heights_emu,
+                           _NCR_PHOTO_COL_S, _NCR_PHOTO_ROW_S, PILImage)
 
 
 def _build_ncr_photo_sheet(wb, ncr, photo_paths, PILImage=None):
@@ -1385,23 +1398,31 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
 
 # ---------- 출고(완제품 S/N·QR·사진) — 입고검사(IQC)와 별개의 신규 하위시스템 ----------
 
-def build_outbound_excel(batch, items):
-    """출고 배치 1건을 기본 표 형태의 xlsx로 만들어 BytesIO로 반환한다(디스크 저장 안 함).
-    사용자가 실제 양식 파일을 제공하면 NCR/성적서와 같은 shutil.copy 템플릿 방식으로
-    이 함수 하나만 재작업하면 된다 — 그 전까지는 openpyxl로 직접 표를 그린다.
-    batch: {"customer", "ship_date", "handler"} 등을 가진 dict.
-    items: database.list_outbound_items()가 돌려주는 형태(각 item에 "photos" 리스트 포함)."""
+def build_outbound_excel(batch, items, photo_dir):
+    """출고 배치 1건을 실제 회사 서식(사용자 제공 참고파일 "출고 내역서" 기준,
+    시트명 "출고내역")에 맞춰 xlsx로 만들어 BytesIO로 반환한다(디스크 저장 안 함).
+
+    batch: {"customer", "ship_date", "handler", "round_no"} 등을 가진 dict.
+    items: database.list_outbound_items()의 형태(각 item에 "photos" 리스트, 각 photo는
+           {"file_path", "kind"} — kind는 'indicator'/'body').
+    photo_dir: 사진이 실제 저장된 디렉터리(app.py의 OUTBOUND_PHOTO_DIR) — DB에는 파일명만
+    있으므로 절대경로로 바꾸는 데 필요하다."""
     import io as _io
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
     from openpyxl.utils import get_column_letter
+    try:
+        from PIL import Image as PILImage
+    except ImportError:
+        PILImage = None
 
     wb = Workbook()
     ws = wb.active
     ws.title = "출고내역"
+    ws.sheet_view.showGridLines = False
 
     bold = Font(bold=True)
-    center = Alignment(horizontal="center", vertical="center")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     thin = Side(style="thin", color="B7BEC9")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_fill = PatternFill("solid", fgColor="E7EAF0")
@@ -1409,41 +1430,74 @@ def build_outbound_excel(batch, items):
     ws["A1"] = "출고 내역서"
     ws["A1"].font = Font(bold=True, size=16)
     ws.merge_cells("A1:E1")
-    ws["A1"].alignment = center
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
-    ws["A3"] = "거래처"; ws["B3"] = batch.get("customer") or ""
-    ws["A4"] = "출고일"; ws["B4"] = batch.get("ship_date") or ""
-    ws["A5"] = "담당자"; ws["B5"] = batch.get("handler") or ""
-    for cell in ("A3", "A4", "A5"):
+    ws["A3"] = f"거래처 {batch.get('customer') or ''}"
+    ws["C3"] = f"차수 {batch.get('round_no') or ''}"
+    ws["D3"] = f"출고일 {batch.get('ship_date') or ''}"
+    ws["E3"] = f"담당자 {batch.get('handler') or ''}"
+    for cell in ("A3", "C3", "D3", "E3"):
         ws[cell].font = bold
 
-    headers = ["번호", "S/N", "제품명/모델명", "수량", "사진 매수"]
+    HEADER_ROW = 5
+    headers = ["순번", "S/N", "제품명/모델명", "인디케이터 사진", "본체사진"]
     for i, h in enumerate(headers, start=1):
-        c = ws.cell(row=7, column=i, value=h)
+        c = ws.cell(row=HEADER_ROW, column=i, value=h)
         c.font = bold
         c.fill = header_fill
         c.alignment = center
         c.border = border
 
-    for row_i, it in enumerate(items, start=8):
-        values = [row_i - 7, it["serial_no"], it.get("product_name") or "",
-                  it.get("quantity") if it.get("quantity") is not None else "",
-                  len(it.get("photos") or [])]
+    widths = [6, 20, 26, 20, 20]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # fit-to-page를 안 걸면 LibreOffice가 E열(본체사진)을 인쇄영역 밖으로 통째로
+    # 잘라버린다 — 실제 PDF 변환으로 발견된 버그(2026-09-15, 7-5절 함정 재발).
+    # 반드시 이 3줄 세트로 sheet_properties.pageSetUpPr을 직접 건드려야 한다
+    # (ws.page_setup.fitToPage = True 직접대입은 AttributeError 남, 7-5절 참고).
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    CHAR_TO_EMU = 7 * 9525
+    col_widths_emu = [int(w * CHAR_TO_EMU) for w in widths]
+    ROW_HEIGHT_PT = 80
+    row_height_emu = ROW_HEIGHT_PT * 12700
+
+    DATA_START_ROW = HEADER_ROW + 1
+    for offset, it in enumerate(items):
+        row_i = DATA_START_ROW + offset
+        ws.row_dimensions[row_i].height = ROW_HEIGHT_PT
+        values = [offset + 1, it["serial_no"], it.get("product_name") or ""]
         for j, v in enumerate(values, start=1):
             c = ws.cell(row=row_i, column=j, value=v)
             c.border = border
             c.alignment = center
+        ws.cell(row=row_i, column=4).border = border
+        ws.cell(row=row_i, column=5).border = border
 
-    widths = [8, 22, 32, 10, 10]
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
+        photos = it.get("photos") or []
+        indicator_paths = [
+            os.path.join(photo_dir, p["file_path"]) for p in photos
+            if (p.get("kind") or "indicator") == "indicator"
+            and os.path.exists(os.path.join(photo_dir, p["file_path"]))
+        ]
+        body_paths = [
+            os.path.join(photo_dir, p["file_path"]) for p in photos
+            if p.get("kind") == "body"
+            and os.path.exists(os.path.join(photo_dir, p["file_path"]))
+        ]
+        _place_photos_in_area(ws, indicator_paths, [col_widths_emu[3]], [row_height_emu],
+                               3, row_i - 1, PILImage)
+        _place_photos_in_area(ws, body_paths, [col_widths_emu[4]], [row_height_emu],
+                               4, row_i - 1, PILImage)
 
     buf = _io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf
-
-    return outer.as_bytes()
 
 
 # 2026-09-15: 사용자가 실제 엑셀에서 보기 좋게 맞춰본 값을 그대로 받아 고정값으로 씀
