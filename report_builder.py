@@ -915,7 +915,7 @@ def build_ncr_excel(ncr, photo_paths=None):
 
 
 def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_s,
-                           PILImage=None, stretch=False):
+                           PILImage=None, stretch=False, fill_ratio=1.0):
     """photo_paths(이미 존재 확인이 끝난 절대경로 리스트)를 col_widths_emu × row_heights_emu로
     정의된 사각 영역 안에 가로로 N등분해서 배치한다. col_s/row_s: 이 영역의 좌상단이
     워크시트에서 몇 번째 열/행인지(0-based).
@@ -923,14 +923,22 @@ def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_
     stretch=False(기본값): N장을 총 너비 N등분 → 각 슬롯 안에서 비율 유지하며 최대
     크기로 맞춤 → 수직 중앙 정렬(기존 동작 그대로, `_insert_ncr_photos()`가 이 방식을 씀).
 
-    stretch=True(2026-09-15 신규): 비율을 무시하고 슬롯 전체를 사진으로 꽉 채운다
-    (출고 이력 엑셀 인디케이터/본체 사진 — 사용자가 "비율 상관없이 셀에 꽉 채워도
-    된다"고 명시적으로 확인함). 이땐 슬롯의 좌상단/우하단 두 좌표를 `TwoCellAnchor`로
-    직접 지정한다 — `OneCellAnchor(_from=..., ext=...)`는 실제 Microsoft Excel에서
+    stretch=True(2026-09-15 신규): 비율을 무시하고 슬롯을 사진으로 채운다(출고 이력
+    엑셀 인디케이터/본체 사진 — 사용자가 "비율 상관없이 셀에 꽉 채워도 된다"고
+    명시적으로 확인함). 이땐 슬롯의 좌상단/우하단 두 좌표를 `TwoCellAnchor`로 직접
+    지정한다 — `OneCellAnchor(_from=..., ext=...)`는 실제 Microsoft Excel에서
     openpyxl이 spPr에 xfrm을 안 써주면 ext 크기를 무시하고 앵커 셀 전체로 늘어나는
     실측 버그가 있다(CLAUDE.md 7-4-2절, QR 라벨 커밋 88013b9로 실제 고친 사례).
     "정확히 슬롯 하나만큼 채우기"가 목적인 이 용도엔 애초에 TwoCellAnchor 쪽이
     LibreOffice·실제 Excel 양쪽에서 일관되게 그려지므로 더 안전하다.
+
+    fill_ratio(2026-09-16 신규, stretch=True일 때만 의미 있음, 기본 1.0=슬롯 전체
+    꽉 채움 — 기존 호출부는 인자를 안 넘기므로 동작 그대로): 슬롯 가로/세로 각각의
+    이 비율만큼만 채우고 나머지 여백을 슬롯 안에서 가운데 정렬한다. 개선요청서
+    사진("셀 면적의 90% 채우고 정가운데 정렬" 요청)처럼 100%까지는 안 채우고 여백을
+    남기고 싶을 때 쓴다 — stretch=False(비율유지)와는 별개 축이라 같이 켤 수 있는
+    개념이 아니다(비율유지 모드는 이미 자체적으로 여백+중앙정렬을 하므로 fill_ratio는
+    stretch=True 전용).
 
     _insert_ncr_photos()(불량현상사진, stretch 인자 안 씀 → 기존 동작 그대로)와
     build_outbound_excel()(출고 이력, stretch=True)이 이 함수 하나를 공유한다
@@ -953,7 +961,8 @@ def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_
 
     for i, path in enumerate(photo_paths):
         if stretch:
-            iw, ih = slot_w, total_h_emu
+            full_iw, full_ih = slot_w, total_h_emu
+            iw, ih = int(full_iw * fill_ratio), int(full_ih * fill_ratio)
         else:
             aspect = 4 / 3
             if PILImage:
@@ -969,8 +978,8 @@ def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_
             else:
                 iw, ih = int(total_h_emu * aspect), total_h_emu
 
-        x_abs = i * slot_w
-        y_abs = 0 if stretch else (total_h_emu - ih) // 2
+        x_abs = i * slot_w + (slot_w - iw) // 2
+        y_abs = (total_h_emu - ih) // 2
 
         img_col, img_col_off = _resolve(x_abs, col_widths_emu, col_s)
         img_row, img_row_off = _resolve(y_abs, row_heights_emu, row_s)
@@ -1421,8 +1430,27 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
 IMPROVEMENT_TEMPLATE = os.path.join(BASE_DIR, "improvement_request_template.xlsx")
 IMPROVEMENT_SHEET    = "개선요청서"
 
-# 불량유형 체크박스 원본 문자열(B10) — 이 안의 "☐ {유형}"을 "☑ {유형}"으로 치환한다.
 _IMPROVEMENT_DEFECT_CATEGORIES = ["치수 불량", "표면 결함", "기능 부적합", "포장 손상", "기타"]
+
+
+def _build_defect_type_richtext(selected, etc_text=""):
+    """불량유형 5개를 한 셀에 "☐/☑ {유형}"으로 나열하되, 선택된 항목만 굵게+빨간색으로
+    강조한다(2026-09-16 사용자 요청 — "체크된 부분은 색상 및 폰트 굵기 강조").
+    _build_remark_richtext()(295행)와 같은 CellRichText 패턴 재사용, 새로 만들지 않음."""
+    normal = InlineFont(rFont="맑은 고딕", color="000000")
+    checked = InlineFont(rFont="맑은 고딕", color="C00000", b=True)
+    blocks = []
+    for i, cat in enumerate(_IMPROVEMENT_DEFECT_CATEGORIES):
+        if i > 0:
+            blocks.append("   ")
+        is_checked = cat in selected
+        mark = "☑" if is_checked else "☐"
+        if cat == "기타":
+            label = f"기타: {etc_text}" if (is_checked and etc_text) else "기타:"
+        else:
+            label = cat
+        blocks.append(TextBlock(checked if is_checked else normal, f"{mark} {label}"))
+    return CellRichText(*blocks)
 
 
 def build_improvement_excel(req, defect_photos=None, reference_photos=None):
@@ -1454,25 +1482,30 @@ def build_improvement_excel(req, defect_photos=None, reference_photos=None):
         ws['B4'] = req.get('supplier') or ''
         ws['D4'] = req.get('request_no') or ''
         ws['B6'] = req.get('material_name') or ''
+        # 2026-09-16 사용자 요청: 제품명이 셀 폭을 넘치면 줄바꿈 대신 폰트 크기를
+        # 자동으로 줄여서 한 줄에 맞춘다(QR 라벨의 shrink_to_fit 패턴과 동일 —
+        # wrap_text와는 동시에 못 켠다, Excel 자체 기능이라 직접 폰트크기를
+        # 계산하는 코드를 새로 안 짜도 됨).
+        ws['B6'].alignment = Alignment(horizontal='left', vertical='center',
+                                        wrap_text=False, shrink_to_fit=True)
         ws['D6'] = req.get('lot_number') or ''
         ws['B7'] = req.get('lot_qty') or ''
         ws['D7'] = req.get('po_number') or ''
 
-        # 불량유형 체크박스 — 선택된 항목만 ☐ → ☑ 치환, "기타"면 자유입력을 이어붙임
+        # 불량유형 체크박스 — 선택된 항목만 굵게+빨간색으로 강조(2026-09-16 사용자 요청)
         selected = set(x.strip() for x in (req.get('defect_categories') or '').split(',') if x.strip())
-        text = ws['B10'].value or ''
-        for cat in _IMPROVEMENT_DEFECT_CATEGORIES:
-            if cat in selected:
-                text = text.replace(f'☐ {cat}', f'☑ {cat}', 1)
-        if '기타' in selected and req.get('defect_category_etc'):
-            text = text.replace('☑ 기타:', f"☑ 기타: {req['defect_category_etc']}", 1)
-        ws['B10'] = text
+        ws['B10'] = _build_defect_type_richtext(selected, req.get('defect_category_etc') or '')
 
         ws['A13'] = req.get('request_detail') or ''
         ws['A13'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
 
+        # 2026-09-16 사용자 요청: 서명란("서명/인" 라벨+값칸) 자체를 지운다 — D31/E31을
+        # 비우고 이름 값칸(B31:C31)을 행 끝까지 넓혀서 시각적으로 흔적을 안 남긴다.
+        ws.unmerge_cells('B31:C31')
+        ws['D31'] = ''
+        ws['E31'] = ''
+        ws.merge_cells('B31:E31')
         ws['B31'] = req.get('confirmed_name') or ''
-        # E31(서명/인)은 서명 없음 결정에 따라 채우지 않는다
 
         valid_defect = [p for p in (defect_photos or []) if p and os.path.exists(p)]
         valid_reference = [p for p in (reference_photos or []) if p and os.path.exists(p)]
@@ -1521,7 +1554,11 @@ def _place_improvement_photos(ws, photo_paths, col_start, col_end, row_start, ro
         int((ws.row_dimensions[r].height or 15) * 12700)
         for r in range(row_start, row_end + 1)
     ]
-    _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_start - 1, PILImage)
+    # 2026-09-16 사용자 요청: "해당 셀 면적에 맞게 늘려줘, 셀 면적의 90% 채우고
+    # 정가운데 정렬" — 비율 무시하고 늘리되(stretch=True) 100%까지는 안 채우고
+    # 여백 10%를 남겨서 가운데 정렬(fill_ratio=0.9).
+    _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_start - 1,
+                          PILImage, stretch=True, fill_ratio=0.9)
 
 
 def _improvement_mail_subject(req):
