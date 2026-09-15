@@ -298,9 +298,15 @@ def _build_remark_richtext(remarks):
     검사자=검정, 중간관리자=진한녹색, 최종결정권자=진한보라 로 색을 나눠 한 셀에 표시.
     아직 안 적힌 칸도 빈 줄로 항상 같이 인쇄해서(수기로 나중에 적을 수 있게) 형식을 고정한다.
     """
-    black = InlineFont(rFont="맑은 고딕", color="000000")
-    dark_green = InlineFont(rFont="맑은 고딕", color="006400")
-    dark_purple = InlineFont(rFont="맑은 고딕", color="4B0082")
+    # 2026-09-16: 실제 Excel에서 이 파일을 열면 "복구된 레코드: 문자열 속성" 경고가
+    # 떴다 — 원인은 color="000000"처럼 6자리(RGB만)를 주면 openpyxl의 Color가 앞에
+    # "00"(알파=완전투명)을 붙여 "00000000"으로 써버리는 것이었다(실측 확인:
+    # InlineFont(color="000000").color.rgb == "00000000"). LibreOffice는 알파를
+    # 무시하고 그냥 렌더링해서 여태 안 걸렸을 뿐 — 반드시 8자리(AARRGGBB)로 알파를
+    # "FF"(불투명)까지 직접 명시할 것, 6자리 문자열을 다시 쓰지 말 것.
+    black = InlineFont(rFont="맑은 고딕", color="FF000000")
+    dark_green = InlineFont(rFont="맑은 고딕", color="FF006400")
+    dark_purple = InlineFont(rFont="맑은 고딕", color="FF4B0082")
 
     lines = [
         ("inspector", black, "검사자"),
@@ -1175,7 +1181,9 @@ def _ncr_mail_subject(ncr):
 
 
 def _ncr_mail_body_lines(ncr, contact_person=''):
-    recipient = (contact_person or ncr.get('supplier') or '').strip()
+    # 2026-09-16 사용자 확정: 담당자 개인 이름 대신 업체명으로 인사말을 쓴다
+    # (담당자가 바뀌거나 여러 명일 때 개인 이름을 잘못 부르는 걸 방지).
+    recipient = (ncr.get('supplier') or '').strip()
     defect_raw = (ncr.get('defect_description') or '-').strip()
     return [
         f"{recipient} 담당자님.",
@@ -1443,8 +1451,11 @@ def _build_defect_type_richtext(selected, etc_text=""):
     항목 목록은 하드코딩하지 않고 db.list_improvement_defect_categories()(NCR과
     공용인 불량유형 마스터, database.py) 하나만 참조한다 — 2026-09-16 사용자 확정:
     "개선요청서 불량유형을 기존에 등록된 불량유형 내용으로 통일"."""
-    normal = InlineFont(rFont="맑은 고딕", color="000000")
-    checked = InlineFont(rFont="맑은 고딕", color="C00000", b=True)
+    # color는 8자리(AARRGGBB)로 알파(FF=불투명)까지 명시할 것 — 6자리만 주면
+    # openpyxl이 알파를 "00"(투명)으로 채워써서 실제 Excel이 "복구된 레코드" 경고를
+    # 띄운다(_build_remark_richtext() 305행 주석 참고, 2026-09-16 실측 확인).
+    normal = InlineFont(rFont="맑은 고딕", color="FF000000")
+    checked = InlineFont(rFont="맑은 고딕", color="FFC00000", b=True)
     blocks = []
     for i, cat in enumerate(db.list_improvement_defect_categories()):
         if i > 0:
@@ -1588,7 +1599,8 @@ IMPROVEMENT_PHOTO_MARKER = "[여기에 불량 및 비교 사진 넣기]"
 
 
 def _improvement_mail_body_lines(req, contact_person=''):
-    recipient = (contact_person or req.get('supplier') or '').strip()
+    # 2026-09-16 사용자 확정: NCR과 동일하게 담당자 개인 이름 대신 업체명으로 인사말.
+    recipient = (req.get('supplier') or '').strip()
     detail = (req.get('request_detail') or '-').strip()
     return [
         f"{recipient} 담당자님.",

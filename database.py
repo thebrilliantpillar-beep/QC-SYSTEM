@@ -5234,6 +5234,47 @@ def list_improvement_defect_categories():
     return [c for c in cats if c != "기타"] + ["기타"]
 
 
+def ensure_improvement_defect_categories_migration_20260916():
+    """개선요청서 불량유형을 NCR 마스터로 통일하기 전(2026-09-16 이전)에 만들어진
+    기존 레코드는 `defect_categories`에 옛 5종("치수 불량"/"표면 결함"/
+    "기능 부적합"/"포장 손상") 문자열이 그대로 저장돼 있다 — 새 마스터
+    (치수불량/외관불량/기능불량/재질불량/수량불량/기타, 공백 없음)와 문자열이
+    달라서 엑셀을 다시 발행해도 체크박스가 하나도 안 켜져 보이는 문제가 실제로
+    있었다(사용자가 실제 발행 PDF로 발견). 저장된 문자열을 새 이름으로 1회
+    치환한다(멱등). '포장 손상'은 새 마스터에 대응하는 항목이 없어서 그냥
+    제거한다(사용자가 원하면 나중에 새 항목으로 등록하면 됨, 임의로 지어내지 않음)."""
+    if get_setting("improvement_defect_categories_migrated_20260916") == "1":
+        return
+    mapping = {
+        "치수 불량": "치수불량",
+        "표면 결함": "외관불량",
+        "기능 부적합": "기능불량",
+        "포장 손상": None,  # 새 마스터에 대응 항목 없음 — 제거
+    }
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, defect_categories FROM improvement_requests WHERE defect_categories IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        old_cats = [c.strip() for c in (row["defect_categories"] or "").split(",") if c.strip()]
+        new_cats = []
+        changed = False
+        for c in old_cats:
+            if c in mapping:
+                changed = True
+                mapped = mapping[c]
+                if mapped:
+                    new_cats.append(mapped)
+            else:
+                new_cats.append(c)
+        if changed:
+            conn.execute("UPDATE improvement_requests SET defect_categories=? WHERE id=?",
+                        (",".join(new_cats), row["id"]))
+    conn.commit()
+    conn.close()
+    set_setting("improvement_defect_categories_migrated_20260916", "1")
+
+
 def add_defect_type(name):
     """불량 유형명을 마스터에 등록. 이미 있으면(공백/대소문자 무시) 기존 정본 표기를
     반환. name이 빈 값이면 None. (material_categories.add_material_category와 동일 관례)"""
