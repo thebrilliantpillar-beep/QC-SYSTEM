@@ -4465,6 +4465,44 @@ def _lot_state(status, approval_type, overall_result=None):
     return "미결"      # pending / rejected
 
 
+def _ncr_extra_stats(rows, manual_ncr_lot_qtys):
+    """②③(NCR포함 불량률/건수율, 2026-09-15 사용자 확정)에 얹을 'NCR만 있는 로트'의
+    수량 합·건수를 계산한다. quality_report()에서만 쓰는 헬퍼.
+
+    이미 baseline(①, 불합격 확정)에서 잡힌 로트는 여기서 또 세면 이중집계이므로
+    제외한다(8-2-9절 '재검사한 옛 성적서 집계 제외'와 같은 정신). 합격/특채/미결
+    로트인데 발송·확인(status가 'sent' 또는 'confirmed') NCR이 딸려있으면 '실질
+    불량이 이미 보고된 로트'로 보고 분자·분모 양쪽에 더한다.
+
+    rows: quality_report()가 이미 superseded 제외 필터를 거친 inspections dict 리스트.
+          각 dict에 'ncr_sent_count'(이 로트에 연결된 sent/confirmed NCR 개수,
+          0 이상 정수), 'status', 'approval_type', 'overall_result', 'quantity',
+          'id' 키가 있어야 한다.
+    manual_ncr_lot_qtys: 성적서 미연결(inspection_id IS NULL) sent/confirmed NCR의
+          lot_qty 문자열 리스트(예: "12대", "200"). 숫자 추출 실패한 건은 이 함수
+          안에서 스킵한다.
+
+    반환: (추가수량, 추가건수)
+    """
+    qty = 0
+    cnt = 0
+    for r in rows:
+        if not r["ncr_sent_count"]:
+            continue
+        state = _lot_state(r["status"], r["approval_type"], r["overall_result"])
+        if state == "불합격":
+            continue  # 이미 ①(baseline)에서 분자·분모 둘 다 잡혀있음 — 이중집계 방지
+        qty += int(r["quantity"] or 0)
+        cnt += 1
+    for lot_qty in manual_ncr_lot_qtys:
+        m = re.search(r"\d+", str(lot_qty or ""))
+        if not m:
+            continue  # 수량 파싱 실패 — 근거 없는 숫자를 만들지 않기 위해 건수도 같이 스킵
+        qty += int(m.group())
+        cnt += 1
+    return qty, cnt
+
+
 LOT_STATES = ["합격", "특채", "불합격", "미결"]   # 화면 상태 필터에 쓰는 값
 
 
@@ -4609,7 +4647,9 @@ def quality_report(start_date, end_date, period_type="monthly",
     sql = """SELECT i.*,
                     (SELECT COUNT(*) FROM ncr n WHERE n.inspection_id = i.id) AS ncr_count,
                     (SELECT n.id FROM ncr n WHERE n.inspection_id = i.id
-                      ORDER BY n.id DESC LIMIT 1) AS ncr_id
+                      ORDER BY n.id DESC LIMIT 1) AS ncr_id,
+                    (SELECT COUNT(*) FROM ncr n WHERE n.inspection_id = i.id
+                      AND n.status IN ('sent', 'confirmed')) AS ncr_sent_count
                FROM inspections i
                LEFT JOIN materials mt ON mt.material_no = i.material_no
               WHERE 1=1"""
@@ -4713,12 +4753,23 @@ def quality_report(start_date, end_date, period_type="monthly",
         imp_sql += f" AND supplier IN ({','.join('?' * len(suppliers))})"; imp_params += suppliers
     imp_rows = [dict(r) for r in conn.execute(imp_sql, imp_params).fetchall()]
 
+    # 수기입력(성적서 미연결) sent NCR — ②③(NCR포함 불량률/건수율)용 lot_qty만 뽑는다.
+    manual_ncr_sql = "SELECT lot_qty FROM ncr WHERE inspection_id IS NULL AND status IN ('sent', 'confirmed')"
+    manual_ncr_params = []
+    if start_date:
+        manual_ncr_sql += " AND issued_date >= ?"; manual_ncr_params.append(start_date)
+    if end_date:
+        manual_ncr_sql += " AND issued_date <= ?"; manual_ncr_params.append(end_date)
+    if suppliers:
+        manual_ncr_sql += f" AND supplier IN ({','.join('?' * len(suppliers))})"; manual_ncr_params += suppliers
+    manual_ncr_lot_qtys = [r[0] for r in conn.execute(manual_ncr_sql, manual_ncr_params).fetchall()]
+
     conn.close()
 
     # ---- 집계 ----
     def blank():
         return {"로트": 0, "수량": 0, "합격수량": 0, "특채수량": 0,
-                "불합격수량": 0, "미결수량": 0, "불합격로트": 0,
+                "불합격수량": 0, "미결수량": 0, "불합격로트": 0, "합격로트": 0,
                 "검사표본수": 0, "표본불량수": 0, "특채건수": 0}
 
     def add(acc, r):
@@ -4730,6 +4781,7 @@ def quality_report(start_date, end_date, period_type="monthly",
         acc["표본불량수"] += sum(int(m[1]) for m in _DEFECT_RE.findall(r.get("remark_inspector") or ""))
         if state == "합격":
             acc["합격수량"] += qty
+            acc["합격로트"] += 1
         elif state == "특채":
             acc["특채수량"] += qty
             acc["특채건수"] += 1
@@ -4742,6 +4794,7 @@ def quality_report(start_date, end_date, period_type="monthly",
     def finish(acc):
         confirmed = acc["합격수량"] + acc["특채수량"] + acc["불합격수량"]
         acc["확정수량"] = confirmed
+        acc["판정확정로트"] = acc["합격로트"] + acc["특채건수"] + acc["불합격로트"]
         acc["불량률"] = round(acc["불합격수량"] / confirmed * 100, 3) if confirmed else 0.0
         acc["PPM"] = int(round(acc["불합격수량"] / confirmed * 1_000_000)) if confirmed else 0
         # 특채까지 포함한 '규격 이탈률' — 참고용
@@ -4766,6 +4819,20 @@ def quality_report(start_date, end_date, period_type="monthly",
         add(acc_m, r)
 
     finish(summary)
+
+    # ---- ②③ NCR포함 불량률/건수율 (2026-09-15 사용자 확정) ----
+    ncr_extra_qty, ncr_extra_cnt = _ncr_extra_stats(rows, manual_ncr_lot_qtys)
+    summary["NCR추가수량"] = ncr_extra_qty
+    summary["NCR추가로트"] = ncr_extra_cnt
+
+    confirmed_ncr = summary["확정수량"] + ncr_extra_qty
+    defect_ncr = summary["불합격수량"] + ncr_extra_qty
+    summary["불량률_NCR포함"] = round(defect_ncr / confirmed_ncr * 100, 3) if confirmed_ncr else 0.0
+    summary["PPM_NCR포함"] = int(round(defect_ncr / confirmed_ncr * 1_000_000)) if confirmed_ncr else 0
+
+    confirmed_cnt_ncr = summary["판정확정로트"] + ncr_extra_cnt
+    defect_cnt_ncr = summary["불합격로트"] + ncr_extra_cnt
+    summary["불량건수율_NCR포함"] = round(defect_cnt_ncr / confirmed_cnt_ncr * 100, 3) if confirmed_cnt_ncr else 0.0
 
     period_list = []
     for k in sorted(by_period.keys()):
@@ -4920,6 +4987,12 @@ def quality_report(start_date, end_date, period_type="monthly",
                  "자재/제품명": material or "전체",
                  "판정상태": ", ".join(states) if states else "전체"},
         "불량률기준": "수량기준 (불합격 확정수량 ÷ 판정 확정수량)",
+        "불량률기준_NCR포함": ("수량기준 ((불합격확정수량 + NCR만있는로트 수량) ÷ "
+                          "(판정확정수량 + NCR만있는로트 수량)). NCR만있는로트 = "
+                          "불합격확정이 아닌 로트(합격/특채/미결) 중 발송·확인(status가 "
+                          "sent 또는 confirmed)된 NCR이 연결된 것 + 수기입력 발송·확인 "
+                          "NCR(lot_qty 숫자 인식 성공분)."),
+        "불량건수율기준_NCR포함": "건수기준 ((불합격로트 + NCR만있는로트) ÷ (판정확정로트 + NCR만있는로트))",
         "요약": summary,
         "기간별": period_list,
         "업체별": supplier_list,

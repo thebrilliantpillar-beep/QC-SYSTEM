@@ -8,6 +8,28 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-16 (추가11)**: 대시보드 불량률에 "NCR포함" 지표 2개 신설(불량률 수량기준/
+  불량건수율 건수기준) — 부적합 통보서가 발송·확인됐지만 성적서 자체는 불합격
+  확정이 안 된 로트(합격/특채/미결)도 실질 불량으로 반영. 이미 불합격확정된
+  로트는 이중집계 방지(`database.py`의 `_ncr_extra_stats()`). 기존 불량률/PPM은
+  손 안 대고 병행 추가. 조사 중 `/ncr/<id>/confirm` 라우트가 어떤 화면에서도
+  연결 안 된 고아 라우트임을 발견 — 사용자 요청대로 이 라우트의 서명 필수
+  요구는 선택사항으로 완화(실제 발송 흐름 `ncr_eml`/`ncr_send_email`은 원래도
+  서명 없이 draft→sent). quality-watcher 검증 중 `confirm_ncr()`이 실제론
+  `status='confirmed'`로 바꾼다는(스펙 문서엔 'sent'로 잘못 적혀있었음) 걸
+  잡아내서, 집계 SQL을 `status IN ('sent','confirmed')`로 방어적으로 수정.
+  planner→developer(fork)→quality-watcher 순서로 진행.
+- **2026-09-16 (추가10)**: NCR/개선요청서 수정 기능 신설 + 삭제 권한 세분화.
+  발송/확인 여부와 무관하게 `ncr_edit`(`/ncr/<id>/edit`)/`improvement_edit`
+  (`/improvement/<id>/edit`) 라우트로 수정 가능하게 하고, 저장 시 자동으로
+  `status='draft'`로 되돌리고 발송·확인 흔적(NCR: confirmed_by/confirmed_at/
+  confirm_signature/email_sent_at/sent_to, 개선요청서: email_sent_at/sent_to)을
+  초기화한다(8-2-10절 승인회수 원칙과 같은 정신). 성적서 연결(`inspection_id`
+  있음) 문서는 자재정보를 수정 못 하게 막는다(`is_linked` 분기). 기존 삭제 기능은
+  `_admin_only()`에서 세분화 권한(`ncr_delete`/`improvement_delete`)으로 전환 —
+  둘 다 `@perm_required(단독)`으로만 걸어 OR조건 함정(23절) 회피 확인.
+  planner→developer(fork)→quality-watcher 순서로 진행, quality-watcher 결함 0건
+  확인 후 커밋(`4db0810`).
 - **2026-09-16 (추가9, 중요)**: 사용자가 실제 Excel에서 개선요청서 파일을 열었을 때
   "복구된 레코드: /xl/worksheets/sheet1.xml 부분의 문자열 속성" 경고를 봤다고 보고
   → 근본원인 발견: openpyxl `InlineFont`/`Font`에 `color="000000"`처럼 6자리(RGB만,

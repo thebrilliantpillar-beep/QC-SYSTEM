@@ -6518,20 +6518,25 @@ def ncr_confirm(ncr_id):
         flash("이미 확인 완료된 통보서야.")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
-    # 2026-09-10: NCR 확인은 최종결정권자 게이트를 쓰지 않기로 함(사용자 확정) —
-    # 라우트에 걸린 @perm_required("ncr_confirm")만 있으면 되고, 서명은 그대로 필수.
-    # 캔버스 드로잉 우선, 없으면 업로드 파일 → 어느쪽도 없으면 에러
+    # 2026-09-15: NCR 확인 서명을 선택사항으로 바꿨다(사용자 확정) — 아무것도
+    # 입력 안 하고 확인해도 통과한다. 뭔가 입력했는데 저장 자체가 실패한 경우만
+    # (깨진 base64, 지원 안 하는 업로드 확장자 등) 에러로 막는다.
+    # 참고: 이 라우트 자체가 현재 어떤 화면에서도 연결 안 된 고아 라우트다
+    # (실제 "발송"은 ncr_send_email/ncr_eml이 서명 없이 draft→sent로 직접 바꾼다).
     sig_source = request.form.get("signature_source", "draw")
     stamp_type = request.form.get("signature_stamp_type", "sign")
     signature_path = None
+    sig_err = None
     if sig_source == "upload":
         upload = request.files.get("signature_file")
-        signature_path, sig_err = _save_signature_upload(f"ncr{ncr_id}", upload)
+        if upload is not None and upload.filename:
+            signature_path, sig_err = _save_signature_upload(f"ncr{ncr_id}", upload)
     else:
-        signature_path, sig_err = _save_signature(f"ncr{ncr_id}",
-                                                  request.form.get("signature_data", "").strip())
+        sig_data = request.form.get("signature_data", "").strip()
+        if sig_data:
+            signature_path, sig_err = _save_signature(f"ncr{ncr_id}", sig_data)
     if sig_err:
-        flash(f"승인 서명이 필요해: {sig_err}")
+        flash(f"서명 저장에 실패했어(서명 없이 계속하려면 서명란을 비운 채 다시 시도해줘): {sig_err}")
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
     # 도장/사인 사이드카 처리 — 도장이면 .stamp 파일을 남긴다(성적서 로직과 동일)
@@ -7605,7 +7610,13 @@ def dashboard_export_xlsx():
                  ("규격이탈률(%)", s["규격이탈률"]),
                  ("표본 불량수", s["표본불량수"]),
                  ("표본 불량률(%)", s["표본불량률"]),
-                 ("표본 PPM", s["표본PPM"])]:
+                 ("표본 PPM", s["표본PPM"]),
+                 ("불량률기준(NCR포함)", report["불량률기준_NCR포함"]),
+                 ("불량률(NCR포함,%)", s["불량률_NCR포함"]), ("PPM(NCR포함)", s["PPM_NCR포함"]),
+                 ("불량건수율기준(NCR포함)", report["불량건수율기준_NCR포함"]),
+                 ("불량건수율(NCR포함,%)", s["불량건수율_NCR포함"]),
+                 ("NCR만있는로트 추가수량", s["NCR추가수량"]),
+                 ("NCR만있는로트 추가건수", s["NCR추가로트"])]:
         ws0.append([k, v])
     ws0.column_dimensions["A"].width = 18
     ws0.column_dimensions["B"].width = 46

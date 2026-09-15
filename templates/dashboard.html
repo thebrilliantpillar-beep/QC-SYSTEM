@@ -298,6 +298,18 @@
     <div class="k-s">불합격 {{ "{:,}".format(s['불합격수량']) }}개 · {{ s['불합격로트'] }}로트</div>
   </div>
   <div class="kpi">
+    <div class="k-l">불량률(NCR포함) {{ term('defect_rate_ncr') }}</div>
+    <div class="k-v kpi-value {{ 'bad' if s['불량률_NCR포함']>=3 else ('warn' if s['불량률_NCR포함']>=1 else 'ok') }}"
+         data-value="{{ s['불량률_NCR포함'] }}" data-suffix="%" data-decimals="1">{{ s['불량률_NCR포함'] }}%</div>
+    <div class="k-s">추가 {{ "{:,}".format(s['NCR추가수량']) }}개 · {{ s['NCR추가로트'] }}로트</div>
+  </div>
+  <div class="kpi">
+    <div class="k-l">불량건수율(NCR포함) {{ term('defect_case_rate_ncr') }}</div>
+    <div class="k-v kpi-value {{ 'bad' if s['불량건수율_NCR포함']>=3 else ('warn' if s['불량건수율_NCR포함']>=1 else 'ok') }}"
+         data-value="{{ s['불량건수율_NCR포함'] }}" data-suffix="%" data-decimals="1">{{ s['불량건수율_NCR포함'] }}%</div>
+    <div class="k-s">{{ s['판정확정로트'] + s['NCR추가로트'] }}건 중 {{ s['불합격로트'] + s['NCR추가로트'] }}건</div>
+  </div>
+  <div class="kpi">
     <div class="k-l">규격이탈률 {{ term('deviation_rate') }}</div>
     <div class="k-v kpi-value {{ 'warn' if s['규격이탈률']>0 else 'ok' }}"
          data-value="{{ s['규격이탈률'] }}" data-suffix="%" data-decimals="1">{{ s['규격이탈률'] }}%</div>
@@ -318,6 +330,7 @@
 <p class="muted" style="font-size:12px; margin:0 0 4px;">
   ※ 불량률 = 불합격 확정 수량 ÷ 판정 확정 수량({{ "{:,}".format(s['확정수량']) }}).
   승인 대기·반려 건은 분모에서 빠져.
+  NCR포함 지표는 아직 확정 안 됐어도 부적합 통보서가 발송된 로트({{ "{:,}".format(s['NCR추가수량']) }}개 · {{ s['NCR추가로트'] }}로트)를 추가로 반영해.
 </p>
 
 {# ─────────────────────── 패널 A: 기간별 추이 ─────────────────────── #}
