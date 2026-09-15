@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}QR 라벨 출력 이력 — Chardon QMS{% endblock %}
 {% block content %}
 <h2>🚚 QR 라벨 출력 이력</h2>
+
+{{ admin_delete_bar(url_for('outbound_qr_export_delete_selected'), 'export_ids', 'QR 출력 이력', show=('outbound_delete' in user_perms)) }}
 
 <div class="card">
   <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
@@ -18,7 +21,7 @@
     <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>생성일시</th><th>생성자</th><th>건수</th><th></th></tr></thead>
     <tbody>
       {% for e in exports %}
-      <tr>
+      <tr data-admin-id="{{ e.id }}">
         <td>{{ e.round_no or '-' }}</td>
         <td>{{ e.customer or '-' }}</td>
         <td>{{ e.ship_date | date_korean if e.ship_date else '-' }}</td>

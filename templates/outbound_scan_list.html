@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}출고 스캔 — 차수 선택 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
@@ -13,6 +14,8 @@
   .sec .body { border-top:1px solid var(--border); padding:16px; }
 </style>
 <h2>🚚 출고 스캔 — 차수 선택</h2>
+
+{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_scan_list', show=('outbound_delete' in user_perms)) }}
 
 <div class="card">
   <p class="muted" style="margin:0; font-size:13.5px;">
@@ -35,7 +38,7 @@
     <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
     <tbody>
       {% for b in active_batches %}
-      <tr>
+      <tr data-admin-id="{{ b.id }}">
         <td>{{ b.round_no or '-' }}</td>
         <td>{{ b.customer or '-' }}</td>
         <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
@@ -57,7 +60,7 @@
       <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th>확인</th><th></th></tr></thead>
       <tbody>
         {% for b in completed_batches %}
-        <tr>
+        <tr data-admin-id="{{ b.id }}">
           <td>{{ b.round_no or '-' }}</td>
           <td>{{ b.customer or '-' }}</td>
           <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>

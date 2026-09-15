@@ -1241,3 +1241,56 @@ brainstorming/test-driven-development/writing-skills)는 "안 맞음"으로 결�
   `onScanned`/`addCurPhotos`)들은 전부 호출 시점에 해당 요소가 없을 수 있다는
   전제로 널 체크를 넣어뒀다(2026-09-15 quality-watcher가 지적해서 보강) — **이
   카드 안 요소를 참조하는 JS를 새로 추가할 때 이 가드 패턴을 빠뜨리지 말 것.**
+
+## 23. 출고 관리 6개 화면 일괄선택삭제 + `outbound_delete` 권한 (2026-09-15)
+
+출고(🚚) 메뉴의 모든 목록 화면(차수 입력/S/N 발급/분류 규칙 관리/출고 스캔/출고
+이력/QR 출력 이력)에 체크박스형 일괄선택삭제를 추가했다. 기존에 개별삭제가 이미
+있던 화면(S/N 발급, 분류 규칙)에도 **추가로** 넣었다 — 기존 것을 없애지 않았다.
+
+- **새 세분화 권한 `outbound_delete`**("출고 기록 일괄삭제") — 기존 단일 `outbound`
+  권한과 별개다. `PERM_GROUPS`에 튜플 하나 추가하는 것만으로 `PERM_LABELS`/
+  `ALL_PERMS`와 계정 상세 화면의 체크박스 UI에 자동 반영됐다(`user_detail.html`이
+  `PERM_GROUPS`를 그대로 순회하는 완전 동적 렌더링이라 템플릿 수정이 필요 없었다).
+  **삭제 라우트 4개는 `@perm_required("outbound_delete")` 단독으로만 건다** —
+  `@perm_required("outbound", "outbound_delete")`처럼 두 개를 같이 넘기면
+  `perm_required`가 OR 조건이라(702행 근처) `outbound`만 있어도 삭제가 뚫리는
+  보안 구멍이 생긴다. 새로 삭제 라우트를 추가할 때 이 실수를 반복하지 말 것.
+- **재사용한 기존 컴포넌트**: `templates/_admin_delete.html`의 `admin_delete_bar`
+  매크로(원래 성적서 관련 4개 화면이 `show=is_admin`으로 쓰던 것, 14절 참고) —
+  이번엔 `show=('outbound_delete' in user_perms)`로 admin이 아니어도 이 권한만
+  있으면 보이게 했다. **매크로 자체는 수정하지 않았다.**
+- **매크로는 페이지당 인스턴스 1개만 지원한다**(내부 JS가 `document.querySelector`로
+  첫 번째 `[data-admin-bar]`만 찾는 구조) — 표가 여러 개인 화면에서 이 제약을
+  두 가지 방식으로 우회했다:
+  - **분류 규칙 관리**(표 3개: 전압코드/접미사/P코드): 매크로는 1번만 쓰고, 각 행의
+    `data-admin-id`에 `"{kind}:{code}"` **합성 키**(예: `"voltage:7"`)를 넣어서
+    한 폼(`rule_keys`)으로 세 표를 동시에 처리한다. 서버(`outbound_rule_delete_selected`)가
+    `split(":", 1)`로 kind/code를 분리해서 각 테이블에 맞게 삭제한다.
+  - **출고 스캔**(표 2개: 활성 배치/완료된 배치): 매크로는 1번만 쓰고, 두 표의
+    `<tr>` 전부에 `data-admin-id="{{ b.id }}"`를 붙인다 — 매크로의
+    `querySelectorAll('[data-admin-id]')`가 문서 전체를 훑으므로 표가 여러 개여도
+    자동으로 다 커버된다. **새로 "표가 여러 개인 화면"에 이 매크로를 쓸 일이
+    있으면 이 두 가지 우회 패턴 중 하나를 재사용할 것 — 매크로를 여러 번 부르면
+    안 된다.**
+- **차수(배치) 삭제는 세 화면(차수 입력/출고 스캔/출고 이력)이 라우트 하나
+  (`outbound_batch_delete_selected`)를 공유한다** — 셋 다 같은 `outbound_batches`
+  테이블을 가리키는 목록이기 때문(8-1절 원칙). 이 라우트만 `_resolve_return_to()`/
+  `_ADMIN_DELETE_RETURNS`(어느 화면에서 눌렀는지에 따라 그 화면으로 되돌아가는
+  기존 헬퍼)를 쓴다 — 나머지 3개 라우트(S/N 발급/분류규칙/QR출력이력)는 각각
+  호출하는 화면이 정확히 하나뿐이라 리다이렉트 대상을 고정값으로 하드코딩했다
+  (2026-09-15 quality-watcher가 "왜 이 셋은 `_resolve_return_to`를 안 쓰냐"고
+  확인 필요로 짚었는데, 호출자가 하나뿐이면 그 간접 계층이 불필요하다는
+  의도된 설계다 — 나중에 또 이 질문이 나오면 이 문단을 참고할 것).
+- **차수 삭제는 cascade가 필요하다** — `outbound_item_photos`(DB row + 실제 파일)
+  → `outbound_items` → `outbound_planned_items` → `outbound_qr_exports` →
+  `outbound_batches` 순서(자식 먼저, FK 제약 때문에 순서를 지켜야 함).
+  `database.delete_outbound_batches()`가 이 순서를 담당하고, 지워진 사진의
+  **실제 파일명 목록**을 반환해서 호출부(`app.py`)가 `OUTBOUND_PHOTO_DIR`에서
+  디스크 파일까지 지운다(`delete_outbound_item()`과 같은 계약).
+  **`finished_goods_serials`(S/N 발급이력)는 배치와 무관한 별개 테이블이라
+  배치 삭제에 안 딸려온다** — 실수로 여기에 끼워넣지 말 것, 핵심 회귀 포인트다.
+- **확인 완료(잠금)된 배치도 삭제 가능하다** — 22절의 "확인 시 수정 잠금"과
+  "삭제"는 서로 다른 개념으로 취급한다(`_outbound_batch_lock_response()`를
+  삭제 라우트에서 호출하지 않음). 잠금은 실수로 내용이 바뀌는 걸 막는 장치고,
+  삭제는 권한을 가진 사람이 의도적으로 기록 자체를 없애는 행위라 별개다.

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}모델명 분류 규칙 — Chardon QMS{% endblock %}
 {% block content %}
 <h2>🚚 모델명 분류 규칙 관리</h2>
+
+{{ admin_delete_bar(url_for('outbound_rule_delete_selected'), 'rule_keys', '분류 규칙', show=('outbound_delete' in user_perms)) }}
 
 {% if is_admin %}
 <div class="card">
@@ -36,7 +39,7 @@
     <thead><tr><th style="width:120px;">코드</th><th>라벨</th><th style="width:160px;"></th></tr></thead>
     <tbody>
       {% for r in rules[kind] %}
-      <tr>
+      <tr data-admin-id="{{ kind }}:{{ r['code'] }}">
         <td>{{ r['code'] }}</td>
         <td>
           <form method="POST" action="{{ url_for('outbound_rule_update', kind=kind, code=r['code']) }}"

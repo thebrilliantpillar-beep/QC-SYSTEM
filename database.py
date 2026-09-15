@@ -3557,6 +3557,15 @@ def delete_serial(serial_id):
     conn.close()
 
 
+def delete_serials_bulk(serial_ids):
+    """S/N 발급 이력을 여러 건 한 번에 삭제."""
+    conn = get_conn()
+    conn.executemany("DELETE FROM finished_goods_serials WHERE id=?",
+                      [(sid,) for sid in serial_ids])
+    conn.commit()
+    conn.close()
+
+
 def list_serials(query=None, limit=50):
     """S/N 발급 이력 최신순. query가 있으면 부분일치로 거른다."""
     conn = get_conn()
@@ -3663,6 +3672,35 @@ def list_outbound_batches(query=None, limit=200):
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return rows
+
+
+def delete_outbound_batches(batch_ids):
+    """차수(배치)를 통째로 삭제한다. 배치 안의 스캔 항목·사진(DB row)·계획 S/N·
+    QR 라벨 출력 이력까지 전부 같이 지운다 — FK 제약(PRAGMA foreign_keys=ON) 때문에
+    자식 테이블부터 지워야 한다. 발급된 S/N 자체(finished_goods_serials)는 배치와
+    무관한 별개 이력이라 손대지 않는다. 확인 완료(잠금) 여부는 확인하지 않는다 —
+    '삭제'는 '수정'과 다른 개념이라 _outbound_batch_lock_response()의 잠금 대상이 아니다.
+    반환: 지워진 사진의 실제 파일명 목록(호출부가 디스크에서도 지울 것 —
+    delete_outbound_item()과 같은 계약)."""
+    conn = get_conn()
+    photo_paths = []
+    for batch_id in batch_ids:
+        rows = conn.execute("""
+            SELECT file_path FROM outbound_item_photos
+             WHERE item_id IN (SELECT id FROM outbound_items WHERE batch_id=?)
+        """, (batch_id,)).fetchall()
+        photo_paths += [r["file_path"] for r in rows]
+        conn.execute("""
+            DELETE FROM outbound_item_photos
+             WHERE item_id IN (SELECT id FROM outbound_items WHERE batch_id=?)
+        """, (batch_id,))
+        conn.execute("DELETE FROM outbound_items WHERE batch_id=?", (batch_id,))
+        conn.execute("DELETE FROM outbound_planned_items WHERE batch_id=?", (batch_id,))
+        conn.execute("DELETE FROM outbound_qr_exports WHERE batch_id=?", (batch_id,))
+        conn.execute("DELETE FROM outbound_batches WHERE id=?", (batch_id,))
+    conn.commit()
+    conn.close()
+    return photo_paths
 
 
 def add_outbound_item(batch_id, serial_no, product_name, quantity):
@@ -3798,6 +3836,15 @@ def delete_classify_rule(kind, code):
     table = _OUTBOUND_RULE_TABLES[kind]
     conn = get_conn()
     conn.execute(f"DELETE FROM {table} WHERE code=?", (code,))
+    conn.commit()
+    conn.close()
+
+
+def delete_classify_rules_bulk(kind, codes):
+    """kind('voltage'/'suffix'/'pcode') 하나의 매핑표에서 여러 code를 한 번에 삭제."""
+    table = _OUTBOUND_RULE_TABLES[kind]
+    conn = get_conn()
+    conn.executemany(f"DELETE FROM {table} WHERE code=?", [(c,) for c in codes])
     conn.commit()
     conn.close()
 
@@ -3996,6 +4043,16 @@ def list_qr_exports(query=None, limit=200):
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return rows
+
+
+def delete_qr_exports(export_ids):
+    """QR 라벨 출력 이력을 여러 건 한 번에 삭제. 실제 출력 파일은 디스크에 저장 안 하고
+    매번 즉석 생성해서 다운로드만 시키는 방식이라 DB row만 지우면 된다."""
+    conn = get_conn()
+    conn.executemany("DELETE FROM outbound_qr_exports WHERE id=?",
+                      [(eid,) for eid in export_ids])
+    conn.commit()
+    conn.close()
 
 
 # ---------- 성적서 위변조 검증 ----------

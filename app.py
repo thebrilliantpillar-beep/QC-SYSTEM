@@ -163,7 +163,8 @@ PERM_GROUPS = [
         ("approve_revoke", "결정 회수"),
     ]),
     ("출고", [
-        ("outbound", "출고(S/N 발급/스캔/이력) 관리"),
+        ("outbound",        "출고(S/N 발급/스캔/이력) 관리"),
+        ("outbound_delete", "출고 기록 일괄삭제 ('출고' 권한과 함께 부여할 것)"),
     ]),
     ("출력", [
         ("output", "성적서 출력"),
@@ -4034,6 +4035,9 @@ _ADMIN_DELETE_RETURNS = {
     "ncr_list": "ncr_list",
     "supplier_report_list": "supplier_report_list",
     "defect_history": "defect_history",
+    "outbound_round_list": "outbound_round_list",
+    "outbound_scan_list": "outbound_scan_list",
+    "outbound_history": "outbound_history",
 }
 
 def _resolve_return_to(default="history"):
@@ -8133,6 +8137,106 @@ def outbound_planned_item_delete(planned_id):
     record_change("출고 계획 항목 삭제", "outbound_planned_item", planned_id, "")
     flash("계획 항목이 삭제됐어.")
     return redirect(request.referrer or url_for("outbound_history"))
+
+
+@app.route("/outbound/batch/delete-selected", methods=["POST"])
+@perm_required("outbound_delete")
+def outbound_batch_delete_selected():
+    """차수(배치) 일괄삭제 — 차수 입력/출고 스캔/출고 이력 3개 화면이 이 라우트 하나를
+    공유한다(셋 다 outbound_batches를 가리키는 같은 목록이기 때문). 확인 완료(잠금)된
+    배치도 지울 수 있다 — 잠금은 '수정'을 막는 장치라 '삭제'와는 다른 개념으로 본다."""
+    ids_raw = request.form.getlist("batch_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    back = _resolve_return_to("outbound_history")
+    if not ids:
+        flash("삭제할 차수를 선택해줘.")
+        return redirect(url_for(back))
+    for bid in ids:
+        record_change("출고 차수 삭제", "outbound_batch", bid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    photo_names = db.delete_outbound_batches(ids)
+    for fname in photo_names:
+        try:
+            os.remove(os.path.join(OUTBOUND_PHOTO_DIR, fname))
+        except OSError:
+            pass
+    flash(f"차수 {len(ids)}건 삭제됐어.")
+    return redirect(url_for(back))
+
+
+@app.route("/outbound/serial/delete-selected", methods=["POST"])
+@perm_required("outbound_delete")
+def outbound_serial_delete_selected():
+    ids_raw = request.form.getlist("serial_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 발급 이력을 선택해줘.")
+        return redirect(url_for("outbound_serial_new"))
+    for sid in ids:
+        record_change("완제품 S/N 발급 이력 삭제(일괄)", "outbound_serial", sid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    db.delete_serials_bulk(ids)
+    flash(f"발급 이력 {len(ids)}건 삭제됐어.")
+    return redirect(url_for("outbound_serial_new"))
+
+
+@app.route("/outbound/rules/delete-selected", methods=["POST"])
+@perm_required("outbound_delete")
+def outbound_rule_delete_selected():
+    """분류 규칙 3개 표를 한 폼으로 같이 처리한다. 각 항목은 'kind:code' 형태의
+    합성 키로 넘어온다(_admin_delete.html 매크로가 페이지당 1개 인스턴스만 지원해서,
+    표 3개에 매크로를 3번 부르는 대신 이 방식을 쓴다)."""
+    keys = request.form.getlist("rule_keys")
+    grouped = {}
+    for k in keys:
+        if ":" not in k:
+            continue
+        kind, code = k.split(":", 1)
+        if kind not in _OUTBOUND_RULE_KIND_LABELS:
+            continue
+        grouped.setdefault(kind, []).append(code)
+    if not grouped:
+        flash("삭제할 규칙을 선택해줘.")
+        return redirect(url_for("outbound_rules"))
+    total = 0
+    for kind, codes in grouped.items():
+        for code in codes:
+            record_change("모델명 분류 규칙 삭제(일괄)", "outbound_rule", None, f"{kind} / {code}")
+        db.delete_classify_rules_bulk(kind, codes)
+        total += len(codes)
+    flash(f"규칙 {total}건 삭제됐어.")
+    return redirect(url_for("outbound_rules"))
+
+
+@app.route("/outbound/qr-exports/delete-selected", methods=["POST"])
+@perm_required("outbound_delete")
+def outbound_qr_export_delete_selected():
+    ids_raw = request.form.getlist("export_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 출력 이력을 선택해줘.")
+        return redirect(url_for("outbound_qr_export_history"))
+    for eid in ids:
+        record_change("QR 출력 이력 삭제(일괄)", "outbound_qr_export", eid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    db.delete_qr_exports(ids)
+    flash(f"출력 이력 {len(ids)}건 삭제됐어.")
+    return redirect(url_for("outbound_qr_export_history"))
 
 
 db.init_db()

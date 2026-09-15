@@ -8,6 +8,20 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-15 (추가10)**: 출고(🚚) 메뉴 6개 화면(차수 입력/S/N 발급/분류 규칙 관리/
+  출고 스캔/출고 이력/QR 출력 이력) 전부에 일괄선택삭제 추가 + 신규 권한
+  `outbound_delete` 신설(planner→developer→quality-watcher). 기존
+  `templates/_admin_delete.html`의 `admin_delete_bar` 매크로(성적서 4개 화면이
+  이미 쓰던 것)를 `show=('outbound_delete' in user_perms)`로 재사용 — 매크로
+  자체는 수정 안 함. 매크로가 페이지당 1개 인스턴스만 지원하는 제약을 발견해서,
+  분류 규칙(표 3개)은 `kind:code` 합성 키로, 출고 스캔(표 2개)은 두 표 모두에
+  `data-admin-id`를 붙이는 방식으로 우회(CLAUDE.md 23절). 차수(배치) 삭제는
+  차수입력/출고스캔/출고이력 3화면이 라우트 하나를 공유하고 cascade delete(항목→
+  사진DB+파일→계획S/N→QR출력이력→배치) 처리, S/N발급이력은 배치와 무관해 안
+  지워지는 것 확인. 확인완료(잠금)된 배치도 삭제는 가능(잠금≠삭제 방지). Flask
+  test_client로 권한별 UI 노출/차단, end-to-end cascade 삭제(사진파일까지),
+  finished_goods_serials 보존을 실제 검증. quality-watcher가 "3개 라우트가
+  _resolve_return_to 안 씀" 지적 → 호출 화면이 하나뿐이라 의도된 설계로 확인(결함 아님).
 - **2026-09-15 (추가9)**: 출고 확인 = 잠금 기능 구현(planner→developer→quality-watcher).
   "✅ 출고 확인"을 누르면 그 배치의 항목/사진/배치정보 수정이 즉시 잠기고(화면+서버
   양쪽), 확인자 본인 또는 admin 계정만 "↺ 확인 회수"로 풀 수 있다. 예전 설계문서

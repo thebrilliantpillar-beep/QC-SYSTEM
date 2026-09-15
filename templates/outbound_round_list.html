@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
 {% block title %}차수 목록 — Chardon QMS{% endblock %}
 {% block content %}
 <h2>🚚 차수 목록</h2>
+
+{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_round_list', show=('outbound_delete' in user_perms)) }}
 
 <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
   <p class="muted" style="margin:0; font-size:13.5px;">
@@ -25,7 +28,7 @@
     <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
     <tbody>
       {% for b in batches %}
-      <tr>
+      <tr data-admin-id="{{ b.id }}">
         <td>{{ b.round_no or '-' }}</td>
         <td><a href="{{ url_for('outbound_round_edit', batch_id=b.id) }}">{{ b.customer or '-' }}</a></td>
         <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
