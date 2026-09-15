@@ -7658,7 +7658,8 @@ def outbound_scan_edit(batch_id):
                            planned_serials=planned_serials,
                            plan_rows=progress["rows"], plan_summary=progress["summary"],
                            body_photo_enabled=db.outbound_body_photo_enabled(),
-                           can_revoke_confirm=can_revoke_confirm)
+                           can_revoke_confirm=can_revoke_confirm,
+                           check_fields=[(f, db.OUTBOUND_CHECK_LABELS[f]) for f in db.OUTBOUND_CHECK_FIELDS])
 
 
 @app.route("/outbound/batch/<int:batch_id>/update", methods=["POST"])
@@ -7786,6 +7787,62 @@ def outbound_item_edit(item_id):
         return jsonify({"ok": True})
     flash("항목이 수정됐어.")
     return redirect(url_for("outbound_scan_edit", batch_id=item["batch_id"]))
+
+
+@app.route("/outbound/item/<int:item_id>/check", methods=["POST"])
+@perm_required("outbound")
+def outbound_item_check_update(item_id):
+    """5개 품질확인항목(체결/QR/간지포장/RST/부속품) 중 하나를 PASS/FAIL/SPECIAL로
+    저장한다. 터치 한 번 = 저장 한 번(기존 사진 업로드와 같은 즉시저장 아키텍처)."""
+    item = db.get_outbound_item(item_id)
+    if item is None:
+        return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    batch = db.get_outbound_batch(item["batch_id"])
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=item["batch_id"])
+    if locked:
+        return locked
+
+    field = request.form.get("field", "")
+    value = request.form.get("value", "")
+    if field not in db.OUTBOUND_CHECK_FIELDS:
+        return jsonify({"ok": False, "error": "잘못된 검사항목이야."}), 400
+    if value not in db.OUTBOUND_RESULT_VALUES:
+        return jsonify({"ok": False, "error": "잘못된 판정값이야."}), 400
+
+    db.update_outbound_item_check(item_id, field, value)
+    updated = dict(db.get_outbound_item(item_id))
+    result_auto = db.compute_outbound_item_auto_result(updated)
+    record_change("출고 항목 검사결과 변경", "outbound_item", item_id,
+                  f"{item['serial_no']} / {db.OUTBOUND_CHECK_LABELS[field]}={value}")
+    return jsonify({"ok": True, "result_auto": result_auto,
+                    "result_override": updated.get("result_override")})
+
+
+@app.route("/outbound/item/<int:item_id>/result-override", methods=["POST"])
+@perm_required("outbound")
+def outbound_item_result_override(item_id):
+    """전체판정 수동 오버라이드("판정 번복"). value가 빈 문자열이면 오버라이드를 지우고
+    자동판정으로 되돌린다."""
+    item = db.get_outbound_item(item_id)
+    if item is None:
+        return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    batch = db.get_outbound_batch(item["batch_id"])
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=item["batch_id"])
+    if locked:
+        return locked
+
+    value = request.form.get("value", "")
+    if value == "":
+        value = None
+    elif value not in db.OUTBOUND_RESULT_VALUES:
+        return jsonify({"ok": False, "error": "잘못된 판정값이야."}), 400
+
+    db.set_outbound_item_result_override(item_id, value)
+    updated = dict(db.get_outbound_item(item_id))
+    result_auto = db.compute_outbound_item_auto_result(updated)
+    record_change("출고 항목 전체판정 수동변경", "outbound_item", item_id,
+                  f"{item['serial_no']} / {value or '자동으로 복귀'}")
+    return jsonify({"ok": True, "result_auto": result_auto, "result_override": value})
 
 
 @app.route("/outbound/item/<int:item_id>/delete", methods=["POST"])

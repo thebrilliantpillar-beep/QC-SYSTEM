@@ -914,23 +914,34 @@ def build_ncr_excel(ncr, photo_paths=None):
         return None, f"엑셀 생성 중 오류: {e}"
 
 
-def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_s, PILImage=None):
+def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_s,
+                           PILImage=None, stretch=False):
     """photo_paths(이미 존재 확인이 끝난 절대경로 리스트)를 col_widths_emu × row_heights_emu로
-    정의된 사각 영역 안에 가로로 N등분해서, 각 슬롯 안에서 비율 유지 최대크기로 배치한다.
-    col_s/row_s: 이 영역의 좌상단이 워크시트에서 몇 번째 열/행인지(0-based).
+    정의된 사각 영역 안에 가로로 N등분해서 배치한다. col_s/row_s: 이 영역의 좌상단이
+    워크시트에서 몇 번째 열/행인지(0-based).
 
-    N장을 총 너비 N등분 → 각 슬롯 안에서 비율 유지하며 최대 크기로 맞춤 →
-    수직 중앙 정렬. 가로/세로/혼합 모두 대응.
+    stretch=False(기본값): N장을 총 너비 N등분 → 각 슬롯 안에서 비율 유지하며 최대
+    크기로 맞춤 → 수직 중앙 정렬(기존 동작 그대로, `_insert_ncr_photos()`가 이 방식을 씀).
 
-    _insert_ncr_photos()(불량현상사진, 고정 영역)와 build_outbound_excel()(출고 이력,
-    항목당 1열×1행 사진 칸)이 이 함수 하나를 공유한다(CLAUDE.md 8-1절 공용 헬퍼 원칙)."""
+    stretch=True(2026-09-15 신규): 비율을 무시하고 슬롯 전체를 사진으로 꽉 채운다
+    (출고 이력 엑셀 인디케이터/본체 사진 — 사용자가 "비율 상관없이 셀에 꽉 채워도
+    된다"고 명시적으로 확인함). 이땐 슬롯의 좌상단/우하단 두 좌표를 `TwoCellAnchor`로
+    직접 지정한다 — `OneCellAnchor(_from=..., ext=...)`는 실제 Microsoft Excel에서
+    openpyxl이 spPr에 xfrm을 안 써주면 ext 크기를 무시하고 앵커 셀 전체로 늘어나는
+    실측 버그가 있다(CLAUDE.md 7-4-2절, QR 라벨 커밋 88013b9로 실제 고친 사례).
+    "정확히 슬롯 하나만큼 채우기"가 목적인 이 용도엔 애초에 TwoCellAnchor 쪽이
+    LibreOffice·실제 Excel 양쪽에서 일관되게 그려지므로 더 안전하다.
+
+    _insert_ncr_photos()(불량현상사진, stretch 인자 안 씀 → 기존 동작 그대로)와
+    build_outbound_excel()(출고 이력, stretch=True)이 이 함수 하나를 공유한다
+    (CLAUDE.md 8-1절 공용 헬퍼 원칙)."""
     if not photo_paths:
         return
 
     n = len(photo_paths)
     total_w_emu = sum(col_widths_emu)
     total_h_emu = sum(row_heights_emu)
-    slot_w = total_w_emu // n  # 슬롯 너비 (균등 분할)
+    slot_w = total_w_emu // n
 
     def _resolve(abs_pos, offsets, base_idx):
         cum = 0
@@ -941,35 +952,43 @@ def _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_
         return base_idx + len(offsets) - 1, abs_pos - (cum - offsets[-1])
 
     for i, path in enumerate(photo_paths):
-        # 각 사진 비율 (PIL 없으면 4:3 기본)
-        aspect = 4 / 3
-        if PILImage:
-            try:
-                with PILImage.open(path) as pil:
-                    ow, oh = pil.size
-                    if oh:
-                        aspect = ow / oh
-            except Exception:
-                pass
-
-        # 슬롯(slot_w × total_h) 안에서 비율 유지하며 최대 크기
-        if aspect >= slot_w / total_h_emu:
-            iw, ih = slot_w, int(slot_w / aspect)
+        if stretch:
+            iw, ih = slot_w, total_h_emu
         else:
-            iw, ih = int(total_h_emu * aspect), total_h_emu
+            aspect = 4 / 3
+            if PILImage:
+                try:
+                    with PILImage.open(path) as pil:
+                        ow, oh = pil.size
+                        if oh:
+                            aspect = ow / oh
+                except Exception:
+                    pass
+            if aspect >= slot_w / total_h_emu:
+                iw, ih = slot_w, int(slot_w / aspect)
+            else:
+                iw, ih = int(total_h_emu * aspect), total_h_emu
 
-        x_abs = i * slot_w                    # 영역 왼쪽 기준 x 오프셋
-        y_abs = (total_h_emu - ih) // 2       # 수직 중앙
+        x_abs = i * slot_w
+        y_abs = 0 if stretch else (total_h_emu - ih) // 2
 
         img_col, img_col_off = _resolve(x_abs, col_widths_emu, col_s)
         img_row, img_row_off = _resolve(y_abs, row_heights_emu, row_s)
 
         img = XLImage(path)
-        img.anchor = OneCellAnchor(
-            _from=AnchorMarker(col=img_col, colOff=img_col_off,
-                               row=img_row, rowOff=img_row_off),
-            ext=XDRPositiveSize2D(iw, ih),
-        )
+        if stretch:
+            end_col, end_col_off = _resolve(x_abs + iw, col_widths_emu, col_s)
+            end_row, end_row_off = _resolve(y_abs + ih, row_heights_emu, row_s)
+            img.anchor = TwoCellAnchor(
+                editAs="oneCell",
+                _from=AnchorMarker(col=img_col, colOff=img_col_off, row=img_row, rowOff=img_row_off),
+                to=AnchorMarker(col=end_col, colOff=end_col_off, row=end_row, rowOff=end_row_off),
+            )
+        else:
+            img.anchor = OneCellAnchor(
+                _from=AnchorMarker(col=img_col, colOff=img_col_off, row=img_row, rowOff=img_row_off),
+                ext=XDRPositiveSize2D(iw, ih),
+            )
         ws.add_image(img)
 
 
@@ -1403,8 +1422,11 @@ def build_outbound_excel(batch, items, photo_dir):
     시트명 "출고내역")에 맞춰 xlsx로 만들어 BytesIO로 반환한다(디스크 저장 안 함).
 
     batch: {"customer", "ship_date", "handler", "round_no"} 등을 가진 dict.
-    items: database.list_outbound_items()의 형태(각 item에 "photos" 리스트, 각 photo는
-           {"file_path", "kind"} — kind는 'indicator'/'body').
+    items: database.list_outbound_items()의 형태 — 각 item에 "photos" 리스트(각 photo는
+           {"file_path", "kind"}, kind는 'indicator'/'body'), 그리고 2026-09-15부터
+           5개 check_*(체결/QR/간지포장/RST/부속품, 값은 'PASS'/'FAIL'/'SPECIAL'/None)와
+           "result_auto"/"result_effective"(자동판정/실제적용판정, database.py에서 계산됨)가
+           같이 붙어 온다.
     photo_dir: 사진이 실제 저장된 디렉터리(app.py의 OUTBOUND_PHOTO_DIR) — DB에는 파일명만
     있으므로 절대경로로 바꾸는 데 필요하다."""
     import io as _io
@@ -1429,54 +1451,87 @@ def build_outbound_excel(batch, items, photo_dir):
 
     ws["A1"] = "출고 내역서"
     ws["A1"].font = Font(bold=True, size=16)
-    ws.merge_cells("A1:E1")
+    ws.merge_cells("A1:K1")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
     ws["A3"] = f"거래처 {batch.get('customer') or ''}"
     ws["C3"] = f"차수 {batch.get('round_no') or ''}"
     ws["D3"] = f"출고일 {batch.get('ship_date') or ''}"
-    ws["E3"] = f"담당자 {batch.get('handler') or ''}"
-    for cell in ("A3", "C3", "D3", "E3"):
+    ws["K3"] = f"담당자 {batch.get('handler') or ''}"
+    for cell in ("A3", "C3", "D3", "K3"):
         ws[cell].font = bold
 
+    # 2026-09-15 확장: 실제 회사 서식 예시 데이터로 확정한 11열 구조.
+    # 순번/S·N/제품명·모델명(1~3) → 품질확인 5종(4~8) → 사진 2종(9~10) → 판정(11).
     HEADER_ROW = 5
-    headers = ["순번", "S/N", "제품명/모델명", "인디케이터 사진", "본체사진"]
+    headers = [
+        "순번", "S/N", "제품명/모델명",
+        "체결 상태 확인\n(가대 다리, 탱크 다리,\n네마)",
+        "QR 번호\n부착 상태 확인",
+        "간지 포장 상태",
+        "RST단자\n나무판 결착",
+        "부속품 유무 확인",
+        "인디케이터 사진", "본체사진", "판정",
+    ]
     for i, h in enumerate(headers, start=1):
         c = ws.cell(row=HEADER_ROW, column=i, value=h)
         c.font = bold
         c.fill = header_fill
         c.alignment = center
         c.border = border
+    ws.row_dimensions[HEADER_ROW].height = 60  # 헤더가 셀 폭에서 자동줄바꿈까지 겹쳐 4줄까지
+    # 늘어나는 열이 있어 45pt로는 첫 줄이 위로 잘렸다(2026-09-15 LibreOffice 렌더로 확인,
+    # 계획문서 수치보다 키움 — 계획에 없던 자잘한 버그 수정).
 
-    widths = [6, 20, 26, 20, 20]
+    widths = [6, 16, 22, 12, 12, 11, 11, 12, 16, 16, 9]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
-    # fit-to-page를 안 걸면 LibreOffice가 E열(본체사진)을 인쇄영역 밖으로 통째로
-    # 잘라버린다 — 실제 PDF 변환으로 발견된 버그(2026-09-15, 7-5절 함정 재발).
-    # 반드시 이 3줄 세트로 sheet_properties.pageSetUpPr을 직접 건드려야 한다
-    # (ws.page_setup.fitToPage = True 직접대입은 AttributeError 남, 7-5절 참고).
+    # fit-to-page를 안 걸면 LibreOffice가 오른쪽 열을 인쇄영역 밖으로 통째로 잘라버린다
+    # (2026-09-15, 7-5절 함정 재발 이력 있음). 반드시 이 3줄 세트로
+    # sheet_properties.pageSetUpPr을 직접 건드려야 한다(ws.page_setup.fitToPage = True
+    # 직접대입은 AttributeError 남, 7-5절 참고).
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-    CHAR_TO_EMU = 7 * 9525
-    col_widths_emu = [int(w * CHAR_TO_EMU) for w in widths]
+    # 2026-09-15: Calibri 기준 7*9525 근사값을 썼다가 실제 Excel COM 측정으로 잘못됨을
+    # 확인했다 — I열(문자단위 16)의 실제 렌더 폭이 96pt인데 7*9525 계산은 84pt(87.5%)만
+    # 나와서 stretch=True 사진이 셀 폭보다 좁게 채워지는 원인이었다. _excel_col_width_to_emu()
+    # (mdw=8, ECMA-376 공식) 로 계산하면 정확히 96pt가 나와 실측과 일치한다 — 이 워크북도
+    # QR 라벨 워크북과 마찬가지로 MDW=8 환경이다(7-4-1절, 임의로 7 재사용하지 말 것).
+    col_widths_emu = [_excel_col_width_to_emu(w) for w in widths]
     ROW_HEIGHT_PT = 80
     row_height_emu = ROW_HEIGHT_PT * 12700
+
+    # 0-based 열 인덱스: A=0...K=10. 인디케이터사진=I(8), 본체사진=J(9).
+    PHOTO_INDICATOR_COL = 8
+    PHOTO_BODY_COL = 9
 
     DATA_START_ROW = HEADER_ROW + 1
     for offset, it in enumerate(items):
         row_i = DATA_START_ROW + offset
         ws.row_dimensions[row_i].height = ROW_HEIGHT_PT
-        values = [offset + 1, it["serial_no"], it.get("product_name") or ""]
+        values = [
+            offset + 1, it["serial_no"], it.get("product_name") or "",
+            it.get("check_tie") or "", it.get("check_qr") or "",
+            it.get("check_wrap") or "", it.get("check_rst") or "",
+            it.get("check_access") or "",
+        ]
         for j, v in enumerate(values, start=1):
             c = ws.cell(row=row_i, column=j, value=v)
             c.border = border
             c.alignment = center
-        ws.cell(row=row_i, column=4).border = border
-        ws.cell(row=row_i, column=5).border = border
+
+        # 9=인디케이터사진, 10=본체사진 (값은 안 씀, _place_photos_in_area가 이미지로 채움)
+        ws.cell(row=row_i, column=9).border = border
+        ws.cell(row=row_i, column=10).border = border
+
+        result_cell = ws.cell(row=row_i, column=11, value=it.get("result_effective") or "")
+        result_cell.border = border
+        result_cell.alignment = center
+        result_cell.font = bold
 
         photos = it.get("photos") or []
         indicator_paths = [
@@ -1489,10 +1544,11 @@ def build_outbound_excel(batch, items, photo_dir):
             if p.get("kind") == "body"
             and os.path.exists(os.path.join(photo_dir, p["file_path"]))
         ]
-        _place_photos_in_area(ws, indicator_paths, [col_widths_emu[3]], [row_height_emu],
-                               3, row_i - 1, PILImage)
-        _place_photos_in_area(ws, body_paths, [col_widths_emu[4]], [row_height_emu],
-                               4, row_i - 1, PILImage)
+        # stretch=True: 비율 무시하고 셀 꽉 채우기 (사용자 명시적 요청, 2026-09-15)
+        _place_photos_in_area(ws, indicator_paths, [col_widths_emu[PHOTO_INDICATOR_COL]],
+                               [row_height_emu], PHOTO_INDICATOR_COL, row_i - 1, PILImage, stretch=True)
+        _place_photos_in_area(ws, body_paths, [col_widths_emu[PHOTO_BODY_COL]],
+                               [row_height_emu], PHOTO_BODY_COL, row_i - 1, PILImage, stretch=True)
 
     buf = _io.BytesIO()
     wb.save(buf)

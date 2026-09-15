@@ -12,6 +12,47 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "iqc.db")
 
+# ---------- 2026-09-15 확장: 출고 항목 품질확인 5종 + 전체판정 ----------
+# 사용자가 준 실제 회사 "출고 내역서" 서식 헤더 순서 그대로. 배치(차수) 단위가 아니라
+# 항목(S/N, outbound_items 한 행) 단위다 — 실제 첨부 엑셀을 openpyxl로 직접 읽어서 확인함.
+OUTBOUND_CHECK_FIELDS = ["check_tie", "check_qr", "check_wrap", "check_rst", "check_access"]
+OUTBOUND_CHECK_LABELS = {
+    "check_tie": "체결 상태 확인 (가대 다리, 탱크 다리, 네마)",
+    "check_qr": "QR 번호 부착 상태 확인",
+    "check_wrap": "간지 포장 상태",
+    "check_rst": "RST단자 나무판 결착",
+    "check_access": "부속품 유무 확인",
+}
+OUTBOUND_RESULT_VALUES = ("PASS", "FAIL", "SPECIAL")
+
+
+def compute_outbound_item_auto_result(item):
+    """item: dict(다섯 개 check_* 키 포함 — sqlite3.Row면 호출 전에 dict()로 바꿀 것).
+    5개 전부 값이 있어야 계산하고, 하나라도 비어있으면(None, 아직 안 눌러봄) None을
+    돌려준다("미검사").
+
+    우선순위: SPECIAL이 하나라도 있으면 SPECIAL(FAIL이 섞여 있어도 SPECIAL이 이긴다) →
+    그 다음 FAIL이 하나라도 있으면 FAIL → 전부 PASS면 PASS.
+    (2026-09-15, 사용자가 준 실제 회사 서식의 예시 데이터로 확정된 우선순위:
+    PASS,PASS,PASS,FAIL,SPECIAL → 판정=SPECIAL. 이 순서를 절대 바꾸지 말 것 —
+    FAIL을 먼저 체크하면 실제 서식과 다른 결과가 나온다.)"""
+    vals = [item.get(f) for f in OUTBOUND_CHECK_FIELDS]
+    if any(v not in OUTBOUND_RESULT_VALUES for v in vals):
+        return None
+    if "SPECIAL" in vals:
+        return "SPECIAL"
+    if "FAIL" in vals:
+        return "FAIL"
+    return "PASS"
+
+
+def outbound_item_effective_result(item):
+    """수동 오버라이드가 있으면 그 값, 없으면 자동판정 그대로.
+    inspection_items.override_result / app.py의 effective_result() 패턴과 동일 설계
+    (CLAUDE.md 관례 — 원본 자동판정은 안 지우고 오버라이드만 별도 저장)."""
+    return item.get("result_override") or compute_outbound_item_auto_result(item)
+# ---------- 확장 끝 ----------
+
 def get_ma_by_component(component_no):
     """파츠 자재번호 -> 그 파츠가 속한 MA와 그 MA의 파츠 전체를 반환.
 
@@ -681,6 +722,14 @@ def init_db():
             created_at      TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+
+    existing_oi_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_items)").fetchall()]
+    # 2026-09-15 확장: 출고 전 5개 품질확인항목(PASS/FAIL/SPECIAL) + 전체판정 수동 오버라이드.
+    # 자동판정 값 자체는 저장하지 않는다 — compute_outbound_item_auto_result()가 5개
+    # check_* 컬럼에서 매번 계산한다(CLAUDE.md 8-1절, 저장값-계산값 불일치 사고 방지).
+    for _ob_col in OUTBOUND_CHECK_FIELDS + ["result_override"]:
+        if _ob_col not in existing_oi_cols:
+            cur.execute(f"ALTER TABLE outbound_items ADD COLUMN {_ob_col} TEXT")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS outbound_item_photos (
@@ -3735,6 +3784,8 @@ def list_outbound_items(batch_id):
             (it["id"],)).fetchall()
         row = dict(it)
         row["photos"] = [dict(p) for p in photos]
+        row["result_auto"] = compute_outbound_item_auto_result(row)
+        row["result_effective"] = outbound_item_effective_result(row)
         result.append(row)
     conn.close()
     return result
@@ -3771,6 +3822,31 @@ def add_outbound_item_photo(item_id, file_path, kind="indicator"):
     photo_id = cur.lastrowid
     conn.close()
     return photo_id
+
+
+def update_outbound_item_check(item_id, field, value):
+    """field는 OUTBOUND_CHECK_FIELDS 안에 있어야 하고 value는 OUTBOUND_RESULT_VALUES
+    안에 있어야 한다 — field가 SQL 컬럼명으로 f-string에 그대로 들어가므로, 호출부
+    (app.py 라우트)가 반드시 먼저 화이트리스트 검증을 해야 한다. 여기서도 다시 한 번
+    검증한다(방어 2중화, 라우트가 실수로 빠뜨려도 SQL 인젝션 경로가 안 되게)."""
+    if field not in OUTBOUND_CHECK_FIELDS:
+        raise ValueError(f"허용되지 않은 검사항목 필드: {field}")
+    if value not in OUTBOUND_RESULT_VALUES:
+        raise ValueError(f"허용되지 않은 판정값: {value}")
+    conn = get_conn()
+    conn.execute(f"UPDATE outbound_items SET {field}=? WHERE id=?", (value, item_id))
+    conn.commit()
+    conn.close()
+
+
+def set_outbound_item_result_override(item_id, value):
+    """value: 'PASS'/'FAIL'/'SPECIAL' 중 하나 또는 None(오버라이드 해제 → 자동판정 복귀)."""
+    if value is not None and value not in OUTBOUND_RESULT_VALUES:
+        raise ValueError(f"허용되지 않은 판정값: {value}")
+    conn = get_conn()
+    conn.execute("UPDATE outbound_items SET result_override=? WHERE id=?", (value, item_id))
+    conn.commit()
+    conn.close()
 
 
 def outbound_body_photo_enabled():
@@ -3953,13 +4029,15 @@ def outbound_plan_progress(batch_id):
 
     반환: {"rows": [{"serial_no", "model_label", "status"}, ...],
            "summary": {"planned_total", "matched", "extra"}}
-    status: 'confirmed'(스캔됨 + 필요 사진 전부 있음) / 'incomplete'(스캔은 됐는데
-    사진이 부족함) / 'pending'(아직 안 스캔됨).
+    status: 'confirmed'(스캔됨 + 필요 사진 전부 있음 + 5개 품질확인항목 전부 선택됨) /
+    'incomplete'(스캔은 됐는데 사진 또는 품질확인이 부족함) / 'pending'(아직 안 스캔됨).
 
     본체사진이 "필요 사진"에 들어가는지는 이 함수를 호출하는 시점의
     outbound_body_photo_enabled() 값을 따른다(토글이 꺼져 있으면 인디케이터
-    사진만 있으면 confirmed로 본다 — 애초에 입력받지 않는 항목을 조건에 넣으면
-    영원히 확인 불가능해지기 때문)."""
+    사진만 있으면 됨 — 애초에 입력받지 않는 항목을 조건에 넣으면 영원히 확인
+    불가능해지기 때문). 품질확인 5종은 2026-09-15 신규 — 5개 항목이 전부 선택된
+    항목이 하나라도 있으면 checks_ok로 본다(같은 S/N이 여러 번 스캔된 드문 경우,
+    사진 병합과 같은 방식으로 처리)."""
     items = list_outbound_items(batch_id)
     planned = list_planned_items(batch_id)
     body_required = outbound_body_photo_enabled()
@@ -3976,10 +4054,12 @@ def outbound_plan_progress(batch_id):
         its = items_by_serial.get(p["serial_no"]) or []
         scanned = bool(its)
         photos_ok = False
+        checks_ok = False
         if scanned:
             kinds = {ph.get("kind") or "indicator" for it in its for ph in (it.get("photos") or [])}
             photos_ok = ("indicator" in kinds) and (not body_required or "body" in kinds)
-        if scanned and photos_ok:
+            checks_ok = any(compute_outbound_item_auto_result(it) is not None for it in its)
+        if scanned and photos_ok and checks_ok:
             status = "confirmed"
             matched += 1
         elif scanned:
