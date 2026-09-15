@@ -1206,13 +1206,17 @@ def _ncr_mail_body_lines(ncr, contact_person=''):
 
 
 def ncr_mailto_url(ncr, supplier_email='', contact_person=''):
-    """부적합 통보서 mailto: URL 생성."""
-    import urllib.parse
-    params = urllib.parse.urlencode({
-        'subject': _ncr_mail_subject(ncr),
-        'body': '\n'.join(_ncr_mail_body_lines(ncr, contact_person=contact_person)),
-    })
-    return f"mailto:{supplier_email}?{params}"
+    """부적합 통보서 mailto: URL 생성.
+
+    2026-09-16: `urllib.parse.urlencode()`(폼 제출용, 띄어쓰기를 '+'로 바꿈)를 썼다가
+    실사용자가 아웃룩(특히 클래식)에서 제목·본문의 띄어쓰기가 전부 '+'로 깨져
+    보이는 걸 실제로 겪었다 — RFC 6068(mailto URI)은 '+'를 공백으로 취급하지 않고
+    글자 그대로 취급하는데, 크롬/G메일 같은 관대한 클라이언트만 우연히 봐준
+    것이었다. `quote(safe='')`로 띄어쓰기를 '%20'으로 정확히 인코딩해야 한다."""
+    from urllib.parse import quote
+    subject = quote(_ncr_mail_subject(ncr), safe='')
+    body = quote('\n'.join(_ncr_mail_body_lines(ncr, contact_person=contact_person)), safe='')
+    return f"mailto:{supplier_email}?subject={subject}&body={body}"
 
 
 def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, contact_person=''):
@@ -1423,6 +1427,8 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
         except Exception:
             pass
 
+    return outer.as_bytes()
+
 
 # ─────────────────────────────────────────────
 # 개선요청서 — 부적합 통보서(NCR)보다 가벼운 사전 조치 문서 (2026-09-15, 서명 없음)
@@ -1430,17 +1436,17 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
 IMPROVEMENT_TEMPLATE = os.path.join(BASE_DIR, "improvement_request_template.xlsx")
 IMPROVEMENT_SHEET    = "개선요청서"
 
-_IMPROVEMENT_DEFECT_CATEGORIES = ["치수 불량", "표면 결함", "기능 부적합", "포장 손상", "기타"]
-
-
 def _build_defect_type_richtext(selected, etc_text=""):
-    """불량유형 5개를 한 셀에 "☐/☑ {유형}"으로 나열하되, 선택된 항목만 굵게+빨간색으로
+    """불량유형을 한 셀에 "☐/☑ {유형}"으로 나열하되, 선택된 항목만 굵게+빨간색으로
     강조한다(2026-09-16 사용자 요청 — "체크된 부분은 색상 및 폰트 굵기 강조").
-    _build_remark_richtext()(295행)와 같은 CellRichText 패턴 재사용, 새로 만들지 않음."""
+    _build_remark_richtext()(295행)와 같은 CellRichText 패턴 재사용, 새로 만들지 않음.
+    항목 목록은 하드코딩하지 않고 db.list_improvement_defect_categories()(NCR과
+    공용인 불량유형 마스터, database.py) 하나만 참조한다 — 2026-09-16 사용자 확정:
+    "개선요청서 불량유형을 기존에 등록된 불량유형 내용으로 통일"."""
     normal = InlineFont(rFont="맑은 고딕", color="000000")
     checked = InlineFont(rFont="맑은 고딕", color="C00000", b=True)
     blocks = []
-    for i, cat in enumerate(_IMPROVEMENT_DEFECT_CATEGORIES):
+    for i, cat in enumerate(db.list_improvement_defect_categories()):
         if i > 0:
             blocks.append("   ")
         is_checked = cat in selected
@@ -1602,13 +1608,118 @@ def _improvement_mail_body_lines(req, contact_person=''):
 
 
 def improvement_mailto_url(req, supplier_email='', contact_person=''):
-    """개선요청서 mailto: URL 생성."""
-    import urllib.parse
-    params = urllib.parse.urlencode({
-        'subject': _improvement_mail_subject(req),
-        'body': '\n'.join(_improvement_mail_body_lines(req, contact_person=contact_person)),
-    })
-    return f"mailto:{supplier_email}?{params}"
+    """개선요청서 mailto: URL 생성. ncr_mailto_url()과 동일한 이유로 quote() 사용
+    (urlencode()의 '+' 공백 인코딩이 아웃룩에서 깨지는 버그, 2026-09-16)."""
+    from urllib.parse import quote
+    subject = quote(_improvement_mail_subject(req), safe='')
+    body = quote('\n'.join(_improvement_mail_body_lines(req, contact_person=contact_person)), safe='')
+    return f"mailto:{supplier_email}?subject={subject}&body={body}"
+
+
+def build_improvement_eml(req, supplier_email='', xlsx_path=None, defect_photos=None,
+                           reference_photos=None, contact_person=''):
+    """개선요청서 .eml 파일 생성 — 엑셀 파일을 자동 첨부하고 사진은 본문에 인라인
+    삽입한다(2026-09-16, 사용자 요청 — mailto: 링크는 구조적으로 첨부파일을 못 실어서
+    수신자가 직접 첨부해야 했는데, 이 .eml 방식은 Outlook에서 열면 첨부까지 이미 돼
+    있는 채로 뜬다). `build_ncr_eml()`과 같은 MIME 구성 패턴(outer=mixed로 첨부,
+    inner=related로 본문+인라인 이미지)을 쓰지만, NCR eml은 NCR 전용 안내이미지·
+    "기준/실측" 강조 파싱에 강하게 묶여 있어 그대로 재사용하지 않고 개선요청서의
+    단순한 문단 구조에 맞게 따로 작성했다(CLAUDE.md 8-1절 — 억지로 하나로 합치면
+    오히려 NCR 쪽 로직에 조건분기가 늘어나 더 위험해짐)."""
+    import email.mime.multipart as _MMP
+    import email.mime.text as _MMT
+    import email.mime.base as _MMB
+    import email.mime.image as _MMI
+    import email.encoders as _ENC
+    import io as _io
+    from PIL import Image as _PILImage
+
+    subject = _improvement_mail_subject(req)
+    body_lines = _improvement_mail_body_lines(req, contact_person=contact_person)
+
+    _MAX_DISPLAY = 320  # 인디케이터/설명 사진 2종을 나란히 보여줄 표시 폭(px)
+    _MAX_EMBED = 900
+    _QUALITY = 82
+
+    def _process_photos(paths, prefix):
+        out = []
+        for i, p in enumerate(paths or []):
+            if not p or not os.path.exists(p):
+                continue
+            try:
+                with _PILImage.open(p) as im:
+                    im = im.convert('RGB')
+                    if max(im.width, im.height) > _MAX_EMBED:
+                        im.thumbnail((_MAX_EMBED, _MAX_EMBED), _PILImage.LANCZOS)
+                    buf = _io.BytesIO()
+                    im.save(buf, format='JPEG', quality=_QUALITY, optimize=True)
+                    scale = min(_MAX_DISPLAY / im.width, _MAX_DISPLAY / im.height, 1.0)
+                    dw, dh = max(1, int(im.width * scale)), max(1, int(im.height * scale))
+                    out.append((f'{prefix}{i}', buf.getvalue(), dw, dh))
+            except Exception:
+                continue
+        return out
+
+    defect_imgs = _process_photos(defect_photos, 'impdefect')
+    reference_imgs = _process_photos(reference_photos, 'impref')
+
+    def _img_row_html(imgs):
+        if not imgs:
+            return ''
+        cells = ''.join(
+            f'<img src="cid:{cid}" width="{dw}" height="{dh}" '
+            f'style="display:inline-block; margin:4px; border:1px solid #ddd; border-radius:4px;">'
+            for cid, _b, dw, dh in imgs
+        )
+        return f'<div style="margin:8px 0;">{cells}</div>'
+
+    outer = _MMP.MIMEMultipart('mixed')
+    outer['To'] = supplier_email
+    outer['Subject'] = subject
+
+    inner = _MMP.MIMEMultipart('related')
+
+    body_html = '<br>'.join(line if line else '<br>' for line in body_lines)
+    photo_html = ''
+    if defect_imgs:
+        photo_html += '<p style="font-weight:700; margin:10px 0 2px;">[불량 사진]</p>' + _img_row_html(defect_imgs)
+    if reference_imgs:
+        photo_html += '<p style="font-weight:700; margin:10px 0 2px;">[설명 사진 / 비교 자료]</p>' + _img_row_html(reference_imgs)
+
+    html = (
+        '<html><body style="font-family:\'맑은 고딕\',\'Malgun Gothic\',sans-serif;'
+        'font-size:14px; line-height:1.7; color:#1f2937;">'
+        f'<p>{body_html}</p>'
+        + photo_html
+        + '</body></html>'
+    )
+    inner.attach(_MMT.MIMEText(html, 'html', 'utf-8'))
+
+    for cid, img_bytes, _dw, _dh in defect_imgs + reference_imgs:
+        img_part = _MMI.MIMEImage(img_bytes, _subtype='jpeg')
+        img_part.add_header('Content-ID', f'<{cid}>')
+        img_part.add_header('Content-Disposition', 'inline')
+        inner.attach(img_part)
+
+    outer.attach(inner)
+
+    if xlsx_path and os.path.exists(xlsx_path):
+        try:
+            with open(xlsx_path, 'rb') as f:
+                part = _MMB.MIMEBase(
+                    'application',
+                    'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+                part.set_payload(f.read())
+            _ENC.encode_base64(part)
+            fname = os.path.basename(xlsx_path)
+            part.add_header('Content-Disposition', 'attachment',
+                            filename=('utf-8', '', fname))
+            outer.attach(part)
+        except Exception:
+            pass
+
+    return outer.as_bytes()
 
 
 # ---------- 출고(완제품 S/N·QR·사진) — 입고검사(IQC)와 별개의 신규 하위시스템 ----------

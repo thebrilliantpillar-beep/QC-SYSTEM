@@ -5219,6 +5219,21 @@ def list_defect_types():
     return [r["name"] for r in rows]
 
 
+def list_improvement_defect_categories():
+    """개선요청서 불량유형 체크박스 목록 — list_defect_types()(NCR과 공용 마스터)를
+    그대로 쓰되 '기타'만 맨 끝으로 옮긴다(2026-09-16 사용자 확정: "개선요청서에
+    있는 불량 유형들을 기존에 등록되어있는 불량유형의 내용으로 통일" — 예전엔
+    이 앱 두 곳(app.py/report_builder.py)에 NCR 마스터와 이름도 항목 구성도 다른
+    5종이 따로 하드코딩돼 있었다). '기타'는 옆에 항상 자유입력칸이 붙는 항목이라
+    마스터의 가나다순 그대로 두면 중간에 섞여 나와 어색해서 여기서만 보정 —
+    app.py(폼 렌더/검증)와 report_builder.py(엑셀 생성) 둘 다 이 함수 하나를 쓴다
+    (CLAUDE.md 8-1절)."""
+    cats = list_defect_types()
+    if "기타" not in cats:
+        return cats
+    return [c for c in cats if c != "기타"] + ["기타"]
+
+
 def add_defect_type(name):
     """불량 유형명을 마스터에 등록. 이미 있으면(공백/대소문자 무시) 기존 정본 표기를
     반환. name이 빈 값이면 None. (material_categories.add_material_category와 동일 관례)"""

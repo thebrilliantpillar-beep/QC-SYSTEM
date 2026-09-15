@@ -6399,7 +6399,12 @@ def ncr_eml(ncr_id):
         return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
     default_contact = db.get_default_contact(ncr["supplier"] or "", "ncr")
-    supplier_email = default_contact["email"]
+    # 발송 모달에서 수신자를 직접 바꿨을 수 있으니 ?to= 있으면 우선(2026-09-16)
+    # 2026-09-16 quality-watcher 지적: .strip()은 양끝 공백만 지우고 개행은 안 지워서
+    # ?to=x@a.com%0ABcc:evil@b.com 같은 값이 그대로 MIME 헤더(outer['To'])에 들어가면
+    # 헤더 인젝션(몰래 Bcc 추가 등)이 가능했다 — 개행을 아예 제거해서 막는다.
+    to_override = re.sub(r'[\r\n]+', '', request.args.get("to", "")).strip()
+    supplier_email = to_override or default_contact["email"]
     contact_person = default_contact["contact_name"]
 
     eml_bytes = report_builder.build_ncr_eml(
@@ -6525,7 +6530,10 @@ def ncr_send_email(ncr_id):
 IMPROVEMENT_PHOTO_DIR = os.path.join(db.DATA_DIR, "improvement_photos")
 os.makedirs(IMPROVEMENT_PHOTO_DIR, exist_ok=True)
 
-IMPROVEMENT_DEFECT_CATEGORIES = ["치수 불량", "표면 결함", "기능 부적합", "포장 손상", "기타"]
+# 2026-09-16 사용자 확정: 개선요청서만의 별도 불량유형 목록을 따로 안 두고, NCR이
+# 이미 쓰는 불량유형 마스터(db.defect_types, /ncr/defect-types 화면에서 관리)를
+# 그대로 쓴다 — db.listdb.list_improvement_defect_categories() 하나로 통일(app.py 폼
+# 렌더/검증과 report_builder.py 엑셀 생성이 둘 다 이 함수를 쓴다, CLAUDE.md 8-1절).
 
 
 @app.route("/improvement")
@@ -6562,7 +6570,7 @@ def improvement_new_manual():
             flash("자재번호·업체·요청내용·발신일은 필수야.")
             return redirect(url_for("improvement_new_manual"))
 
-        categories = [c for c in request.form.getlist("defect_categories") if c in IMPROVEMENT_DEFECT_CATEGORIES]
+        categories = [c for c in request.form.getlist("defect_categories") if c in db.list_improvement_defect_categories()]
         req_id, req_no = db.create_improvement_request(
             inspection_id=None,
             material_no=material_no,
@@ -6586,7 +6594,7 @@ def improvement_new_manual():
 
     from datetime import date
     return render_template("improvement_manual_form.html", today=date.today().isoformat(),
-                           defect_categories=IMPROVEMENT_DEFECT_CATEGORIES)
+                           defect_categories=db.list_improvement_defect_categories())
 
 
 @app.route("/improvement/new/<int:inspection_id>", methods=["GET", "POST"])
@@ -6605,7 +6613,7 @@ def improvement_new(inspection_id):
             flash("요청내용과 발신일은 필수야.")
             return redirect(url_for("improvement_new", inspection_id=inspection_id))
 
-        categories = [c for c in request.form.getlist("defect_categories") if c in IMPROVEMENT_DEFECT_CATEGORIES]
+        categories = [c for c in request.form.getlist("defect_categories") if c in db.list_improvement_defect_categories()]
         req_id, req_no = db.create_improvement_request(
             inspection_id=inspection_id,
             material_no=header["material_no"],
@@ -6629,7 +6637,7 @@ def improvement_new(inspection_id):
 
     from datetime import date
     return render_template("improvement_form.html", header=header, today=date.today().isoformat(),
-                           defect_categories=IMPROVEMENT_DEFECT_CATEGORIES)
+                           defect_categories=db.list_improvement_defect_categories())
 
 
 def _save_improvement_photos(req_id, req_no):
@@ -6735,6 +6743,61 @@ def improvement_pdf(req_id):
     from flask import send_file
     return send_file(pdf_path, as_attachment=not inline,
                      download_name=os.path.basename(pdf_path), mimetype="application/pdf")
+
+
+@app.route("/improvement/<int:req_id>/eml")
+@perm_required("improvement")
+def improvement_eml(req_id):
+    """개선요청서 .eml 파일 생성 — ncr_eml()과 동일한 목적(Outlook에서 열면 수신자·
+    제목·본문·첨부가 자동으로 채워진 채 바로 발송 가능, 2026-09-16 사용자 요청 —
+    mailto:는 구조적으로 첨부를 못 실어서 이 방식을 주력으로 삼는다)."""
+    from urllib.parse import quote as _urlquote
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        flash("개선요청서를 찾을 수 없어.")
+        return redirect(url_for("improvement_list"))
+
+    defect_photos = [os.path.join(IMPROVEMENT_PHOTO_DIR, p["photo_path"])
+                     for p in db.list_improvement_photos(req_id, kind="defect")]
+    reference_photos = [os.path.join(IMPROVEMENT_PHOTO_DIR, p["photo_path"])
+                        for p in db.list_improvement_photos(req_id, kind="reference")]
+
+    out_path, err = report_builder.build_improvement_excel(dict(req), defect_photos, reference_photos)
+    if err:
+        flash(f"엑셀 생성 실패: {err}")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    default_contact = db.get_default_contact(req["supplier"] or "", "improvement")
+    # 발송 모달에서 수신자를 직접 바꿨을 수 있으니 ?to= 있으면 우선(2026-09-16)
+    # 2026-09-16 quality-watcher 지적: .strip()은 양끝 공백만 지우고 개행은 안 지워서
+    # ?to=x@a.com%0ABcc:evil@b.com 같은 값이 그대로 MIME 헤더(outer['To'])에 들어가면
+    # 헤더 인젝션(몰래 Bcc 추가 등)이 가능했다 — 개행을 아예 제거해서 막는다.
+    to_override = re.sub(r'[\r\n]+', '', request.args.get("to", "")).strip()
+    supplier_email = to_override or default_contact["email"]
+    contact_person = default_contact["contact_name"]
+
+    eml_bytes = report_builder.build_improvement_eml(
+        dict(req), supplier_email, out_path, defect_photos, reference_photos,
+        contact_person=contact_person,
+    )
+
+    eml_name = re.sub(r'[\\/:"*?<>|]', '',
+                      f"{req['request_no']}_{req['supplier']}_개선요청서.eml")
+    record_change("개선요청서 EML 발행", "improvement_request", req_id, eml_name)
+
+    # EML 발행 = 발송 의도로 간주 → sent 처리 (ncr_eml과 동일 원칙)
+    if req["status"] != "sent":
+        db.mark_improvement_sent(req_id, supplier_email or "(EML 발행)")
+        record_change("개선요청서 발송 완료 표시", "improvement_request", req_id,
+                      f"EML 발행 → {supplier_email or '수신자미지정'}")
+
+    from flask import Response
+    encoded_name = _urlquote(eml_name, safe='')
+    return Response(
+        eml_bytes,
+        mimetype='message/rfc822',
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_name}"},
+    )
 
 
 @app.route("/improvement/<int:req_id>/photo", methods=["POST"])
