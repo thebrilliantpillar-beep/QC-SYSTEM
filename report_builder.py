@@ -1579,6 +1579,14 @@ def _improvement_mail_subject(req):
     return f"{date_str} [샤든코리아] 개선요청서{' ' + suffix if suffix else ''}"
 
 
+# 2026-09-16 사용자 요청: 요청내용 설명 바로 다음, 인사말 앞에 사진 자리를 표시.
+# mailto:(텍스트만, 사진 자동첨부 불가)에선 이 줄이 그대로 "여기에 수동으로 넣어라"는
+# 표시로 남고, build_improvement_eml()은 이 줄을 찾아서 실제 사진(인라인 이미지)으로
+# 바꿔치기한다 — build_ncr_eml()의 split_idx/_GUIDE_ANCHOR 앵커 문자열 분리 패턴과
+# 동일한 방식(1345행 부근), 새로 발명하지 않음.
+IMPROVEMENT_PHOTO_MARKER = "[여기에 불량 및 비교 사진 넣기]"
+
+
 def _improvement_mail_body_lines(req, contact_person=''):
     recipient = (contact_person or req.get('supplier') or '').strip()
     detail = (req.get('request_detail') or '-').strip()
@@ -1593,6 +1601,8 @@ def _improvement_mail_body_lines(req, contact_person=''):
         "",
         "■ 요청 내용",
         detail,
+        "",
+        IMPROVEMENT_PHOTO_MARKER,
         "",
         "가벼운 확인·개선 차원의 요청이니 부담 없이 확인 부탁드립니다.",
         "궁금하신 점 있으시면 언제든 연락 주세요.",
@@ -1679,18 +1689,35 @@ def build_improvement_eml(req, supplier_email='', xlsx_path=None, defect_photos=
 
     inner = _MMP.MIMEMultipart('related')
 
-    body_html = '<br>'.join(line if line else '<br>' for line in body_lines)
+    # IMPROVEMENT_PHOTO_MARKER 줄을 찾아서 그 자리에 실제 사진을 끼워넣는다 — 이 줄
+    # 앞뒤 문단을 나눠서, "요청 내용" 설명 바로 다음/인사말 앞이라는 사용자가 원한
+    # 위치에 사진이 오게 한다(build_ncr_eml()의 앵커 문자열 분리와 동일 패턴).
+    if IMPROVEMENT_PHOTO_MARKER in body_lines:
+        marker_idx = body_lines.index(IMPROVEMENT_PHOTO_MARKER)
+        before_lines = body_lines[:marker_idx]
+        after_lines = body_lines[marker_idx + 1:]
+    else:
+        before_lines, after_lines = body_lines, []
+
+    def _lines_html(lines):
+        return '<br>'.join(line if line else '<br>' for line in lines)
+
     photo_html = ''
     if defect_imgs:
         photo_html += '<p style="font-weight:700; margin:10px 0 2px;">[불량 사진]</p>' + _img_row_html(defect_imgs)
     if reference_imgs:
         photo_html += '<p style="font-weight:700; margin:10px 0 2px;">[설명 사진 / 비교 자료]</p>' + _img_row_html(reference_imgs)
+    if not photo_html:
+        # 첨부된 사진이 없으면 마커 텍스트를 그대로 보여준다(mailto와 동일하게 "여기에
+        # 넣어라"는 안내가 남아있는 게, 아무 표시 없이 문단이 붙어버리는 것보다 낫다).
+        photo_html = f'<p style="color:#9ca3af;">{IMPROVEMENT_PHOTO_MARKER}</p>'
 
     html = (
         '<html><body style="font-family:\'맑은 고딕\',\'Malgun Gothic\',sans-serif;'
         'font-size:14px; line-height:1.7; color:#1f2937;">'
-        f'<p>{body_html}</p>'
+        f'<p>{_lines_html(before_lines)}</p>'
         + photo_html
+        + (f'<p>{_lines_html(after_lines)}</p>' if after_lines else '')
         + '</body></html>'
     )
     inner.attach(_MMT.MIMEText(html, 'html', 'utf-8'))
