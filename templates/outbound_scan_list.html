@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}출고 스캔 — 차수 선택 — Chardon QMS{% endblock %}
 {% block content %}
+<style>
+  .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
+         margin-top:16px; overflow:hidden; }
+  .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex;
+                   align-items:center; gap:9px; font-size:15px; font-weight:800; color:#2B3140; }
+  .sec > summary::-webkit-details-marker { display:none; }
+  .sec > summary:hover { background:#F9F9F8; }
+  .sec .arrow { color:#9ca3af; font-size:12px; margin-left:auto; transition:transform .15s; display:inline-block; }
+  .sec[open] .arrow { transform:rotate(90deg); }
+  .sec .body { border-top:1px solid var(--border); padding:16px; }
+</style>
 <h2>🚚 출고 스캔 — 차수 선택</h2>
 
 <div class="card">
@@ -23,7 +34,7 @@
   <table>
     <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
     <tbody>
-      {% for b in batches %}
+      {% for b in active_batches %}
       <tr>
         <td>{{ b.round_no or '-' }}</td>
         <td>{{ b.customer or '-' }}</td>
@@ -33,9 +44,38 @@
         <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}" class="btn secondary" style="margin-top:0;">스캔 시작/이어하기</a></td>
       </tr>
       {% else %}
-      <tr><td colspan="6" style="text-align:center; color:var(--muted);">등록된 차수가 없어.</td></tr>
+      <tr><td colspan="6" style="text-align:center; color:var(--muted);">스캔 대기 중인 차수가 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<details class="sec" data-sec="outbound-scan-done">
+  <summary>완료된 항목 ({{ completed_batches|length }}건)<span class="arrow">▶</span></summary>
+  <div class="body">
+    <table>
+      <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th>확인</th><th></th></tr></thead>
+      <tbody>
+        {% for b in completed_batches %}
+        <tr>
+          <td>{{ b.round_no or '-' }}</td>
+          <td>{{ b.customer or '-' }}</td>
+          <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
+          <td>{{ b.handler or '-' }}</td>
+          <td>{{ b.item_count }}</td>
+          <td>{{ b.confirmed_by }} / {{ b.confirmed_at | datetime_korean }}</td>
+          <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}" class="btn secondary" style="margin-top:0;">보기</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center; color:var(--muted);">완료된 항목이 없어.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
+<script>
+  CollapsibleSections.init('details.sec[data-sec]', 'outbound-scan-list-sec-');
+</script>
 {% endblock %}

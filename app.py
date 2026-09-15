@@ -485,6 +485,19 @@ def _admin_only():
     return None
 
 
+def _outbound_batch_lock_response(batch, redirect_endpoint, **redirect_kwargs):
+    """batch가 확인 완료 상태면 수정을 막는 응답을 돌려준다. 통과하면 None.
+    AJAX(X-Requested-With)로 오는 라우트와 일반 form POST 라우트 둘 다 여기
+    하나로 처리한다(기존 라우트들이 이미 이 이원 응답 패턴을 쓰고 있어서 맞춘 것)."""
+    if not batch or not batch["confirmed_at"]:
+        return None
+    msg = "확인 완료된 출고 건이야. 수정하려면 먼저 '확인 회수'를 해야 해."
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": False, "error": msg}), 409
+    flash(msg)
+    return redirect(url_for(redirect_endpoint, **redirect_kwargs))
+
+
 def _approval_status_label(status, overall_result, approval_type):
     """status_display()와 같은 규칙을 raw 값(row 객체 아님)으로 받아 라벨만 돌려준다 —
     검사이력 외에도 NCR·반품처럼 원본 성적서를 조인해서 쓰는 목록의 검색 필터에서
@@ -7598,10 +7611,14 @@ def outbound_photo_file(filename):
 @perm_required("outbound")
 def outbound_scan_list():
     """스캔할 차수를 고르는 화면 — 배치 생성은 이제 outbound_round_new의 책임이라
-    여기서는 목록만 보여준다."""
+    여기서는 목록만 보여준다. 확인 완료된 배치는 별도 접기 섹션으로 뺀다
+    (2026-09-15 변경)."""
     q = request.args.get("q", "").strip()
     batches = db.list_outbound_batches(query=q or None)
-    return render_template("outbound_scan_list.html", batches=batches, q=q)
+    active_batches = [b for b in batches if not b["confirmed_at"]]
+    completed_batches = [b for b in batches if b["confirmed_at"]]
+    return render_template("outbound_scan_list.html", active_batches=active_batches,
+                           completed_batches=completed_batches, q=q)
 
 
 @app.route("/outbound/scan/new", methods=["GET", "POST"])
@@ -7623,10 +7640,15 @@ def outbound_scan_edit(batch_id):
     planned = db.list_planned_items(batch_id)
     planned_serials = {p["serial_no"] for p in planned}
     progress = db.outbound_plan_progress(batch_id)
+    actor = g.user["display_name"] or g.user["username"]
+    is_admin_user = (g.user["username"] or "").strip().lower() == "admin"
+    can_revoke_confirm = bool(batch["confirmed_at"]) and (
+        is_admin_user or (batch["confirmed_by"] or "") == actor)
     return render_template("outbound_scan.html", batch=batch, items=items,
                            planned_serials=planned_serials,
                            plan_rows=progress["rows"], plan_summary=progress["summary"],
-                           body_photo_enabled=db.outbound_body_photo_enabled())
+                           body_photo_enabled=db.outbound_body_photo_enabled(),
+                           can_revoke_confirm=can_revoke_confirm)
 
 
 @app.route("/outbound/batch/<int:batch_id>/update", methods=["POST"])
@@ -7636,6 +7658,9 @@ def outbound_batch_update(batch_id):
     if batch is None:
         flash("존재하지 않는 출고 배치야.")
         return redirect(url_for("outbound_history"))
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=batch_id)
+    if locked:
+        return locked
     customer = request.form.get("customer", "").strip()
     ship_date = request.form.get("ship_date", "").strip()
     handler = request.form.get("handler", "").strip()
@@ -7659,6 +7684,9 @@ def outbound_item_add(batch_id):
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
         return jsonify({"ok": False, "error": "존재하지 않는 출고 배치야."}), 404
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=batch_id)
+    if locked:
+        return locked
 
     serial_no = request.form.get("serial_no", "").strip()
     if not serial_no:
@@ -7733,6 +7761,10 @@ def outbound_item_edit(item_id):
     item = db.get_outbound_item(item_id)
     if item is None:
         return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    batch = db.get_outbound_batch(item["batch_id"])
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=item["batch_id"])
+    if locked:
+        return locked
     product_name = request.form.get("product_name", "").strip()
     # 수량칸은 UI에서 완전히 제거됐다(2026-09-15 확장) — 이 라우트는 폼에서 수량을
     # 받지 않고 기존 값을 그대로 보존한다(멋대로 None으로 지우면 하위호환용으로 남겨둔
@@ -7753,6 +7785,10 @@ def outbound_item_delete(item_id):
     if item is None:
         return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
     batch_id = item["batch_id"]
+    batch = db.get_outbound_batch(batch_id)
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=batch_id)
+    if locked:
+        return locked
     photo_names = db.delete_outbound_item(item_id)
     for fname in photo_names:
         try:
@@ -7773,6 +7809,11 @@ def outbound_photo_delete(photo_id):
     if photo is None:
         return jsonify({"ok": False, "error": "사진을 찾을 수 없어."}), 404
     item = db.get_outbound_item(photo["item_id"])
+    if item is not None:
+        batch = db.get_outbound_batch(item["batch_id"])
+        locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=item["batch_id"])
+        if locked:
+            return locked
     fname = db.delete_outbound_item_photo(photo_id)
     if fname:
         try:
@@ -7795,6 +7836,10 @@ def outbound_item_photo_add(item_id):
     item = db.get_outbound_item(item_id)
     if item is None:
         return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404
+    batch = db.get_outbound_batch(item["batch_id"])
+    locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=item["batch_id"])
+    if locked:
+        return locked
     kind = request.form.get("kind", "indicator")
     if kind not in ("indicator", "body"):
         return jsonify({"ok": False, "error": "잘못된 사진 종류야."}), 400
@@ -7832,6 +7877,29 @@ def outbound_batch_confirm(batch_id):
     record_change("출고 확인", "outbound_batch", batch_id, batch["customer"] or "")
     flash("출고 확인 처리됐어.")
     return redirect(request.referrer or url_for("outbound_history"))
+
+
+@app.route("/outbound/batch/<int:batch_id>/revoke-confirm", methods=["POST"])
+@perm_required("outbound")
+def outbound_batch_confirm_revoke(batch_id):
+    """출고 확인을 회수한다 — 세분화 권한이 아니라 신원(확인자 본인 또는 admin)으로
+    게이트한다(승인 회수 approve_revoke와 다른 방식, 사용자 요청사항)."""
+    batch = db.get_outbound_batch(batch_id)
+    if batch is None:
+        flash("존재하지 않는 출고 배치야.")
+        return redirect(url_for("outbound_history"))
+    if not batch["confirmed_at"]:
+        flash("아직 확인되지 않은 배치야.")
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+    actor = g.user["display_name"] or g.user["username"]
+    is_admin_user = (g.user["username"] or "").strip().lower() == "admin"
+    if not is_admin_user and (batch["confirmed_by"] or "") != actor:
+        flash("이 확인은 확인자 본인 또는 관리자만 회수할 수 있어.")
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+    db.revoke_outbound_batch_confirm(batch_id)
+    record_change("출고 확인 회수", "outbound_batch", batch_id, f"회수자: {actor}")
+    flash("출고 확인이 회수됐어. 다시 수정할 수 있어.")
+    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
 
 
 @app.route("/outbound/history")

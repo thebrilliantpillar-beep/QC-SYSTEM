@@ -27,6 +27,7 @@
 
 <h2>🚚 출고 스캔 <span class="muted" style="font-size:14px; font-weight:400;">— {{ batch.round_no or ('#' ~ batch.id) }}</span></h2>
 
+{% if not batch.confirmed_at %}
 <div class="card">
   <h3 style="margin-top:0; font-size:15px;">새 항목 스캔·입력</h3>
 
@@ -95,6 +96,7 @@
     <span id="addItemMsg" class="muted" style="margin-left:10px; font-size:12.5px;"></span>
   </form>
 </div>
+{% endif %}
 
 <div class="card">
   <h3 style="margin-top:0; font-size:15px;">저장된 항목 (<span id="itemCountLabel">{{ items|length }}</span>건)</h3>
@@ -114,31 +116,39 @@
           {% else %}<span class="plan-badge extra">계획외</span>{% endif %}
         </td>
         <td>
+          {% if batch.confirmed_at %}
+          {{ it.product_name or '-' }}
+          {% else %}
           <form method="POST" action="{{ url_for('outbound_item_edit', item_id=it.id) }}"
                 style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
             <input type="text" name="product_name" value="{{ it.product_name or '' }}"
                    placeholder="제품명/모델명" style="flex:1; min-width:160px;">
             <button type="submit" class="btn secondary" style="margin-top:0;">저장</button>
           </form>
+          {% endif %}
         </td>
         <td>
           <div class="ob-photo-grid" id="photos-indicator-{{ it.id }}" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); max-width:180px;">
             {% for p in it.photos if (p.kind or 'indicator') == 'indicator' %}
             <div style="position:relative;">
               <img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">
+              {% if not batch.confirmed_at %}
               <form method="POST" action="{{ url_for('outbound_photo_delete', photo_id=p.id) }}"
                     style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm('이 사진을 지울까?');">
                 <button type="submit" style="background:#dc2626; color:#fff; border:none; border-radius:999px;
                         width:20px; height:20px; font-size:11px; line-height:1; cursor:pointer; padding:0; margin:0;">✕</button>
               </form>
+              {% endif %}
             </div>
             {% else %}<span class="muted no-photo-mark" style="font-size:12px;">없음</span>{% endfor %}
           </div>
+          {% if not batch.confirmed_at %}
           <label class="btn secondary" style="margin-top:6px; padding:4px 10px; font-size:11.5px; cursor:pointer;">
             + 추가
             <input type="file" accept="image/*" multiple style="display:none;"
                    onchange="uploadMorePhotos({{ it.id }}, 'indicator', this)">
           </label>
+          {% endif %}
         </td>
         {% if body_photo_enabled %}
         <td>
@@ -146,26 +156,32 @@
             {% for p in it.photos if p.kind == 'body' %}
             <div style="position:relative;">
               <img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">
+              {% if not batch.confirmed_at %}
               <form method="POST" action="{{ url_for('outbound_photo_delete', photo_id=p.id) }}"
                     style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm('이 사진을 지울까?');">
                 <button type="submit" style="background:#dc2626; color:#fff; border:none; border-radius:999px;
                         width:20px; height:20px; font-size:11px; line-height:1; cursor:pointer; padding:0; margin:0;">✕</button>
               </form>
+              {% endif %}
             </div>
             {% else %}<span class="muted no-photo-mark" style="font-size:12px;">없음</span>{% endfor %}
           </div>
+          {% if not batch.confirmed_at %}
           <label class="btn secondary" style="margin-top:6px; padding:4px 10px; font-size:11.5px; cursor:pointer;">
             + 추가
             <input type="file" accept="image/*" multiple style="display:none;"
                    onchange="uploadMorePhotos({{ it.id }}, 'body', this)">
           </label>
+          {% endif %}
         </td>
         {% endif %}
         <td>
+          {% if not batch.confirmed_at %}
           <form method="POST" action="{{ url_for('outbound_item_delete', item_id=it.id) }}"
                 onsubmit="return confirm('이 항목을 삭제할까?');">
             <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">삭제</button>
           </form>
+          {% endif %}
         </td>
       </tr>
       {% else %}
@@ -177,6 +193,21 @@
 
 <div class="card">
   <h3 style="margin-top:0; font-size:15px;">출고 정보</h3>
+  {% if batch.confirmed_at %}
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:100px;"><label>차수</label><p style="margin:4px 0 0;">{{ batch.round_no or '-' }}</p></div>
+    <div style="flex:1; min-width:170px;"><label>거래처</label><p style="margin:4px 0 0;">{{ batch.customer or '-' }}</p></div>
+    <div style="flex:1; min-width:150px;"><label>출고(예정)일</label><p style="margin:4px 0 0;">{{ batch.ship_date or '-' }}</p></div>
+    <div style="flex:1; min-width:150px;"><label>담당자</label><p style="margin:4px 0 0;">{{ batch.handler or '-' }}</p></div>
+  </div>
+  <p style="margin:10px 0 0; color:var(--pass); font-size:13px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출고 확인함</p>
+  {% if can_revoke_confirm %}
+  <form method="POST" action="{{ url_for('outbound_batch_confirm_revoke', batch_id=batch.id) }}" style="margin-top:10px;"
+        onsubmit="return confirm('출고 확인을 회수하고 다시 수정 가능하게 할까?');">
+    <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">↺ 확인 회수</button>
+  </form>
+  {% endif %}
+  {% else %}
   <form method="POST" action="{{ url_for('outbound_batch_update', batch_id=batch.id) }}"
         style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
     <div style="flex:1; min-width:100px;">
@@ -197,9 +228,6 @@
     </div>
     <button type="submit" class="btn secondary" style="margin-top:0;">저장</button>
   </form>
-  {% if batch.confirmed_at %}
-  <p style="margin:10px 0 0; color:var(--pass); font-size:13px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출고 확인함</p>
-  {% else %}
   <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=batch.id) }}" style="margin-top:10px;">
     <button type="submit" class="btn secondary" style="margin-top:0;">✅ 출고 확인</button>
   </form>
@@ -306,6 +334,7 @@
 
   window.addCurPhotos = function (kind) {
     var box = document.getElementById(kind === 'body' ? 'curPhotoPreviewBody' : 'curPhotoPreviewIndicator');
+    if (!box) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
     var selector = kind === 'body' ? 'input[name=photos_body]' : 'input[name=photos_indicator]';
     var all = [];
     document.querySelectorAll('#addItemForm ' + selector).forEach(function (inp) {
@@ -315,9 +344,10 @@
   };
 
   function checkSerial(serial) {
+    var box = document.getElementById('serialWarning');
+    if (!box) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
     var url = '/outbound/serial-check?serial_no=' + encodeURIComponent(serial) + '&exclude_batch_id=' + batchId;
     fetch(url).then(function (r) { return r.json(); }).then(function (data) {
-      var box = document.getElementById('serialWarning');
       var msgs = [];
       if (!data.registered) msgs.push('⚠ 발급 이력에 없는 S/N이야. 그래도 계속 진행할 수 있어.');
       if (data.used_in_other_batch) msgs.push('⚠ 이미 다른 출고(' + (data.used_in_other_batch_customer || '') + ')에 쓰인 S/N이야.');
@@ -326,19 +356,24 @@
       if (msgs.length) { box.style.display = 'block'; box.innerHTML = msgs.join('<br>'); }
       else { box.style.display = 'none'; box.innerHTML = ''; }
       var nameField = document.getElementById('curProductName');
-      if (data.classified_label && !nameField.value.trim()) nameField.value = data.classified_label;
+      if (nameField && data.classified_label && !nameField.value.trim()) nameField.value = data.classified_label;
     }).catch(function () {});
   }
 
   function onScanned(serial) {
-    document.getElementById('curSerial').value = serial;
+    var serialField = document.getElementById('curSerial');
+    if (!serialField) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
+    serialField.value = serial;
     checkSerial(serial);
   }
 
-  document.getElementById('manualSerialConfirm').addEventListener('click', function () {
-    var v = document.getElementById('manualSerialInput').value.trim();
-    if (v) { onScanned(v); document.getElementById('manualSerialInput').value = ''; }
-  });
+  var manualSerialConfirmBtn = document.getElementById('manualSerialConfirm');
+  if (manualSerialConfirmBtn) {
+    manualSerialConfirmBtn.addEventListener('click', function () {
+      var v = document.getElementById('manualSerialInput').value.trim();
+      if (v) { onScanned(v); document.getElementById('manualSerialInput').value = ''; }
+    });
+  }
 
   function appendItemRow(item, inPlan) {
     var tbody = document.querySelector('#itemsTable tbody');
@@ -376,7 +411,9 @@
   }
 
   function resetCurSerial() {
-    document.getElementById('curSerial').value = '';
+    var serialField = document.getElementById('curSerial');
+    if (!serialField) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
+    serialField.value = '';
     document.getElementById('curProductName').value = '';
     document.querySelectorAll('#addItemForm input[type=file]').forEach(function (inp) { inp.value = ''; });
     document.getElementById('curPhotoPreviewIndicator').innerHTML = '';
@@ -387,34 +424,39 @@
   }
   window.resetCurSerial = resetCurSerial;
 
-  document.getElementById('addItemForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var serial = document.getElementById('curSerial').value.trim();
-    if (!serial) { alert('S/N을 스캔하거나 입력해줘.'); return; }
-    var msg = document.getElementById('addItemMsg');
-    msg.textContent = '저장 중...';
-    var fd = new FormData(e.target);
-    fetch('/outbound/scan/' + batchId + '/add-item', {
-      method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then(function (r) { return r.json(); }).then(function (data) {
-      if (!data.ok) { msg.textContent = '⚠ ' + (data.error || '저장 실패'); return; }
-      var inPlan = plannedSerials.has(serial);
-      scannedSerials.add(serial);
-      appendItemRow(data.item, inPlan);
-      if (inPlan) {
-        // appendItemRow가 확인됨/사진미비 상태로 이미 갱신함. 계획외는 여기서 별도 카운트.
-      } else {
-        var el = document.getElementById('planExtra');
-        el.textContent = parseInt(el.textContent, 10) + 1;
-      }
-      msg.textContent = '✓ 추가됨';
-      resetCurSerial();
-    }).catch(function () { msg.textContent = '⚠ 저장 실패(네트워크 확인)'; });
-  });
+  var addItemFormEl = document.getElementById('addItemForm');
+  if (addItemFormEl) {
+    addItemFormEl.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var serial = document.getElementById('curSerial').value.trim();
+      if (!serial) { alert('S/N을 스캔하거나 입력해줘.'); return; }
+      var msg = document.getElementById('addItemMsg');
+      msg.textContent = '저장 중...';
+      var fd = new FormData(e.target);
+      fetch('/outbound/scan/' + batchId + '/add-item', {
+        method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        if (!data.ok) { msg.textContent = '⚠ ' + (data.error || '저장 실패'); return; }
+        var inPlan = plannedSerials.has(serial);
+        scannedSerials.add(serial);
+        appendItemRow(data.item, inPlan);
+        if (inPlan) {
+          // appendItemRow가 확인됨/사진미비 상태로 이미 갱신함. 계획외는 여기서 별도 카운트.
+        } else {
+          var el = document.getElementById('planExtra');
+          el.textContent = parseInt(el.textContent, 10) + 1;
+        }
+        msg.textContent = '✓ 추가됨';
+        resetCurSerial();
+      }).catch(function () { msg.textContent = '⚠ 저장 실패(네트워크 확인)'; });
+    });
+  }
 
   document.addEventListener('DOMContentLoaded', function () {
+    var qrRegion = document.getElementById('qrReaderRegion');
+    if (!qrRegion) return;
     if (!window.Html5Qrcode) {
-      document.getElementById('qrReaderRegion').innerHTML =
+      qrRegion.innerHTML =
         '<p class="muted">QR 스캐너를 불러오지 못했어. 아래 입력창에 S/N을 직접 입력해줘.</p>';
       return;
     }

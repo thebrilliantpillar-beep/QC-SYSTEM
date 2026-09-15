@@ -1189,3 +1189,55 @@ brainstorming/test-driven-development/writing-skills)는 "안 맞음"으로 결�
 - **`build_outbound_excel()`에 fit-to-page 설정을 처음에 빠뜨려서 5번째 열("본체사진"/
   "담당자")이 PDF에서 통째로 사라지는 실제 사고가 있었다** — 7-5절에 재발 사례로
   기록해뒀다. 이 함수를 또 고칠 일이 있으면 fit-to-page가 여전히 있는지 먼저 확인할 것.
+
+## 22. 출고 확인 = 잠금, 회수는 신원 기반(세분화 권한 아님) (2026-09-15)
+
+`database.py`의 `confirm_outbound_batch()`엔 원래 "확인은 순수 기록용, 잠금 아님 —
+설계문서 확정사항"이라는 docstring이 있었다. **사용자가 이 확정사항을 명시적으로
+뒤집어달라고 요청해서 지금은 반대로 동작한다** — 14절의 일반 교훈("확정"이라 적혀
+있어도 사용자가 지금 다르게 지시하면 그 지시가 우선)이 여기도 그대로 적용된 사례다.
+혹시 이 문서 다른 곳(README.txt 포함)에 "확인 후에도 계속 수정 가능"이라는 옛 설명이
+남아있는 걸 보면 이 절이 최신이다.
+
+**지금 동작**:
+- `outbound_scan.html`에서 "✅ 출고 확인"을 누르면 그 즉시 이 배치의 항목 추가/수정/
+  삭제·사진 추가/삭제·배치정보(거래처·차수·출고일·담당자) 수정이 전부 잠긴다.
+  잠금은 화면(조건부 렌더링)과 서버(라우트 가드) 양쪽에서 걸려있다 — URL 직접 호출로
+  우회 못 하게.
+- 서버 가드는 공용 헬퍼 `app.py`의 `_outbound_batch_lock_response(batch,
+  redirect_endpoint, **kwargs)` 하나로 통일했다(8-1절 원칙) — `outbound_batch_update`/
+  `outbound_item_add`/`outbound_item_edit`/`outbound_item_delete`/`outbound_photo_delete`
+  (item이 있을 때만)/`outbound_item_photo_add` 6개 라우트가 이걸 공유한다. AJAX 요청엔
+  JSON 409, 일반 폼 제출엔 flash+redirect로 응답 형태를 나눠준다.
+- **회수 권한은 새 세분화 permission이 아니라 "신원"으로 게이트한다** — `outbound`
+  권한 보유자 중에서도 **그 배치를 확인한 사람 본인**이거나 **admin 계정**만 회수
+  (`outbound_batch_confirm_revoke` 라우트)할 수 있다. 이게 이 프로젝트의 다른 회수
+  기능(`approve_revoke` — 별도 세분화 권한으로 게이트)과 다른 방식이라는 걸 헷갈리지
+  말 것 — 사용자가 이번엔 명시적으로 "확인자, 관리자만"이라고 신원 기준으로 요청했다.
+- **신원 비교 계산식은 반드시 `confirm_outbound_batch`가 저장할 때 쓰는 것과 똑같이**
+  `g.user["display_name"] or g.user["username"]`여야 한다 — 다르게 계산하면(예:
+  username만 비교) 표시이름이 설정된 계정은 자기가 확인한 것도 회수를 못 하는 버그가
+  난다. "관리자"는 여기서도(14절/21절과 동일) `username == "admin"` 계정 하나만 뜻한다.
+- 서명·`content_hash` 같은 부수 상태 초기화는 **해당 없음** — 이 기능엔 애초에 그런
+  개념이 없다(8-2-10절의 성적서 승인 회수와는 다른 케이스, 헷갈리지 말 것).
+- 잠금 범위는 **"출고 스캔" 화면(`outbound_scan.html`)의 항목/사진/배치정보 수정만**이다.
+  "차수 계획" 화면(`outbound_round_edit`, 계획 S/N 추가·삭제)은 별개 기능이라 이번
+  잠금 대상이 아니다 — 나중에 "차수 계획도 잠가야 하나"는 질문이 나오면 이 구분을
+  먼저 확인할 것.
+- **확인 액션 진입점이 두 화면**(`outbound_scan.html`의 확인 버튼, `outbound_history.html`
+  목록의 확인 버튼)**에 있다** — 둘 다 같은 `outbound_batch_confirm` 라우트를 쓰므로
+  잠금/회수 로직은 라우트 레벨 한 곳만 구현하면 양쪽에 자동 반영된다. 이 사실을
+  처음 조사할 때 "확인 액션은 한 곳뿐"이라고 잘못 파악했다가 실제 코드 대조로
+  바로잡은 적이 있다 — **사전 조사 노트를 믿더라도 핵심 라우트/템플릿 원문은 직접
+  한 번 더 확인하는 습관을 들일 것.**
+- `outbound_scan_list()`("출고 스캔 — 차수 선택" 화면)는 목록을 `active_batches`
+  (미확인)/`completed_batches`(확인됨) 두 그룹으로 나눠 넘긴다. 완료 그룹은
+  `<details class="sec" data-sec="outbound-scan-done">`(기본 접힘, `open` 속성 없음)로
+  분리 표시 — 21절에서 처음 도입한 `static/collapsible_sections.js` 패턴을 그대로
+  재사용한 것(8-1절 원칙, 새로 구현 안 함).
+- `outbound_scan.html`에서 "새 항목 스캔·입력" 카드는 확인된 배치에선 아예 렌더링
+  안 된다(`{% if not batch.confirmed_at %}`) — 그 카드 안의 DOM(qrReaderRegion,
+  addItemForm, curSerial 등)을 참조하는 JS 함수(`resetCurSerial`/`checkSerial`/
+  `onScanned`/`addCurPhotos`)들은 전부 호출 시점에 해당 요소가 없을 수 있다는
+  전제로 널 체크를 넣어뒀다(2026-09-15 quality-watcher가 지적해서 보강) — **이
+  카드 안 요소를 참조하는 JS를 새로 추가할 때 이 가드 패턴을 빠뜨리지 말 것.**

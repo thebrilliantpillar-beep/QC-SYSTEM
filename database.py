@@ -3612,13 +3612,29 @@ def update_outbound_batch(batch_id, customer, ship_date, handler, round_no=None)
 
 
 def confirm_outbound_batch(batch_id, confirmed_by):
-    """확인은 잠금이 아니라 순수 기록용 — 확인 후에도 항목 추가·수정·삭제가 계속
-    가능하다(설계문서 확정사항, 성적서 승인과는 다른 개념)."""
+    """확인 시 이 배치의 항목 추가/수정/삭제·배치정보 수정을 잠근다(2026-09-15 변경 —
+    예전엔 '확인은 순수 기록용, 잠금 아님'이 설계문서 확정사항이었으나 사용자가 명시적으로
+    잠금 방식으로 바꿔달라고 요청해 뒤집었다). 실제 잠금 강제는 app.py의
+    _outbound_batch_lock_response()가 각 수정 라우트 앞단에서 한다 — 이 함수 자체는
+    여전히 confirmed_by/confirmed_at 두 컬럼만 채우는 단순 UPDATE다."""
     conn = get_conn()
     conn.execute("""
         UPDATE outbound_batches SET confirmed_by=?, confirmed_at=datetime('now','localtime')
         WHERE id=?
     """, (confirmed_by, batch_id))
+    conn.commit()
+    conn.close()
+
+
+def revoke_outbound_batch_confirm(batch_id):
+    """출고 확인을 취소하고 잠금을 풀어준다(confirmed_by/confirmed_at을 NULL로).
+    서명·해시 같은 부수 상태가 없는 기능이라(성적서 승인 회수의 8-2-10절과 달리)
+    이 두 컬럼만 초기화하면 된다."""
+    conn = get_conn()
+    conn.execute("""
+        UPDATE outbound_batches SET confirmed_by=NULL, confirmed_at=NULL
+        WHERE id=?
+    """, (batch_id,))
     conn.commit()
     conn.close()
 
