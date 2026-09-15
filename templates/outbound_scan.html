@@ -13,65 +13,87 @@
   .plan-badge { display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; font-weight:700; margin-left:6px; }
   .plan-badge.ok { background:#d1fae5; color:#065f46; }
   .plan-badge.extra { background:#fef3c7; color:#92400e; }
+
+  .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
+         margin-top:16px; overflow:hidden; }
+  .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex;
+                   align-items:center; gap:9px; font-size:15px; font-weight:800; color:#2B3140; }
+  .sec > summary::-webkit-details-marker { display:none; }
+  .sec > summary:hover { background:#F9F9F8; }
+  .sec .arrow { color:#9ca3af; font-size:12px; margin-left:auto; transition:transform .15s; display:inline-block; }
+  .sec[open] .arrow { transform:rotate(90deg); }
+  .sec .body { border-top:1px solid var(--border); padding:16px; }
 </style>
 
 <h2>🚚 출고 스캔 <span class="muted" style="font-size:14px; font-weight:400;">— {{ batch.round_no or ('#' ~ batch.id) }}</span></h2>
 
 <div class="card">
-  <h3 style="margin-top:0; font-size:15px;">출고 정보</h3>
-  <form method="POST" action="{{ url_for('outbound_batch_update', batch_id=batch.id) }}"
-        style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-    <div style="flex:1; min-width:100px;">
-      <label>차수</label>
-      <input type="text" name="round_no" value="{{ batch.round_no or '' }}">
-    </div>
-    <div style="flex:1; min-width:170px;">
-      <label>거래처 <span style="color:var(--fail);">*</span></label>
-      <input type="text" name="customer" required value="{{ batch.customer or '' }}">
-    </div>
-    <div style="flex:1; min-width:150px;">
-      <label>출고(예정)일</label>
-      <input type="date" name="ship_date" value="{{ batch.ship_date or '' }}">
-    </div>
-    <div style="flex:1; min-width:150px;">
-      <label>담당자</label>
-      <input type="text" name="handler" value="{{ batch.handler or '' }}">
-    </div>
-    <button type="submit" class="btn secondary" style="margin-top:0;">저장</button>
-  </form>
-  {% if batch.confirmed_at %}
-  <p style="margin:10px 0 0; color:var(--pass); font-size:13px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출고 확인함</p>
-  {% else %}
-  <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=batch.id) }}" style="margin-top:10px;">
-    <button type="submit" class="btn secondary" style="margin-top:0;">✅ 출고 확인</button>
-  </form>
-  {% endif %}
-</div>
+  <h3 style="margin-top:0; font-size:15px;">새 항목 스캔·입력</h3>
 
-<div class="card">
-  <h3 style="margin-top:0; font-size:15px;">계획 대비 진행상황</h3>
-  <div class="plan-summary">
-    <span>계획 <b>{{ plan_summary.planned_total }}</b>개 중 <b id="planMatched">{{ plan_summary.matched }}</b>개 확인됨</span>
-    <span>계획외 <b id="planExtra">{{ plan_summary.extra }}</b>건</span>
+  <div id="qrReaderRegion" style="width:300px; max-width:100%;"></div>
+
+  <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+    <input type="text" id="manualSerialInput" placeholder="카메라를 못 쓰면 S/N을 직접 입력"
+           style="flex:1; min-width:160px;">
+    <button type="button" id="manualSerialConfirm" class="btn secondary" style="margin-top:0;">확인</button>
   </div>
-  <table id="planTable" style="margin-top:10px;">
-    <thead><tr><th>S/N</th><th>모델명</th><th>상태</th></tr></thead>
-    <tbody>
-      {% for r in plan_rows %}
-      <tr data-serial="{{ r.serial_no }}">
-        <td>{{ r.serial_no }}</td>
-        <td>{{ r.model_label or '-' }}</td>
-        <td class="plan-status">
-          {% if r.status == 'confirmed' %}<span class="plan-badge ok">✅ 확인됨</span>
-          {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ 사진 미비</span>
-          {% else %}<span class="muted">⬜ 미스캔</span>{% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="3" style="text-align:center; color:var(--muted);">등록된 계획이 없어.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+
+  <div id="serialWarning" style="display:none;"></div>
+
+  <form id="addItemForm" style="margin-top:12px;">
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:150px;">
+        <label>S/N</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input name="serial_no" id="curSerial" readonly placeholder="스캔 또는 직접입력 대기중" style="flex:1;">
+          <button type="button" class="btn secondary" style="margin-top:0; white-space:nowrap;" onclick="resetCurSerial()">↺ 다시 스캔</button>
+        </div>
+      </div>
+      <div style="flex:1; min-width:200px;">
+        <label>제품명/모델명</label>
+        <input name="product_name" id="curProductName" placeholder="제품명/모델명 (자동입력됨, 수정 가능)">
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">인디케이터 사진</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          📸 카메라로 촬영
+          <input type="file" name="photos_indicator" accept="image/*" capture="environment" multiple
+                 style="display:none;" onchange="addCurPhotos('indicator')">
+        </label>
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          🖼️ 갤러리에서 선택
+          <input type="file" name="photos_indicator" accept="image/*" multiple
+                 style="display:none;" onchange="addCurPhotos('indicator')">
+        </label>
+      </div>
+      <div id="curPhotoPreviewIndicator" class="ob-photo-grid"></div>
+    </div>
+
+    {% if body_photo_enabled %}
+    <div style="margin-top:14px;">
+      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">본체 사진</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          📸 카메라로 촬영
+          <input type="file" name="photos_body" accept="image/*" capture="environment" multiple
+                 style="display:none;" onchange="addCurPhotos('body')">
+        </label>
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          🖼️ 갤러리에서 선택
+          <input type="file" name="photos_body" accept="image/*" multiple
+                 style="display:none;" onchange="addCurPhotos('body')">
+        </label>
+      </div>
+      <div id="curPhotoPreviewBody" class="ob-photo-grid"></div>
+    </div>
+    {% endif %}
+
+    <button type="submit" style="margin-top:14px;">리스트에 추가</button>
+    <span id="addItemMsg" class="muted" style="margin-left:10px; font-size:12.5px;"></span>
+  </form>
 </div>
 
 <div class="card">
@@ -154,74 +176,65 @@
 </div>
 
 <div class="card">
-  <h3 style="margin-top:0; font-size:15px;">새 항목 스캔·입력</h3>
-
-  <div id="qrReaderRegion" style="width:300px; max-width:100%;"></div>
-
-  <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
-    <input type="text" id="manualSerialInput" placeholder="카메라를 못 쓰면 S/N을 직접 입력"
-           style="flex:1; min-width:160px;">
-    <button type="button" id="manualSerialConfirm" class="btn secondary" style="margin-top:0;">확인</button>
-  </div>
-
-  <div id="serialWarning" style="display:none;"></div>
-
-  <form id="addItemForm" style="margin-top:12px;">
-    <div style="display:flex; gap:12px; flex-wrap:wrap;">
-      <div style="flex:1; min-width:150px;">
-        <label>S/N</label>
-        <div style="display:flex; gap:6px; align-items:center;">
-          <input name="serial_no" id="curSerial" readonly placeholder="스캔 또는 직접입력 대기중" style="flex:1;">
-          <button type="button" class="btn secondary" style="margin-top:0; white-space:nowrap;" onclick="resetCurSerial()">↺ 다시 스캔</button>
-        </div>
-      </div>
-      <div style="flex:1; min-width:200px;">
-        <label>제품명/모델명</label>
-        <input name="product_name" id="curProductName" placeholder="제품명/모델명 (자동입력됨, 수정 가능)">
-      </div>
+  <h3 style="margin-top:0; font-size:15px;">출고 정보</h3>
+  <form method="POST" action="{{ url_for('outbound_batch_update', batch_id=batch.id) }}"
+        style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+    <div style="flex:1; min-width:100px;">
+      <label>차수</label>
+      <input type="text" name="round_no" value="{{ batch.round_no or '' }}">
     </div>
-
-    <div style="margin-top:10px;">
-      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">인디케이터 사진</p>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          📸 카메라로 촬영
-          <input type="file" name="photos_indicator" accept="image/*" capture="environment" multiple
-                 style="display:none;" onchange="addCurPhotos('indicator')">
-        </label>
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          🖼️ 갤러리에서 선택
-          <input type="file" name="photos_indicator" accept="image/*" multiple
-                 style="display:none;" onchange="addCurPhotos('indicator')">
-        </label>
-      </div>
-      <div id="curPhotoPreviewIndicator" class="ob-photo-grid"></div>
+    <div style="flex:1; min-width:170px;">
+      <label>거래처 <span style="color:var(--fail);">*</span></label>
+      <input type="text" name="customer" required value="{{ batch.customer or '' }}">
     </div>
-
-    {% if body_photo_enabled %}
-    <div style="margin-top:14px;">
-      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">본체 사진</p>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          📸 카메라로 촬영
-          <input type="file" name="photos_body" accept="image/*" capture="environment" multiple
-                 style="display:none;" onchange="addCurPhotos('body')">
-        </label>
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          🖼️ 갤러리에서 선택
-          <input type="file" name="photos_body" accept="image/*" multiple
-                 style="display:none;" onchange="addCurPhotos('body')">
-        </label>
-      </div>
-      <div id="curPhotoPreviewBody" class="ob-photo-grid"></div>
+    <div style="flex:1; min-width:150px;">
+      <label>출고(예정)일</label>
+      <input type="date" name="ship_date" value="{{ batch.ship_date or '' }}">
     </div>
-    {% endif %}
-
-    <button type="submit" style="margin-top:14px;">리스트에 추가</button>
-    <span id="addItemMsg" class="muted" style="margin-left:10px; font-size:12.5px;"></span>
+    <div style="flex:1; min-width:150px;">
+      <label>담당자</label>
+      <input type="text" name="handler" value="{{ batch.handler or '' }}">
+    </div>
+    <button type="submit" class="btn secondary" style="margin-top:0;">저장</button>
   </form>
+  {% if batch.confirmed_at %}
+  <p style="margin:10px 0 0; color:var(--pass); font-size:13px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출고 확인함</p>
+  {% else %}
+  <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=batch.id) }}" style="margin-top:10px;">
+    <button type="submit" class="btn secondary" style="margin-top:0;">✅ 출고 확인</button>
+  </form>
+  {% endif %}
 </div>
 
+<details class="sec" data-sec="outbound-plan-progress" open>
+  <summary>계획 대비 진행상황<span class="arrow">▶</span></summary>
+  <div class="body">
+    <div class="plan-summary">
+      <span>계획 <b>{{ plan_summary.planned_total }}</b>개 중 <b id="planMatched">{{ plan_summary.matched }}</b>개 확인됨</span>
+      <span>계획외 <b id="planExtra">{{ plan_summary.extra }}</b>건</span>
+    </div>
+    <table id="planTable" style="margin-top:10px;">
+      <thead><tr><th>S/N</th><th>모델명</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for r in plan_rows %}
+        <tr data-serial="{{ r.serial_no }}">
+          <td>{{ r.serial_no }}</td>
+          <td>{{ r.model_label or '-' }}</td>
+          <td class="plan-status">
+            {% if r.status == 'confirmed' %}<span class="plan-badge ok">✅ 확인됨</span>
+            {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ 사진 미비</span>
+            {% else %}<span class="muted">⬜ 미스캔</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" style="text-align:center; color:var(--muted);">등록된 계획이 없어.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function () {
@@ -416,6 +429,8 @@
         '<p class="muted">카메라를 사용할 수 없어. 아래 입력창에 S/N을 직접 입력해줘.</p>';
     });
   });
+
+  CollapsibleSections.init('details.sec[data-sec]', 'outbound-scan-sec-');
 })();
 </script>
 {% endblock %}
