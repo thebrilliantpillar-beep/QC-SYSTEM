@@ -161,7 +161,11 @@ PERM_GROUPS = [
         ("defect_history",   "불량 이력 열람"),
         ("ncr",              "부적합 통보서 작성"),
         ("ncr_confirm",      "부적합 통보서 확인·발송"),
+        ("ncr_edit",         "부적합 통보서 수정 (발송/확인 후에도 가능 — 수정 시 발송·확인 상태 초기화됨)"),
+        ("ncr_delete",       "부적합 통보서 삭제"),
         ("improvement",      "개선요청서 작성·발송"),
+        ("improvement_edit", "개선요청서 수정 (발송 후에도 가능 — 수정 시 발송 상태 초기화됨)"),
+        ("improvement_delete", "개선요청서 삭제"),
         ("return",           "반품 처리"),
     ]),
     ("승인", [
@@ -4085,10 +4089,9 @@ def history_delete_selected():
 
 
 @app.route("/ncr/delete-selected", methods=["POST"])
+@perm_required("ncr_delete")
 def ncr_delete_selected():
-    """admin 전용 부적합 통보서 일괄 삭제."""
-    guard = _admin_only()
-    if guard: return guard
+    """'ncr_delete' 권한 보유자 전용 부적합 통보서 일괄 삭제."""
     ids_raw = request.form.getlist("ncr_ids")
     ids = []
     for x in ids_raw:
@@ -4100,7 +4103,7 @@ def ncr_delete_selected():
         flash("삭제할 통보서를 선택해줘.")
         return redirect(url_for("ncr_list"))
     for nid in ids:
-        record_change("부적합 통보서 삭제(admin)", "ncr", nid,
+        record_change("부적합 통보서 삭제", "ncr", nid,
                       f"삭제자: {g.user['display_name'] or g.user['username']}")
     db.delete_ncrs(ids)
     flash(f"통보서 {len(ids)}건 삭제됐어.")
@@ -6178,6 +6181,80 @@ def ncr_new(inspection_id):
                            drawing_materials=drawing_materials)
 
 
+@app.route("/ncr/<int:ncr_id>/edit", methods=["GET", "POST"])
+@perm_required("ncr_edit")
+def ncr_edit(ncr_id):
+    """부적합 통보서 내용 수정 — 발송/확인 여부와 무관하게 가능.
+
+    성적서(inspection_id)에 연결된 통보서는 자재/업체/로트 정보가 성적서에서
+    나온 값이라 여기서 바꾸지 못하게 막는다. 수기입력 통보서만 그 필드들도
+    같이 받는다."""
+    ncr = db.get_ncr(ncr_id)
+    if ncr is None:
+        flash("통보서를 찾을 수 없어.")
+        return redirect(url_for("ncr_list"))
+
+    is_linked = bool(ncr["inspection_id"])
+
+    if request.method == "POST":
+        defect_description = request.form.get("defect_description", "").strip()
+        issued_date = request.form.get("issued_date", "").strip()
+        if not defect_description or not issued_date:
+            flash("발행일과 불량 내용은 필수야.")
+            return redirect(url_for("ncr_edit", ncr_id=ncr_id))
+
+        if is_linked:
+            material_no = ncr["material_no"]
+            material_name = ncr["material_name"]
+            supplier = ncr["supplier"]
+            lot_number = ncr["lot_number"]
+            receive_date = ncr["receive_date"]
+            occurrence_type = ncr["occurrence_type"] or "입고검사"
+        else:
+            material_no = request.form.get("material_no", "").strip()
+            material_name = request.form.get("material_name", "").strip()
+            supplier = request.form.get("supplier", "").strip()
+            if not material_no or not supplier:
+                flash("자재번호와 업체는 필수야.")
+                return redirect(url_for("ncr_edit", ncr_id=ncr_id))
+            lot_number = request.form.get("lot_number", "").strip() or None
+            receive_date = request.form.get("receive_date", "").strip() or None
+            occurrence_type = request.form.get("occurrence_type", "입고검사")
+
+        sample_qty = request.form.get("sample_qty", "").strip()
+        defect_qty = request.form.get("defect_qty", "").strip()
+        was_not_draft = (ncr["status"] or "draft") != "draft"
+
+        db.update_ncr(
+            ncr_id,
+            material_no=material_no,
+            material_name=material_name,
+            supplier=supplier,
+            defect_description=defect_description,
+            due_date=request.form.get("due_date", "").strip() or None,
+            issued_date=issued_date,
+            lot_number=lot_number,
+            receive_date=receive_date,
+            cc_recipient=request.form.get("cc_recipient", "").strip() or None,
+            sample_qty=int(sample_qty) if sample_qty.isdigit() else None,
+            defect_qty=int(defect_qty) if defect_qty.isdigit() else None,
+            special_note=request.form.get("special_note", "").strip() or None,
+            lot_qty=request.form.get("lot_qty", "").strip() or None,
+            occurrence_type=occurrence_type,
+            defect_type=request.form.get("defect_type") or None,
+        )
+        detail = f"{ncr['ncr_no']} — {material_no} / {supplier}"
+        if was_not_draft:
+            detail += " (발송/확인 상태 초기화됨)"
+        record_change("부적합 통보서 수정", "ncr", ncr_id, detail)
+        flash("부적합 통보서가 수정됐어." +
+              (" 발송/확인 상태가 초기화됐으니 다시 확인·발송해줘." if was_not_draft else ""))
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+    return render_template("ncr_edit.html", ncr=ncr, is_linked=is_linked,
+                           defect_types=db.list_defect_types())
+
+
 # ---------- 불량 유형 마스터 관리 (NCR 작성화면 드롭다운 옆 팝업, AJAX) ----------
 
 @app.route("/ncr/defect-types")
@@ -6640,6 +6717,69 @@ def improvement_new(inspection_id):
                            defect_categories=db.list_improvement_defect_categories())
 
 
+@app.route("/improvement/<int:req_id>/edit", methods=["GET", "POST"])
+@perm_required("improvement_edit")
+def improvement_edit(req_id):
+    """개선요청서 내용 수정 — 발송 여부와 무관하게 가능. NCR 수정과 같은 원칙
+    (성적서 연결 건은 자재/업체/로트 정보를 여기서 바꾸지 못하게 막는다)."""
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        flash("개선요청서를 찾을 수 없어.")
+        return redirect(url_for("improvement_list"))
+
+    is_linked = bool(req["inspection_id"])
+
+    if request.method == "POST":
+        request_detail = request.form.get("request_detail", "").strip()
+        issued_date = request.form.get("issued_date", "").strip()
+        if not request_detail or not issued_date:
+            flash("요청내용과 발신일은 필수야.")
+            return redirect(url_for("improvement_edit", req_id=req_id))
+
+        if is_linked:
+            material_no = req["material_no"]
+            material_name = req["material_name"]
+            supplier = req["supplier"]
+            po_number = req["po_number"]
+        else:
+            material_no = request.form.get("material_no", "").strip()
+            material_name = request.form.get("material_name", "").strip()
+            supplier = request.form.get("supplier", "").strip()
+            po_number = request.form.get("po_number", "").strip() or None
+            if not material_no or not supplier:
+                flash("자재번호와 업체는 필수야.")
+                return redirect(url_for("improvement_edit", req_id=req_id))
+
+        categories = [c for c in request.form.getlist("defect_categories")
+                      if c in db.list_improvement_defect_categories()]
+        was_sent = (req["status"] or "draft") != "draft"
+
+        db.update_improvement_request(
+            req_id,
+            material_no=material_no,
+            material_name=material_name,
+            supplier=supplier,
+            lot_number=request.form.get("lot_number", "").strip() or None,
+            po_number=po_number,
+            lot_qty=request.form.get("lot_qty", "").strip() or None,
+            defect_categories=",".join(categories),
+            defect_category_etc=request.form.get("defect_category_etc", "").strip() or None,
+            request_detail=request_detail,
+            confirmed_name=request.form.get("confirmed_name", "").strip() or None,
+            issued_date=issued_date,
+        )
+        detail = f"{req['request_no']} — {material_no} / {supplier}"
+        if was_sent:
+            detail += " (발송 상태 초기화됨)"
+        record_change("개선요청서 수정", "improvement_request", req_id, detail)
+        flash("개선요청서가 수정됐어." +
+              (" 발송 상태가 초기화됐으니 다시 발송해줘." if was_sent else ""))
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    return render_template("improvement_edit.html", req=req, is_linked=is_linked,
+                           defect_categories=db.list_improvement_defect_categories())
+
+
 def _save_improvement_photos(req_id, req_no):
     """defect_photos/reference_photos 두 input 필드의 파일들을 kind별로 저장 — 실패해도
     개선요청서 작성 자체는 성공 처리(NCR과 같은 관례)."""
@@ -6846,10 +6986,9 @@ def improvement_send_email(req_id):
 
 
 @app.route("/improvement/delete-selected", methods=["POST"])
+@perm_required("improvement_delete")
 def improvement_delete_selected():
-    """admin 전용 개선요청서 일괄 삭제."""
-    guard = _admin_only()
-    if guard: return guard
+    """'improvement_delete' 권한 보유자 전용 개선요청서 일괄 삭제."""
     ids_raw = request.form.getlist("improvement_ids")
     ids = []
     for x in ids_raw:
@@ -6861,7 +7000,7 @@ def improvement_delete_selected():
         flash("삭제할 개선요청서를 선택해줘.")
         return redirect(url_for("improvement_list"))
     for rid in ids:
-        record_change("개선요청서 삭제(admin)", "improvement_request", rid,
+        record_change("개선요청서 삭제", "improvement_request", rid,
                       f"삭제자: {g.user['display_name'] or g.user['username']}")
     photo_paths = db.delete_improvement_requests(ids)
     for fname in photo_paths:

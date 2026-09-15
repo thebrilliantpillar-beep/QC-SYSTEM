@@ -183,6 +183,11 @@
   </button>
   {% endif %}
 
+  {% if 'ncr_edit' in user_perms %}
+  <a href="{{ url_for('ncr_edit', ncr_id=ncr['id']) }}"
+     style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">✏️ 수정</a>
+  {% endif %}
+
   <a href="{{ url_for('ncr_list') }}"
      style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">← 목록</a>
   {% if ncr['inspection_id'] %}

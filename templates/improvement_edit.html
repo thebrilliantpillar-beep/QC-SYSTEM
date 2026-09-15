@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ req['request_no'] }} 수정 — 개선요청서{% endblock %}
+{% block content %}
+<style>
+.imp-section { background: #fff; border-radius: 12px; padding: 18px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; }
+.imp-section h3 { font-size: 14px; font-weight: 700; color: #4b5563;
+                  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; font-size: 13.5px; }
+.info-grid .i-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.info-grid .i-val { font-weight: 700; }
+.imp-cat-list { display:flex; flex-wrap:wrap; gap:10px; }
+.imp-cat-list label { display:flex; align-items:center; gap:6px; font-weight:400; cursor:pointer; }
+</style>
+
+<h2>✏️ 개선요청서 수정 — {{ req['request_no'] }}</h2>
+
+{% if (req['status'] or 'draft') != 'draft' %}
+<div class="imp-section" style="border:2px solid #fbbf24; background:#fffbeb;">
+  <div style="font-size:13.5px; color:#854d0e; font-weight:700;">
+    ⚠ 이 개선요청서는 이미 발송됐어. 저장하면 발송 상태가 초기화돼 — 저장 후 다시 발송해줘.
+  </div>
+</div>
+{% endif %}
+
+{% if is_linked %}
+<div class="imp-section">
+  <h3>📦 검사 정보 (성적서 연결 — 여기서 수정 불가)</h3>
+  <div class="info-grid">
+    <div><div class="i-label">자재번호</div><div class="i-val">{{ req['material_no'] }}</div></div>
+    <div><div class="i-label">제품명</div><div class="i-val">{{ req['material_name'] or '-' }}</div></div>
+    <div><div class="i-label">업체</div><div class="i-val">{{ req['supplier'] or '-' }}</div></div>
+    <div><div class="i-label">발주번호</div><div class="i-val">{{ req['po_number'] or '-' }}</div></div>
+  </div>
+</div>
+{% endif %}
+
+<form method="POST">
+  {% if not is_linked %}
+  <div class="imp-section">
+    <h3>📦 자재 정보</h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:10px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">자재번호 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="material_no" value="{{ req['material_no'] or '' }}" required>
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">제품명</label>
+        <input type="text" name="material_name" value="{{ req['material_name'] or '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">업체 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="supplier" value="{{ req['supplier'] or '' }}" required>
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT No.</label>
+        <input type="text" name="lot_number" value="{{ req['lot_number'] or '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">발주 번호</label>
+        <input type="text" name="po_number" value="{{ req['po_number'] or '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT 수량</label>
+        <input type="text" name="lot_qty" value="{{ req['lot_qty'] or '' }}" placeholder="예: 12대">
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="imp-section">
+    <h3>📦 LOT 정보</h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:10px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT No.</label>
+        <input type="text" name="lot_number" value="{{ req['lot_number'] or '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT 수량</label>
+        <input type="text" name="lot_qty" value="{{ req['lot_qty'] or '' }}" placeholder="예: 12대">
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="imp-section">
+    <h3>✍️ 요청 내용</h3>
+    <label>발신일 <span style="color:var(--fail);">*</span></label>
+    <input type="date" name="issued_date" value="{{ req['issued_date'] or '' }}" required>
+
+    <label style="margin-bottom:4px; display:block;">불량 분류 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택, 복수 가능)</span></label>
+    {% set selected_cats = (req['defect_categories'] or '').split(',') %}
+    <div class="imp-cat-list" style="margin-bottom:10px;">
+      {% for cat in defect_categories %}
+      <label>
+        <input type="checkbox" name="defect_categories" value="{{ cat }}"
+               {% if cat in selected_cats %}checked{% endif %}
+               {% if cat == '기타' %}onchange="document.getElementById('etcInput').style.display=this.checked?'inline-block':'none';"{% endif %}>
+        {{ cat }}
+      </label>
+      {% endfor %}
+      <input type="text" id="etcInput" name="defect_category_etc" placeholder="기타 내용"
+             value="{{ req['defect_category_etc'] or '' }}"
+             style="display:{{ 'inline-block' if '기타' in selected_cats else 'none' }}; width:160px; margin:0;">
+    </div>
+
+    <label>요구사항 및 상세 설명 <span style="color:var(--fail);">*</span></label>
+    <textarea name="request_detail" rows="5" required
+              style="resize:vertical;">{{ req['request_detail'] or '' }}</textarea>
+
+    <label>담당자 확인 이름 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택 — 서명 없이 이름만 기록돼)</span></label>
+    <input type="text" name="confirmed_name" value="{{ req['confirmed_name'] or '' }}">
+  </div>
+
+  <div style="display:flex; gap:10px;">
+    <button type="submit" style="flex:1; font-size:16px; padding:15px; margin-top:4px;">
+      저장
+    </button>
+    <a href="{{ url_for('improvement_detail', req_id=req['id']) }}" class="btn secondary"
+       style="flex:0 0 auto; padding:15px 24px; font-size:15px; margin-top:4px; text-align:center;">취소</a>
+  </div>
+</form>
+{% endblock %}

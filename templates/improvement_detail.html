@@ -54,6 +54,11 @@
     {% if status == 'sent' %}<span style="background:#bbf7d0; color:#166534; font-size:11px;
       border-radius:999px; padding:2px 7px; margin-left:6px; font-weight:700;">발송됨</span>{% endif %}
   </button>
+  {% if 'improvement_edit' in user_perms %}
+  <a href="{{ url_for('improvement_edit', req_id=req['id']) }}"
+     style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">✏️ 수정</a>
+  {% endif %}
+
   <a href="{{ url_for('improvement_list') }}"
      style="background:#fff; border:1.5px solid var(--border); color:#2B3140;">← 목록</a>
   {% if req['inspection_id'] %}

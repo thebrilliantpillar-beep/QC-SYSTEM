@@ -2446,6 +2446,32 @@ def create_ncr(inspection_id, material_no, material_name, supplier, defect_descr
     return ncr_id, ncr_no
 
 
+def update_ncr(ncr_id, material_no, material_name, supplier, defect_description,
+               due_date, issued_date, lot_number=None, receive_date=None,
+               cc_recipient=None, sample_qty=None, defect_qty=None, special_note=None,
+               lot_qty=None, occurrence_type='입고검사', defect_type=None):
+    """부적합 통보서 내용 수정. 발송/확인 여부와 무관하게 항상 저장하되,
+    내용이 바뀐 문서에 옛 확인/발송 흔적이 남지 않도록 status를 'draft'로
+    되돌리고 confirmed_by/confirmed_at/confirm_signature/email_sent_at/sent_to를
+    같이 지운다(8-2-10절의 '승인 회수 시 서명·해시 초기화'와 같은 원칙)."""
+    conn = get_conn()
+    conn.execute("""
+        UPDATE ncr SET
+            material_no = ?, material_name = ?, supplier = ?,
+            defect_description = ?, due_date = ?, issued_date = ?,
+            lot_number = ?, receive_date = ?, cc_recipient = ?,
+            sample_qty = ?, defect_qty = ?, special_note = ?, lot_qty = ?,
+            occurrence_type = ?, defect_type = ?,
+            status = 'draft', confirmed_by = NULL, confirmed_at = NULL,
+            confirm_signature = NULL, email_sent_at = NULL, sent_to = NULL
+        WHERE id = ?
+    """, (material_no, material_name, supplier, defect_description, due_date, issued_date,
+          lot_number, receive_date, cc_recipient, sample_qty, defect_qty, special_note, lot_qty,
+          occurrence_type, defect_type, ncr_id))
+    conn.commit()
+    conn.close()
+
+
 def confirm_ncr(ncr_id, confirmed_by, signature_path=None):
     """부적합 통보서 확인 완료. 최종결정권자의 승인 서명 경로를 같이 저장한다."""
     conn = get_conn()
@@ -2543,6 +2569,27 @@ def create_improvement_request(inspection_id, material_no, material_name, suppli
     req_id = cur.lastrowid
     conn.close()
     return req_id, request_no
+
+
+def update_improvement_request(req_id, material_no, material_name, supplier,
+                                lot_number, po_number, lot_qty, defect_categories,
+                                defect_category_etc, request_detail, confirmed_name,
+                                issued_date):
+    """개선요청서 내용 수정. NCR과 같은 원칙 — 발송 여부 무관하게 수정 허용하되
+    저장 시 status를 'draft'로 되돌리고 발송 흔적을 지운다(서명 개념은 없음)."""
+    conn = get_conn()
+    conn.execute("""
+        UPDATE improvement_requests SET
+            material_no = ?, material_name = ?, supplier = ?, lot_number = ?, po_number = ?,
+            lot_qty = ?, defect_categories = ?, defect_category_etc = ?, request_detail = ?,
+            confirmed_name = ?, issued_date = ?,
+            status = 'draft', email_sent_at = NULL, sent_to = NULL
+        WHERE id = ?
+    """, (material_no, material_name, supplier, lot_number, po_number, lot_qty,
+          defect_categories, defect_category_etc, request_detail, confirmed_name,
+          issued_date, req_id))
+    conn.commit()
+    conn.close()
 
 
 def get_improvement_request(req_id):

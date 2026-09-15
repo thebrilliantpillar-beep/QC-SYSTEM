@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ ncr['ncr_no'] }} 수정 — 부적합 통보서{% endblock %}
+{% block content %}
+<style>
+.ncr-section { background: #fff; border-radius: 12px; padding: 18px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; }
+.ncr-section h3 { font-size: 14px; font-weight: 700; color: #4b5563;
+                  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; font-size: 13.5px; }
+.info-grid .i-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.info-grid .i-val { font-weight: 700; }
+</style>
+
+<h2>✏️ 부적합 통보서 수정 — {{ ncr['ncr_no'] }}</h2>
+
+{% if (ncr['status'] or 'draft') != 'draft' %}
+<div class="ncr-section" style="border:2px solid #fbbf24; background:#fffbeb;">
+  <div style="font-size:13.5px; color:#854d0e; font-weight:700;">
+    ⚠ 이 통보서는 이미 {% if ncr['status'] == 'sent' %}발송{% else %}확인{% endif %}됐어.
+    저장하면 발송/확인 상태가 초기화돼 — 저장 후 다시 확인·발송해줘.
+  </div>
+</div>
+{% endif %}
+
+{% if is_linked %}
+<div class="ncr-section">
+  <h3>📦 검사 정보 (성적서 연결 — 여기서 수정 불가)</h3>
+  <div class="info-grid">
+    <div><div class="i-label">자재번호</div><div class="i-val">{{ ncr['material_no'] }}</div></div>
+    <div><div class="i-label">제품명</div><div class="i-val">{{ ncr['material_name'] or '-' }}</div></div>
+    <div><div class="i-label">업체</div><div class="i-val">{{ ncr['supplier'] or '-' }}</div></div>
+  </div>
+</div>
+{% endif %}
+
+<form method="POST">
+  {% if not is_linked %}
+  <div class="ncr-section">
+    <h3>📦 자재 정보</h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:10px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">자재번호 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="material_no" value="{{ ncr['material_no'] or '' }}" required>
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">제품명</label>
+        <input type="text" name="material_name" value="{{ ncr['material_name'] or '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">업체 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="supplier" value="{{ ncr['supplier'] or '' }}" required>
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">로트번호</label>
+        <input type="text" name="lot_number" value="{{ ncr['lot_number'] or '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">입고날짜</label>
+        <input type="date" name="receive_date" value="{{ ncr['receive_date'] or '' }}">
+      </div>
+    </div>
+
+    <label style="margin-top:10px; display:block;">발생 시점 <span style="color:var(--fail);">*</span></label>
+    <div style="display:flex; gap:16px; align-items:center; margin-top:4px;">
+      <label style="display:flex; align-items:center; gap:6px; font-weight:400; cursor:pointer;">
+        <input type="radio" name="occurrence_type" value="입고검사" {% if (ncr['occurrence_type'] or '입고검사') == '입고검사' %}checked{% endif %}> 입고검사 중
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-weight:400; cursor:pointer;">
+        <input type="radio" name="occurrence_type" value="사후" {% if ncr['occurrence_type'] == '사후' %}checked{% endif %}> 사후 불량
+      </label>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="ncr-section">
+    <h3>✍️ 통보서 내용</h3>
+
+    <label>발행일 <span style="color:var(--fail);">*</span></label>
+    <input type="date" name="issued_date" value="{{ ncr['issued_date'] or '' }}" required>
+
+    <label>참조 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택 — 예: 구매팀)</span></label>
+    <input type="text" name="cc_recipient" value="{{ ncr['cc_recipient'] or '' }}" placeholder="예: 구매팀">
+
+    <label>불량 유형 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+    <select name="defect_type" id="defectTypeSelect">
+      <option value="">— 선택 안 함 —</option>
+      {% for dt in defect_types %}
+      <option {% if ncr['defect_type'] == dt %}selected{% endif %}>{{ dt }}</option>
+      {% endfor %}
+      <option value="__manage__">➕ 생성 및 수정...</option>
+    </select>
+
+    <label>불량 내용 <span style="color:var(--fail);">*</span></label>
+    <textarea name="defect_description" rows="4" required
+              style="resize:vertical;">{{ ncr['defect_description'] or '' }}</textarea>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:4px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT 수량
+          <span style="color:#9ca3af; font-weight:400; font-size:12px;">(예: 12대, 1LOT)</span>
+        </label>
+        <input type="text" name="lot_qty" value="{{ ncr['lot_qty'] or '' }}" placeholder="예: 12대">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">시료수</label>
+        <input type="number" name="sample_qty" min="0" value="{{ ncr['sample_qty'] if ncr['sample_qty'] is not none else '' }}">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">불량수</label>
+        <input type="number" name="defect_qty" min="0" value="{{ ncr['defect_qty'] if ncr['defect_qty'] is not none else '' }}">
+      </div>
+    </div>
+
+    <label>특기사항 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+    <textarea name="special_note" rows="2"
+              style="resize:vertical;">{{ ncr['special_note'] or '' }}</textarea>
+
+    <label>조치 기한 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+    <input type="date" name="due_date" value="{{ ncr['due_date'] or '' }}">
+  </div>
+
+  <div style="display:flex; gap:10px;">
+    <button type="submit" style="flex:1; font-size:16px; padding:15px; margin-top:4px;">
+      저장
+    </button>
+    <a href="{{ url_for('ncr_detail', ncr_id=ncr['id']) }}" class="btn secondary"
+       style="flex:0 0 auto; padding:15px 24px; font-size:15px; margin-top:4px; text-align:center;">취소</a>
+  </div>
+</form>
+{% include "_defect_type_modal.html" %}
+{% endblock %}
