@@ -5774,8 +5774,14 @@ NCR_PHOTO_DIR = os.path.join(db.DATA_DIR, "ncr_photos")
 os.makedirs(NCR_PHOTO_DIR, exist_ok=True)
 
 
-def _save_ncr_photo(file_storage, dest_dir, base_name):
-    """NCR 사진을 최대 1600px, JPEG 85%로 압축해 저장. 항상 .jpg로 저장."""
+def _save_ncr_photo(file_storage, dest_dir, base_name, max_px=1600, quality=85, optimize=True):
+    """NCR/출고 사진을 최대 max_px, JPEG quality%로 압축해 저장. 항상 .jpg로 저장.
+    기본값(1600px/85%/optimize=True)은 NCR(불량 증거사진) 기준 — 화질이 중요해서 원래대로
+    유지한다(사용자 확정, 2026-09-15). 출고 스캔은 체감속도 개선을 위해 호출부에서
+    max_px=1280, quality=80, optimize=False로 낮춰서 부른다(실측: 파일크기 약 54% 감소).
+    클라이언트(static/photo_resize.js)가 업로드 전에 이미 1280px로 줄여서 보내므로,
+    출고 쪽은 이 리사이즈 분기가 대부분 실제로는 동작하지 않고 JPEG 재인코딩만
+    일어난다 — 클라이언트 리사이즈가 실패했을 때의 안전망으로 남겨둔다."""
     fname = base_name + '.jpg'
     dest_path = os.path.join(dest_dir, fname)
     try:
@@ -5785,10 +5791,10 @@ def _save_ncr_photo(file_storage, dest_dir, base_name):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         w, h = img.size
-        if max(w, h) > 1600:
-            scale = 1600 / max(w, h)
+        if max(w, h) > max_px:
+            scale = max_px / max(w, h)
             img = img.resize((int(w * scale), int(h * scale)), _PILImg.LANCZOS)
-        img.save(dest_path, 'JPEG', quality=85, optimize=True)
+        img.save(dest_path, 'JPEG', quality=quality, optimize=optimize)
     except Exception:
         file_storage.stream.seek(0)
         file_storage.save(dest_path)
@@ -7709,7 +7715,7 @@ def outbound_item_add(batch_id):
             if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
                 continue
             base = f"ob{batch_id}_{item_id}_{uuid.uuid4().hex[:8]}"
-            fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base)
+            fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base, max_px=1280, quality=80, optimize=False)
             photo_id = db.add_outbound_item_photo(item_id, fname, kind=kind)
             photos.append({"id": photo_id, "file_path": fname, "kind": kind,
                             "url": url_for("outbound_photo_file", filename=fname)})
@@ -7858,7 +7864,7 @@ def outbound_item_photo_add(item_id):
         if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
             continue
         base = f"ob{item['batch_id']}_{item_id}_{uuid.uuid4().hex[:8]}"
-        fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base)
+        fname = _save_ncr_photo(file, OUTBOUND_PHOTO_DIR, base, max_px=1280, quality=80, optimize=False)
         photo_id = db.add_outbound_item_photo(item_id, fname, kind=kind)
         photos.append({"id": photo_id, "file_path": fname, "kind": kind,
                         "url": url_for("outbound_photo_file", filename=fname)})

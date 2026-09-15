@@ -263,6 +263,7 @@
 </details>
 
 <script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
+<script src="{{ url_for('static', filename='photo_resize.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function () {
@@ -306,30 +307,109 @@
     setPlanRowStatus(serial, computeConfirmed(itemPhotosById[itemId] || []));
   }
 
+  // ---- 사진 업로드 (2026-09-15: 항목 등록과 분리된 백그라운드 업로드) ----
+  // "새 항목 스캔"과 "저장된 항목에 사진 + 추가" 양쪽이 이 엔진 하나를 공유한다
+  // (복붙 금지). 업로드 중/대기 중인 사진이 있으면 pendingPhotoCount가 0보다
+  // 커지고, 이 값이 페이지 이탈 경고를 트리거한다.
+  var pendingPhotoCount = 0;
+  window.addEventListener('beforeunload', function (e) {
+    if (pendingPhotoCount > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  function pendingSlotHtml() {
+    return '<div class="ob-photo-pending" style="display:flex;align-items:center;' +
+      'justify-content:center;aspect-ratio:1/1;background:#F1F1EF;border-radius:8px;' +
+      'border:1px solid var(--border);font-size:16px;">⏳</div>';
+  }
+
+  function makePendingSlotEl() {
+    var wrap = document.createElement('div');
+    wrap.innerHTML = pendingSlotHtml();
+    return wrap.firstElementChild;
+  }
+
+  function applyUploadedPhotos(itemId, kind, photos) {
+    var grid = document.getElementById('photos-' + kind + '-' + itemId);
+    if (!grid) return;
+    var placeholder = grid.querySelector('.no-photo-mark');
+    if (placeholder) placeholder.remove();
+    var firstPending = grid.querySelector('.ob-photo-pending');
+    photos.forEach(function (p) {
+      var div = document.createElement('div');
+      div.style.position = 'relative';
+      div.innerHTML = '<img src="' + p.url + '">' +
+        '<form method="POST" action="/outbound/photo/' + p.id + '/delete" style="position:absolute;top:-6px;right:-6px;" onsubmit="return confirm(\'이 사진을 지울까?\');">' +
+        '<button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:999px;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;margin:0;">✕</button></form>';
+      grid.insertBefore(div, firstPending);
+    });
+    itemPhotosById[itemId] = (itemPhotosById[itemId] || []).concat(photos.map(function (p) { return p.kind; }));
+    refreshPlanRowByItem(itemId);
+  }
+
+  function showUploadRetry(slotEl, errMsg, retryFn) {
+    if (!slotEl) return;
+    slotEl.style.background = '#fee2e2';
+    slotEl.style.color = 'var(--fail)';
+    slotEl.style.cursor = 'pointer';
+    slotEl.style.fontSize = '10px';
+    slotEl.style.textAlign = 'center';
+    slotEl.title = errMsg || '업로드 실패 — 눌러서 재시도';
+    slotEl.textContent = '⚠ 재시도';
+    slotEl.onclick = function () {
+      slotEl.style.background = '#F1F1EF';
+      slotEl.style.color = '';
+      slotEl.style.cursor = '';
+      slotEl.textContent = '⏳';
+      slotEl.onclick = null;
+      retryFn();
+    };
+  }
+
+  function attemptUpload(itemId, kind, file, slotEl) {
+    window.PhotoResize.resizeFile(file).then(function (resized) {
+      var fd = new FormData();
+      fd.append('kind', kind);
+      fd.append('photos', resized);
+      return fetch('/outbound/item/' + itemId + '/add-photo', { method: 'POST', body: fd });
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (!data.ok) throw new Error(data.error || '업로드 실패');
+      pendingPhotoCount = Math.max(0, pendingPhotoCount - 1);
+      applyUploadedPhotos(itemId, kind, data.photos);
+      if (slotEl && slotEl.parentNode) slotEl.remove();
+    }).catch(function (err) {
+      showUploadRetry(slotEl, err && err.message, function () {
+        attemptUpload(itemId, kind, file, slotEl);
+      });
+    });
+  }
+
+  function queuePhotoUploads(itemId, kind, files) {
+    var grid = document.getElementById('photos-' + kind + '-' + itemId);
+    if (!grid) return;
+    var slots = grid.querySelectorAll('.ob-photo-pending');
+    files.forEach(function (file, idx) {
+      var slot = slots[idx];
+      pendingPhotoCount++;
+      attemptUpload(itemId, kind, file, slot);
+    });
+  }
+
   window.uploadMorePhotos = function (itemId, kind, inputEl) {
     if (!inputEl.files.length) return;
-    var fd = new FormData();
-    fd.append('kind', kind);
-    for (var i = 0; i < inputEl.files.length; i++) fd.append('photos', inputEl.files[i]);
-    fetch('/outbound/item/' + itemId + '/add-photo', { method: 'POST', body: fd })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) { alert(data.error || '업로드 실패'); return; }
-        var grid = document.getElementById('photos-' + kind + '-' + itemId);
-        var placeholder = grid.querySelector('.no-photo-mark');
-        if (placeholder) placeholder.remove();
-        data.photos.forEach(function (p) {
-          var div = document.createElement('div');
-          div.style.position = 'relative';
-          div.innerHTML = '<img src="' + p.url + '">' +
-            '<form method="POST" action="/outbound/photo/' + p.id + '/delete" style="position:absolute;top:-6px;right:-6px;" onsubmit="return confirm(\'이 사진을 지울까?\');">' +
-            '<button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:999px;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;margin:0;">✕</button></form>';
-          grid.appendChild(div);
-        });
-        itemPhotosById[itemId] = (itemPhotosById[itemId] || []).concat(data.photos.map(function (p) { return p.kind; }));
-        refreshPlanRowByItem(itemId);
-        inputEl.value = '';
-      }).catch(function () { alert('업로드 실패(네트워크 확인)'); });
+    var files = Array.prototype.slice.call(inputEl.files);
+    var grid = document.getElementById('photos-' + kind + '-' + itemId);
+    var placeholder = grid.querySelector('.no-photo-mark');
+    if (placeholder) placeholder.remove();
+    files.forEach(function (file) {
+      var slot = makePendingSlotEl();
+      grid.appendChild(slot);
+      pendingPhotoCount++;
+      attemptUpload(itemId, kind, file, slot);
+    });
+    inputEl.value = '';
   };
 
   window.addCurPhotos = function (kind) {
@@ -375,19 +455,22 @@
     });
   }
 
-  function appendItemRow(item, inPlan) {
+  function appendItemRow(item, inPlan, pending) {
+    pending = pending || {};
     var tbody = document.querySelector('#itemsTable tbody');
     var empty = tbody.querySelector('.empty-row');
     if (empty) empty.remove();
     var tr = document.createElement('tr');
 
-    function photosCell(kind) {
+    function photosCell(kind, pendingCount) {
       var matched = (item.photos || []).filter(function (p) { return (p.kind || 'indicator') === kind; });
       var html = matched.map(function (p) {
         return '<div style="position:relative;"><img src="' + p.url + '">' +
           '<form method="POST" action="/outbound/photo/' + p.id + '/delete" style="position:absolute; top:-6px; right:-6px;" onsubmit="return confirm(\'이 사진을 지울까?\');">' +
           '<button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:999px;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;margin:0;">✕</button></form></div>';
-      }).join('') || '<span class="muted no-photo-mark" style="font-size:12px;">없음</span>';
+      }).join('');
+      for (var i = 0; i < (pendingCount || 0); i++) html += pendingSlotHtml();
+      if (!html) html = '<span class="muted no-photo-mark" style="font-size:12px;">없음</span>';
       return '<td><div class="ob-photo-grid" id="photos-' + kind + '-' + item.id + '" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr));max-width:180px;">' + html + '</div>' +
         '<label class="btn secondary" style="margin-top:6px;padding:4px 10px;font-size:11.5px;cursor:pointer;">+ 추가' +
         '<input type="file" accept="image/*" multiple style="display:none;" onchange="uploadMorePhotos(' + item.id + ', \'' + kind + '\', this)"></label></td>';
@@ -397,8 +480,8 @@
       '<td><form method="POST" action="/outbound/item/' + item.id + '/edit" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
       '<input type="text" name="product_name" value="' + (item.product_name || '').replace(/"/g, '&quot;') + '" placeholder="제품명/모델명" style="flex:1;min-width:160px;">' +
       '<button type="submit" class="btn secondary" style="margin-top:0;">저장</button></form></td>' +
-      photosCell('indicator');
-    if (bodyPhotoEnabled) html += photosCell('body');
+      photosCell('indicator', pending.indicator);
+    if (bodyPhotoEnabled) html += photosCell('body', pending.body);
     html += '<td><form method="POST" action="/outbound/item/' + item.id + '/delete" onsubmit="return confirm(\'이 항목을 삭제할까?\');">' +
       '<button type="submit" class="btn secondary" style="margin-top:0;color:var(--fail);">삭제</button></form></td>';
     tr.innerHTML = html;
@@ -424,6 +507,15 @@
   }
   window.resetCurSerial = resetCurSerial;
 
+  function collectSelectedFiles(kind) {
+    var selector = kind === 'body' ? 'input[name=photos_body]' : 'input[name=photos_indicator]';
+    var all = [];
+    document.querySelectorAll('#addItemForm ' + selector).forEach(function (inp) {
+      for (var i = 0; i < inp.files.length; i++) all.push(inp.files[i]);
+    });
+    return all;
+  }
+
   var addItemFormEl = document.getElementById('addItemForm');
   if (addItemFormEl) {
     addItemFormEl.addEventListener('submit', function (e) {
@@ -432,22 +524,32 @@
       if (!serial) { alert('S/N을 스캔하거나 입력해줘.'); return; }
       var msg = document.getElementById('addItemMsg');
       msg.textContent = '저장 중...';
-      var fd = new FormData(e.target);
+
+      var productName = document.getElementById('curProductName').value.trim();
+      var indicatorFiles = collectSelectedFiles('indicator');
+      var bodyFiles = bodyPhotoEnabled ? collectSelectedFiles('body') : [];
+
+      var fd = new FormData();
+      fd.append('serial_no', serial);
+      fd.append('product_name', productName);
+
       fetch('/outbound/scan/' + batchId + '/add-item', {
         method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }
       }).then(function (r) { return r.json(); }).then(function (data) {
         if (!data.ok) { msg.textContent = '⚠ ' + (data.error || '저장 실패'); return; }
         var inPlan = plannedSerials.has(serial);
         scannedSerials.add(serial);
-        appendItemRow(data.item, inPlan);
-        if (inPlan) {
-          // appendItemRow가 확인됨/사진미비 상태로 이미 갱신함. 계획외는 여기서 별도 카운트.
-        } else {
+        appendItemRow(data.item, inPlan, { indicator: indicatorFiles.length, body: bodyFiles.length });
+        if (!inPlan) {
           var el = document.getElementById('planExtra');
           el.textContent = parseInt(el.textContent, 10) + 1;
         }
-        msg.textContent = '✓ 추가됨';
         resetCurSerial();
+        msg.textContent = indicatorFiles.length || bodyFiles.length
+          ? '✓ 추가됨 (사진 업로드 중...)' : '✓ 추가됨';
+
+        if (indicatorFiles.length) queuePhotoUploads(data.item.id, 'indicator', indicatorFiles);
+        if (bodyFiles.length) queuePhotoUploads(data.item.id, 'body', bodyFiles);
       }).catch(function () { msg.textContent = '⚠ 저장 실패(네트워크 확인)'; });
     });
   }
