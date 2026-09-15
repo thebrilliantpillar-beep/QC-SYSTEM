@@ -24,6 +24,16 @@ OUTBOUND_CHECK_LABELS = {
     "check_access": "부속품 유무 확인",
 }
 OUTBOUND_RESULT_VALUES = ("PASS", "FAIL", "SPECIAL")
+# 2026-09-16: "새 항목 스캔·입력" 카드 안 좁은 폭에 넣을 축약 라벨. 정식 명칭은
+# OUTBOUND_CHECK_LABELS(표 헤더·엑셀 출력용)를 계속 쓰고, 이건 카드 UI 전용 —
+# 화면에선 이 짧은 텍스트를 쓰고 title 속성에 정식 명칭을 붙여 보완한다.
+OUTBOUND_CHECK_SHORT_LABELS = {
+    "check_tie": "체결상태",
+    "check_qr": "QR 부착",
+    "check_wrap": "간지포장",
+    "check_rst": "RST단자",
+    "check_access": "부속품",
+}
 
 
 def compute_outbound_item_auto_result(item):
@@ -31,18 +41,20 @@ def compute_outbound_item_auto_result(item):
     5개 전부 값이 있어야 계산하고, 하나라도 비어있으면(None, 아직 안 눌러봄) None을
     돌려준다("미검사").
 
-    우선순위: SPECIAL이 하나라도 있으면 SPECIAL(FAIL이 섞여 있어도 SPECIAL이 이긴다) →
-    그 다음 FAIL이 하나라도 있으면 FAIL → 전부 PASS면 PASS.
-    (2026-09-15, 사용자가 준 실제 회사 서식의 예시 데이터로 확정된 우선순위:
-    PASS,PASS,PASS,FAIL,SPECIAL → 판정=SPECIAL. 이 순서를 절대 바꾸지 말 것 —
-    FAIL을 먼저 체크하면 실제 서식과 다른 결과가 나온다.)"""
+    우선순위: FAIL이 하나라도 있으면 무조건 FAIL(SPECIAL이 섞여 있어도 FAIL이 이긴다) →
+    그 다음 SPECIAL이 하나라도 있으면 SPECIAL → 전부 PASS면 PASS.
+    (2026-09-16, 사용자가 명시적으로 확정: "Special이 있어도 Fail이 들어가면 무조건
+    최종 판결은 Fail" — 실제 회사 서식 예시 데이터(PASS,PASS,PASS,FAIL,SPECIAL →
+    SPECIAL로 표시돼 있던 것)와는 반대 순서지만, 사용자가 그 예시를 뒤집어 직접
+    정정했다. 이 순서를 절대 바꾸지 말 것 — SPECIAL을 먼저 체크하면 사용자가
+    정정한 것과 다른 결과가 나온다.)"""
     vals = [item.get(f) for f in OUTBOUND_CHECK_FIELDS]
     if any(v not in OUTBOUND_RESULT_VALUES for v in vals):
         return None
-    if "SPECIAL" in vals:
-        return "SPECIAL"
     if "FAIL" in vals:
         return "FAIL"
+    if "SPECIAL" in vals:
+        return "SPECIAL"
     return "PASS"
 
 
