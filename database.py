@@ -618,6 +618,42 @@ def init_db():
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE ncr ADD COLUMN {col} {definition}")
 
+    # 9-1. 개선요청서 — NCR보다 가벼운 사전조치 문서 (2026-09-15, 서명 없음)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS improvement_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_no TEXT UNIQUE,
+            inspection_id INTEGER,
+            material_no TEXT,
+            material_name TEXT,
+            supplier TEXT,
+            lot_number TEXT,
+            po_number TEXT,
+            lot_qty TEXT,
+            defect_categories TEXT,
+            defect_category_etc TEXT,
+            request_detail TEXT,
+            confirmed_name TEXT,
+            issued_by TEXT,
+            issued_date TEXT,
+            status TEXT DEFAULT 'draft',
+            email_sent_at TEXT,
+            sent_to TEXT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS improvement_request_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            improvement_request_id INTEGER NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'defect',
+            photo_path TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_imp_photos_req ON improvement_request_photos(improvement_request_id)")
+
     # 10. 앱 설정 (SMTP 등)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -2349,6 +2385,7 @@ def delete_supplier_contact(contact_id):
 _CONTACT_ROLE_PRIORITY = {
     "ncr": ["품질", "영업", "구매"],
     "report": ["영업", "품질", "구매"],
+    "improvement": ["품질", "영업", "구매"],
 }
 
 
@@ -2473,6 +2510,136 @@ def mark_ncr_email_sent(ncr_id, sent_to):
     """, (sent_to, ncr_id))
     conn.commit()
     conn.close()
+
+
+# ---------- 개선요청서 (부적합 통보서보다 가벼운 사전 조치 문서, 서명 없음) ----------
+
+def _next_improvement_no():
+    from datetime import date
+    today = date.today().strftime("%Y%m%d")
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM improvement_requests WHERE request_no LIKE ?", (f"IMP-{today}-%",)
+    ).fetchone()[0]
+    conn.close()
+    return f"IMP-{today}-{count + 1:03d}"
+
+
+def create_improvement_request(inspection_id, material_no, material_name, supplier,
+                                lot_number, po_number, lot_qty, defect_categories,
+                                defect_category_etc, request_detail, confirmed_name,
+                                issued_by, issued_date):
+    request_no = _next_improvement_no()
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO improvement_requests (request_no, inspection_id, material_no, material_name,
+            supplier, lot_number, po_number, lot_qty, defect_categories, defect_category_etc,
+            request_detail, confirmed_name, issued_by, issued_date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+    """, (request_no, inspection_id, material_no, material_name, supplier, lot_number,
+          po_number, lot_qty, defect_categories, defect_category_etc, request_detail,
+          confirmed_name, issued_by, issued_date))
+    conn.commit()
+    req_id = cur.lastrowid
+    conn.close()
+    return req_id, request_no
+
+
+def get_improvement_request(req_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM improvement_requests WHERE id = ?", (req_id,)).fetchone()
+    conn.close()
+    return row
+
+
+_IMPROVEMENT_LIST_SELECT = """
+    SELECT r.*,
+           i.inspector       AS insp_inspector,
+           i.receive_date    AS insp_receive_date,
+           i.inspect_date    AS insp_inspect_date,
+           i.overall_result  AS insp_overall_result,
+           i.status          AS insp_status,
+           i.approval_type   AS insp_approval_type
+    FROM improvement_requests r
+    LEFT JOIN inspections i ON i.id = r.inspection_id
+"""
+
+
+def list_improvement_requests(inspection_id=None):
+    """성적서 정보를 LEFT JOIN해서 같이 넘긴다 — inspection_id가 NULL인 독립작성 건도
+    정상 조회된다(insp_ 컬럼은 전부 NULL로 나올 뿐)."""
+    conn = get_conn()
+    if inspection_id:
+        rows = conn.execute(
+            _IMPROVEMENT_LIST_SELECT + " WHERE r.inspection_id = ? ORDER BY r.id DESC", (inspection_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute(_IMPROVEMENT_LIST_SELECT + " ORDER BY r.id DESC").fetchall()
+    conn.close()
+    return rows
+
+
+def add_improvement_photo(req_id, kind, photo_path):
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO improvement_request_photos (improvement_request_id, kind, photo_path) VALUES (?, ?, ?)",
+        (req_id, kind, photo_path))
+    conn.commit()
+    photo_id = cur.lastrowid
+    conn.close()
+    return photo_id
+
+
+def list_improvement_photos(req_id, kind=None):
+    conn = get_conn()
+    if kind:
+        rows = conn.execute(
+            "SELECT * FROM improvement_request_photos WHERE improvement_request_id = ? AND kind = ? ORDER BY id",
+            (req_id, kind)).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM improvement_request_photos WHERE improvement_request_id = ? ORDER BY id",
+            (req_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def delete_improvement_photo(photo_id):
+    conn = get_conn()
+    row = conn.execute("SELECT photo_path FROM improvement_request_photos WHERE id = ?", (photo_id,)).fetchone()
+    conn.execute("DELETE FROM improvement_request_photos WHERE id = ?", (photo_id,))
+    conn.commit()
+    conn.close()
+    return row["photo_path"] if row else None
+
+
+def mark_improvement_sent(req_id, sent_to):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE improvement_requests SET status = 'sent',
+            email_sent_at = datetime('now','localtime'),
+            sent_to = ?
+        WHERE id = ?
+    """, (sent_to, req_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_improvement_requests(req_ids):
+    """개선요청서 일괄 삭제. 첨부 사진의 실제 파일명 목록을 반환하니 호출부가 디스크에서도
+    지울 것(delete_outbound_item()과 같은 계약)."""
+    if not req_ids:
+        return []
+    conn = get_conn()
+    placeholders = ",".join("?" * len(req_ids))
+    photo_paths = [r["photo_path"] for r in conn.execute(
+        f"SELECT photo_path FROM improvement_request_photos WHERE improvement_request_id IN ({placeholders})",
+        req_ids).fetchall()]
+    conn.execute(f"DELETE FROM improvement_request_photos WHERE improvement_request_id IN ({placeholders})", req_ids)
+    conn.execute(f"DELETE FROM improvement_requests WHERE id IN ({placeholders})", req_ids)
+    conn.commit()
+    conn.close()
+    return photo_paths
 
 
 # ---------- 커스텀 성적서 템플릿 ----------
@@ -3719,7 +3886,13 @@ def get_outbound_batch(batch_id):
 def list_outbound_batches(query=None, limit=200):
     conn = get_conn()
     sql = """
-        SELECT b.*, COUNT(i.id) AS item_count
+        SELECT b.*, COUNT(i.id) AS item_count,
+               (SELECT COUNT(*) FROM outbound_planned_items p WHERE p.batch_id = b.id) AS planned_count,
+               (SELECT COUNT(*) FROM outbound_items i2
+                 WHERE i2.batch_id = b.id
+                   AND NOT EXISTS (SELECT 1 FROM outbound_planned_items p2
+                                    WHERE p2.batch_id = i2.batch_id AND p2.serial_no = i2.serial_no)
+               ) AS unplanned_count
           FROM outbound_batches b
           LEFT JOIN outbound_items i ON i.batch_id = b.id
          WHERE 1=1
@@ -4097,6 +4270,28 @@ def planned_item_exists(batch_id, serial_no):
     return row is not None
 
 
+def outbound_batch_has_unplanned_items(batch_id):
+    """차수 계획이 있는데(planned_items 1건 이상) 그 계획에 없는 항목이 이 배치에
+    하나라도 있으면 True. 계획 자체가 없는 배치(자유 등록)는 애초에 "계획에 안
+    맞는다"는 개념이 성립하지 않으므로 False — outbound_item_add()의 추가 차단
+    로직과 같은 전제를 쓴다(2026-09-16, 사용자 확정: 계획 불일치 항목은 추가 자체를
+    막고, 이미 들어와 있는 계획외 항목이 있으면 출고 확인도 막는다). outbound_batch_confirm()
+    라우트가 이 함수로 확인 처리를 게이트한다."""
+    conn = get_conn()
+    planned_count = conn.execute(
+        "SELECT COUNT(*) FROM outbound_planned_items WHERE batch_id=?", (batch_id,)).fetchone()[0]
+    if planned_count == 0:
+        conn.close()
+        return False
+    unplanned_count = conn.execute("""
+        SELECT COUNT(*) FROM outbound_items i
+         WHERE i.batch_id=? AND NOT EXISTS (
+             SELECT 1 FROM outbound_planned_items p WHERE p.batch_id=i.batch_id AND p.serial_no=i.serial_no)
+    """, (batch_id,)).fetchone()[0]
+    conn.close()
+    return unplanned_count > 0
+
+
 def delete_planned_item(planned_id):
     conn = get_conn()
     conn.execute("DELETE FROM outbound_planned_items WHERE id=?", (planned_id,))
@@ -4460,6 +4655,17 @@ def quality_report(start_date, end_date, period_type="monthly",
         ncr_sql += f" AND supplier IN ({','.join('?' * len(suppliers))})"; ncr_params += suppliers
     ncr_rows = [dict(r) for r in conn.execute(ncr_sql, ncr_params).fetchall()]
 
+    # 개선요청서 집계용 데이터 — NCR과 병렬(issued_date 기준, supplier 필터 적용)
+    imp_sql = "SELECT supplier, issued_date FROM improvement_requests WHERE issued_date IS NOT NULL"
+    imp_params = []
+    if start_date:
+        imp_sql += " AND issued_date >= ?"; imp_params.append(start_date)
+    if end_date:
+        imp_sql += " AND issued_date <= ?"; imp_params.append(end_date)
+    if suppliers:
+        imp_sql += f" AND supplier IN ({','.join('?' * len(suppliers))})"; imp_params += suppliers
+    imp_rows = [dict(r) for r in conn.execute(imp_sql, imp_params).fetchall()]
+
     conn.close()
 
     # ---- 집계 ----
@@ -4623,6 +4829,28 @@ def quality_report(start_date, end_date, period_type="monthly",
         key=lambda x: -x["ncr_건수"],
     )
 
+    # ---- 개선요청서 집계 (NCR과 병렬) ----
+    summary["개선요청_건수"] = len(imp_rows)
+
+    imp_by_period: dict = {}
+    for n in imp_rows:
+        pk = _period_key(n["issued_date"], period_type) or "(날짜없음)"
+        imp_by_period[pk] = imp_by_period.get(pk, 0) + 1
+    for item in period_list:
+        item["개선요청_건수"] = imp_by_period.get(item["구간"], 0)
+
+    imp_by_supplier: dict = {}
+    for n in imp_rows:
+        sup = n["supplier"] or "(미입력)"
+        imp_by_supplier[sup] = imp_by_supplier.get(sup, 0) + 1
+    for item in supplier_list:
+        item["개선요청_건수"] = imp_by_supplier.get(item["업체"], 0)
+
+    supplier_improvement_rank = sorted(
+        [{"name": s, "개선요청_건수": cnt} for s, cnt in imp_by_supplier.items()],
+        key=lambda x: -x["개선요청_건수"],
+    )
+
     # material_deviation_rank — 특채건수 내림차순 (특채건수 > 0인 자재만)
     material_deviation_rank = sorted(
         [{"material_no": item["자재번호"], "material_name": item["자재명"],
@@ -4654,6 +4882,7 @@ def quality_report(start_date, end_date, period_type="monthly",
         "변경점": change_points,
         "성적서목록": rows,
         "supplier_ncr_rank": supplier_ncr_rank,
+        "supplier_improvement_rank": supplier_improvement_rank,
         "material_deviation_rank": material_deviation_rank,
         "supplier_deviation_rank": supplier_deviation_rank,
     }

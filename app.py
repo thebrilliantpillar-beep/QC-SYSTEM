@@ -138,6 +138,11 @@ def signature_file(filename):
 def ncr_photo_file(filename):
     return send_from_directory(NCR_PHOTO_DIR, filename)
 
+
+@app.route("/static/improvement_photos/<path:filename>")
+def improvement_photo_file(filename):
+    return send_from_directory(IMPROVEMENT_PHOTO_DIR, filename)
+
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin1234"
 ADMIN_IDLE_TIMEOUT_SEC = 600  # "users" 권한 보유 계정만 10분 무동작 시 자동 로그아웃
@@ -156,6 +161,7 @@ PERM_GROUPS = [
         ("defect_history",   "불량 이력 열람"),
         ("ncr",              "부적합 통보서 작성"),
         ("ncr_confirm",      "부적합 통보서 확인·발송"),
+        ("improvement",      "개선요청서 작성·발송"),
         ("return",           "반품 처리"),
     ]),
     ("승인", [
@@ -3167,6 +3173,7 @@ def inspection_detail(inspection_id):
                 stale_spec_items.append(it["item_name"])
 
     existing_ncr_list = db.list_ncr(inspection_id=inspection_id)
+    existing_improvement_list = db.list_improvement_requests(inspection_id=inspection_id)
     return_requests = db.get_return_requests_by_inspection(inspection_id)
     prior_defect_count = db.get_defect_count_for(header["supplier"], header["material_no"])
     is_failed = header["overall_result"] not in ("합격", "", None)
@@ -3184,6 +3191,7 @@ def inspection_detail(inspection_id):
                            total_time_label=total_time_label, per_cycle_label=per_cycle_label,
                            aql_groups=aql_groups,
                            gauge_alerts=gauge_alerts, existing_ncr_list=existing_ncr_list,
+                           existing_improvement_list=existing_improvement_list,
                            return_requests=return_requests,
                            prior_defect_count=prior_defect_count,
                            specs_map=specs_map, is_failed=is_failed,
@@ -5802,7 +5810,7 @@ def _save_ncr_photo(file_storage, dest_dir, base_name, max_px=1600, quality=85, 
 
 
 @app.route("/ncr/search-intake")
-@perm_required("ncr", "approve")
+@perm_required("ncr", "approve", "improvement")
 def ncr_search_intake():
     """입고/검사 이력 검색 API — ncr/new 폼 자동입력용.
     업체명/자재명(자재번호 포함)/로트번호/입고날짜를 AND로 조합해서 찾는다.
@@ -6508,6 +6516,298 @@ def ncr_send_email(ncr_id):
     record_change("NCR 발송 완료 표시", "ncr", ncr_id, f"→ {to_email}")
     flash(f"발송 완료로 표시됐어. (수신: {to_email})")
     return redirect(url_for("ncr_detail", ncr_id=ncr_id))
+
+
+# =========================================================================
+# 개선요청서 — 부적합 통보서(NCR)보다 가벼운 사전 조치 문서 (2026-09-15, 서명 없음)
+# =========================================================================
+
+IMPROVEMENT_PHOTO_DIR = os.path.join(db.DATA_DIR, "improvement_photos")
+os.makedirs(IMPROVEMENT_PHOTO_DIR, exist_ok=True)
+
+IMPROVEMENT_DEFECT_CATEGORIES = ["치수 불량", "표면 결함", "기능 부적합", "포장 손상", "기타"]
+
+
+@app.route("/improvement")
+@perm_required("improvement")
+def improvement_list():
+    reqs = db.list_improvement_requests()
+    f = _list_search_params()
+    reqs = [
+        r for r in reqs
+        if _row_passes_search(
+            f,
+            inspector=r["insp_inspector"] or "", supplier=r["supplier"] or "",
+            product=r["material_name"] or "", material=r["material_no"] or "",
+            result=r["insp_overall_result"] or "",
+            status=_approval_status_label(r["insp_status"], r["insp_overall_result"], r["insp_approval_type"]),
+            insp_date=r["insp_inspect_date"], recv_date=r["insp_receive_date"],
+        )
+    ]
+    pager = _paginate(reqs)
+    return render_template("improvement_list.html", reqs=pager["items"], pager=pager, f=f,
+                           show_result=False, show_status=False)
+
+
+@app.route("/improvement/new", methods=["GET", "POST"])
+@perm_required("improvement")
+def improvement_new_manual():
+    """자재번호·업체 등을 직접 입력해서 개선요청서를 작성하는 화면(성적서 연결 없음)."""
+    if request.method == "POST":
+        material_no = request.form.get("material_no", "").strip()
+        supplier = request.form.get("supplier", "").strip()
+        request_detail = request.form.get("request_detail", "").strip()
+        issued_date = request.form.get("issued_date", "").strip()
+        if not material_no or not supplier or not request_detail or not issued_date:
+            flash("자재번호·업체·요청내용·발신일은 필수야.")
+            return redirect(url_for("improvement_new_manual"))
+
+        categories = [c for c in request.form.getlist("defect_categories") if c in IMPROVEMENT_DEFECT_CATEGORIES]
+        req_id, req_no = db.create_improvement_request(
+            inspection_id=None,
+            material_no=material_no,
+            material_name=request.form.get("material_name", "").strip(),
+            supplier=supplier,
+            lot_number=request.form.get("lot_number", "").strip() or None,
+            po_number=request.form.get("po_number", "").strip() or None,
+            lot_qty=request.form.get("lot_qty", "").strip() or None,
+            defect_categories=",".join(categories),
+            defect_category_etc=request.form.get("defect_category_etc", "").strip() or None,
+            request_detail=request_detail,
+            confirmed_name=request.form.get("confirmed_name", "").strip() or None,
+            issued_by=g.user["display_name"] or g.user["username"],
+            issued_date=issued_date,
+        )
+        _save_improvement_photos(req_id, req_no)
+        record_change("개선요청서 작성(수기입력)", "improvement_request", req_id,
+                      f"{req_no} — {material_no} / {supplier}")
+        flash(f"개선요청서 {req_no} 작성됐어.")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    from datetime import date
+    return render_template("improvement_manual_form.html", today=date.today().isoformat(),
+                           defect_categories=IMPROVEMENT_DEFECT_CATEGORIES)
+
+
+@app.route("/improvement/new/<int:inspection_id>", methods=["GET", "POST"])
+@perm_required("improvement")
+def improvement_new(inspection_id):
+    """성적서에서 진입 — 불합격 게이트 없이 언제든 작성 가능."""
+    header, items = db.get_inspection(inspection_id)
+    if header is None:
+        flash("성적서를 찾을 수 없어.")
+        return redirect(url_for("home"))
+
+    if request.method == "POST":
+        request_detail = request.form.get("request_detail", "").strip()
+        issued_date = request.form.get("issued_date", "").strip()
+        if not request_detail or not issued_date:
+            flash("요청내용과 발신일은 필수야.")
+            return redirect(url_for("improvement_new", inspection_id=inspection_id))
+
+        categories = [c for c in request.form.getlist("defect_categories") if c in IMPROVEMENT_DEFECT_CATEGORIES]
+        req_id, req_no = db.create_improvement_request(
+            inspection_id=inspection_id,
+            material_no=header["material_no"],
+            material_name=header["material_name"],
+            supplier=header["supplier"],
+            lot_number=request.form.get("lot_number", "").strip() or None,
+            po_number=header["po_number"],
+            lot_qty=request.form.get("lot_qty", "").strip() or (str(header["quantity"]) if header["quantity"] else None),
+            defect_categories=",".join(categories),
+            defect_category_etc=request.form.get("defect_category_etc", "").strip() or None,
+            request_detail=request_detail,
+            confirmed_name=request.form.get("confirmed_name", "").strip() or None,
+            issued_by=g.user["display_name"] or g.user["username"],
+            issued_date=issued_date,
+        )
+        _save_improvement_photos(req_id, req_no)
+        record_change("개선요청서 작성", "improvement_request", req_id,
+                      f"{req_no} — {header['material_no']} / {header['supplier']}")
+        flash(f"개선요청서 {req_no} 작성됐어.")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    from datetime import date
+    return render_template("improvement_form.html", header=header, today=date.today().isoformat(),
+                           defect_categories=IMPROVEMENT_DEFECT_CATEGORIES)
+
+
+def _save_improvement_photos(req_id, req_no):
+    """defect_photos/reference_photos 두 input 필드의 파일들을 kind별로 저장 — 실패해도
+    개선요청서 작성 자체는 성공 처리(NCR과 같은 관례)."""
+    import uuid
+    saved = 0
+    for kind, field in (("defect", "defect_photos"), ("reference", "reference_photos")):
+        for file in request.files.getlist(field):
+            if not file or not file.filename:
+                continue
+            ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                continue
+            base = f"{req_no}_{kind}_{uuid.uuid4().hex[:8]}"
+            try:
+                fname = _save_ncr_photo(file, IMPROVEMENT_PHOTO_DIR, base)
+                db.add_improvement_photo(req_id, kind, fname)
+                saved += 1
+            except Exception:
+                pass
+    if saved:
+        record_change("개선요청서 사진 첨부", "improvement_request", req_id, f"{saved}장")
+    return saved
+
+
+@app.route("/improvement/<int:req_id>")
+@perm_required("improvement")
+def improvement_detail(req_id):
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        flash("개선요청서를 찾을 수 없어.")
+        return redirect(url_for("improvement_list"))
+
+    defect_photos = db.list_improvement_photos(req_id, kind="defect")
+    reference_photos = db.list_improvement_photos(req_id, kind="reference")
+    supplier_info = db.get_supplier(req["supplier"] or "")
+    supplier_contacts = db.list_supplier_contacts(req["supplier"] or "")
+
+    default_contact = db.get_default_contact(req["supplier"] or "", "improvement")
+    supplier_email = default_contact["email"]
+    contact_person = default_contact["contact_name"]
+    mailto_url = report_builder.improvement_mailto_url(dict(req), supplier_email, contact_person=contact_person)
+    drawing_materials = materials_with_drawings([req["material_no"]])
+
+    return render_template("improvement_detail.html", req=req,
+                           defect_photos=defect_photos, reference_photos=reference_photos,
+                           supplier_info=supplier_info, supplier_contacts=supplier_contacts,
+                           default_contact_email=supplier_email,
+                           mailto_url=mailto_url, drawing_materials=drawing_materials)
+
+
+@app.route("/improvement/<int:req_id>/excel")
+@perm_required("improvement")
+def improvement_excel(req_id):
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        flash("개선요청서를 찾을 수 없어.")
+        return redirect(url_for("improvement_list"))
+
+    defect_photos = [os.path.join(IMPROVEMENT_PHOTO_DIR, p["photo_path"])
+                     for p in db.list_improvement_photos(req_id, kind="defect")]
+    reference_photos = [os.path.join(IMPROVEMENT_PHOTO_DIR, p["photo_path"])
+                        for p in db.list_improvement_photos(req_id, kind="reference")]
+
+    out_path, err = report_builder.build_improvement_excel(dict(req), defect_photos, reference_photos)
+    if err:
+        flash(f"엑셀 생성 실패: {err}")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    record_change("개선요청서 엑셀 발행", "improvement_request", req_id, os.path.basename(out_path))
+    from flask import send_file
+    return send_file(out_path, as_attachment=True, download_name=os.path.basename(out_path))
+
+
+@app.route("/improvement/<int:req_id>/pdf")
+@perm_required("improvement")
+def improvement_pdf(req_id):
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        flash("개선요청서를 찾을 수 없어.")
+        return redirect(url_for("improvement_list"))
+
+    defect_photos = [os.path.join(IMPROVEMENT_PHOTO_DIR, p["photo_path"])
+                     for p in db.list_improvement_photos(req_id, kind="defect")]
+    reference_photos = [os.path.join(IMPROVEMENT_PHOTO_DIR, p["photo_path"])
+                        for p in db.list_improvement_photos(req_id, kind="reference")]
+
+    xlsx_path, err = report_builder.build_improvement_excel(dict(req), defect_photos, reference_photos)
+    if err:
+        flash(f"엑셀 생성 실패: {err}")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    out_dir = os.path.dirname(xlsx_path)
+    pdf_path, pdf_err = report_builder._to_pdf(xlsx_path, out_dir)
+    if pdf_err:
+        flash(f"PDF 변환 실패: {pdf_err}")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    inline = request.args.get("inline") == "1"
+    if not inline:
+        record_change("개선요청서 PDF 발행", "improvement_request", req_id, os.path.basename(pdf_path))
+    from flask import send_file
+    return send_file(pdf_path, as_attachment=not inline,
+                     download_name=os.path.basename(pdf_path), mimetype="application/pdf")
+
+
+@app.route("/improvement/<int:req_id>/photo", methods=["POST"])
+@perm_required("improvement")
+def improvement_add_photo(req_id):
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        return "not found", 404
+    kind = request.form.get("kind", "defect")
+    if kind not in ("defect", "reference"):
+        kind = "defect"
+    file = request.files.get("photo")
+    if not file or file.filename == "":
+        flash("사진 파일을 선택해줘.")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+    import uuid
+    ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+        flash("이미지 파일만 첨부할 수 있어.")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+    base = f"{req['request_no']}_{kind}_{uuid.uuid4().hex[:8]}"
+    fname = _save_ncr_photo(file, IMPROVEMENT_PHOTO_DIR, base)
+    db.add_improvement_photo(req_id, kind, fname)
+    record_change("개선요청서 사진 첨부", "improvement_request", req_id, fname)
+    return redirect(url_for("improvement_detail", req_id=req_id))
+
+
+@app.route("/improvement/<int:req_id>/email", methods=["POST"])
+@perm_required("improvement")
+def improvement_send_email(req_id):
+    """발송 완료 표시 처리 (mailto: 방식으로 실제 발송, 여기선 상태만 기록)."""
+    req = db.get_improvement_request(req_id)
+    if req is None:
+        flash("개선요청서를 찾을 수 없어.")
+        return redirect(url_for("home"))
+
+    to_email = request.form.get("to_email", "").strip()
+    if not to_email:
+        flash("발송한 이메일 주소를 입력해줘.")
+        return redirect(url_for("improvement_detail", req_id=req_id))
+
+    db.mark_improvement_sent(req_id, to_email)
+    record_change("개선요청서 발송 완료 표시", "improvement_request", req_id, f"→ {to_email}")
+    flash(f"발송 완료로 표시됐어. (수신: {to_email})")
+    return redirect(url_for("improvement_detail", req_id=req_id))
+
+
+@app.route("/improvement/delete-selected", methods=["POST"])
+def improvement_delete_selected():
+    """admin 전용 개선요청서 일괄 삭제."""
+    guard = _admin_only()
+    if guard: return guard
+    ids_raw = request.form.getlist("improvement_ids")
+    ids = []
+    for x in ids_raw:
+        try:
+            ids.append(int(x))
+        except ValueError:
+            pass
+    if not ids:
+        flash("삭제할 개선요청서를 선택해줘.")
+        return redirect(url_for("improvement_list"))
+    for rid in ids:
+        record_change("개선요청서 삭제(admin)", "improvement_request", rid,
+                      f"삭제자: {g.user['display_name'] or g.user['username']}")
+    photo_paths = db.delete_improvement_requests(ids)
+    for fname in photo_paths:
+        try:
+            os.remove(os.path.join(IMPROVEMENT_PHOTO_DIR, fname))
+        except OSError:
+            pass
+    flash(f"개선요청서 {len(ids)}건 삭제됐어.")
+    return redirect(url_for("improvement_list"))
 
 
 BACKUP_EMAIL = "the.brilliant.pillar@gmail.com"
@@ -7654,8 +7954,11 @@ def outbound_scan_edit(batch_id):
     is_admin_user = (g.user["username"] or "").strip().lower() == "admin"
     can_revoke_confirm = bool(batch["confirmed_at"]) and (
         is_admin_user or (batch["confirmed_by"] or "") == actor)
+    # planned_serials/items가 이미 로드돼 있으므로 outbound_batch_has_unplanned_items()로
+    # 다시 조회하지 않고 같은 로직을 메모리에서 계산한다(불필요한 DB 왕복 방지).
+    has_unplanned = bool(planned_serials) and any(it["serial_no"] not in planned_serials for it in items)
     return render_template("outbound_scan.html", batch=batch, items=items,
-                           planned_serials=planned_serials,
+                           planned_serials=planned_serials, has_unplanned=has_unplanned,
                            plan_rows=progress["rows"], plan_summary=progress["summary"],
                            body_photo_enabled=db.outbound_body_photo_enabled(),
                            can_revoke_confirm=can_revoke_confirm,
@@ -7703,6 +8006,11 @@ def outbound_item_add(batch_id):
     serial_no = request.form.get("serial_no", "").strip()
     if not serial_no:
         return jsonify({"ok": False, "error": "S/N이 비어있어."}), 400
+    # 2026-09-16 사용자 확정: 차수 계획이 있는 배치에서 그 계획에 없는 S/N은 추가 자체를
+    # 막는다("무조건 미입력"). 계획이 아예 없는 배치(자유 등록)는 막을 기준이 없으므로 통과.
+    planned_items = db.list_planned_items(batch_id)
+    if planned_items and not db.planned_item_exists(batch_id, serial_no):
+        return jsonify({"ok": False, "error": "차수 계획에 없는 S/N이라 추가할 수 없어."}), 400
     product_name = request.form.get("product_name", "").strip()
 
     item_id = db.add_outbound_item(batch_id, serial_no, product_name, None)
@@ -7941,6 +8249,12 @@ def outbound_batch_confirm(batch_id):
     if batch is None:
         flash("존재하지 않는 출고 배치야.")
         return redirect(url_for("outbound_history"))
+    # 2026-09-16 사용자 확정: 차수 계획에 없는 항목이 남아있으면 출고 확인 자체를 막는다
+    # (출고 스캔/출고 이력 두 화면이 이 라우트 하나를 공유하므로 여기 한 곳만 게이트하면
+    # 양쪽 다 자동으로 막힌다 — CLAUDE.md 8-1절 원칙).
+    if db.outbound_batch_has_unplanned_items(batch_id):
+        flash("차수 계획에 없는 항목이 남아있어 출고 확인을 할 수 없어. '계획외' 표시된 항목을 먼저 정리해줘.")
+        return redirect(request.referrer or url_for("outbound_history"))
     db.confirm_outbound_batch(batch_id, g.user["display_name"] or g.user["username"])
     record_change("출고 확인", "outbound_batch", batch_id, batch["customer"] or "")
     flash("출고 확인 처리됐어.")

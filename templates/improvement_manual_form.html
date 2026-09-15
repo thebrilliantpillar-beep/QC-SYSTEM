@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}개선요청서 작성 (수기입력){% endblock %}
+{% block content %}
+<style>
+.imp-section { background: #fff; border-radius: 12px; padding: 18px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; }
+.imp-section h3 { font-size: 14px; font-weight: 700; color: #4b5563;
+                  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.imp-cat-list { display:flex; flex-wrap:wrap; gap:10px; }
+.imp-cat-list label { display:flex; align-items:center; gap:6px; font-weight:400; cursor:pointer; }
+.imp-search-row:hover { background: var(--bg-alt); }
+</style>
+
+<h2>🗒️ 개선요청서 작성 (수기입력)</h2>
+<p class="muted" style="margin:-6px 0 14px;">
+  성적서에 연결하지 않고 직접 입력해서 작성해 — 부적합 통보서보다 가벼운 사전 조치 문서야.
+  이미 검사입력이 돼 있는 건은 해당 성적서 상세 화면의 "개선요청서 작성" 버튼을 쓰는 게 더 편해.
+</p>
+
+<!-- 🔍 입고·검사 이력 검색 -->
+<div class="imp-section" style="border:2px solid var(--primary);">
+  <h3 style="color:var(--primary);">🔍 입고·검사 이력에서 불러오기 <span style="font-weight:400; color:#6b7280; font-size:12px;">(선택 — 검색 결과를 클릭하면 아래 입력칸이 채워져)</span></h3>
+
+  <div id="intakeSearchForm" style="display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; margin-bottom:4px;">
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">업체명</label>
+      <input type="text" id="sSupplier" autocomplete="off" placeholder="예: ACE"
+             style="width:130px; padding:7px 8px; font-size:13px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">자재명 / 자재번호</label>
+      <input type="text" id="sMaterialName" autocomplete="off" placeholder="예: 볼트 또는 600005P086"
+             style="width:190px; padding:7px 8px; font-size:13px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">로트번호</label>
+      <input type="text" id="sLotNumber" autocomplete="off" placeholder="예: CK2608-001"
+             style="width:150px; padding:7px 8px; font-size:13px;" oninput="onIntakeSearchInput()">
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button type="button" onclick="onIntakeSearchInput(true)" style="margin-top:0; padding:8px 16px; font-size:13px;">검색</button>
+      <button type="button" onclick="resetIntakeSearch()" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">초기화</button>
+    </div>
+  </div>
+  <div id="intakeResults" style="display:none; border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-top:8px;"></div>
+</div>
+
+<form method="POST" enctype="multipart/form-data">
+  <div class="imp-section">
+    <h3>📦 자재 정보</h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:10px;">
+      <div>
+        <label style="margin-bottom:4px; display:block;">자재번호 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="material_no" id="f_material_no" required placeholder="예: 600005P086">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">제품명</label>
+        <input type="text" name="material_name" id="f_material_name" placeholder="예: 둥근머리 볼트(M4*16L,STS304)">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">업체 <span style="color:var(--fail);">*</span></label>
+        <input type="text" name="supplier" id="f_supplier" required placeholder="예: ACE">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT No.</label>
+        <input type="text" name="lot_number" id="f_lot_number" placeholder="예: CK2608-001">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">발주 번호</label>
+        <input type="text" name="po_number" id="f_po_number">
+      </div>
+      <div>
+        <label style="margin-bottom:4px; display:block;">LOT 수량</label>
+        <input type="text" name="lot_qty" id="f_lot_qty" placeholder="예: 12대">
+      </div>
+    </div>
+  </div>
+
+  <div class="imp-section">
+    <h3>✍️ 요청 내용</h3>
+    <label>발신일 <span style="color:var(--fail);">*</span></label>
+    <input type="date" name="issued_date" value="{{ today }}" required>
+
+    <label style="margin-bottom:4px; display:block;">불량 분류 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택, 복수 가능)</span></label>
+    <div class="imp-cat-list" style="margin-bottom:10px;">
+      {% for cat in defect_categories %}
+      <label>
+        <input type="checkbox" name="defect_categories" value="{{ cat }}"
+               {% if cat == '기타' %}onchange="document.getElementById('etcInput').style.display=this.checked?'inline-block':'none';"{% endif %}>
+        {{ cat }}
+      </label>
+      {% endfor %}
+      <input type="text" id="etcInput" name="defect_category_etc" placeholder="기타 내용"
+             style="display:none; width:160px; margin:0;">
+    </div>
+
+    <label>요구사항 및 상세 설명 <span style="color:var(--fail);">*</span></label>
+    <textarea name="request_detail" rows="5" required
+              placeholder="예: 도금 두께가 기준에 근접해 재발 방지 차원에서 공정 점검을 요청드립니다."
+              style="resize:vertical;"></textarea>
+
+    <label>담당자 확인 이름 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택 — 서명 없이 이름만 기록돼)</span></label>
+    <input type="text" name="confirmed_name" placeholder="예: 윤주호"
+           value="{{ (g.user['display_name'] or g.user['username']) if g.user else '' }}">
+  </div>
+
+  <div class="imp-section">
+    <h3>📷 사진 (선택 · 각 최대 6장)</h3>
+    <label style="margin-bottom:4px; display:block;">불량 사진</label>
+    <input type="file" name="defect_photos" accept="image/*" multiple style="margin-bottom:10px;">
+    <label style="margin-bottom:4px; display:block;">설명 사진 / 비교 자료</label>
+    <input type="file" name="reference_photos" accept="image/*" multiple>
+  </div>
+
+  <button type="submit" style="width:100%; font-size:16px; padding:15px; margin-top:4px;">
+    개선요청서 작성
+  </button>
+</form>
+
+<script>
+var _searchTimer = null;
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function _collectIntakeSearchParams() {
+  return {
+    supplier: document.getElementById('sSupplier').value.trim(),
+    material_name: document.getElementById('sMaterialName').value.trim(),
+    lot_number: document.getElementById('sLotNumber').value.trim()
+  };
+}
+function onIntakeSearchInput(immediate) {
+  clearTimeout(_searchTimer);
+  var box = document.getElementById('intakeResults');
+  var params = _collectIntakeSearchParams();
+  var hasAny = params.supplier || params.material_name || params.lot_number;
+  if (!hasAny) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  var run = function () {
+    var qs = Object.keys(params)
+      .filter(function (k) { return params[k]; })
+      .map(function (k) { return k + '=' + encodeURIComponent(params[k]); })
+      .join('&');
+    fetch('/ncr/search-intake?' + qs)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var rows = data.results;
+        if (!rows || rows.length === 0) {
+          box.innerHTML = '<div style="padding:14px; color:#9ca3af; font-size:13px; text-align:center;">검색 결과 없음</div>';
+          box.style.display = 'block';
+          return;
+        }
+        var html = rows.map(function (r) {
+          return '<div class="imp-search-row" ' +
+            'data-material-no="' + escapeHtml(r.material_no || '') + '" ' +
+            'data-material-name="' + escapeHtml(r.material_name || '') + '" ' +
+            'data-supplier="' + escapeHtml(r.supplier || '') + '" ' +
+            'data-lot-number="' + escapeHtml(r.lot_number || '') + '" ' +
+            'data-lot-qty="' + escapeHtml(r.quantity != null ? String(r.quantity) : '') + '" ' +
+            'onclick="pickIntakeRow(this)" ' +
+            'style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); ' +
+            'font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">' +
+            '<strong style="color:var(--primary); min-width:100px;">' + escapeHtml(r.material_no || '') + '</strong>' +
+            '<span style="color:#2B3140; flex:1;">' + escapeHtml(r.material_name || '') + '</span>' +
+            '<span style="color:#6b7280; font-size:12px;">' + escapeHtml(r.supplier || '') + '</span>' +
+            (r.lot_number ? '<span style="background:#ECEEF2; border-radius:4px; padding:1px 7px; font-size:11.5px; color:#6b7280;">로트 ' + escapeHtml(r.lot_number) + '</span>' : '') +
+            '</div>';
+        }).join('');
+        box.innerHTML = html;
+        box.style.display = 'block';
+      });
+  };
+  if (immediate === true) { run(); } else { _searchTimer = setTimeout(run, 250); }
+}
+function pickIntakeRow(el) {
+  document.getElementById('f_material_no').value = el.getAttribute('data-material-no');
+  document.getElementById('f_material_name').value = el.getAttribute('data-material-name');
+  document.getElementById('f_supplier').value = el.getAttribute('data-supplier');
+  document.getElementById('f_lot_number').value = el.getAttribute('data-lot-number');
+  document.getElementById('f_lot_qty').value = el.getAttribute('data-lot-qty');
+  document.getElementById('intakeResults').style.display = 'none';
+}
+function resetIntakeSearch() {
+  document.getElementById('sSupplier').value = '';
+  document.getElementById('sMaterialName').value = '';
+  document.getElementById('sLotNumber').value = '';
+  var box = document.getElementById('intakeResults');
+  box.style.display = 'none';
+  box.innerHTML = '';
+}
+document.addEventListener('click', function (e) {
+  if (!e.target.closest('#intakeSearchForm') && !e.target.closest('#intakeResults')) {
+    document.getElementById('intakeResults').style.display = 'none';
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_admin_delete.html" import admin_delete_bar with context %}
+{% block title %}개선요청서 목록 — Chardon QMS{% endblock %}
+{% block content %}
+
+{{ admin_delete_bar(url_for('improvement_delete_selected'), 'improvement_ids', '개선요청서') }}
+<style>
+.imp-badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:700; }
+.imp-badge.draft { background:#fef9c3; color:#854d0e; }
+.imp-badge.sent  { background:#dcfce7; color:#15803d; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+  <h2 style="margin:0;">🗒️ 개선요청서 목록</h2>
+</div>
+<p class="muted" style="margin:-8px 0 14px;">
+  부적합 통보서(NCR)보다 가벼운 사전 조치 문서야. 서명 없이 담당자 이름만으로 발송할 수 있어.
+</p>
+
+{% include "_list_search.html" %}
+
+{% if reqs %}
+<div style="overflow-x:auto;">
+<table>
+  <thead>
+    <tr>
+      <th>번호</th>
+      <th style="text-align:left; padding-left:12px;">자재번호 / 제품명</th>
+      <th>업체</th>
+      <th>발신일</th>
+      <th>작성자</th>
+      <th>상태</th>
+      <th style="width:60px;"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in reqs %}
+  {% set status = r['status'] or 'draft' %}
+  <tr class="clickable" data-admin-id="{{ r['id'] }}"
+      onclick="location.href='{{ url_for('improvement_detail', req_id=r['id']) }}'">
+    <td style="font-size:12px; color:var(--muted); white-space:nowrap;">{{ r['request_no'] }}</td>
+    <td style="text-align:left; padding-left:12px;">
+      <div style="font-weight:700;">{{ r['material_no'] }}</div>
+      {% if r['material_name'] %}<div style="font-size:12px; color:var(--muted);">{{ r['material_name'] }}</div>{% endif %}
+    </td>
+    <td>{{ r['supplier'] or '-' }}</td>
+    <td style="font-size:13px;">{{ (r['issued_date'] | date_korean) if r['issued_date'] else '-' }}</td>
+    <td style="font-size:13px;">{{ r['issued_by'] or '-' }}</td>
+    <td>
+      <span class="imp-badge {{ status }}">
+        {% if status == 'draft' %}초안{% else %}발송됨{% endif %}
+      </span>
+    </td>
+    <td>
+      <a href="{{ url_for('improvement_detail', req_id=r['id']) }}"
+         onclick="event.stopPropagation()"
+         style="color:var(--primary); font-size:13px; white-space:nowrap;">보기 →</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; padding:40px; color:var(--muted);">
+  아직 작성된 개선요청서가 없어.
+</div>
+{% endif %}
+
+{% set p = pager %}{% include "_pager.html" %}
+{% endblock %}

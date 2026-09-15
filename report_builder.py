@@ -1415,6 +1415,165 @@ def build_ncr_eml(ncr, supplier_email='', xlsx_path=None, photo_paths=None, cont
             pass
 
 
+# ─────────────────────────────────────────────
+# 개선요청서 — 부적합 통보서(NCR)보다 가벼운 사전 조치 문서 (2026-09-15, 서명 없음)
+# ─────────────────────────────────────────────
+IMPROVEMENT_TEMPLATE = os.path.join(BASE_DIR, "improvement_request_template.xlsx")
+IMPROVEMENT_SHEET    = "개선요청서"
+
+# 불량유형 체크박스 원본 문자열(B10) — 이 안의 "☐ {유형}"을 "☑ {유형}"으로 치환한다.
+_IMPROVEMENT_DEFECT_CATEGORIES = ["치수 불량", "표면 결함", "기능 부적합", "포장 손상", "기타"]
+
+
+def build_improvement_excel(req, defect_photos=None, reference_photos=None):
+    """개선요청서 엑셀 생성. req: dict, defect_photos/reference_photos: 사진 절대경로 리스트.
+    반환: (출력경로, 에러메시지)"""
+    try:
+        from PIL import Image as PILImage
+    except ImportError:
+        PILImage = None
+
+    out_dir = report_output_dir()
+    issued = (req.get('issued_date') or '')[:10].replace('-', '')
+    raw_name = (f"{issued}_{req.get('supplier','')}_"
+                f"{req.get('material_no','')}_개선요청서.xlsx")
+    safe = re.sub(r'[\\/:"*?<>|]', '', raw_name)
+    out_path = _dedupe_path(os.path.join(out_dir, safe))
+
+    try:
+        shutil.copy(IMPROVEMENT_TEMPLATE, out_path)
+    except Exception as e:
+        return None, f"템플릿 복사 실패: {e}"
+
+    try:
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb[IMPROVEMENT_SHEET]
+        ws._images.clear()
+
+        ws['D3'] = req.get('issued_date') or ''
+        ws['B4'] = req.get('supplier') or ''
+        ws['D4'] = req.get('request_no') or ''
+        ws['B6'] = req.get('material_name') or ''
+        ws['D6'] = req.get('lot_number') or ''
+        ws['B7'] = req.get('lot_qty') or ''
+        ws['D7'] = req.get('po_number') or ''
+
+        # 불량유형 체크박스 — 선택된 항목만 ☐ → ☑ 치환, "기타"면 자유입력을 이어붙임
+        selected = set(x.strip() for x in (req.get('defect_categories') or '').split(',') if x.strip())
+        text = ws['B10'].value or ''
+        for cat in _IMPROVEMENT_DEFECT_CATEGORIES:
+            if cat in selected:
+                text = text.replace(f'☐ {cat}', f'☑ {cat}', 1)
+        if '기타' in selected and req.get('defect_category_etc'):
+            text = text.replace('☑ 기타:', f"☑ 기타: {req['defect_category_etc']}", 1)
+        ws['B10'] = text
+
+        ws['A13'] = req.get('request_detail') or ''
+        ws['A13'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+        ws['B31'] = req.get('confirmed_name') or ''
+        # E31(서명/인)은 서명 없음 결정에 따라 채우지 않는다
+
+        valid_defect = [p for p in (defect_photos or []) if p and os.path.exists(p)]
+        valid_reference = [p for p in (reference_photos or []) if p and os.path.exists(p)]
+        if valid_defect:
+            ws['A20'] = ''
+            _place_improvement_photos(ws, valid_defect, 'A', 'B', 20, 28, PILImage)
+        if valid_reference:
+            ws['C20'] = ''
+            _place_improvement_photos(ws, valid_reference, 'C', 'E', 20, 28, PILImage)
+
+        ws.page_setup.paperSize  = ws.PAPERSIZE_A4
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.fitToWidth  = 1
+        ws.page_setup.fitToHeight = 1
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_margins.left   = 0.4
+        ws.page_margins.right  = 0.4
+        ws.page_margins.top    = 0.4
+        ws.page_margins.bottom = 0.4
+        ws.page_margins.header = 0.0
+        ws.page_margins.footer = 0.0
+        ws.print_options.horizontalCentered = True
+
+        wb.save(out_path)
+        return out_path, None
+    except Exception as e:
+        return None, f"엑셀 생성 중 오류: {e}"
+
+
+def _place_improvement_photos(ws, photo_paths, col_start, col_end, row_start, row_end, PILImage=None):
+    """A20:B28 / C20:E28 같은 사각 영역에 사진을 배치한다. 실제 슬롯 계산은
+    _place_photos_in_area()(공용 헬퍼, CLAUDE.md 8-1절)가 담당 — 새로 만들지 않는다."""
+    from openpyxl.utils import column_index_from_string, get_column_letter
+    # 2026-09-16: 이 템플릿(improvement_request_template.xlsx)의 워크북 기본 글꼴은
+    # "맑은 고딕"(실제 openpyxl로 확인함) — Calibri 기준 7*9525 근사값을 쓰면 안 된다
+    # (CLAUDE.md 7-4-1절과 같은 함정, 출고 이력 엑셀에서 실제로 났던 것과 동일 유형의
+    # 버그를 Excel COM 실측으로 재확인: 87.6% 폭 = 7/8 MDW 불일치와 정확히 일치).
+    # 이미 있는 _excel_col_width_to_emu()(mdw=8, ECMA-376 공식)로 교체.
+    col_s = column_index_from_string(col_start) - 1
+    col_e = column_index_from_string(col_end) - 1
+    col_widths_emu = [
+        _excel_col_width_to_emu(ws.column_dimensions[get_column_letter(c + 1)].width or 8.43)
+        for c in range(col_s, col_e + 1)
+    ]
+    row_heights_emu = [
+        int((ws.row_dimensions[r].height or 15) * 12700)
+        for r in range(row_start, row_end + 1)
+    ]
+    _place_photos_in_area(ws, photo_paths, col_widths_emu, row_heights_emu, col_s, row_start - 1, PILImage)
+
+
+def _improvement_mail_subject(req):
+    from datetime import datetime as _dt
+    _DAYS_KO = ['월', '화', '수', '목', '금', '토', '일']
+    today = _dt.now()
+    date_str = today.strftime('%Y년 %m월 %d일') + f' ({_DAYS_KO[today.weekday()]})'
+    name = (req.get('material_name') or '').strip()
+    mat  = (req.get('material_no')   or '').strip()
+    parts = [p for p in [name, mat] if p]
+    suffix = ' '.join(parts)
+    return f"{date_str} [샤든코리아] 개선요청서{' ' + suffix if suffix else ''}"
+
+
+def _improvement_mail_body_lines(req, contact_person=''):
+    recipient = (contact_person or req.get('supplier') or '').strip()
+    detail = (req.get('request_detail') or '-').strip()
+    return [
+        f"{recipient} 담당자님.",
+        "",
+        "안녕하세요, 샤든코리아 품질팀, 윤주호 사원입니다.",
+        "항상 신경 써 주셔서 감사합니다.",
+        "",
+        (f"{req.get('material_no','')} {req.get('material_name','')} 관련해서 "
+         "정식 부적합 통보서 전 단계로, 아래와 같이 개선을 요청드립니다."),
+        "",
+        "■ 요청 내용",
+        detail,
+        "",
+        "가벼운 확인·개선 차원의 요청이니 부담 없이 확인 부탁드립니다.",
+        "궁금하신 점 있으시면 언제든 연락 주세요.",
+        "감사합니다.",
+        "",
+        "---",
+        "윤주호 사원  |  Yoon Ju-ho, Staff",
+        "품질팀  |  Quality Team",
+        "샤든코리아  |  Chardon Korea",
+        "jhyoon@chardonkorea.com",
+        "+82-10-7485-7352",
+    ]
+
+
+def improvement_mailto_url(req, supplier_email='', contact_person=''):
+    """개선요청서 mailto: URL 생성."""
+    import urllib.parse
+    params = urllib.parse.urlencode({
+        'subject': _improvement_mail_subject(req),
+        'body': '\n'.join(_improvement_mail_body_lines(req, contact_person=contact_person)),
+    })
+    return f"mailto:{supplier_email}?{params}"
+
+
 # ---------- 출고(완제품 S/N·QR·사진) — 입고검사(IQC)와 별개의 신규 하위시스템 ----------
 
 def build_outbound_excel(batch, items, photo_dir):

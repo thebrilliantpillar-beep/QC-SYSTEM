@@ -26,7 +26,7 @@
   .state-chk.on { border-color:var(--primary); background:#eff6ff; color:var(--primary-dark); }
 
   /* ── KPI ── */
-  .kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:16px 0 6px; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; margin:16px 0 6px; }
   @media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(3,1fr); } }
   @media (max-width:640px) { .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
   .kpi { background:#fff; border-radius:12px; padding:14px 13px;
@@ -308,6 +308,11 @@
     <div class="k-v kpi-value {{ 'bad' if s['ncr_건수']>0 else 'ok' }}"
          data-value="{{ s['ncr_건수'] }}">{{ s['ncr_건수'] }}</div>
     <div class="k-s">사후불량 {{ s['사후불량_건수'] }}건 포함</div>
+  </div>
+  <div class="kpi">
+    <div class="k-l">개선요청서 건수</div>
+    <div class="k-v kpi-value" data-value="{{ s['개선요청_건수'] }}">{{ s['개선요청_건수'] }}</div>
+    <div class="k-s">NCR보다 가벼운 사전 조치</div>
   </div>
 </div>
 <p class="muted" style="font-size:12px; margin:0 0 4px;">

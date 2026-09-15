@@ -334,9 +334,13 @@
     </div>
     <button type="submit" class="btn secondary" style="margin-top:0;">저장</button>
   </form>
+  {% if has_unplanned %}
+  <p style="margin-top:10px; color:var(--fail); font-size:13px;">⚠ 차수 계획에 없는 항목("계획외")이 남아있어 출고 확인을 할 수 없어. 아래 목록에서 정리한 뒤 다시 시도해줘.</p>
+  {% else %}
   <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=batch.id) }}" style="margin-top:10px;">
     <button type="submit" class="btn secondary" style="margin-top:0;">✅ 출고 확인</button>
   </form>
+  {% endif %}
   {% endif %}
 </div>
 
@@ -375,6 +379,12 @@
 (function () {
   var scannedSerials = new Set([{% for it in items %}"{{ it.serial_no }}",{% endfor %}]);
   var plannedSerials = new Set([{% for s in planned_serials %}"{{ s }}",{% endfor %}]);
+  // 2026-09-16: 차수 계획에 없는 S/N은 서버(outbound_item_add)가 무조건 거부한다 — 이
+  // 변수는 그 서버 판단을 기다리지 않고 "리스트에 추가" 클릭 즉시 막아서 불필요한
+  // 왕복을 없애는 용도(사용자 확정, CLAUDE.md 21/22/23절의 예전 "경고만, 진행은 안
+  // 막음" 원칙을 계획불일치 건에 한해 뒤집은 것 — 다른 경고(미등록/타배치사용/중복)는
+  // 그대로 경고만 하고 막지 않는다).
+  var curInPlan = null;
   var batchId = {{ batch.id }};
   var bodyPhotoEnabled = {{ 'true' if body_photo_enabled else 'false' }};
 
@@ -632,11 +642,12 @@
     if (!box) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
     var url = '/outbound/serial-check?serial_no=' + encodeURIComponent(serial) + '&exclude_batch_id=' + batchId;
     fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+      curInPlan = data.in_plan;
       var msgs = [];
       if (!data.registered) msgs.push('⚠ 발급 이력에 없는 S/N이야. 그래도 계속 진행할 수 있어.');
       if (data.used_in_other_batch) msgs.push('⚠ 이미 다른 출고(' + (data.used_in_other_batch_customer || '') + ')에 쓰인 S/N이야.');
       if (scannedSerials.has(serial)) msgs.push('⚠ 이 출고 건에 이미 추가된 S/N이야.');
-      if (plannedSerials.size && !data.in_plan) msgs.push('⚠ 계획에 없는 항목이 스캔됐어.');
+      if (plannedSerials.size && !data.in_plan) msgs.push('⛔ 차수 계획에 없는 항목이야 — 추가할 수 없어.');
       if (msgs.length) { box.style.display = 'block'; box.innerHTML = msgs.join('<br>'); }
       else { box.style.display = 'none'; box.innerHTML = ''; }
       var nameField = document.getElementById('curProductName');
@@ -709,6 +720,7 @@
     if (bodyBox) bodyBox.innerHTML = '';
     document.getElementById('serialWarning').style.display = 'none';
     document.getElementById('addItemMsg').textContent = '';
+    curInPlan = null;
     curChecks = {};
     document.querySelectorAll('#curChecksPanel .qchk-btn.active').forEach(function (b) { b.classList.remove('active'); });
     updateCurPreview();
@@ -730,6 +742,10 @@
       e.preventDefault();
       var serial = document.getElementById('curSerial').value.trim();
       if (!serial) { alert('S/N을 스캔하거나 입력해줘.'); return; }
+      if (plannedSerials.size && curInPlan === false) {
+        alert('차수 계획에 없는 S/N이라 추가할 수 없어.');
+        return;
+      }
       var msg = document.getElementById('addItemMsg');
       msg.textContent = '저장 중...';
 
