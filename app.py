@@ -4390,6 +4390,29 @@ def approve_view(inspection_id):
 
 # ---------- 검사 이력 ----------
 
+def _history_rows():
+    """검사이력 화면·엑셀 내보내기가 공유하는 필터링+정렬 로직."""
+    inspections = db.list_inspections()
+    f = _list_search_params()
+    inspections = [
+        insp for insp in inspections
+        if _row_passes_search(
+            f,
+            inspector=insp["inspector"] or "", supplier=insp["supplier"] or "",
+            product=insp["material_name"] or "", material=insp["material_no"] or "",
+            result=insp["overall_result"] or "",
+            status=_approval_status_label(insp["status"], insp["overall_result"], insp["approval_type"]),
+            insp_date=insp["inspect_date"], recv_date=insp["receive_date"],
+        )
+    ]
+
+    def _date_key(i):
+        d = _parse_any_date(i["inspect_date"])
+        return d.isoformat() if d else "0000"
+    inspections.sort(key=lambda i: (_date_key(i), i["id"]), reverse=True)
+    return inspections, f
+
+
 @app.route("/history")
 @perm_required("inspect_history")
 def history():
@@ -4404,27 +4427,7 @@ def history():
     """
     from collections import defaultdict
     NO_DATE = "날짜 없음"
-    inspections = db.list_inspections()
-
-    f = _list_search_params()
-    inspections = [
-        insp for insp in inspections
-        if _row_passes_search(
-            f,
-            inspector=insp["inspector"] or "", supplier=insp["supplier"] or "",
-            product=insp["material_name"] or "", material=insp["material_no"] or "",
-            result=insp["overall_result"] or "",
-            status=_approval_status_label(insp["status"], insp["overall_result"], insp["approval_type"]),
-            insp_date=insp["inspect_date"], recv_date=insp["receive_date"],
-        )
-    ]
-
-    # 검사일 내림차순으로 정렬해두고 페이지네이션(50개/페이지) — 페이지 안에서
-    # 같은 날짜끼리 다시 그룹핑해서 헤더를 붙인다(원래 화면 형태 유지).
-    def _date_key(i):
-        d = _parse_any_date(i["inspect_date"])
-        return d.isoformat() if d else "0000"
-    inspections.sort(key=lambda i: (_date_key(i), i["id"]), reverse=True)
+    inspections, f = _history_rows()
     pager = _paginate(inspections)
 
     by_date = defaultdict(list)
@@ -4444,6 +4447,26 @@ def history():
                            time_labels=time_labels, drawing_materials=drawing_materials,
                            pager=pager,
                            f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
+
+
+@app.route("/history/export.xlsx")
+@perm_required("inspect_history")
+def history_export():
+    inspections, f = _history_rows()
+    columns = [
+        ("번호", "id", 8),
+        ("자재번호", "material_no", 16),
+        ("자재명", "material_name", 28),
+        ("업체", "supplier", 14),
+        ("검사일", lambda r: format_date_korean(r["inspect_date"]) if r["inspect_date"] else "", 14),
+        ("검사자", "inspector", 10),
+        ("자동판정", lambda r: r["overall_result"] or "", 12),
+        ("총 측정시간", total_time_label_for, 12),
+        ("승인상태", lambda r: _approval_status_label(r["status"], r["overall_result"], r["approval_type"]), 12),
+    ]
+    buf = report_builder.build_list_excel("검사이력", columns, inspections,
+                                           filter_summary=_common_filter_summary(f))
+    return _send_list_excel(buf, "검사이력")
 
 
 # ---------- 승인 이력 (필터+엑셀 내보내기) ----------

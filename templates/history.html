@@ -49,6 +49,11 @@
 
 {% include "_list_search.html" %}
 
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('history_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {% if 'history_delete' in user_perms %}
 <form id="deleteForm" method="post" action="{{ url_for('history_delete_selected') }}">
   <div class="edit-toolbar">
