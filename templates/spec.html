@@ -97,6 +97,8 @@
   <label class="open-mode-toggle" style="margin:0;">
     <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
   </label>
+  <a href="{{ url_for('spec_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
   {% if can_edit and materials %}
   <button type="submit" form="materialBulkDeleteForm" class="btn danger-outline">선택 삭제</button>
   {% endif %}

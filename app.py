@@ -1762,9 +1762,8 @@ def intake_history_undo():
 
 # ---------- 규격 관리 ----------
 
-@app.route("/spec")
-@perm_required("material_view")
-def spec_list():
+def _spec_list_materials():
+    """자재관리 화면·엑셀 내보내기가 공유하는 검색 로직."""
     query = request.args.get("q", "").strip()
     search_by = request.args.get("by", "all")
     category = request.args.get("category", "").strip()
@@ -1777,12 +1776,40 @@ def spec_list():
     else:
         materials = db.get_materials()
     materials = list(materials)
+    return materials, {"q": query, "by": search_by, "category": category,
+                        "include": include, "exclude": exclude}
+
+
+@app.route("/spec")
+@perm_required("material_view")
+def spec_list():
+    materials, sf = _spec_list_materials()
     pager = _paginate(materials)
     drawing_materials = materials_with_drawings(m["material_no"] for m in pager["items"])
-    return render_template("spec.html", materials=pager["items"], query=query, search_by=search_by,
-                            category=category, include=include, exclude=exclude,
+    return render_template("spec.html", materials=pager["items"], query=sf["q"], search_by=sf["by"],
+                            category=sf["category"], include=sf["include"], exclude=sf["exclude"],
                             categories=db.list_material_categories(),
                             drawing_materials=drawing_materials, pager=pager)
+
+
+@app.route("/spec/export.xlsx")
+@perm_required("material_view")
+def spec_export():
+    materials, sf = _spec_list_materials()
+    drawing_materials = materials_with_drawings(m["material_no"] for m in materials)
+    filt = []
+    if sf["q"]: filt.append(("검색어", sf["q"]))
+    if sf["category"]: filt.append(("분류", sf["category"]))
+    if sf["include"]: filt.append(("포함 단어", ", ".join(sf["include"])))
+    if sf["exclude"]: filt.append(("제외 단어", ", ".join(sf["exclude"])))
+    columns = [
+        ("자재번호", "material_no", 16),
+        ("자재명", "material_name", 34),
+        ("분류", lambda r: r["category"] or "", 14),
+        ("도면등록여부", lambda r: "등록" if r["material_no"] in drawing_materials else "미등록", 12),
+    ]
+    buf = report_builder.build_list_excel("자재관리", columns, materials, filter_summary=filt or None)
+    return _send_list_excel(buf, "자재관리")
 
 
 @app.route("/spec/quick_add", methods=["GET", "POST"])
