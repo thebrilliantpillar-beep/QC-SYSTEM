@@ -5291,7 +5291,8 @@ def process_capability(material_no, item_name=None, min_samples=5):
     """공정능력(Cp/Cpk) 계산 — 규격 하한·상한과 실제 측정값으로.
 
     Cpk = min( (USL-μ)/3σ , (μ-LSL)/3σ )  — 단측 규격이면 있는 쪽만 본다.
-    자동차 부품은 보통 Cpk ≥ 1.33 을 요구한다.
+    구간 표시(우수/양호/주의/부족)는 1.33/1.67 기준이고, 실제 요구 기준은 거래처·품목마다
+    다르니 확인해야 한다(CLAUDE.md 8-2-12절 원칙과 동일 — 업종 단정 금지).
     표본이 적으면 숫자가 튀므로 min_samples 미만은 계산하지 않고 표시만 한다.
     """
     import statistics
