@@ -124,6 +124,10 @@
   </form>
 </div>
 
+<div class="spec-toolbar">
+  <a href="{{ url_for('material_find_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
 {% if can_edit %}
 <div class="spec-toolbar">
   <button type="submit" form="bomBulkDeleteForm" class="btn danger-outline">선택 삭제</button>

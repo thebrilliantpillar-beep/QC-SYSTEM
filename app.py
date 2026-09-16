@@ -7583,11 +7583,8 @@ def import_bom():
     return redirect(url_for("import_bom"))
 
 
-@app.route("/materials/find")
-@perm_required("material_view")
-def material_find():
-    """자재 찾기 — 통합BOM 계층 정보(모델/Lv/상위품목코드)로 자재를 검색/필터링.
-    assembly_masters(조립품 자동전개)와는 별개 화면."""
+def _material_find_rows():
+    """자재찾기 화면·엑셀 내보내기가 공유하는 검색/필터 로직."""
     query = request.args.get("q", "").strip()
     levels = _multi_arg("level")
     models = _multi_arg("model")
@@ -7596,21 +7593,61 @@ def material_find():
     unregistered_only = request.args.get("unregistered") == "1"
     include = _multi_arg("include")
     exclude = _multi_arg("exclude")
-
     rows = list(db.search_bom_materials(query=query, levels=levels, models=models,
                                          parent_no=parent_no, category=category,
                                          unregistered_only=unregistered_only,
                                          include=include, exclude=exclude))
+    sf = {"q": query, "levels": levels, "models": models, "parent_no": parent_no,
+          "category": category, "unregistered_only": unregistered_only,
+          "include": include, "exclude": exclude}
+    return rows, sf
+
+
+@app.route("/materials/find")
+@perm_required("material_view")
+def material_find():
+    """자재 찾기 — 통합BOM 계층 정보(모델/Lv/상위품목코드)로 자재를 검색/필터링.
+    assembly_masters(조립품 자동전개)와는 별개 화면."""
+    rows, sf = _material_find_rows()
     pager = _paginate(rows)
     drawing_materials = materials_with_drawings(r["material_no"] for r in pager["items"])
     return render_template("material_find.html", rows=pager["items"], pager=pager,
-                           query=query, levels=levels, models=models, parent_no=parent_no,
-                           category=category, unregistered_only=unregistered_only,
-                           include=include, exclude=exclude,
+                           query=sf["q"], levels=sf["levels"], models=sf["models"],
+                           parent_no=sf["parent_no"],
+                           category=sf["category"], unregistered_only=sf["unregistered_only"],
+                           include=sf["include"], exclude=sf["exclude"],
                            unregistered_count=db.count_unregistered_bom_materials(),
                            drawing_materials=drawing_materials,
                            model_options=db.list_bom_model_names(),
                            categories=db.list_material_categories())
+
+
+@app.route("/materials/find/export.xlsx")
+@perm_required("material_view")
+def material_find_export():
+    rows, sf = _material_find_rows()
+    drawing_materials = materials_with_drawings(r["material_no"] for r in rows)
+    filt = []
+    if sf["q"]: filt.append(("검색어", sf["q"]))
+    if sf["levels"]: filt.append(("Lv", ", ".join(sf["levels"])))
+    if sf["models"]: filt.append(("모델", ", ".join(sf["models"])))
+    if sf["parent_no"]: filt.append(("상위품목코드", sf["parent_no"]))
+    if sf["category"]: filt.append(("자재분류", sf["category"]))
+    if sf["unregistered_only"]: filt.append(("필터", "미등록 자재만"))
+    if sf["include"]: filt.append(("포함 단어", ", ".join(sf["include"])))
+    if sf["exclude"]: filt.append(("제외 단어", ", ".join(sf["exclude"])))
+    columns = [
+        ("자재번호", "material_no", 16),
+        ("자재명", lambda r: r["material_name"] if r["material_name"] is not None else (r["bom_name"] or ""), 24),
+        ("모델", "model_name", 16),
+        ("Lv", lambda r: f"Lv{r['level']}", 6),
+        ("상위품목코드", "parent_material_no", 16),
+        ("구분", "kind", 10),
+        ("자재분류", "category", 14),
+        ("도면등록여부", lambda r: "등록" if r["material_no"] in drawing_materials else "미등록", 12),
+    ]
+    buf = report_builder.build_list_excel("자재찾기", columns, rows, filter_summary=filt or None)
+    return _send_list_excel(buf, "자재찾기")
 
 
 # ---------- 조립품 관리 (MA 외 다른 조립품도 직접 등록) ----------
