@@ -5437,11 +5437,9 @@ def output_history():
 @app.route("/output/history/export.xlsx")
 @perm_required("output")
 def output_history_export():
-    """출력기록 엑셀 내보내기 — ids= 파라미터로 선택 항목만, 없으면 전체(현재 검색 조건)."""
-    import io
-    from openpyxl import Workbook
-    from openpyxl.styles import Font as XFont, Alignment as XAlign, PatternFill, Border, Side
-
+    """출력기록 엑셀 내보내기 — ids= 파라미터로 선택 항목만, 없으면 전체(현재 검색 조건).
+    report_builder.build_list_excel() 공용 헬퍼로 통일(2026-09-16, approval_history_export와
+    같은 이유)."""
     q = request.args.get("q", "").strip()
     date_from = request.args.get("date_from", "").strip()
     date_to = request.args.get("date_to", "").strip()
@@ -5452,54 +5450,19 @@ def output_history_export():
         wanted = {int(x) for x in selected_ids if x.isdigit()}
         rows = [r for r in rows if r["id"] in wanted]
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "출력기록"
-
-    ws["B1"] = "출력 기록"
-    ws["B1"].font = XFont(name="맑은 고딕", size=16, bold=True)
-    ws["B1"].alignment = XAlign(horizontal="center", vertical="center")
-    ws.merge_cells("B1:I1")
-    ws.row_dimensions[1].height = 28
-
-    headers = ["번호", "자재번호", "자재명", "업체", "로트번호", "결정", "승인자", "승인일시"]
-    thin = Side(style="thin", color="B7BEC9")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    header_fill = PatternFill("solid", fgColor="E7EAF0")
-    for i, h in enumerate(headers):
-        c = ws.cell(row=2, column=2 + i, value=h)
-        c.font = XFont(name="맑은 고딕", bold=True)
-        c.alignment = XAlign(horizontal="center", vertical="center")
-        c.fill = header_fill
-        c.border = border
-    ws.row_dimensions[2].height = 22
-
     state_label = {"normal": "합격", "special": "특채", "failed": "불합격"}
-    for row_i, r in enumerate(rows, start=3):
-        values = [
-            r["id"], r["material_no"], r["material_name"] or "",
-            r["supplier"] or "", r["po_number"] or "",
-            state_label.get(r["approval_type"] or "", "-"),
-            r["approver"] or "",
-            r["approved_at"] or "",
-        ]
-        for j, v in enumerate(values):
-            c = ws.cell(row=row_i, column=2 + j, value=v)
-            c.font = XFont(name="맑은 고딕")
-            c.border = border
-
-    from openpyxl.utils import get_column_letter
-    col_widths = [8, 18, 30, 18, 18, 8, 12, 20]
-    for i, w in enumerate(col_widths, start=2):
-        ws.column_dimensions[get_column_letter(i)].width = w
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    from datetime import date as _date
-    fname = f"출력기록_{_date.today().isoformat()}.xlsx"
-    return send_file(buf, as_attachment=True, download_name=fname,
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    columns = [
+        ("번호", "id", 8),
+        ("자재번호", "material_no", 18),
+        ("자재명", "material_name", 30),
+        ("업체", "supplier", 18),
+        ("로트번호", "po_number", 18),
+        ("결정", lambda r: state_label.get(r["approval_type"] or "", "-"), 8),
+        ("승인자", "approver", 12),
+        ("승인일시", "approved_at", 20),
+    ]
+    buf = report_builder.build_list_excel("출력기록", columns, rows, title="출력 기록")
+    return _send_list_excel(buf, "출력기록")
 
 
 @app.route("/output/history/<int:inspection_id>")
