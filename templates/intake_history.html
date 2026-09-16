@@ -18,6 +18,11 @@
 {% set show_lot = true %}
 {% include "_list_search.html" %}
 
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('intake_history_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {% if 'intake' in user_perms %}
 <form id="intakeHistoryDeleteForm" method="POST" action="{{ url_for('intake_history_delete') }}"
       onsubmit="return confirm('선택한 과거 입고 이력을 삭제할까? 되돌릴 수 없어.');"></form>

@@ -1578,15 +1578,8 @@ def intake():
 
 # ---------- 과거 입고 이력 (검사/승인과 무관한 순수 조회 전용) ----------
 
-@app.route("/intake-history")
-@perm_required("intake")
-def intake_history_list():
-    """검사/승인 워크플로우와 무관한 과거 입고 이력 조회. intake_list가 아니라
-    intake_history 테이블을 본다 — 절대 검사 대기 큐나 품질현황에 영향 없음.
-
-    검색은 검사이력(history.html) 등 4개 화면과 같은 공용 필터
-    (_list_search_params/_row_passes_search, _list_search.html)로 통일했다
-    (2026-09-08 — reuse-scout 점검 지적사항, 화면마다 검색 UI가 제각각이었음)."""
+def _intake_history_rows():
+    """과거입고이력 화면·엑셀 내보내기가 공유하는 필터링 로직."""
     f = _list_search_params()
     rows = [
         r for r in db.list_intake_history()
@@ -1596,6 +1589,19 @@ def intake_history_list():
             recv_date=r["receive_date"],
         )
     ]
+    return rows, f
+
+
+@app.route("/intake-history")
+@perm_required("intake")
+def intake_history_list():
+    """검사/승인 워크플로우와 무관한 과거 입고 이력 조회. intake_list가 아니라
+    intake_history 테이블을 본다 — 절대 검사 대기 큐나 품질현황에 영향 없음.
+
+    검색은 검사이력(history.html) 등 4개 화면과 같은 공용 필터
+    (_list_search_params/_row_passes_search, _list_search.html)로 통일했다
+    (2026-09-08 — reuse-scout 점검 지적사항, 화면마다 검색 UI가 제각각이었음)."""
+    rows, f = _intake_history_rows()
     pager = _paginate(rows)
 
     mats = db.get_materials()
@@ -1603,6 +1609,26 @@ def intake_history_list():
 
     return render_template("intake_history.html",
                            pager=pager, f=f, registered=registered)
+
+
+@app.route("/intake-history/export.xlsx")
+@perm_required("intake")
+def intake_history_export():
+    rows, f = _intake_history_rows()
+    mats = db.get_materials()
+    registered = {m["material_no"] for m in mats}
+    columns = [
+        ("입고일", lambda r: format_date_korean(r["receive_date"]) if r["receive_date"] else "", 14),
+        ("업체명", "supplier", 16),
+        ("자재번호", "material_no", 16),
+        ("등록여부", lambda r: "등록" if r["material_no"] in registered else "규격 미등록", 12),
+        ("제품명", "product_name", 30),
+        ("발주번호", "po_number", 16),
+        ("수량", "quantity", 10),
+    ]
+    buf = report_builder.build_list_excel("과거입고이력", columns, rows,
+                                           filter_summary=_common_filter_summary(f))
+    return _send_list_excel(buf, "과거입고이력")
 
 
 @app.route("/intake-history/import", methods=["GET", "POST"])
