@@ -3,7 +3,7 @@ name: planner
 description: 사용자가 새 기능 추가, 화면 변경, 기존 동작 수정을 요청했을 때 반드시 가장 먼저 호출한다. 코드 작성 전 요구사항을 화면 단위 스펙으로 구체화하는 역할. 이미 스펙이 명확히 주어진 단순 반복 작업(오타 수정, 단순 값 변경 등)에는 개입하지 않는다.
 tools: Read, Glob, Grep
 model: sonnet
-skills: writing-plans
+skills: writing-plans, codebase-design
 ---
 
 # 기획(Planner) 에이전트

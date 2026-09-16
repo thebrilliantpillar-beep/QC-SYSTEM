@@ -8,6 +8,20 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-16 (추가18)**: 서브에이전트 5개(planner/developer/designer/quality-watcher/
+  reuse-scout) 스킬 재배치. superpowers/mattpocock-skills/understand-anything/skill-creator
+  플러그인 설치 후, 전체 스킬(~45개)을 역할별로 검토해 `.claude/agents/*.md`의
+  `skills:` frontmatter에 반영. planner에 `codebase-design`, developer에
+  `systematic-debugging`·`verification-before-completion`·`codebase-design`·
+  `receiving-code-review` 추가. 채택 전 반드시 실제 SKILL.md를 읽어서 도구의존성
+  (Agent/Bash/Write 필요 여부)·인프라의존성(이슈트래커 등)·이 프로젝트 자체 규칙과의
+  충돌 여부를 확인 — 처음 후보였던 `code-review`/`research`/`to-spec`/`domain-modeling`/
+  `diagnosing-bugs`는 이 검증에서 전부 폐기됨(자세한 근거는 CLAUDE.md 13절 참고).
+  reuse-scout+understand-anything 조합은 "그래프가 이미 존재한다"는 가정까지 넣어
+  재계산했지만 Bash 개방의 도구표면 리스크가 그래프 유무와 무관하게 남는다는 결론으로
+  최종 보류. quality-watcher는 검토한 후보(`code-review`)가 자신의 명시적 역할 경계
+  ("방향이 맞는가는 판단하지 않는다")와 충돌해서 변경 없음. designer는 이미 적절히
+  배치돼 있어 변경 없음.
 - **2026-09-16 (추가17)**: 입고 중복 확인 화면에 "합산해서 등록" 옵션 추가(추가15의
   "같은 업체·날짜·자재 중복" 판정 후속). `find_duplicate_intakes()`가 매칭된
   기존 레코드(id/status/quantity/po_number)를 `existing` 키에 실어 돌려주도록

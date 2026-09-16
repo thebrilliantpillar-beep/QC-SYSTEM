@@ -895,8 +895,8 @@ AQL·PPM·Cpk·Cp·NCR·4M·로트·특채 등 **약어나 품질 용어가 나�
 
 | 에이전트 | 역할 | 개입 방식 | 도구 |
 |---|---|---|---|
-| `planner` | 새 기능/화면 변경 요청을 구체적 스펙으로 정리 | 자동(기능 추가·변경 요청 시 최우선 호출) | 읽기전용 |
-| `developer` | 스펙을 실제 코드로 구현 | planner 이후 | Edit/Write + 제한된 Bash(테스트·git 조회만, `pip install`·`git commit`·`git push`·`rm -rf` 등은 금지) |
+| `planner` | 새 기능/화면 변경 요청을 구체적 스펙으로 정리 | 자동(기능 추가·변경 요청 시 최우선 호출) | 읽기전용, `writing-plans`·`codebase-design` 스킬 |
+| `developer` | 스펙을 실제 코드로 구현 | planner 이후 | Edit/Write + 제한된 Bash(테스트·git 조회만, `pip install`·`git commit`·`git push`·`rm -rf` 등은 금지), `systematic-debugging`·`verification-before-completion`·`codebase-design`·`receiving-code-review` 스킬 |
 | `designer` | 화면의 시각적 표현(타이포그래피·여백·색상·접근성) 개선 | developer 완료 이후, 항상 순차(병행 안 함) | Edit/Write, `frontend-design`·`frontend-design-audit` 스킬 |
 | `quality-watcher` | 산출물 검증(11절 참고) | 코드 수정 완료 보고 전 자동 | 읽기전용 |
 | `reuse-scout` | 여러 화면 간 기능 불일치(검색·삭제 등이 화면마다 있거나 없음) 탐지 | 수동 호출("페이지 통일성 확인해줘" 등) | 읽기전용 — **발견만 하고 직접 고치지 않는다** |
@@ -925,6 +925,44 @@ designer/quality-watcher/reuse-scout)는 메인 세션과 별개로 새로 시�
 우선순위를 제시하고 사용자 승인을 받은 화면부터 한 번에 하나씩 수정한다. 일반 호출
 (개발 완료 후 자동 개입)은 이번 작업에서 변경된 파일만 대상으로 한다. **iqc-app
 전체 화면 대상 최초 감사는 아직 실행 전이다** — PROGRESS.md 참고.
+
+**서브에이전트 스킬 재배치 (2026-09-16)**: superpowers/mattpocock-skills/understand-anything
+등 여러 플러그인이 전역 설치된 뒤, 5개 에이전트 각각에 어떤 스킬을 `skills:` frontmatter로
+preload할지 전수 검토했다. **`skills:` 필드는 권한 부여가 아니라 preload(먼저 컨텍스트에
+주입)일 뿐**이라, 그 필드가 없어도 이미 켜진 스킬은 여전히 Skill 도구로 호출 가능하다 —
+이건 "쓸 수 있는 스킬을 좁히는" 작업이 아니라 "자동으로 먼저 챙기게 만드는" 작업이었다.
+
+후보 전체(약 45개)를 역할별로 걸러 실제 SKILL.md 내용까지 읽어서 검증한 결과:
+- **채택**: planner에 `codebase-design`(mattpocock, 얕은 모듈/깊은 모듈 용어집 —
+  8-1절 "공용헬퍼로 중복 제거" 원칙과 같은 정신, 외부 의존성 없음). developer에
+  `systematic-debugging`·`verification-before-completion`(둘 다 superpowers, 19절에서
+  이미 이 프로젝트에 맞다고 검증됐던 것들을 preload로 못박음)·`codebase-design`·
+  `receiving-code-review`(superpowers, quality-watcher 지적을 검증 후 반영하는 태도 —
+  quality-watcher 자신이 아니라 그 지적을 **받는 쪽**인 developer에 붙이는 게 맞는 짝이었음,
+  처음엔 quality-watcher 쪽으로 잘못 짚었다가 재검토로 바로잡음).
+- **폐기(도구/인프라 불일치, 단순 취향 문제가 아님)**: `code-review`(mattpocock, Standards/Spec
+  서브에이전트를 병렬 스폰하는 게 핵심인데 quality-watcher엔 Agent 도구가 없어 애초에
+  실행 불가 + `docs/agents/issue-tracker.md` 필요한데 이 프로젝트엔 이슈트래커 자체가
+  없음 + 출력포맷이 quality-watcher의 필수 포맷과 다름). `research`(mattpocock, "백그라운드
+  에이전트를 스폰"이 핵심인데 planner도 Agent 도구 없음). `to-spec`(mattpocock, 이슈트래커
+  필요 + **"파일 경로/코드 스니펫을 넣지 마라"고 명시**돼 있어서 planner.md 자체 규칙
+  "developer가 다시 안 뒤지게 파일 경로를 빠짐없이 포함하라"와 정면 충돌). `domain-modeling`
+  (mattpocock, CONTEXT.md/ADR 파일에 Write 필요 — planner는 Write 자체가 없고, developer가
+  쓴다 쳐도 이미 CLAUDE.md 하나로 같은 역할을 하고 있어서 문서 체계가 둘로 쪼개짐).
+  `diagnosing-bugs`(mattpocock, systematic-debugging과 목적 중복 + 회귀테스트 필수화가
+  이 프로젝트의 "1회성 스크립트 검증" 관례보다 무거움).
+- **보류(reuse-scout + understand-anything)**: understand-anything의 조회 스킬
+  (`understand-chat`/`understand-diff`/`understand-explain`)은 전부 그래프 신선도 체크
+  단계에서 `git rev-parse`/`git diff`(Bash)를 무조건 요구한다 — reuse-scout는 의도적으로
+  읽기전용(Bash 없음)이라 이 스킬들을 못 쓴다. "그래프가 이미 존재한다"고 가정하고
+  다시 계산해봐도(빌드비용 상쇄) 결론은 안 바뀌었다: Bash를 열면 생기는 도구표면 리스크
+  (deny목록에 안 걸리는 파일변조 경로, repo 밖 읽기, "구조적으로 못 함"→"안 하길 바람"으로
+  보장 약화, 문서-실제권한 불일치)는 그래프 유무와 무관하게 그대로고, 거기에 "그래프가
+  낡으면 오탐/누락"이라는 새 리스크까지 얹힌다. 게다가 reuse-scout의 실제 일(화면별
+  기능 유무 비교)은 grep으로 이미 충분히 잘 되는 유형이라 그래프의 강점(의존성 체인)을
+  크게 못 살린다. **패턴 제한 allow-list**(예: `Bash(git rev-parse*)`만 허용)로 좁히는
+  대안도 검토했으나, 호출 빈도가 낮은 에이전트에 영구적으로 남는 리스크 대비 이득이
+  불분명해서 최종 보류 — reuse-scout 호출 빈도가 늘거나 구체적 불편이 확인되면 재검토.
 
 ## 14. 성적서 관련 4개 삭제버튼 — 전부 admin 전용 (2026-09-08 최종 확정, 되돌리지 말 것)
 

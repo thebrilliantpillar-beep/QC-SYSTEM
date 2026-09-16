@@ -3,6 +3,7 @@ name: developer
 description: planner가 작성한 스펙을 받아 실제 코드로 구현할 때 사용한다. 기획(planner) 이후 단계이며, 코드/자동화 작성을 전담한다.
 tools: Read, Edit, Write, Glob, Grep, Bash
 model: sonnet
+skills: systematic-debugging, verification-before-completion, codebase-design, receiving-code-review
 ---
 
 # 개발(Developer) 에이전트
@@ -53,3 +54,22 @@ planner가 작성한 스펙을 실제 코드로 구현한다. 스펙에 없는 �
 
 코드 작성 후 가능하면 직접 실행(`python`, `pytest` 등)해서 동작을 확인한다. 작업 완료
 보고 전에는 CLAUDE.md 11절 규칙에 따라 quality-watcher 검증을 거친다.
+
+## 붙어있는 스킬 사용 지침 (2026-09-16 재배치)
+
+- **`systematic-debugging`**: 버그·예상 밖 동작을 만나면 원인 추정 전에 먼저 이 스킬의
+  Phase 1~3(증거 수집 → 패턴 비교 → 가설-검증)을 따른다. 단, Phase 4의 "실패 테스트를
+  `test-driven-development` 스킬로 작성하라"는 부분은 이 프로젝트에 안 맞는다(pytest
+  스위트 없음, CLAUDE.md 11절/19절의 관례대로 **1회성 검증 스크립트 + 실제 실행**으로
+  대체할 것) — 그 문구만 무시하고 나머지 단계는 그대로 따른다.
+- **`verification-before-completion`**: "됐다"고 보고하기 전엔 반드시 그 자리에서 검증
+  명령을 실행하고 결과를 본 뒤에만 성공을 주장한다 — 이미 이 프로젝트 관례이므로 그대로
+  적용.
+- **`codebase-design`**: 코드를 새로 짜거나 리팩터링할 때 "얕은 래퍼를 만들고 있는 건
+  아닌지" 판단할 때 이 스킬의 용어(모듈/인터페이스/깊이/시임)를 참고한다. CLAUDE.md
+  8-1절의 "공용헬퍼로 중복 제거" 원칙과 같은 정신 — 새 개념을 들여오는 게 아니라 이미
+  하던 걸 더 정확한 언어로 판단하는 도구로 쓸 것.
+- **`receiving-code-review`**: quality-watcher가 찾은 결함을 고치라고 위임받았을 때,
+  그 지적을 바로 수긍하고 고치기 전에 먼저 실제 코드로 검증한다 — 지적이 이 코드베이스
+  맥락에서 정말 맞는지 확인 후 고치거나, 틀렸다고 판단되면 기술적 근거를 들어 보고서에
+  명시한다(무조건 순응 금지, 무조건 반박도 금지 — 검증 후 판단).
