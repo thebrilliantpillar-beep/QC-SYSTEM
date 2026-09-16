@@ -2076,3 +2076,99 @@ def build_outbound_qr_labels_excel(round_no, ship_date, categorized_items):
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+# =========================================================================
+# 리스트 화면 엑셀 출력 공용 헬퍼 (2026-09-16)
+# =========================================================================
+
+def _cell_value(row, key):
+    """columns의 문자열 key를 dict/sqlite3.Row 양쪽에서 안전하게 꺼낸다.
+    없는 키거나 None이면 빈 문자열(엑셀에 파이썬 None이 그대로 안 찍히게)."""
+    try:
+        v = row[key]
+    except (KeyError, IndexError, TypeError):
+        return ""
+    return v if v is not None else ""
+
+
+def _write_list_sheet(wb, sheet_title, columns, rows, filter_summary=None, title=None):
+    """워크북에 리스트 화면 하나를 새 시트로 채워 넣는다. 승인이력/출력기록 export가 쓰던
+    스타일(맑은 고딕, 헤더 채우기 E7EAF0, 얇은 테두리 B7BEC9)을 그대로 재사용한다 —
+    8-1절 공용헬퍼 원칙, 새로 디자인하지 않는다. 시트가 여러 개 필요한 화면(불량 이력의
+    레인별 시트 등)은 이 함수를 여러 번 불러서 조립한다 — build_list_excel()을 새로
+    복사하지 말 것.
+
+    columns: [(header_text, key_or_callable, width_chars), ...]
+    rows: 이미 필터링·정렬 끝난 dict-like(sqlite3.Row 허용) 리스트.
+    filter_summary: [("검색어", "볼트"), ...] 이면 표 위에 "적용된 조건" 요약 행 추가.
+    title: 있으면 표 맨 위에 열 전체를 병합한 큰 제목 행 추가(기존 승인이력 export 스타일).
+    반환: 새로 만든 Worksheet.
+    """
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+    ws = wb.create_sheet(title=sheet_title[:31])
+    thin = Side(style="thin", color="B7BEC9")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="E7EAF0")
+    n_cols = len(columns)
+
+    row_cursor = 1
+    if title:
+        c = ws.cell(row=1, column=1, value=title)
+        c.font = Font(name="맑은 고딕", size=16, bold=True)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        if n_cols > 1:
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+        ws.row_dimensions[1].height = 28
+        row_cursor = 2
+
+    if filter_summary:
+        c = ws.cell(row=row_cursor, column=1, value="적용된 조건")
+        c.font = Font(name="맑은 고딕", bold=True)
+        row_cursor += 1
+        for label, value in filter_summary:
+            ws.cell(row=row_cursor, column=1, value=label).font = Font(name="맑은 고딕", bold=True)
+            ws.cell(row=row_cursor, column=2, value=str(value)).font = Font(name="맑은 고딕")
+            row_cursor += 1
+        row_cursor += 1  # 요약과 표 사이 빈 줄
+
+    header_row = row_cursor
+    for i, (header_text, _key, _w) in enumerate(columns, start=1):
+        c = ws.cell(row=header_row, column=i, value=header_text)
+        c.font = Font(name="맑은 고딕", bold=True)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.fill = header_fill
+        c.border = border
+    ws.row_dimensions[header_row].height = 22
+
+    for r_i, row in enumerate(rows, start=header_row + 1):
+        for c_i, (_h, key, _w) in enumerate(columns, start=1):
+            value = key(row) if callable(key) else _cell_value(row, key)
+            c = ws.cell(row=r_i, column=c_i, value=value)
+            c.font = Font(name="맑은 고딕")
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = border
+
+    for i, (_h, _k, w) in enumerate(columns, start=1):
+        ws.column_dimensions[ws.cell(row=header_row, column=i).column_letter].width = w
+
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=1).coordinate
+    return ws
+
+
+def build_list_excel(sheet_title, columns, rows, filter_summary=None, title=None):
+    """리스트 화면 하나짜리 엑셀(시트 1개)을 만든다. 시그니처는 _write_list_sheet()와 동일 —
+    내부에서 새 Workbook을 만들고 그 함수를 한 번 호출할 뿐이다.
+    반환: io.BytesIO (openpyxl로 저장된 xlsx, seek(0) 완료 상태)
+    """
+    import io as _io
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_list_sheet(wb, sheet_title, columns, rows, filter_summary=filter_summary, title=title)
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
