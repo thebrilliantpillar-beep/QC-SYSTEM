@@ -7305,13 +7305,10 @@ def withdraw_inspector(intake_id):
 
 # ---------- 반품 처리 ----------
 
-@app.route("/returns")
-@perm_required("return")
-def return_list():
-    from datetime import date
+def _return_list_rows():
+    """반품처리 화면·엑셀 내보내기가 공유하는 필터링 로직."""
     status_filter = request.args.get("status", "")
     returns = db.list_return_requests(status=status_filter or None)
-    statuses = ["반품요청", "반품완료", "재납품대기", "재검사완료"]
 
     f = _list_search_params()
     returns = [
@@ -7325,12 +7322,40 @@ def return_list():
             insp_date=r["insp_inspect_date"], recv_date=r["insp_receive_date"],
         )
     ]
+    return returns, f, status_filter
 
+
+@app.route("/returns")
+@perm_required("return")
+def return_list():
+    from datetime import date
+    returns, f, status_filter = _return_list_rows()
+    statuses = ["반품요청", "반품완료", "재납품대기", "재검사완료"]
     pager = _paginate(returns)
     return render_template("return_list.html", returns=pager["items"],
                            status_filter=status_filter, statuses=statuses,
                            today=date.today().isoformat(), pager=pager,
                            f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
+
+
+@app.route("/returns/export.xlsx")
+@perm_required("return")
+def return_export():
+    returns, f, status_filter = _return_list_rows()
+    filt = _common_filter_summary(f)
+    if status_filter: filt.append(("상태", status_filter))
+    columns = [
+        ("번호", "id", 8),
+        ("자재번호", "material_no", 16),
+        ("제품명", "material_name", 26),
+        ("업체", "supplier", 14),
+        ("반품 날짜", lambda r: format_date_korean(r["return_date"]) if r["return_date"] else "", 14),
+        ("수량", "quantity", 10),
+        ("등록자", "created_by", 10),
+        ("상태", "status", 12),
+    ]
+    buf = report_builder.build_list_excel("반품처리", columns, returns, filter_summary=filt)
+    return _send_list_excel(buf, "반품처리")
 
 
 @app.route("/return/new/<int:inspection_id>", methods=["GET", "POST"])
