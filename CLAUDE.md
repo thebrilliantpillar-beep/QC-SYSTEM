@@ -1148,6 +1148,18 @@ Claude 세션이 시차를 두고 건드릴 수 있고, 사용자 본인도 시�
   `/static/...`처럼 로컬 상대경로 자산이 있으면 그때는 `<base href="http://127.0.0.1:5000/">`
   삽입이나 실서버 병행 구동을 고려할 것).
 
+**2026-09-17 추가 — 위 "Bash로도 안정적으로 됨"이 이번 세션에서는 재현 안 됨,
+PowerShell로 즉시 전환할 것**: `dangerouslyDisableSandbox: true`를 켠 Bash로
+`chrome.exe --headless=new --screenshot=...`를 불렀는데(`file:///C:/...` 드라이브
+표기도 정확히 지킴), 트리비얼한 1줄짜리 HTML조차 `exit 0`·에러메시지 없음·
+스크린샷 파일 생성 안 됨으로 조용히 실패했다(`--no-sandbox`, `--user-data-dir`
+명시, 구버전 `--headless` 등 여러 조합 다 시도해도 동일). **같은 명령을
+PowerShell로 감싸서 호출하니(`powershell -NoProfile -Command "& 'chrome.exe' ..."`)
+바로 정상 동작**했다 — 2026-09-08 addendum이 원래 하던 방식으로 되돌아간 셈.
+환경마다(혹은 세션마다) Bash 경유 안정성이 달라지는 것으로 보임 — **다음에 이
+방식이 또 조용히 실패하면(exit 0인데 파일이 없음) 원인을 깊이 파기 전에 바로
+PowerShell 경유로 전환해서 시간을 아낄 것.**
+
 **일반적 교훈**: `base.html`처럼 사이트 전체에 적용되는 범용 선택자(`table`, `button`,
 `input` 등)에 `overflow`/`position`/`transform`처럼 자식 요소의 레이아웃 계산에
 영향을 주는 속성이 있으면, 특정 화면에서 그 속성을 "끄고 싶을 때" 단순히 그 화면의
