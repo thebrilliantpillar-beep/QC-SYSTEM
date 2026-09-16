@@ -5817,10 +5817,35 @@ def supplier_list():
             record_change("업체 등록/수정", "supplier", name, name)
             flash(f"업체 '{name}' 저장됐어.")
         return redirect(url_for("supplier_list"))
-    query = request.args.get("q", "").strip()
-    suppliers = db.search_suppliers(query) if query else db.list_suppliers()
+    suppliers, query = _supplier_list_rows()
     pager = _paginate(list(suppliers))
     return render_template("suppliers.html", suppliers=pager["items"], query=query, pager=pager)
+
+
+def _supplier_list_rows():
+    """업체관리 화면·엑셀 내보내기가 공유하는 검색 로직."""
+    query = request.args.get("q", "").strip()
+    suppliers = list(db.search_suppliers(query) if query else db.list_suppliers())
+    return suppliers, query
+
+
+@app.route("/suppliers/export.xlsx")
+@perm_required("supplier")
+def supplier_export():
+    suppliers, query = _supplier_list_rows()
+    filt = [("검색어", query)] if query else None
+    columns = [
+        ("업체명", "name", 20),
+        ("주소", "address", 30),
+        ("취급품목", "items", 24),
+        ("담당자", "contact_name", 16),
+        ("연락처1", "contact", 16),
+        ("연락처2", "contact2", 16),
+        ("이메일", "email", 22),
+        ("메모", "notes", 30),
+    ]
+    buf = report_builder.build_list_excel("업체관리", columns, suppliers, filter_summary=filt)
+    return _send_list_excel(buf, "업체관리")
 
 
 @app.route("/suppliers/<name>")

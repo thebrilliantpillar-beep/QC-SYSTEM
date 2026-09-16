@@ -91,6 +91,11 @@
   </form>
 </div>
 
+<div style="margin:12px 0;">
+  <a href="{{ url_for('supplier_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {% if suppliers %}
 <div style="overflow-x:auto;">
 <table id="supplierTable">
