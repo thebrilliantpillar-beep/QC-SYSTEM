@@ -8,6 +8,16 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-16 (추가14)**: "리스트 화면 엑셀 출력" 3차 배치(Task 8, 16~21) —
+  불량이력(`/defects`, 4레인을 시트 4개로 분리), S/N발급이력(`/outbound/serial/new`),
+  QR출력이력(`/outbound/qr-exports`)은 각자 export. 출고배치 목록(출고스캔·출고이력·
+  차수목록 3화면)은 공용 라우트 `outbound_batches_export` 하나로 통일 —
+  `db.list_outbound_batches()`가 이미 `item_count`/`planned_count`/`unplanned_count`를
+  다 반환하는 걸 확인하고 그대로 씀(계획서가 걱정했던 필드 누락 없었음). S/N발급·
+  QR출력은 화면 기본 limit(50/200)과 별개로 export에서 `limit=-1`(SQLite 무제한) 사용.
+  계획 초안이 실제 코드와 100% 일치해서 그대로 구현. test_client로 export 4개+
+  페이지 3개 200 확인, xlsx 실제 셀 값(시트 4개, 60건 전체 등)까지 열어서 확인.
+  quality-watcher 도구가 이 세션엔 없어서 메인 세션 호출 필요.
 - **2026-09-16 (추가13)**: "리스트 화면 엑셀 출력" 2차 배치 — 검색 로직이 화면마다
   자체 구현인 4개(자재관리 `/spec`, 검사대기 `/inspect/new`, 승인대기 `/approve`,
   자재찾기 `/materials/find`)에 `_x_list_rows()` 헬퍼 추출 + export 라우트 추가.
