@@ -273,6 +273,12 @@
       <div class="v kpi-value {{ 'warn' if s['규격이탈률']>0 else 'ok' }}"
            data-value="{{ s['규격이탈률'] }}" data-suffix="%" data-decimals="1">{{ s['규격이탈률'] }}%</div>
       <div class="s">특채 {{ term('special') }} {{ "{:,}".format(s['특채수량']) }}개</div></div>
+    {% if status != 'sent' and s.get('불량률_NCR포함') is not none %}
+    <div class="kbox"><div class="l">불량률(NCR포함) {{ term('defect_rate_ncr') }}</div>
+      <div class="v kpi-value {{ 'bad' if s.get('불량률_NCR포함', 0)>=3 else ('warn' if s.get('불량률_NCR포함', 0)>=1 else 'ok') }}"
+           data-value="{{ s.get('불량률_NCR포함', 0) }}" data-suffix="%" data-decimals="1">{{ s.get('불량률_NCR포함', 0) }}%</div>
+      <div class="s">내부 검토용 — 발송 시 미노출</div></div>
+    {% endif %}
     <div class="kbox"><div class="l">NCR 건수 {{ term('ncr') }}</div>
       <div class="v kpi-value {{ 'bad' if s.get('ncr_건수', 0)>0 else 'ok' }}"
            data-value="{{ s.get('ncr_건수', 0) }}">{{ s.get('ncr_건수', 0) }}</div>
