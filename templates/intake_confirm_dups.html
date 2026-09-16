@@ -22,7 +22,7 @@
   </div>
   <table class="dup-table">
     <thead>
-      <tr><th>자재번호</th><th>제품명</th><th>업체</th><th>발주번호</th><th>입고일</th><th>입고수량</th></tr>
+      <tr><th>자재번호</th><th>제품명</th><th>업체</th><th>발주번호</th><th>입고일</th><th>입고수량</th><th>합산 시</th></tr>
     </thead>
     <tbody>
       {% for r in dup_rows %}
@@ -33,6 +33,13 @@
         <td>{{ r.po_number or '-' }}</td>
         <td>{{ (r.receive_date | date_korean) if r.receive_date else '-' }}</td>
         <td>{{ r.quantity or '-' }}</td>
+        <td>
+          {% if r.existing and r.existing.status == '검사완료' %}
+            <span class="muted" style="font-size:12px;">⚠ 이미 검사완료 — 합산 대신 별도 등록됨</span>
+          {% else %}
+            <span style="font-size:12px; color:#166534;">기존 {{ r.existing.quantity or 0 }}개 + 이번 {{ r.quantity or 0 }}개로 합산</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -70,6 +77,15 @@
 {% endif %}
 
 <div class="action-bar">
+  {% if dup_rows %}
+  <form method="POST"
+        onsubmit="return confirm('중복 {{ dup_rows|length }}건을 기존 항목에 수량 합산(발주번호는 / 로 이어붙임)하고, 새 {{ new_rows|length }}건은 그대로 등록할까?\n이미 검사완료된 건은 합산이 안 돼서 어쩔 수 없이 별도로 등록돼.');">
+    <input type="hidden" name="action" value="merge">
+    <button type="submit" style="background:#166534; color:#fff; border:none; padding:11px 24px; border-radius:8px; font-size:14px; font-weight:700; cursor:pointer;">
+      중복 합산해서 등록
+    </button>
+  </form>
+  {% endif %}
   {% if new_rows %}
   <form method="POST">
     <input type="hidden" name="action" value="skip">

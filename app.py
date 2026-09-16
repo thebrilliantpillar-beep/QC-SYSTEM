@@ -2377,6 +2377,34 @@ def intake_confirm_dups():
         dup_rows  = _json.loads(dups_json) if dups_json else []
         dup_keys  = {(r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))
                      for r in dup_rows}
+        if action == "merge":
+            # 합산 처리(2026-09-16 사용자 요청) — 중복 행마다 매칭된 기존
+            # intake_list 레코드에 수량을 더하고 발주번호를 '/'로 이어붙인다.
+            # 단, 그 기존 레코드가 이미 검사완료된 상태면 수량을 되돌릴 수 없는
+            # 실제 검사 결과가 이미 물려있는 거라 합산이 불가능하다 — 이 경우엔
+            # 어쩔 수 없이 새 행으로 별도 등록한다(사용자 확정).
+            new_only_rows = [r for r in all_rows
+                             if (r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))
+                             not in dup_keys]
+            separate_rows = list(new_only_rows)
+            merged_count = 0
+            for r in dup_rows:
+                existing = r.get("existing")
+                if existing and existing.get("status") != "검사완료":
+                    db.merge_intake_duplicate(existing["id"], r.get("quantity"), r.get("po_number"))
+                    merged_count += 1
+                else:
+                    separate_rows.append(r)
+            if separate_rows:
+                db.add_intake_bulk(separate_rows)
+            skipped_note = ""
+            already_done = merged_count and (len(dup_rows) - merged_count) > 0
+            if already_done:
+                skipped_note = f" (이 중 {len(dup_rows) - merged_count}건은 이미 검사완료된 건이라 합산 대신 별도 등록됨)"
+            flash(f"{merged_count}건 합산, {len(separate_rows)}건 등록 완료" + skipped_note)
+            record_change("입고 리스트 등록(합산)", "intake", None,
+                          f"합산 {merged_count}건, 별도등록 {len(separate_rows)}건")
+            return redirect(url_for("intake"))
         if action == "skip":
             rows = [r for r in all_rows
                     if (r["material_no"], r.get("po_number",""), r.get("receive_date",""), r.get("supplier",""))

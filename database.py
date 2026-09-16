@@ -1462,7 +1462,10 @@ def find_duplicate_intakes(rows):
     (1) po_number 있으면 material_no+po_number 일치
     (2) material_no+receive_date+supplier 일치 (2026-09-16 사용자 요청 추가 —
         발주번호가 달라도 같은 업체·같은 날짜에 같은 자재번호면 중복으로 본다.
-        예전엔 po_number가 있는 행에서 (1)만 보고 (2)는 아예 안 봤음)."""
+        예전엔 po_number가 있는 행에서 (1)만 보고 (2)는 아예 안 봤음).
+    매칭된 기존 레코드의 id/status/quantity/po_number를 'existing' 키에 담아
+    같이 돌려준다(2026-09-16 합산 기능 추가) — 합산할 때 어느 기존 행에 합칠지,
+    이미 검사완료돼서 합산이 불가능한지(그럴 땐 별도 등록으로 폴백) 판단하는 데 쓴다."""
     if not rows:
         return []
     conn = get_conn()
@@ -1475,16 +1478,55 @@ def find_duplicate_intakes(rows):
         hit = None
         if po:
             hit = conn.execute(
-                "SELECT id FROM intake_list WHERE material_no=? AND po_number=?",
+                "SELECT id, status, quantity, po_number FROM intake_list WHERE material_no=? AND po_number=?",
                 (mn, po)).fetchone()
         if not hit:
             hit = conn.execute(
-                "SELECT id FROM intake_list WHERE material_no=? AND receive_date=? AND supplier=?",
+                "SELECT id, status, quantity, po_number FROM intake_list WHERE material_no=? AND receive_date=? AND supplier=?",
                 (mn, rd, sup)).fetchone()
         if hit:
-            dups.append(r)
+            d = dict(r)
+            d["existing"] = {"id": hit["id"], "status": hit["status"],
+                              "quantity": hit["quantity"], "po_number": hit["po_number"] or ""}
+            dups.append(d)
     conn.close()
     return dups
+
+
+def merge_intake_duplicate(existing_id, add_quantity, add_po_number):
+    """중복 입고 합산 처리(2026-09-16 사용자 요청) — 기존 intake_list 행의 수량에
+    더하고, 발주번호를 '/'로 이어붙인다(이미 포함된 발주번호면 또 안 붙임 — 사용자
+    확정). 숫자로 못 바꾸는 수량이 섞여 있으면 값 유실 방지를 위해 원문을 이어붙인다
+    (_merge_duplicate_intake_rows()의 같은 원칙 재사용, 8-1절)."""
+    conn = get_conn()
+    row = conn.execute("SELECT quantity, po_number FROM intake_list WHERE id=?", (existing_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return
+    try:
+        existing_qty = int(row["quantity"]) if row["quantity"] not in (None, "") else 0
+    except (TypeError, ValueError):
+        existing_qty = None
+    try:
+        new_qty = int(add_quantity) if add_quantity not in (None, "") else 0
+    except (TypeError, ValueError):
+        new_qty = None
+    if existing_qty is None or new_qty is None:
+        parts = [str(p) for p in (row["quantity"], add_quantity) if p not in (None, "")]
+        merged_qty = ", ".join(parts) if parts else None
+    else:
+        merged_qty = existing_qty + new_qty
+
+    po_parts = [p for p in (row["po_number"] or "").split("/") if p]
+    new_po = (add_po_number or "").strip()
+    if new_po and new_po not in po_parts:
+        po_parts.append(new_po)
+    merged_po = "/".join(po_parts)
+
+    conn.execute("UPDATE intake_list SET quantity=?, po_number=? WHERE id=?",
+                (merged_qty, merged_po, existing_id))
+    conn.commit()
+    conn.close()
 
 
 def add_intake_bulk(rows):
