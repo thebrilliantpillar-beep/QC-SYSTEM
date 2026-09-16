@@ -3162,6 +3162,22 @@ def create_return_request(inspection_id, material_no, material_name, supplier,
     return rid
 
 
+def update_return_request(return_id, return_date, reason, quantity):
+    """반품 처리 내용 수정(2026-09-16 신설). 반품 사유/날짜/수량이 바뀌면 이미 진행된
+    처리(재납품대기/재검사완료 등)의 근거가 달라지므로, 상태를 '반품요청'으로 되돌리고
+    resolved_inspection_id를 지운다(8-2-10절 승인회수 원칙과 같은 정신 — NCR/개선요청서
+    수정 시 발송·확인 흔적을 지우는 것과 동일한 이유)."""
+    conn = get_conn()
+    conn.execute("""
+        UPDATE return_requests SET
+            return_date = ?, reason = ?, quantity = ?,
+            status = '반품요청', resolved_inspection_id = NULL
+        WHERE id = ?
+    """, (return_date, reason, quantity, return_id))
+    conn.commit()
+    conn.close()
+
+
 _RETURN_LIST_SELECT = """
     SELECT r.*,
            i.inspector       AS insp_inspector,

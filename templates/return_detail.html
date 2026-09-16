@@ -49,6 +49,9 @@
 </div>
 
 {% if g.user and 'return' in user_perms %}
+<div style="margin:16px 0;">
+  <a href="{{ url_for('return_edit', return_id=rr['id']) }}" class="btn secondary">✏️ 내용 수정</a>
+</div>
 <div class="card" style="margin-top:16px;">
   <h3 style="margin-top:0;">상태 변경</h3>
   <form method="post" action="{{ url_for('return_update_status', return_id=rr['id']) }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:0;">

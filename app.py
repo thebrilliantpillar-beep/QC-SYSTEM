@@ -7504,6 +7504,29 @@ def return_update_status(return_id):
     return redirect(url_for("return_detail", return_id=return_id))
 
 
+@app.route("/return/<int:return_id>/edit", methods=["GET", "POST"])
+@perm_required("return")
+def return_edit(return_id):
+    rr = db.get_return_request(return_id)
+    if rr is None:
+        flash("반품 건을 찾을 수 없어.")
+        return redirect(url_for("return_list"))
+    if request.method == "POST":
+        was_active = rr["status"] != "반품요청"
+        db.update_return_request(
+            return_id,
+            return_date=request.form.get("return_date", "").strip(),
+            reason=request.form.get("reason", "").strip(),
+            quantity=request.form.get("quantity", "").strip() or None,
+        )
+        record_change("반품 처리 수정", "return", return_id,
+                      f"{rr['material_no']} / {rr['supplier']}" +
+                      (" (상태 초기화됨)" if was_active else ""))
+        flash("반품 처리 내용이 수정됐어." + (" 상태가 '반품요청'으로 초기화됐어." if was_active else ""))
+        return redirect(url_for("return_detail", return_id=return_id))
+    return render_template("return_edit.html", rr=rr)
+
+
 # ---------- MA 자동출력 데이터 임포트 ----------
 
 @app.route("/admin/import-assembly", methods=["GET", "POST"])
