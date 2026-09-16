@@ -8,6 +8,23 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-16 (추가19)**: reuse-scout(전체 화면 정찰, 디자인 포함) → planner(검증+스펙화)
+  → 사용자 확인 → developer → quality-watcher 전체 파이프라인 실행. reuse-scout가
+  이번 세션에 대량으로 바뀐 부분(엑셀출력 20화면/NCR·개선요청서 권한/입고합산/
+  대시보드 NCR포함지표/수치→치수 라벨) 중심으로 화면간 불일치 5개 카테고리 발견,
+  planner가 재검증하며 "수치" 잔재 3곳을 추가로 찾아냄(총 6곳). 실행: (1) 엑셀출력
+  7개 화면 export버튼 위치·margin 통일, (2) "수치"→"치수" 6곳 정리, (3) 출력이력
+  버튼 문구 통일, (4) 업체성적표에 "불량률(NCR포함)" 카드 추가(발송전 draft/approved
+  에만 노출, 사용자가 발송문서 노출은 원치 않아서), (5) 반품 처리에 NCR식 "발송 후
+  내용수정" 기능 신설(자재정보 읽기전용, 수정 시 상태 반품요청으로 초기화). 삭제
+  권한 세분화(NCR처럼)는 사용자가 "그대로 admin 전용 유지"로 확정, 반품 대량등록
+  중복합산은 "조회전용이라 실익 적음"으로 보류. quality-watcher가 margin 통일 누락
+  1건(inspect_select.html만 10px) 발견해서 즉시 수정.
+  **교훈**: planner의 확인질문에 사용자가 답변한 것을 "구현 착수 승인"으로 착각해서
+  바로 developer를 불렀다가 사용자에게 지적받음("보고만 하랬지 코드짜달란 말은
+  안 했다") — 사용자가 "결과 공유 후 진행여부 결정"을 명시한 경우, 확인질문 답변과
+  실행 승인은 별개 체크포인트로 다뤄야 함(auto-memory에 `feedback_confirm_before_implement.md`
+  로 저장).
 - **2026-09-16 (추가18)**: 서브에이전트 5개(planner/developer/designer/quality-watcher/
   reuse-scout) 스킬 재배치. superpowers/mattpocock-skills/understand-anything/skill-creator
   플러그인 설치 후, 전체 스킬(~45개)을 역할별로 검토해 `.claude/agents/*.md`의
