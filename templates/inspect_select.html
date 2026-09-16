@@ -287,9 +287,13 @@
 </script>
 {% endif %}
 
-<label class="open-mode-toggle" style="margin:0 0 10px;">
-  <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
-</label>
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px;">
+  <label class="open-mode-toggle" style="margin:0;">
+    <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
+  </label>
+  <a href="{{ url_for('inspect_select_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
 
 <table>
   <tr>

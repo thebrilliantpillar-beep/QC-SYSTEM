@@ -2413,10 +2413,8 @@ def intake_confirm_dups():
 
 # ---------- 검사 입력 ----------
 
-@app.route("/inspect/new")
-@perm_required("inspect_input")
-def inspect_select():
-    """입고 리스트 중 미검사(대기) 건만 표로 보여줌"""
+def _inspect_select_rows():
+    """검사대기 화면·엑셀 내보내기가 공유하는 검색+정렬 로직."""
     query = request.args.get("q", "").strip()
     # 입고일 범위 검색 — 검사이력 등 4개 화면이 쓰는 공용 필터(_row_passes_search)를
     # 재사용. include/exclude(포함/제외 검색어)도 이 헬퍼가 같이 뽑아준다(2026-09-14).
@@ -2443,6 +2441,14 @@ def inspect_select():
     with_date = sorted((x for x in dated if x[1] is not None), key=lambda x: x[1], reverse=(sort_dir == "desc"))
     without_date = [x for x in dated if x[1] is None]
     pending = [r for r, _ in with_date] + [r for r, _ in without_date]
+    return pending, f, query, sort_dir
+
+
+@app.route("/inspect/new")
+@perm_required("inspect_input")
+def inspect_select():
+    """입고 리스트 중 미검사(대기) 건만 표로 보여줌"""
+    pending, f, query, sort_dir = _inspect_select_rows()
 
     mats = db.get_materials()
     registered = {m["material_no"] for m in mats}
@@ -2458,6 +2464,29 @@ def inspect_select():
                            progress_map=progress_map, name_map=name_map,
                            drawing_materials=drawing_materials,
                            all_users=all_users, gauges=gauges)
+
+
+@app.route("/inspect/new/export.xlsx")
+@perm_required("inspect_input")
+def inspect_select_export():
+    pending, f, query, sort_dir = _inspect_select_rows()
+    mats = db.get_materials()
+    name_map = {m["material_no"]: m["material_name"] for m in mats}
+    intake_ids = [r["id"] for r in pending]
+    progress_map = db.get_progress_by_intake_ids(intake_ids)
+    filt = _common_filter_summary(f)
+    if query: filt.insert(0, ("검색어", query))
+    columns = [
+        ("입고날짜", lambda r: format_date_korean(r["receive_date"]) if r["receive_date"] else "", 14),
+        ("납품업체", "supplier", 16),
+        ("로트번호", "po_number", 16),
+        ("제품명", lambda r: name_map.get(r["material_no"]) or r["product_name"] or "", 28),
+        ("자재번호", "material_no", 16),
+        ("입고수량", "quantity", 10),
+        ("검사원", lambda r: ", ".join(progress_map.get(r["id"], [])) or "-", 20),
+    ]
+    buf = report_builder.build_list_excel("검사대기", columns, pending, filter_summary=filt or None)
+    return _send_list_excel(buf, "검사대기")
 
 
 @app.route("/inspect/auto-batch/methods")
