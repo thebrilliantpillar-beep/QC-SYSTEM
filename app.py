@@ -9233,6 +9233,7 @@ ensure_material_category_import_20260907()
 db.ensure_ncr_columns_migration()
 db.ensure_defect_types_seed_20260908()
 db.ensure_improvement_defect_categories_migration_20260916()
+db.ensure_material_category_merge_20260916()
 
 # 매일 06:00 (KST) 자동 DB 백업 이메일
 try:

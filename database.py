@@ -5395,6 +5395,25 @@ def ensure_improvement_defect_categories_migration_20260916():
     set_setting("improvement_defect_categories_migrated_20260916", "1")
 
 
+def ensure_material_category_merge_20260916():
+    """자재 분류 마스터에 '★완전포장제품'과 '★완포장 제품'이 표기만 다른 같은
+    분류로 두 개 나뉘어 있던 걸(2026-09-10 BOM 자동분류 때 키워드 매칭이 두 형태를
+    각각 새 분류로 등록해버린 것으로 추정) 사용자 요청으로 '★완포장 제품' 하나로
+    합친다. materials.category가 옛 이름인 행을 새 이름으로 바꾸고, 마스터에서
+    옛 이름 항목을 제거(새 이름 항목이 마스터에 없으면 새로 등록). 1회성, 멱등."""
+    if get_setting("material_category_merge_20260916") == "1":
+        return
+    OLD_NAME = "★완전포장제품"
+    NEW_NAME = "★완포장 제품"
+    add_material_category(NEW_NAME)
+    conn = get_conn()
+    conn.execute("UPDATE materials SET category = ? WHERE category = ?", (NEW_NAME, OLD_NAME))
+    conn.execute("DELETE FROM material_categories WHERE name = ?", (OLD_NAME,))
+    conn.commit()
+    conn.close()
+    set_setting("material_category_merge_20260916", "1")
+
+
 def add_defect_type(name):
     """불량 유형명을 마스터에 등록. 이미 있으면(공백/대소문자 무시) 기존 정본 표기를
     반환. name이 빈 값이면 None. (material_categories.add_material_category와 동일 관례)"""
