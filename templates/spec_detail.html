@@ -380,7 +380,7 @@
       </td>
       <td>
         <select form="spec-row-{{ s['id'] }}" name="judge_type">
-          <option value="numeric" {% if s['judge_type']=='numeric' %}selected{% endif %}>수치</option>
+          <option value="numeric" {% if s['judge_type']=='numeric' %}selected{% endif %}>치수</option>
           <option value="visual" {% if s['judge_type']=='visual' %}selected{% endif %}>육안</option>
           <option value="ok_ng" {% if s['judge_type']=='ok_ng' %}selected{% endif %}>O,X</option>
         </select>
@@ -414,7 +414,7 @@
   <p id="noSpecsMsg" class="hint" style="{{ 'display:none;' if specs else '' }}">등록된 항목이 없어.</p>
 </div>
 {% else %}
-{% set judge_labels = {'numeric': '수치', 'visual': '육안', 'ok_ng': 'O,X'} %}
+{% set judge_labels = {'numeric': '치수', 'visual': '육안', 'ok_ng': 'O,X'} %}
 <div style="overflow-x:auto;">
   <table>
     <tr>
@@ -467,7 +467,7 @@
       <div class="form-field" style="min-width:100px;">
         <label>판정유형</label>
         <select name="judge_type">
-          <option value="numeric">수치</option>
+          <option value="numeric">치수</option>
           <option value="visual">육안</option>
           <option value="ok_ng">O,X</option>
         </select>
@@ -628,7 +628,7 @@ function buildRowHTML(spec) {
     </td>
     <td>
       <select form="spec-row-${id}" name="judge_type">
-        <option value="numeric" ${spec.judge_type === 'numeric' ? 'selected' : ''}>수치</option>
+        <option value="numeric" ${spec.judge_type === 'numeric' ? 'selected' : ''}>치수</option>
         <option value="visual" ${spec.judge_type === 'visual' ? 'selected' : ''}>육안</option>
         <option value="ok_ng" ${spec.judge_type === 'ok_ng' ? 'selected' : ''}>O,X</option>
       </select>
