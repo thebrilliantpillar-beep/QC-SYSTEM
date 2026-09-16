@@ -127,6 +127,11 @@ canvas#batchSigPad {
   {% endif %}
 </form>
 
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('approve_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {% if not rows %}
 <div class="card">
   <p class="muted" style="margin:0;">

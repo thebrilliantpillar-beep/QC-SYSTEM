@@ -4270,10 +4270,8 @@ def supplier_report_delete_selected():
 
 # ---------- 승인 목록 / 승인 전용 화면 ----------
 
-@app.route("/approve")
-@perm_required("approve")
-def approve_list():
-    """승인 목록 — 필터/검색 지원."""
+def _approve_list_rows():
+    """승인목록 화면·엑셀 내보내기가 공유하는 tab 기반 필터 로직."""
     tab = request.args.get("tab", "pending")
     q   = request.args.get("q", "").strip()
 
@@ -4296,6 +4294,14 @@ def approve_list():
                 or ql in (r["material_name"] or "").lower()
                 or ql in (r["supplier"] or "").lower()
                 or ql in (r["inspector"] or "").lower()]
+    return rows, tab, q
+
+
+@app.route("/approve")
+@perm_required("approve")
+def approve_list():
+    """승인 목록 — 필터/검색 지원."""
+    rows, tab, q = _approve_list_rows()
 
     counts = {
         "pending":  len(db.list_inspections(status="pending")),
@@ -4308,6 +4314,31 @@ def approve_list():
     final_approvers = db.list_final_approvers()
     return render_template("approve_list.html", rows=rows, tab=tab, q=q, counts=counts,
                            time_labels=time_labels, final_approvers=final_approvers)
+
+
+_APPROVE_TAB_LABELS = {"pending": "승인 대기", "pass": "합격", "failed": "불합격",
+                       "special": "특채", "rejected": "반려"}
+
+
+@app.route("/approve/export.xlsx")
+@perm_required("approve")
+def approve_export():
+    rows, tab, q = _approve_list_rows()
+    filt = [("탭", _APPROVE_TAB_LABELS.get(tab, tab))]
+    if q: filt.append(("검색어", q))
+    columns = [
+        ("번호", "id", 8),
+        ("자재번호", "material_no", 16),
+        ("자재명", "material_name", 28),
+        ("업체", "supplier", 14),
+        ("입고일", lambda r: format_date_korean(r["receive_date"]) if r["receive_date"] else "", 14),
+        ("검사일", lambda r: format_date_korean(r["inspect_date"]) if r["inspect_date"] else "", 14),
+        ("검사자", "inspector", 10),
+        ("자동판정", lambda r: r["overall_result"] or "", 12),
+        ("총 측정시간", total_time_label_for, 12),
+    ]
+    buf = report_builder.build_list_excel("승인대기", columns, rows, filter_summary=filt)
+    return _send_list_excel(buf, "승인대기")
 
 
 @app.route("/approve/<int:inspection_id>/revoke", methods=["POST"])
