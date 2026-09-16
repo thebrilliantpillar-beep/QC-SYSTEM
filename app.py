@@ -7528,16 +7528,36 @@ def material_find():
 
 # ---------- 조립품 관리 (MA 외 다른 조립품도 직접 등록) ----------
 
+def _assembly_list_rows():
+    """조립품관리 화면·엑셀 내보내기가 공유하는 검색 로직."""
+    query = request.args.get("q", "").strip()
+    search_by = request.args.get("by", "all")
+    assemblies = list(db.list_all_assemblies(query, search_by))
+    return assemblies, query, search_by
+
+
 @app.route("/assemblies")
 @perm_required("material_view")
 def assembly_list():
     """조립품 목록. 입고 때 파츠 하나만 넣어도 전체가 펼쳐지는 기준이 되는 표."""
-    query = request.args.get("q", "").strip()
-    search_by = request.args.get("by", "all")
-    assemblies = list(db.list_all_assemblies(query, search_by))
+    assemblies, query, search_by = _assembly_list_rows()
     pager = _paginate(assemblies)
     return render_template("assembly_list.html", assemblies=pager["items"], query=query,
                             search_by=search_by, pager=pager)
+
+
+@app.route("/assemblies/export.xlsx")
+@perm_required("material_view")
+def assembly_export():
+    assemblies, query, search_by = _assembly_list_rows()
+    filt = [("검색어", query)] if query else None
+    columns = [
+        ("조립품번호", "assembly_no", 20),
+        ("파츠 수", "part_count", 10),
+        ("자재 미등록 파츠 수", "missing_count", 16),
+    ]
+    buf = report_builder.build_list_excel("조립품관리", columns, assemblies, filter_summary=filt)
+    return _send_list_excel(buf, "조립품관리")
 
 
 @app.route("/assemblies/new", methods=["GET", "POST"])

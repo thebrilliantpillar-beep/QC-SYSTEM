@@ -50,6 +50,11 @@
   </form>
 </div>
 
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('assembly_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {% if can_edit %}
 <form id="assemblyBulkDeleteForm" method="POST" action="{{ url_for('assembly_delete_bulk') }}"
       onsubmit="return confirm('선택한 조립품을 전부 삭제할까? 되돌릴 수 없어.');"></form>
