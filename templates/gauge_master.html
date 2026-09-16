@@ -23,6 +23,8 @@
 <div class="gauge-header">
   <h2>🔧 계측기 관리</h2>
   <div class="actions">
+    <a href="{{ url_for('gauge_export') }}?{{ request.query_string.decode('utf-8') }}"
+       class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
     <form method="POST" action="{{ url_for('gauge_import_methods') }}" style="margin:0;"
           onsubmit="return confirm('자재 규격에 적힌 측정 방식들을 계측기 종류로 한 번에 등록할까?\n(육안·외관·전수 제외, 이미 등록된 종류는 건너뜀. 유효기간은 비워두니 등록 후 채워줘.)');">
       <button type="submit" class="btn secondary">측정방식에서 종류 불러오기</button>

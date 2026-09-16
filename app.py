@@ -5663,16 +5663,15 @@ def material_history(material_no):
 # 계측기 마스터 관리
 # =========================================================================
 
-@app.route("/gauges")
-@perm_required("gauge")
-def gauge_list():
+def _gauge_list_rows():
+    """계측기관리 화면·엑셀 내보내기가 공유하는 검색+정렬+D-day 계산 로직."""
     from datetime import date, timedelta
-    import math
+    import re as _re
     today_dt = date.today()
     today = today_dt.isoformat()
     d15 = (today_dt + timedelta(days=15)).isoformat()
     d30 = (today_dt + timedelta(days=30)).isoformat()
-    import re as _re
+
     def _natural_key(row):
         val = row["gauge_no"] or ""
         parts = _re.split(r"(\d+)", val)
@@ -5692,7 +5691,40 @@ def gauge_list():
         else:
             g["days_left"] = None
         gauges.append(g)
+    return gauges, q, today, d15, d30
+
+
+def _gauge_status_label(g, today, d15, d30):
+    if not g.get("expiry_date"): return "-"
+    if g["expiry_date"] < today: return "만료"
+    if g["expiry_date"] <= d15: return f"D-{g['days_left']}"
+    if g["expiry_date"] <= d30: return f"D-{g['days_left']}"
+    return "정상"
+
+
+@app.route("/gauges")
+@perm_required("gauge")
+def gauge_list():
+    gauges, q, today, d15, d30 = _gauge_list_rows()
     return render_template("gauge_master.html", gauges=gauges, today=today, d15=d15, d30=d30, q=q)
+
+
+@app.route("/gauges/export.xlsx")
+@perm_required("gauge")
+def gauge_export():
+    gauges, q, today, d15, d30 = _gauge_list_rows()
+    filt = [("검색어", q)] if q else None
+    columns = [
+        ("관리번호", "gauge_no", 14),
+        ("계측기명", "name", 24),
+        ("모델/규격", "model", 18),
+        ("보관위치", "location", 16),
+        ("최근 검교정", lambda r: format_date_korean(r["last_calibrated"]) if r.get("last_calibrated") else "", 14),
+        ("만료일", lambda r: format_date_korean(r["expiry_date"]) if r.get("expiry_date") else "", 14),
+        ("상태", lambda r: _gauge_status_label(r, today, d15, d30), 10),
+    ]
+    buf = report_builder.build_list_excel("계측기관리", columns, gauges, filter_summary=filt)
+    return _send_list_excel(buf, "계측기관리")
 
 @app.route("/gauges/save", methods=["POST"])
 @perm_required("gauge")
