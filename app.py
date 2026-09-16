@@ -6433,10 +6433,8 @@ def defect_types_delete():
     return jsonify({"ok": True})
 
 
-@app.route("/ncr")
-@perm_required("ncr", "ncr_confirm")
-def ncr_list():
-    from datetime import date
+def _ncr_list_rows():
+    """부적합통보서 화면·엑셀 내보내기가 공유하는 필터링 로직."""
     status_filter = request.args.get("status", "")
     ncrs = db.list_ncr()
     if status_filter:
@@ -6454,11 +6452,41 @@ def ncr_list():
             insp_date=n["insp_inspect_date"], recv_date=n["insp_receive_date"],
         )
     ]
+    return ncrs, f, status_filter
 
+
+@app.route("/ncr")
+@perm_required("ncr", "ncr_confirm")
+def ncr_list():
+    from datetime import date
+    ncrs, f, status_filter = _ncr_list_rows()
     pager = _paginate(ncrs)
     return render_template("ncr_list.html", ncrs=pager["items"], status_filter=status_filter,
                            today=date.today().isoformat(), pager=pager,
                            f=f, result_options=OVERALL_RESULT_OPTIONS, status_options=APPROVAL_STATUS_LABELS)
+
+
+_NCR_STATUS_LABELS = {"draft": "초안", "confirmed": "발송됨", "sent": "발송됨"}
+
+
+@app.route("/ncr/export.xlsx")
+@perm_required("ncr", "ncr_confirm")
+def ncr_export():
+    ncrs, f, status_filter = _ncr_list_rows()
+    filt = _common_filter_summary(f)
+    if status_filter: filt.append(("상태", status_filter))
+    columns = [
+        ("번호", "ncr_no", 16),
+        ("자재번호", "material_no", 16),
+        ("제품명", "material_name", 26),
+        ("업체", "supplier", 14),
+        ("발행일", lambda r: format_date_korean(r["issued_date"]) if r["issued_date"] else "", 14),
+        ("발행자", "issued_by", 10),
+        ("조치기한", lambda r: format_date_korean(r["due_date"]) if r["due_date"] else "", 14),
+        ("상태", lambda r: _NCR_STATUS_LABELS.get(r["status"] or "draft", "발행됨"), 10),
+    ]
+    buf = report_builder.build_list_excel("부적합통보서", columns, ncrs, filter_summary=filt)
+    return _send_list_excel(buf, "부적합통보서")
 
 
 @app.route("/ncr/<int:ncr_id>")
