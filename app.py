@@ -2431,12 +2431,12 @@ def _inspect_select_rows():
             f, material=r["material_no"], supplier=r["supplier"], product=r["product_name"],
             lot=r["po_number"], recv_date=r["receive_date"])]
 
-    # 입고일 오름/내림차순 — 기본은 오름차순(먼저 입고된 것부터). 날짜를 못 읽는 행은
-    # 정렬 방향과 무관하게 항상 맨 뒤로 보낸다(방향을 뒤집었다고 이 행들까지 맨 앞으로
-    # 튀어나오면 혼란스러우니까).
-    sort_dir = request.args.get("sort", "asc")
+    # 입고일 오름/내림차순 — 기본은 내림차순(최근 입고된 것부터, 2026-09-16 사용자
+    # 요청으로 원복). 날짜를 못 읽는 행은 정렬 방향과 무관하게 항상 맨 뒤로 보낸다
+    # (방향을 뒤집었다고 이 행들까지 맨 앞으로 튀어나오면 혼란스러우니까).
+    sort_dir = request.args.get("sort", "desc")
     if sort_dir not in ("asc", "desc"):
-        sort_dir = "asc"
+        sort_dir = "desc"
     dated = [(r, _parse_any_date(r["receive_date"])) for r in pending]
     with_date = sorted((x for x in dated if x[1] is not None), key=lambda x: x[1], reverse=(sort_dir == "desc"))
     without_date = [x for x in dated if x[1] is None]

@@ -7,7 +7,7 @@
 {% if f and f.recv_end %}{% set _ = _qs_parts.append('recv_end=' ~ (f.recv_end | urlencode)) %}{% endif %}
 {% if f and f.include %}{% for w in f.include %}{% set _ = _qs_parts.append('include=' ~ (w | urlencode)) %}{% endfor %}{% endif %}
 {% if f and f.exclude %}{% for w in f.exclude %}{% set _ = _qs_parts.append('exclude=' ~ (w | urlencode)) %}{% endfor %}{% endif %}
-{% if sort_dir and sort_dir != 'asc' %}{% set _ = _qs_parts.append('sort=' ~ sort_dir) %}{% endif %}
+{% if sort_dir and sort_dir != 'desc' %}{% set _ = _qs_parts.append('sort=' ~ sort_dir) %}{% endif %}
 {% set inspect_qs = ('?' ~ (_qs_parts | join('&'))) if _qs_parts else '' %}
 <style>
   .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
@@ -39,12 +39,12 @@
     <div>
       <label>정렬</label>
       <select name="sort" style="width:auto; min-width:110px; padding:9px 8px;">
-        <option value="asc" {% if sort_dir != 'desc' %}selected{% endif %}>입고일 오름차순</option>
-        <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>입고일 내림차순</option>
+        <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>입고일 오름차순</option>
+        <option value="desc" {% if sort_dir != 'asc' %}selected{% endif %}>입고일 내림차순</option>
       </select>
     </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or (f and (f.recv_start or f.recv_end or f.include or f.exclude)) or sort_dir == 'desc' %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or (f and (f.recv_start or f.recv_end or f.include or f.exclude)) or sort_dir == 'asc' %}<a href="{{ url_for('inspect_select') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
 
     <div style="width:100%; display:flex; gap:16px; flex-wrap:wrap; margin-top:2px;">
       <div style="min-width:220px;">
