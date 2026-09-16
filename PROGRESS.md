@@ -8,6 +8,17 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-16 (추가13)**: "리스트 화면 엑셀 출력" 2차 배치 — 검색 로직이 화면마다
+  자체 구현인 4개(자재관리 `/spec`, 검사대기 `/inspect/new`, 승인대기 `/approve`,
+  자재찾기 `/materials/find`)에 `_x_list_rows()` 헬퍼 추출 + export 라우트 추가.
+  1차 배치에서 만든 `report_builder.build_list_excel()`/`_send_list_excel()`/
+  `_common_filter_summary()` 그대로 재사용, 새 공용 코드 없음. 계획 초안의 필드명/
+  함수명(`db.get_progress_by_intake_ids()`, `db.search_bom_materials()`, `inspections`
+  스키마 등)이 실제 코드와 전부 일치해서 초안 그대로 구현. app.py 한 파일에 4개
+  Task가 섞여서 `git apply --cached`로 hunk 단위 패치를 잘라 Task별 개별 커밋 4개로
+  분리(spec/inspect/approve/materials_find). test_client로 페이지+export 라우트
+  16개 조합 전부 200 확인, 자재관리/검사대기 export는 실제 셀 값(검사원 콤마조인 등)
+  까지 열어서 확인. quality-watcher 도구가 이 세션엔 없어서 메인 세션 호출 필요.
 - **2026-09-16 (추가12)**: "리스트 화면 엑셀 출력" 기능 1차 배치(전체 계획
   `docs/superpowers/plans/2026-09-16-list-excel-export-plan.md`의 20개 화면 중
   10개: 공용헬퍼 2개 + 과거입고이력/검사이력/계측기관리/업체관리/NCR/개선요청서/
