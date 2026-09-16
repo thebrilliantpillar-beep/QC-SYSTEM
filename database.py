@@ -1458,8 +1458,11 @@ def delete_materials_bulk(material_nos):
 # ---------- 입고 리스트 (붙여넣기 등록) ----------
 
 def find_duplicate_intakes(rows):
-    """이미 intake_list에 등록된 동일 항목 찾기.
-    po_number 있으면 material_no+po_number, 없으면 material_no+receive_date+supplier로 비교."""
+    """이미 intake_list에 등록된 동일 항목 찾기. 둘 중 하나라도 걸리면 중복:
+    (1) po_number 있으면 material_no+po_number 일치
+    (2) material_no+receive_date+supplier 일치 (2026-09-16 사용자 요청 추가 —
+        발주번호가 달라도 같은 업체·같은 날짜에 같은 자재번호면 중복으로 본다.
+        예전엔 po_number가 있는 행에서 (1)만 보고 (2)는 아예 안 봤음)."""
     if not rows:
         return []
     conn = get_conn()
@@ -1469,11 +1472,12 @@ def find_duplicate_intakes(rows):
         po  = (r.get("po_number") or "").strip()
         rd  = (r.get("receive_date") or "").strip()
         sup = (r.get("supplier") or "").strip()
+        hit = None
         if po:
             hit = conn.execute(
                 "SELECT id FROM intake_list WHERE material_no=? AND po_number=?",
                 (mn, po)).fetchone()
-        else:
+        if not hit:
             hit = conn.execute(
                 "SELECT id FROM intake_list WHERE material_no=? AND receive_date=? AND supplier=?",
                 (mn, rd, sup)).fetchone()
