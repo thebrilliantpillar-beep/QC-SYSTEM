@@ -104,6 +104,14 @@
 </div>
 {% endif %}
 
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px;">
+  <label class="open-mode-toggle" style="margin:0;">
+    <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
+  </label>
+  <a href="{{ url_for('inspect_select_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {# ── 자동입력 설정 모달 ── #}
 {% if 'users' in user_perms %}
 <div id="autoBatchModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
@@ -206,7 +214,7 @@
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.methods || data.methods.length === 0) {
-          listEl.innerHTML = '<div style="font-size:12.5px; color:#9ca3af;">수치 측정 항목이 없어 (측정방식 미등록 또는 전량 육안검사).</div>';
+          listEl.innerHTML = '<div style="font-size:12.5px; color:#9ca3af;">치수 측정 항목이 없어 (측정방식 미등록 또는 전량 육안검사).</div>';
           return;
         }
         var gauges = data.gauges;
@@ -286,14 +294,6 @@
 })();
 </script>
 {% endif %}
-
-<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px;">
-  <label class="open-mode-toggle" style="margin:0;">
-    <input type="checkbox" id="openModeChk"> 행을 클릭하면 팝업으로 열기
-  </label>
-  <a href="{{ url_for('inspect_select_export') }}?{{ request.query_string.decode('utf-8') }}"
-     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
-</div>
 
 <table>
   <tr>

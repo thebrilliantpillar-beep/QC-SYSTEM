@@ -15,7 +15,7 @@
             style="background:#059669; color:#fff; border-color:#059669; opacity:.5; padding:8px 14px; font-size:13px;"
             onclick="ohDownloadPdf()">📄 선택 PDF 다운로드</button>
     <a href="{{ url_for('output_history_export') }}?{{ request.query_string.decode('utf-8') }}"
-       class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">📊 목록 엑셀</a>
+       class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
     <a href="{{ url_for('output_list') }}" class="btn secondary" style="margin-top:0; padding:8px 14px; font-size:13px;">
       🖨️ 출력 대기
     </a>

@@ -6,11 +6,6 @@
 
 {{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_history', show=('outbound_delete' in user_perms)) }}
 
-<div style="margin:0 0 14px;">
-  <a href="{{ url_for('outbound_batches_export') }}?{{ request.query_string.decode('utf-8') }}"
-     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
-</div>
-
 <div class="card">
   <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
     <div style="flex:1; min-width:170px;">
@@ -22,6 +17,11 @@
     <a href="{{ url_for('outbound_history') }}" class="btn secondary" style="margin-top:0;">초기화</a>
     {% endif %}
   </form>
+</div>
+
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('outbound_batches_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
 </div>
 
 <div class="card">

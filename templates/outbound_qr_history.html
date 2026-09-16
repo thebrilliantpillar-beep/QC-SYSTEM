@@ -6,11 +6,6 @@
 
 {{ admin_delete_bar(url_for('outbound_qr_export_delete_selected'), 'export_ids', 'QR 출력 이력', show=('outbound_delete' in user_perms)) }}
 
-<div style="margin:0 0 14px;">
-  <a href="{{ url_for('outbound_qr_history_export') }}?{{ request.query_string.decode('utf-8') }}"
-     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
-</div>
-
 <div class="card">
   <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
     <div style="flex:1; min-width:170px;">
@@ -19,6 +14,11 @@
     </div>
     <button type="submit" style="margin-top:0;">조회</button>
   </form>
+</div>
+
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('outbound_qr_history_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
 </div>
 
 <div class="card">
