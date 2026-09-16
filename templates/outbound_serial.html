@@ -55,6 +55,10 @@
     <input type="text" name="q" value="{{ q }}" placeholder="S/N 일부 입력" style="flex:1;">
     <button type="submit" style="margin-top:0;">조회</button>
   </form>
+  <div style="margin:0 0 12px;">
+    <a href="{{ url_for('outbound_serial_export') }}?{{ request.query_string.decode('utf-8') }}"
+       class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+  </div>
   {{ admin_delete_bar(url_for('outbound_serial_delete_selected'), 'serial_ids', 'S/N 발급 이력', show=('outbound_delete' in user_perms)) }}
   <table>
     <thead><tr><th>S/N</th><th>발급자</th><th>발급일시</th><th></th></tr></thead>

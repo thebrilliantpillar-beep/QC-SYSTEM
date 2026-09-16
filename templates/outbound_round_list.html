@@ -6,6 +6,11 @@
 
 {{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_round_list', show=('outbound_delete' in user_perms)) }}
 
+<div style="margin:0 0 14px;">
+  <a href="{{ url_for('outbound_batches_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
   <p class="muted" style="margin:0; font-size:13.5px;">
     이미 등록된 차수를 다시 열어서 계획 S/N을 더 추가하거나 QR 라벨을 다시 출력할 수 있어.

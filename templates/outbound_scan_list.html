@@ -33,6 +33,11 @@
   </form>
 </div>
 
+<div style="margin:0 0 14px;">
+  <a href="{{ url_for('outbound_batches_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 <div class="card">
   <table>
     <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>

@@ -111,6 +111,11 @@ details.lane[open] .lane-arrow { transform: rotate(90deg); }
 
 {% include "_list_search.html" %}
 
+<div style="margin:0 0 12px;">
+  <a href="{{ url_for('defect_history_export') }}?{{ request.query_string.decode('utf-8') }}"
+     class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a>
+</div>
+
 {# ── 상단 미결 건수 요약 ── #}
 {% set total_pending = data.recheck|length + data.ncr_write|length %}
 <div class="summary-strip">

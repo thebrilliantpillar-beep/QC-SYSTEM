@@ -4772,11 +4772,10 @@ def approval_history_export():
 
 # ---------- 불량 이력 ----------
 
-@app.route("/defects")
-@perm_required("defect_history")
-def defect_history():
+def _defect_history_data():
+    """defect_history()/defect_history_export()가 공유하는 4레인 데이터 계산.
+    완료(archive) 버킷 페이지네이션은 화면 전용이라 여기 포함하지 않는다(호출부가 처리)."""
     from datetime import date, timedelta
-    # 완료 archive 기간 필터 (active 항목은 전체 표시)
     preset = request.args.get("preset", "3m")
     start  = request.args.get("start", "")
     end    = request.args.get("end", "")
@@ -4810,6 +4809,13 @@ def defect_history():
             )
         ]
     data = {k: _filt(v) for k, v in data.items()}
+    return data, f, preset, start, end
+
+
+@app.route("/defects")
+@perm_required("defect_history")
+def defect_history():
+    data, f, preset, start, end = _defect_history_data()
 
     # 완료(archive) 버킷만 페이지네이션 — 시간이 갈수록 계속 쌓이는 유일한 항목이라서.
     # 나머지 4개 버킷(재검사/작성/확인/발송)은 처리하면 사라지는 대기열이라 페이지 나눌 필요 없음.
@@ -4825,6 +4831,57 @@ def defect_history():
                            pager=completed_pager,
                            f=f, show_result=False, show_status=False,
                            drawing_materials=drawing_materials)
+
+
+def _defect_note(lane, r):
+    if lane == "recheck":
+        return f"반려 사유: {r['reject_reason']}" if r.get("reject_reason") else "반려됨 — 재검사 필요"
+    if lane == "ncr_write":
+        return "불합격 확정 — 부적합 통보서 작성 필요"
+    if lane == "ncr_waived":
+        return f"생략 사유: {r['ncr_waived_reason']}" if r.get("ncr_waived_reason") else "통보서 발행 불필요 처리됨"
+    if lane == "completed":
+        return f"{r.get('ncr_no') or ''} · 수신: {r.get('sent_to') or '-'}"
+    return ""
+
+
+def _defect_date(lane, r):
+    if lane == "completed":
+        d = (r.get("email_sent_at") or "")[:10]
+        return format_date_korean(d) if d else ""
+    d = r.get("inspect_date")
+    return format_date_korean(d) if d else ""
+
+
+@app.route("/defects/export.xlsx")
+@perm_required("defect_history")
+def defect_history_export():
+    data, f, preset, start, end = _defect_history_data()
+    filt = _common_filter_summary(f)
+    filt.append(("완료 archive 기간", f"{start} ~ {end}" if start or end else preset))
+
+    lanes = [("recheck", "재검사대기"), ("ncr_write", "통보서작성필요"),
+             ("ncr_waived", "통보서불필요"), ("completed", "완료")]
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.remove(wb.active)
+    for key, title in lanes:
+        rows = data.get(key, [])
+        columns = [
+            ("자재번호", "material_no", 16),
+            ("자재명", "material_name", 28),
+            ("업체", "supplier", 14),
+            ("날짜", lambda r, k=key: _defect_date(k, r), 14),
+            ("비고", lambda r, k=key: _defect_note(k, r), 40),
+        ]
+        report_builder._write_list_sheet(wb, title, columns, rows, filter_summary=filt)
+
+    import io as _io
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return _send_list_excel(buf, "불량이력")
 
 
 # ---------- 전수검사 기록지 ----------
@@ -8477,6 +8534,21 @@ def outbound_serial_delete(serial_id):
     return redirect(url_for("outbound_serial_new"))
 
 
+@app.route("/outbound/serial/export.xlsx")
+@perm_required("outbound")
+def outbound_serial_export():
+    q = request.args.get("q", "").strip()
+    rows = db.list_serials(query=q or None, limit=-1)  # -1 = SQLite에서 무제한
+    filt = [("검색어", q)] if q else None
+    columns = [
+        ("S/N", "serial_no", 22),
+        ("발급자", "issued_by", 14),
+        ("발급일시", lambda r: format_datetime_korean(r["issued_at"]) if r["issued_at"] else "", 20),
+    ]
+    buf = report_builder.build_list_excel("SN발급이력", columns, rows, filter_summary=filt)
+    return _send_list_excel(buf, "SN발급이력")
+
+
 OUTBOUND_PHOTO_DIR = os.path.join(db.DATA_DIR, "outbound_photos")
 os.makedirs(OUTBOUND_PHOTO_DIR, exist_ok=True)
 
@@ -8862,6 +8934,34 @@ def outbound_history():
     return render_template("outbound_history.html", batches=batches, q=q)
 
 
+@app.route("/outbound/batches/export.xlsx")
+@perm_required("outbound")
+def outbound_batches_export():
+    """출고 배치 목록 엑셀 내보내기 — 출고 스캔(/outbound/scan)·출고 이력(/outbound/history)·
+    출고 차수 목록(/outbound/round) 3개 화면이 이 라우트 하나를 공유한다."""
+    q = request.args.get("q", "").strip()
+    batches = db.list_outbound_batches(query=q or None)
+    filt = [("검색어", q)] if q else None
+
+    def _confirm_status(b):
+        if b["confirmed_at"]:
+            return f"확인완료 ({b['confirmed_by']})"
+        if b["planned_count"] and b["unplanned_count"]:
+            return "계획외 항목 있음"
+        return "미확인"
+
+    columns = [
+        ("차수", "round_no", 14),
+        ("거래처", "customer", 18),
+        ("출고(예정)일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
+        ("담당자", "handler", 12),
+        ("항목수", "item_count", 10),
+        ("확인상태", _confirm_status, 20),
+    ]
+    buf = report_builder.build_list_excel("출고차수목록", columns, batches, filter_summary=filt)
+    return _send_list_excel(buf, "출고차수목록")
+
+
 @app.route("/outbound/batch/<int:batch_id>/excel")
 @perm_required("outbound")
 def outbound_batch_excel(batch_id):
@@ -8911,6 +9011,24 @@ def outbound_qr_export_history():
     q = request.args.get("q", "").strip()
     exports = db.list_qr_exports(query=q or None)
     return render_template("outbound_qr_history.html", exports=exports, q=q)
+
+
+@app.route("/outbound/qr-exports/export.xlsx")
+@perm_required("outbound")
+def outbound_qr_history_export():
+    q = request.args.get("q", "").strip()
+    exports = db.list_qr_exports(query=q or None, limit=-1)  # -1 = SQLite에서 무제한
+    filt = [("검색어", q)] if q else None
+    columns = [
+        ("차수", "round_no", 14),
+        ("거래처", "customer", 18),
+        ("출고예정일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
+        ("생성일시", lambda r: format_datetime_korean(r["generated_at"]) if r["generated_at"] else "", 20),
+        ("생성자", "generated_by", 12),
+        ("건수", "item_count", 10),
+    ]
+    buf = report_builder.build_list_excel("QR출력이력", columns, exports, filter_summary=filt)
+    return _send_list_excel(buf, "QR출력이력")
 
 
 _OUTBOUND_RULE_KIND_LABELS = {"voltage": "전압코드", "suffix": "접미사", "pcode": "P코드 특수값"}
