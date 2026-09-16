@@ -6782,9 +6782,8 @@ os.makedirs(IMPROVEMENT_PHOTO_DIR, exist_ok=True)
 # 렌더/검증과 report_builder.py 엑셀 생성이 둘 다 이 함수를 쓴다, CLAUDE.md 8-1절).
 
 
-@app.route("/improvement")
-@perm_required("improvement")
-def improvement_list():
+def _improvement_list_rows():
+    """개선요청서 화면·엑셀 내보내기가 공유하는 필터링 로직."""
     reqs = db.list_improvement_requests()
     f = _list_search_params()
     reqs = [
@@ -6798,9 +6797,34 @@ def improvement_list():
             insp_date=r["insp_inspect_date"], recv_date=r["insp_receive_date"],
         )
     ]
+    return reqs, f
+
+
+@app.route("/improvement")
+@perm_required("improvement")
+def improvement_list():
+    reqs, f = _improvement_list_rows()
     pager = _paginate(reqs)
     return render_template("improvement_list.html", reqs=pager["items"], pager=pager, f=f,
                            show_result=False, show_status=False)
+
+
+@app.route("/improvement/export.xlsx")
+@perm_required("improvement")
+def improvement_export():
+    reqs, f = _improvement_list_rows()
+    columns = [
+        ("번호", "request_no", 16),
+        ("자재번호", "material_no", 16),
+        ("제품명", "material_name", 26),
+        ("업체", "supplier", 14),
+        ("발신일", lambda r: format_date_korean(r["issued_date"]) if r["issued_date"] else "", 14),
+        ("작성자", "issued_by", 10),
+        ("상태", lambda r: "발송됨" if (r["status"] or "draft") != "draft" else "초안", 10),
+    ]
+    buf = report_builder.build_list_excel("개선요청서", columns, reqs,
+                                           filter_summary=_common_filter_summary(f))
+    return _send_list_excel(buf, "개선요청서")
 
 
 @app.route("/improvement/new", methods=["GET", "POST"])
