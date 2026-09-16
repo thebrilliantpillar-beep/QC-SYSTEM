@@ -549,6 +549,16 @@ def status_display(insp):
 PAGE_SIZE = 50
 
 
+def _send_list_excel(buf, filename_base):
+    """xlsx BytesIO를 다운로드 응답으로 변환하는 공용 함수. 파일명 특수문자 제거는
+    report_builder.build_report_filename()과 같은 규칙(6절) — 치환하지 않고 그냥 제거만."""
+    from datetime import date as _date
+    safe_base = re.sub(r'[\\/:*?"<>|]', '', filename_base)
+    fname = f"{safe_base}_{_date.today():%Y%m%d}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 def _paginate(items, page_arg="page", per_page=PAGE_SIZE):
     """긴 목록을 페이지 단위로 자른다. 화면(_pager.html)이 요구하는 dict 하나로 통일해서
     돌려준다 — 각 목록 라우트마다 페이지 계산 로직을 복붙하지 않게(2026-09-02).
@@ -597,6 +607,26 @@ def _list_search_params():
         "include": _multi_arg("include"),
         "exclude": _multi_arg("exclude"),
     }
+
+
+def _common_filter_summary(f):
+    """_list_search_params() 결과에서 실제로 값이 채워진 조건만 뽑아 엑셀 요약행으로 변환.
+    여러 화면(과거입고이력/검사이력/불량이력/NCR/개선요청서/반품처리/검사대기)이 공유."""
+    out = []
+    if f.get("q_inspector"): out.append(("검사자", f["q_inspector"]))
+    if f.get("q_supplier"):  out.append(("업체", f["q_supplier"]))
+    if f.get("q_product"):   out.append(("제품명", f["q_product"]))
+    if f.get("q_material"):  out.append(("자재번호", f["q_material"]))
+    if f.get("q_lot"):       out.append(("로트/발주번호", f["q_lot"]))
+    if f.get("f_result"):    out.append(("자동판정", f["f_result"]))
+    if f.get("f_status"):    out.append(("승인상태", f["f_status"]))
+    if f.get("insp_start") or f.get("insp_end"):
+        out.append(("검사일 범위", f"{f.get('insp_start') or ''} ~ {f.get('insp_end') or ''}"))
+    if f.get("recv_start") or f.get("recv_end"):
+        out.append(("입고일 범위", f"{f.get('recv_start') or ''} ~ {f.get('recv_end') or ''}"))
+    if f.get("include"): out.append(("포함 단어", ", ".join(f["include"])))
+    if f.get("exclude"): out.append(("제외 단어", ", ".join(f["exclude"])))
+    return out
 
 
 def _matches_word_filter(include_words, exclude_words, *field_values):
