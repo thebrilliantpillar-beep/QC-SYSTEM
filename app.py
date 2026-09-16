@@ -4693,12 +4693,10 @@ def approval_history():
 @app.route("/history/approved/export")
 @perm_required("inspect_history")
 def approval_history_export():
-    """첨부 양식 그대로: B1 제목, 2행 헤더(B~J), 3행부터 데이터."""
-    import io
-    from datetime import date as _date
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-
+    """첨부 양식 그대로 — report_builder.build_list_excel() 공용 헬퍼로 통일(2026-09-16).
+    이전에는 이 함수와 output_history_export()가 거의 동일한 openpyxl 스타일링 코드를
+    각자 갖고 있었다(8-1절 원칙 위반) — 지금은 report_builder.build_list_excel() 하나만.
+    (시각적 차이: 기존엔 B열부터 시작했는데 이 헬퍼는 A열부터 시작 — 회귀 아님, 의도된 차이)"""
     rows, _ = _collect_approval_history()
 
     # 체크박스로 고른 건만 뽑을 때 사용 — 전체를 한 번에 뽑으면 Render 서버
@@ -4709,65 +4707,22 @@ def approval_history_export():
         wanted = {int(x) for x in selected_ids if x.isdigit()}
         rows = [r for r in rows if r["id"] in wanted]
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "승인이력"
-
-    # 제목
-    ws["B1"] = "검사 결과 리스트"
-    ws["B1"].font = Font(name="맑은 고딕", size=16, bold=True)
-    ws["B1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.merge_cells("B1:M1")
-    ws.row_dimensions[1].height = 28
-
-    headers = ["입고일", "업체명", "로트번호", "자재명", "자재번호",
-               "입고수량", "검사자", "검사시간", "판정여부",
-               "합격 수량", "불량 수량", "AQL 최대 샘플"]
-    thin = Side(style="thin", color="B7BEC9")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    header_fill = PatternFill("solid", fgColor="E7EAF0")
-
-    for i, h in enumerate(headers):
-        c = ws.cell(row=2, column=2 + i, value=h)
-        c.font = Font(name="맑은 고딕", bold=True)
-        c.alignment = Alignment(horizontal="center", vertical="center")
-        c.fill = header_fill
-        c.border = border
-    ws.row_dimensions[2].height = 22
-
-    for row_i, r in enumerate(rows, start=3):
-        qty_disp = f"{r['quantity']}개" if r["quantity"] else ""
-        values = [
-            r["receive_date_label"],
-            r["supplier"],
-            r["po_number"],
-            r["material_name"],
-            r["material_no"],
-            qty_disp,
-            r["inspector"],
-            r["total_time_label"],
-            r["state"],
-            f"{r['pass_count']}개" if r["max_sample"] else "",
-            f"{r['bad_count']}개" if r["bad_count"] else ("0개" if r["max_sample"] else ""),
-            f"{r['max_sample']}개" if r["max_sample"] else "",
-        ]
-        for j, v in enumerate(values):
-            c = ws.cell(row=row_i, column=2 + j, value=v)
-            c.font = Font(name="맑은 고딕")
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.border = border
-
-    widths = [15, 14, 14, 34, 14, 10, 10, 12, 10, 11, 11, 13]
-    for i, w in enumerate(widths):
-        ws.column_dimensions[chr(ord('B') + i)].width = w
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    fname = f"승인이력_{_date.today().isoformat()}.xlsx"
-    return send_file(buf,
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                     as_attachment=True, download_name=fname)
+    columns = [
+        ("입고일", "receive_date_label", 15),
+        ("업체명", "supplier", 14),
+        ("로트번호", "po_number", 14),
+        ("자재명", "material_name", 34),
+        ("자재번호", "material_no", 14),
+        ("입고수량", lambda r: f"{r['quantity']}개" if r["quantity"] else "", 10),
+        ("검사자", "inspector", 10),
+        ("검사시간", "total_time_label", 12),
+        ("판정여부", "state", 10),
+        ("합격 수량", lambda r: f"{r['pass_count']}개" if r["max_sample"] else "", 11),
+        ("불량 수량", lambda r: f"{r['bad_count']}개" if r["bad_count"] else ("0개" if r["max_sample"] else ""), 11),
+        ("AQL 최대 샘플", lambda r: f"{r['max_sample']}개" if r["max_sample"] else "", 13),
+    ]
+    buf = report_builder.build_list_excel("승인이력", columns, rows, title="검사 결과 리스트")
+    return _send_list_excel(buf, "승인이력")
 
 
 # ---------- 불량 이력 ----------
