@@ -150,7 +150,12 @@
   /* 우선검사(priority) — 판정 의미색이 아니라 단순 표시 플래그라, 사용자가 명시적으로
      요청한 "채도 낮춘 톤" 원칙(16절)을 그대로 적용한다. 특채/검토처럼 이미 예약된
      쨍한 색과는 다른 결정 — 이건 판정이 아니라 눈에 띄되 피로하지 않아야 하는 표시다. */
-  .badge.priority { color: #3F6C74; background: #E1ECED; }
+  /* display:block+width:fit-content으로 자재번호 위에 쌓이게 한다. 예전엔 HTML
+     hidden 속성으로 숨겼는데 .badge{display:inline-block}이 UA 기본 [hidden]
+     규칙보다 우선 적용돼 실제로는 안 숨겨지는 버그가 있었다(2026-09-17 실사용자
+     보고로 발견) — 그래서 지금은 항상 인라인 style="display:none"을 직접 주는
+     방식으로 바꿨다(인라인 스타일이 클래스보다 우선순위가 확실히 높음). */
+  .badge.priority { color: #3F6C74; background: #E1ECED; display: block; width: fit-content; margin-bottom: 3px; }
   .badge.priority::before {
     content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: #3F6C74; margin-right: 5px; vertical-align: middle;

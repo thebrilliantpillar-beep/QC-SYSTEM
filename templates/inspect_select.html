@@ -300,6 +300,9 @@
     {% if can_delete_pending %}
     <th style="width:26px;"><input type="checkbox" id="checkAllPending" onclick="document.querySelectorAll('.pending-check').forEach(c=>c.checked=this.checked)"></th>
     {% endif %}
+    {% if 'intake' in user_perms %}
+    <th style="width:60px; text-align:center;">우선<br>검사</th>
+    {% endif %}
     <th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th><th>검사원</th><th>도면</th>
   </tr>
   {% for r in pending %}
@@ -310,21 +313,19 @@
       <input type="checkbox" class="pending-check" form="deleteForm" name="intake_ids" value="{{ r['id'] }}">
     </td>
     {% endif %}
+    {% if 'intake' in user_perms %}
+    <td onclick="event.stopPropagation()" style="text-align:center;">
+      <input type="checkbox" class="priority-toggle" data-intake-id="{{ r['id'] }}"
+             {% if r['is_priority'] %}checked{% endif %}
+             style="width:17px; height:17px;" title="우선검사 대상으로 표시">
+    </td>
+    {% endif %}
     <td class="clickable priority-accent" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['supplier'] or '-' }}</td>
     <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['po_number'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">
-      {% if 'intake' in user_perms %}
-        <label onclick="event.stopPropagation()" style="display:inline-flex; align-items:center; gap:3px; margin-right:6px; cursor:pointer; white-space:nowrap;">
-          <input type="checkbox" class="priority-toggle" data-intake-id="{{ r['id'] }}"
-                 {% if r['is_priority'] %}checked{% endif %}
-                 style="width:15px; height:15px;">
-          <span class="badge priority" style="font-size:11px;" {% if not r['is_priority'] %}hidden{% endif %}>🚩 우선검사</span>
-        </label>
-      {% elif r['is_priority'] %}
-        <span class="badge priority" style="margin-right:4px;">🚩 우선검사</span>
-      {% endif %}
+      <span class="badge priority" {% if not r['is_priority'] %}style="display:none;"{% endif %}>🚩 우선검사</span>
       {{ r['material_no'] }}
       {% if r['assembly_no'] %}
         <span class="badge special" style="margin-left:4px;" title="{{ r['assembly_no'] }} 조립품의 파츠로 자동 전개됨">MA 파츠</span>
@@ -371,7 +372,8 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="9">
+  {% set _empty_colspan = 8 + (1 if can_delete_pending else 0) + (1 if 'intake' in user_perms else 0) %}
+  <tr><td colspan="{{ _empty_colspan }}">
     {% if query or (f and (f.include or f.exclude)) %}검색 결과가 없어.{% else %}
     대기 중인 입고 건이 없어.
     {% if 'intake' in user_perms %}<a href="{{ url_for('intake') }}">입고 리스트 등록</a>부터 해줘.{% endif %}
@@ -428,7 +430,7 @@ document.querySelectorAll('.priority-toggle').forEach(function (chk) {
     var id = this.dataset.intakeId;
     var prevChecked = !this.checked;
     var tr = this.closest('tr');
-    var badge = this.closest('label').querySelector('.badge.priority');
+    var badge = tr ? tr.querySelector('.badge.priority') : null;
     fetch('/intake/' + id + '/toggle-priority', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -438,7 +440,10 @@ document.querySelectorAll('.priority-toggle').forEach(function (chk) {
           return;
         }
         chk.checked = !!data.is_priority;
-        if (badge) badge.hidden = !chk.checked;
+        // hidden 속성이 아니라 인라인 style.display로 직접 토글한다 — .badge 클래스의
+        // display:block이 [hidden] 기본 규칙보다 우선 적용돼서 hidden 속성만으로는
+        // 실제로 안 숨겨지는 문제가 있었다(2026-09-17).
+        if (badge) badge.style.display = chk.checked ? 'block' : 'none';
         if (tr) tr.classList.toggle('priority-row', chk.checked);
       })
       .catch(function () { alert('네트워크 오류로 변경 실패'); chk.checked = prevChecked; });
