@@ -147,7 +147,21 @@
   .badge.muted { color: #6b7280; background: #ECEEF2; }
   .badge.special { color: #ea580c; background: #ffedd5; }
   .badge.review  { color: #7c3aed; background: #ede9fe; }
-  .badge.priority { color: #0e7490; background: #cffafe; }
+  /* 우선검사(priority) — 판정 의미색이 아니라 단순 표시 플래그라, 사용자가 명시적으로
+     요청한 "채도 낮춘 톤" 원칙(16절)을 그대로 적용한다. 특채/검토처럼 이미 예약된
+     쨍한 색과는 다른 결정 — 이건 판정이 아니라 눈에 띄되 피로하지 않아야 하는 표시다. */
+  .badge.priority { color: #3F6C74; background: #E1ECED; }
+  .badge.priority::before {
+    content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: #3F6C74; margin-right: 5px; vertical-align: middle;
+    animation: priorityPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes priorityPulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  /* 강조는 채도가 아니라 형태로 — 옅은 배경 톤 + 왼쪽 경계선만으로 행을 구분한다 */
+  tr.priority-row td { background: #F2F7F7; }
+  /* 삭제용 체크박스 칸이 있을 수도 없을 수도 있어서 td:first-child로는 위치가
+     들쭉날쭉했다 — 항상 존재하는 "입고날짜" 칸(.priority-accent)에 고정한다. */
+  tr.priority-row td.priority-accent { box-shadow: inset 3px 0 0 #3F6C74; }
   .flash { background: #fef3c7; border: 1px solid #fbbf24; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13.5px; }
   .muted { color: var(--muted); font-size: 13px; }
   .hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; }

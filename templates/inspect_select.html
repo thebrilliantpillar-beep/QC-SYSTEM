@@ -304,13 +304,13 @@
   </tr>
   {% for r in pending %}
   {% set inspectors = progress_map.get(r['id'], []) %}
-  <tr>
+  <tr class="{{ 'priority-row' if r['is_priority'] else '' }}">
     {% if can_delete_pending %}
     <td onclick="event.stopPropagation()">
       <input type="checkbox" class="pending-check" form="deleteForm" name="intake_ids" value="{{ r['id'] }}">
     </td>
     {% endif %}
-    <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
+    <td class="clickable priority-accent" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ (r['receive_date'] | date_korean) or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['supplier'] or '-' }}</td>
     <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['po_number'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
@@ -320,7 +320,7 @@
           <input type="checkbox" class="priority-toggle" data-intake-id="{{ r['id'] }}"
                  {% if r['is_priority'] %}checked{% endif %}
                  style="width:15px; height:15px;">
-          <span class="badge priority" style="font-size:11px;">🚩 우선검사</span>
+          <span class="badge priority" style="font-size:11px;" {% if not r['is_priority'] %}hidden{% endif %}>🚩 우선검사</span>
         </label>
       {% elif r['is_priority'] %}
         <span class="badge priority" style="margin-right:4px;">🚩 우선검사</span>
@@ -427,15 +427,19 @@ document.querySelectorAll('.priority-toggle').forEach(function (chk) {
   chk.addEventListener('change', function () {
     var id = this.dataset.intakeId;
     var prevChecked = !this.checked;
+    var tr = this.closest('tr');
+    var badge = this.closest('label').querySelector('.badge.priority');
     fetch('/intake/' + id + '/toggle-priority', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.ok) {
           alert(data.error || '변경 실패');
           chk.checked = prevChecked;
-        } else {
-          chk.checked = !!data.is_priority;
+          return;
         }
+        chk.checked = !!data.is_priority;
+        if (badge) badge.hidden = !chk.checked;
+        if (tr) tr.classList.toggle('priority-row', chk.checked);
       })
       .catch(function () { alert('네트워크 오류로 변경 실패'); chk.checked = prevChecked; });
   });
