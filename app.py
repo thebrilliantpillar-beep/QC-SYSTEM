@@ -1444,6 +1444,8 @@ def _merge_duplicate_intake_rows(rows):
             existing["product_name"] = r["product_name"]
         if not existing.get("assembly_no") and r.get("assembly_no"):
             existing["assembly_no"] = r["assembly_no"]
+        if r.get("is_priority"):
+            existing["is_priority"] = 1
     return [merged[k] for k in order]
 
 
@@ -1463,12 +1465,13 @@ def intake():
 
         rows = []
         errors = []
-        # 스프레드시트 열 순서: 입고날짜, 납품업체, 발주번호, 제품명, 자재번호, 입고수량
+        # 스프레드시트 열 순서: 입고날짜, 납품업체, 발주번호, 제품명, 자재번호, 입고수량, 우선검사
         for line_no, cols in enumerate(grid_rows, start=1):
             cols = [(c or "").strip() for c in cols]
-            while len(cols) < 6:
+            while len(cols) < 7:
                 cols.append("")
-            receive_date, supplier, po_number, product_name, material_no, quantity = cols[:6]
+            receive_date, supplier, po_number, product_name, material_no, quantity, priority_raw = cols[:7]
+            is_priority = 1 if priority_raw == "1" else 0
             if not any([receive_date, supplier, po_number, product_name, material_no, quantity]):
                 continue  # 완전히 빈 행은 건너뜀
             if not material_no:
@@ -1492,6 +1495,7 @@ def intake():
                         "po_number": po_number,
                         "product_name": component_name,
                         "assembly_no": ma_info["ma_master"],
+                        "is_priority": is_priority,
                     })
             else:
                 # 일반 자재
@@ -1502,6 +1506,7 @@ def intake():
                     "receive_date": receive_date,
                     "po_number": po_number,
                     "product_name": product_name,
+                    "is_priority": is_priority,
                 })
 
         if errors:
@@ -1574,6 +1579,20 @@ def intake():
                            active_tab=active_tab, q=q,
                            date_from=date_from, date_to=date_to,
                            registered=registered, group_nos=set(), name_map=name_map)
+
+
+@app.route("/intake/<int:intake_id>/toggle-priority", methods=["POST"])
+@perm_required("intake")
+def intake_toggle_priority(intake_id):
+    """입고 등록 화면(대기 탭)에서만 쓰는 우선검사 플래그 토글. 검사완료된 건은 바꿀 수 없다."""
+    row = db.get_intake(intake_id)
+    if row is None:
+        return jsonify({"ok": False, "error": "해당 입고 건을 찾을 수 없어."}), 404
+    if row["status"] != "대기":
+        return jsonify({"ok": False, "error": "이미 검사완료된 건은 우선검사 표시를 바꿀 수 없어."}), 409
+    new_val = 0 if row["is_priority"] else 1
+    db.set_intake_priority(intake_id, new_val)
+    return jsonify({"ok": True, "is_priority": new_val})
 
 
 # ---------- 과거 입고 이력 (검사/승인과 무관한 순수 조회 전용) ----------
@@ -2469,6 +2488,9 @@ def _inspect_select_rows():
     with_date = sorted((x for x in dated if x[1] is not None), key=lambda x: x[1], reverse=(sort_dir == "desc"))
     without_date = [x for x in dated if x[1] is None]
     pending = [r for r, _ in with_date] + [r for r, _ in without_date]
+    # 우선검사 항목을 맨 위로 — 안정 정렬(stable sort)이라 위에서 이미 정해진
+    # (날짜순 → 날짜없는것 맨뒤) 순서는 각 그룹(우선/일반) 안에서 그대로 유지된다.
+    pending = sorted(pending, key=lambda r: 0 if r["is_priority"] else 1)
     return pending, f, query, sort_dir
 
 

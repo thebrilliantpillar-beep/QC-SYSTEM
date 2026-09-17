@@ -81,6 +81,7 @@
           <th style="min-width:130px;">자재번호</th>
           <th style="min-width:190px;">제품명 (자동)</th>
           <th style="min-width:90px;">입고수량</th>
+          <th style="min-width:70px;">우선검사</th>
           <th></th>
         </tr>
       </table>
@@ -151,6 +152,7 @@
       `<td><input type="text" data-col="material_no"></td>` +
       `<td class="name-cell empty"></td>` +
       `<td><input type="text" data-col="quantity" inputmode="numeric"></td>` +
+      `<td style="text-align:center;"><input type="checkbox" data-col="is_priority" style="width:17px; height:17px;"></td>` +
       `<td class="del-cell"><button type="button" class="del-row-btn" onclick="this.closest('tr').remove()">✕</button></td>`;
     grid.appendChild(tr);
     tr.querySelector('input[data-col="material_no"]').addEventListener('input', () => fillName(tr));
@@ -280,15 +282,16 @@
     const date = document.getElementById('dateCommon').value.trim();
     const lot = document.getElementById('lotCommon').value.trim();
 
-    // 백엔드는 [입고날짜, 납품업체, 발주번호(=로트번호), 제품명, 자재번호, 입고수량] 6칸 순서를 기대함.
+    // 백엔드는 [입고날짜, 납품업체, 발주번호(=로트번호), 제품명, 자재번호, 입고수량, 우선검사] 7칸 순서를 기대함.
     // 납품업체·로트번호·입고날짜는 이번 등록 전체에 공통이라 모든 줄에 그대로 반복해서 채워 넣는다.
     const rows = [];
     itemRows().forEach(tr => {
       const no = tr.querySelector('input[data-col="material_no"]').value.trim();
       if (!no) return;
       const qty = tr.querySelector('input[data-col="quantity"]').value.trim();
+      const priority = tr.querySelector('input[data-col="is_priority"]').checked ? '1' : '0';
       const name = (Object.prototype.hasOwnProperty.call(NAME_MAP, no) ? NAME_MAP[no] : '') || '';
-      rows.push([date, supplier, lot, name, no, qty]);
+      rows.push([date, supplier, lot, name, no, qty, priority]);
     });
 
     if (rows.length === 0) {
@@ -297,6 +300,24 @@
       return;
     }
     document.getElementById('rowsJson').value = JSON.stringify(rows);
+  });
+
+  document.querySelectorAll('.priority-toggle').forEach(function (chk) {
+    chk.addEventListener('change', function () {
+      const id = this.dataset.intakeId;
+      const prevChecked = !this.checked;  // 실패 시 되돌릴 값
+      fetch('/intake/' + id + '/toggle-priority', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.ok) {
+            alert(data.error || '변경 실패');
+            this.checked = prevChecked;
+          } else {
+            this.checked = !!data.is_priority;
+          }
+        })
+        .catch(() => { alert('네트워크 오류로 변경 실패'); this.checked = prevChecked; });
+    });
   });
 })();
 </script>
@@ -351,7 +372,7 @@
 {% if active_tab == 'pending' %}
   {% set p = pending_pager %}
   <table>
-    <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th></tr>
+    <tr><th>입고날짜</th><th>납품업체</th><th>로트번호</th><th>제품명</th><th>자재번호</th><th>입고수량</th><th>우선검사</th></tr>
     {% for r in p['items'] %}
     <tr>
       <td>{{ (r['receive_date'] | date_korean) or '-' }}</td>
@@ -367,9 +388,14 @@
         {% endif %}
       </td>
       <td>{{ r['quantity'] or '-' }}</td>
+      <td style="text-align:center;">
+        <input type="checkbox" class="priority-toggle" data-intake-id="{{ r['id'] }}"
+               {% if r['is_priority'] %}checked{% endif %}
+               style="width:17px; height:17px;">
+      </td>
     </tr>
     {% else %}
-    <tr><td colspan="6" style="text-align:center; color:var(--muted);">
+    <tr><td colspan="7" style="text-align:center; color:var(--muted);">
       {% if q %}검색 결과가 없어.{% else %}대기 중인 입고 건이 없어.{% endif %}
     </td></tr>
     {% endfor %}

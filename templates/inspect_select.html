@@ -315,6 +315,9 @@
     <td class="clickable" style="white-space:pre-line;" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ r['po_number'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">{{ name_map.get(r['material_no']) or r['product_name'] or '-' }}</td>
     <td class="clickable" onclick="openRow('{{ url_for('inspect_form', intake_id=r['id']) }}{{ inspect_qs }}')">
+      {% if r['is_priority'] %}
+        <span class="badge priority" style="margin-right:4px;">🚩 우선검사</span>
+      {% endif %}
       {{ r['material_no'] }}
       {% if r['assembly_no'] %}
         <span class="badge special" style="margin-left:4px;" title="{{ r['assembly_no'] }} 조립품의 파츠로 자동 전개됨">MA 파츠</span>

@@ -230,6 +230,10 @@ def init_db():
         # (예전엔 product_name에 " - "가 들어있는지로 MA 파츠 여부를 추측했는데, 우연히 제품명에
         #  " - "가 들어간 일반 자재까지 "MA 파츠"로 잘못 표시되는 오판정이 있었다 — 이제 이 컬럼으로 실제 출처를 기록한다.)
         cur.execute("ALTER TABLE intake_list ADD COLUMN assembly_no TEXT")
+    if "is_priority" not in existing_intake_cols:
+        # 우선검사 플래그 — 입고 등록 화면에서 체크하면 검사 대기 목록 상단에 강조 표시된다.
+        # 검사완료 후엔 의미 없음(대기 상태에서만 씀), 다른 화면엔 노출 안 함(스펙 확정 사항).
+        cur.execute("ALTER TABLE intake_list ADD COLUMN is_priority INTEGER NOT NULL DEFAULT 0")
 
     # 1-2. 과거 입고 이력 — 일일보고 엑셀 등에서 옮겨온 "이미 끝난" 입고 기록 조회 전용.
     # intake_list와 절대 혼동하지 말 것: 여기 등록해도 검사 대기 큐(상태='대기')에 안 뜨고
@@ -1531,17 +1535,18 @@ def merge_intake_duplicate(existing_id, add_quantity, add_po_number):
 
 def add_intake_bulk(rows):
     """
-    rows: list of dict (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no)
+    rows: list of dict (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no, is_priority)
     붙여넣기로 여러 건을 한 번에 등록
     """
     conn = get_conn()
     cur = conn.cursor()
     for r in rows:
         cur.execute("""
-            INSERT INTO intake_list (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO intake_list (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no, is_priority)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (r["material_no"], r.get("quantity"), r.get("supplier"),
-              r.get("receive_date"), r.get("po_number"), r.get("product_name"), r.get("assembly_no")))
+              r.get("receive_date"), r.get("po_number"), r.get("product_name"), r.get("assembly_no"),
+              1 if r.get("is_priority") else 0))
     conn.commit()
     conn.close()
 
@@ -1549,6 +1554,14 @@ def add_intake_bulk(rows):
 def set_intake_status(intake_id, status):
     conn = get_conn()
     conn.execute("UPDATE intake_list SET status = ? WHERE id = ?", (status, intake_id))
+    conn.commit()
+    conn.close()
+
+
+def set_intake_priority(intake_id, is_priority):
+    conn = get_conn()
+    conn.execute("UPDATE intake_list SET is_priority = ? WHERE id = ?",
+                (1 if is_priority else 0, intake_id))
     conn.commit()
     conn.close()
 
