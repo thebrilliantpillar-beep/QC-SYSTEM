@@ -1199,6 +1199,25 @@ style="width:390px;...">`으로 감싼 별도 래퍼 HTML을 만들고, 그 래�
 바로 실행되고, 그 결과가 `load` 이벤트 시점 스크린샷에 그대로 반영된다 — 상태
 변화를 스크린샷으로 확인하고 싶을 때 이 패턴을 재사용할 것.
 
+**2026-09-17 추가 — HTML `hidden` 속성은 그 요소에 `display`를 지정하는 CSS 규칙이
+하나라도 있으면 조용히 무시된다.** 검사대기 목록의 "우선검사" 배지를 체크 안 됐을 때
+숨기려고 `<span class="badge priority" {% if not r['is_priority'] %}hidden{% endif %}>`
+처럼 HTML5 `hidden` 속성을 썼는데, 실제 배포 후 사용자가 스크린샷으로 "체크 안 해도
+배지가 계속 보인다"고 지적해서 발견했다 — quality-watcher도 처음엔 "조건이 맞게
+걸려 있다"고 코드만 보고 통과시켰던 부분이다(로직은 맞았지만 실제로 안 먹혔다,
+11절 원칙이 또 유효했던 사례). 원인: 브라우저 기본(UA) 스타일시트엔
+`[hidden] { display: none }`이 있지만, 이 프로젝트의 `.badge { display: inline-block; }`
+같은 **작성자(author) CSS는 특정도가 같아도 UA 스타일시트보다 항상 이긴다** —
+그래서 `hidden` 속성이 켜져 있어도 `.badge`의 `display: inline-block`이 그대로
+적용돼 계속 보였다. **고치는 법**: `hidden` 속성에 기대지 말고, 감추고 싶으면
+인라인 `style="display:none"`을 직접 준다(인라인 스타일은 클래스 규칙보다 항상
+우선한다) — JS에서 토글할 때도 `el.hidden = true/false`가 아니라
+`el.style.display = 'none'/'block'`으로 직접 제어할 것. **앞으로 어떤 요소에
+`display`를 지정하는 CSS 규칙(`.badge`, `.btn` 등 거의 모든 공용 클래스가 해당)이
+이미 있다면, 그 요소를 감출 때 `hidden` 속성을 쓰지 말 것** — 코드 리뷰만으로는
+이 함정을 못 잡는다(quality-watcher도 놓쳤다), 반드시 실제 렌더링(헤드리스
+크롬 스크린샷 등)으로 눈으로 확인할 것.
+
 ## 18. 통합BOM 계층 정보 — "자재 찾기" (2026-09-09, `assembly_masters`와 완전히 별개)
 
 28개 모델 ERP BOM(Lv1~Lv5 계층)에서 자재별 소속 정보(어느 모델, 어느 Lv, 어느 상위품목코드
