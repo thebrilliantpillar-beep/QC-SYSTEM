@@ -100,6 +100,10 @@ Emergency Handoff 유무와 무관하게:
 3. `PROGRESS.md` 최상단 항목 — 가장 최근 완료 작업
 4. `docs/EMERGENCY_HANDOFF.md` 존재 여부
 
+**긴급 대체 모드(P-3 조건 충족 시)에만 추가로 읽는 것:**
+
+5. `docs/archive/` 폴더의 최신 `bootstrap-*.md` — 프로토콜 확정 결정 이력
+
 ### P-6. 이 프로젝트에서 절대 하면 안 되는 것
 
 Claude Code의 전역 훅과 동일 기준으로 Codex도 이것들을 하지 않는다:
