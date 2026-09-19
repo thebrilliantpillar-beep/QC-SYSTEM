@@ -1,4 +1,126 @@
-# IQC 입고검사 성적서 자동화 시스템 — 작업 인수인계 (AGENTS.md)
+# IQC 입고검사 성적서 자동화 시스템 — Codex 협업 규칙 (AGENTS.md)
+
+## ⚠️ 이 파일을 읽는 방법
+
+1. **먼저 아래 "CODEX 협업 프로토콜" 절을 읽는다** — 언제 무엇을 할 수 있는지 먼저 확인
+2. **프로젝트 전체 구조는 `docs/ai-sidekick-handoff.md`** 를 참고한다
+   (2026-09-18 기준 전체 브리핑 — 기술 스택·DB 스키마·규칙·위험 영역 등)
+3. 이 파일 아래쪽 프로젝트 상세 내용은 **구 버전**이다 — 정본은 `CLAUDE.md`다
+
+---
+
+## CODEX 협업 프로토콜
+
+### P-1. Codex의 기본 역할
+
+Claude Code(메인 에이전트)가 이 프로젝트의 주 개발 담당이다.
+
+| 모드 | 조건 | 가능한 것 |
+|---|---|---|
+| **기본** | 항상 | 읽기 전용 조사, 보고, 질문 |
+| **대체** | Emergency Handoff 존재 + 사용자 명시적 승인 | 파일 수정, commit |
+
+### P-2. PERMISSION_PROFILE
+
+```yaml
+filesystem_access:
+  iqc_app:   read_only   # C:\Users\Jaiden\Desktop\iqc-app
+  elevation: 작업별 명시적 사용자 승인 필요
+
+git_commit:
+  iqc_app:          filesystem_scope_으로_차단
+  elevation_후:     사용자_승인_여전히_필요
+
+destructive_git_hook:
+  status: UNKNOWN
+  note: >
+    Claude Code의 git-guardrail.py 훅(reset --hard / push --force /
+    clean -f / checkout . / branch -D 차단)은 ai-sidekick-handoff.md
+    3-6절에서 확인됨. Codex 전용 동급 훅은 미구현 — 지침으로만 작동.
+
+emergency_handoff_signal:
+  file:      docs/EMERGENCY_HANDOFF.md   # 고정 경로
+  condition: 파일_존재 AND 사용자_명시적_승인
+  absent:    Codex_선제_개입_금지
+```
+
+### P-3. Codex 대체 commit의 3가지 필수 조건
+
+아래 **세 조건을 모두** 만족해야 Codex가 파일 수정·commit을 시도할 수 있다:
+
+1. `docs/EMERGENCY_HANDOFF.md`가 존재하고 Claude가 명시적으로 남긴 것이어야 함
+2. 사용자가 이 세션에서 Codex 대체 commit을 **명시적으로 승인**함
+3. Codex 실행 환경의 filesystem 권한이 해당 경로의 쓰기를 허용함
+
+셋 중 하나라도 빠지면 Codex는 **관찰·보고만** 하고 변경하지 않는다.
+
+### P-4. EMERGENCY_HANDOFF.md 형식
+
+파일 없음 = 정상 상태. Claude가 중단 직전에만 남기며, 매 중단마다 덮어쓴다.
+
+```markdown
+# EMERGENCY HANDOFF
+
+- HANDOFF_ID: <YYYYMMDD-HHMMSS>
+- 작성 에이전트: Claude Code (세션: <식별자>)
+- 작성 시각: <ISO 8601>
+- 중단 사유: <토큰 소진 / 세션 종료 / 기타>
+
+## 완료된 변경
+- <파일>: <무엇을 왜>
+
+## 미완료 작업
+- <구체적으로 무엇이 남았는지>
+
+## 현재 Git 상태
+- 마지막 커밋: <git log --oneline -1 결과>
+- 미커밋 변경: <없음 / 있음 — 파일 목록>
+
+## 검증 수행 여부
+- quality-watcher 통과: <예/아니오/미수행>
+- 실제 렌더링 확인:   <예/아니오/미수행>
+
+## 재개 시 첫 번째 확인 명령
+- <git status 등>
+
+## Codex 대체 작업 허용 범위
+- <허용: 구체적 작업> 또는 <허용 안 함>
+
+## 사용자 승인 필요 여부
+- <예/아니오 — 예이면 무엇을 승인받아야 하는지>
+```
+
+### P-5. 작업 시작 전 반드시 확인하는 것
+
+Emergency Handoff 유무와 무관하게:
+
+1. `git log --oneline -5` — 최근 작업 맥락
+2. `git status` — 미커밋 변경사항 **(있으면 반드시 사용자에게 먼저 알릴 것)**
+3. `PROGRESS.md` 최상단 항목 — 가장 최근 완료 작업
+4. `docs/EMERGENCY_HANDOFF.md` 존재 여부
+
+### P-6. 이 프로젝트에서 절대 하면 안 되는 것
+
+Claude Code의 전역 훅과 동일 기준으로 Codex도 이것들을 하지 않는다:
+
+- `git reset --hard`
+- `git push --force` (main 포함)
+- `git clean -f`
+- `git checkout .` / `git restore .`
+- `git branch -D`
+- `iqc.db` 직접 수정 (실 운영 데이터)
+- `template_form.xlsx` / `standard_template.xlsx` 직접 수정
+- `activity_log` 테이블에 DELETE/UPDATE
+
+---
+
+## 프로젝트 참고 내용 (구 버전 — 정본은 `CLAUDE.md` 및 `docs/ai-sidekick-handoff.md`)
+
+아래 내용은 초기 버전 기록으로 참고용이며, 최신 상태와 다를 수 있다.
+
+---
+
+# (구) IQC 입고검사 성적서 자동화 시스템 — 작업 인수인계
 
 이 문서는 Codex.ai 채팅으로 이 프로젝트를 처음부터 함께 만들어온 이전 세션의 전체
 맥락을 정리한 것입니다. Codex는 이 대화 기록에 접근할 수 없으므로, 코드만 보고는
