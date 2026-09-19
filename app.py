@@ -38,6 +38,7 @@ from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify
+from flask_wtf.csrf import CSRFProtect, CSRFError
 import database as db
 import report_builder
 import spec_import as spec_import_module
@@ -124,6 +125,20 @@ if not _secret_key:
     sys.exit(1)
 app.secret_key = _secret_key
 app.permanent_session_lifetime = timedelta(hours=24)  # 하루 한 번 로그인하면 그 뒤로 계속 유지 (admin 제외)
+csrf = CSRFProtect(app)
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(error):
+    """CSRF 오류는 AJAX 요청에는 JSON으로, 일반 폼에는 안내 화면으로 돌려준다."""
+    message = "요청 보안 확인에 실패했어. 페이지를 새로고침한 뒤 다시 시도해줘."
+    if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": False, "error": message, "code": "csrf_failed"}), 400
+    # CSRFProtect는 일반 before_request보다 먼저 동작하므로, 오류 화면의 공통
+    # 템플릿 컨텍스트가 참조하는 g.user를 여기서도 준비한다.
+    if not hasattr(g, "user"):
+        g.user = None
+    return render_template("csrf_error.html", message=message), 400
 
 SIGNATURE_DIR = os.path.join(db.DATA_DIR, "signatures")
 os.makedirs(SIGNATURE_DIR, exist_ok=True)
@@ -3097,7 +3112,11 @@ def inspect_draft_save(intake_id):
     """검사 입력 중간값을 서버에 저장 (검사 화면에서 입력할 때마다 자동 호출).
     브라우저 localStorage만 쓰면 태블릿이 꺼지거나 기기를 바꿀 때 날아가서 서버에도 남긴다."""
     import json as _json
-    payload = request.get_data(as_text=True) or ""
+    # pagehide의 sendBeacon은 헤더를 붙일 수 없어 FormData(payload + csrf_token)로 온다.
+    # 일반 자동저장은 기존처럼 JSON body를 사용한다.
+    payload = request.form.get("payload") if request.form else None
+    if payload is None:
+        payload = request.get_data(as_text=True) or ""
     if len(payload) > 200_000:          # 비정상적으로 큰 요청 차단
         return {"ok": False, "error": "too_large"}, 413
     try:
@@ -4969,7 +4988,16 @@ def full_inspect_save(inspection_id):
     columns = _fi_columns_from_specs(header["material_no"])
     col_keys = [c["key"] for c in columns]
 
-    payload = request.get_json(silent=True) or {}
+    # beforeunload sendBeacon은 FormData의 payload로 전송한다. 일반 자동저장은 JSON이다.
+    beacon_payload = request.form.get("payload") if request.form else None
+    if beacon_payload:
+        import json as _json
+        try:
+            payload = _json.loads(beacon_payload)
+        except ValueError:
+            return jsonify({"ok": False, "error": "bad_json"}), 400
+    else:
+        payload = request.get_json(silent=True) or {}
     inspect_date = payload.get("inspect_date", "")
     units_raw = payload.get("units", [])
 

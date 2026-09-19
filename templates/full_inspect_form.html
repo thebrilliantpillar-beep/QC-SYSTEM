@@ -317,6 +317,7 @@ async function doComplete() {
   const form = document.createElement('form');
   form.method = 'POST';
   form.action = COMP_URL;
+  window.addCsrfToken(form);
   document.body.appendChild(form);
   form.submit();
 }

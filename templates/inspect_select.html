@@ -276,6 +276,7 @@
     }
 
     var form = document.getElementById('autoBatchForm');
+    window.addCsrfToken(form);
     form.querySelectorAll('input[name="intake_ids"]').forEach(function(e) { e.remove(); });
     checked.forEach(function(c) {
       var inp = document.createElement('input');

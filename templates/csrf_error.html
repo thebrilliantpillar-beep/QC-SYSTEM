@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}요청 확인 필요{% endblock %}
+{% block content %}
+<div class="card" style="max-width:520px; margin:40px auto;">
+  <h2>요청을 다시 확인해줘</h2>
+  <p>{{ message }}</p>
+  <p><a class="btn" href="{{ request.referrer or url_for('home') }}">이전 화면으로 돌아가기</a></p>
+</div>
+{% endblock %}

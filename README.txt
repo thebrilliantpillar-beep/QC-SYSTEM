@@ -6,7 +6,7 @@
 2. 명령 프롬프트(cmd)를 열고 이 폴더로 이동
      cd 경로\iqc-app
 3. 필요한 패키지 설치
-     pip install flask openpyxl pillow
+     pip install flask flask-wtf openpyxl pillow
    (자재 데이터는 서버 실행 후 웹의 "자재" 메뉴에서 직접 등록합니다 — 아래 참고)
 
 3-1. SECRET_KEY 환경변수 설정 (처음 1회, 로컬 개발 환경만)

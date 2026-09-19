@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>{% block title %}IQC 성적서 시스템{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -452,6 +453,45 @@ function toggleNav(btn) {
 // 가상클래스를 아예 켜주지 않는다 — 태블릿에서 버튼을 눌러도 CSS로 만든 "눌림"
 // 반응이 하나도 안 보이던 이유. 리스너만 있으면 되고 내용은 필요 없다.
 document.addEventListener('touchstart', function () {}, { passive: true });
+
+/* 모든 같은 출처 상태 변경 요청에 CSRF 토큰을 붙인다.
+   일반 POST 폼은 hidden input, fetch는 헤더를 사용한다. */
+(function () {
+  var tokenMeta = document.querySelector('meta[name="csrf-token"]');
+  var token = tokenMeta ? tokenMeta.content : '';
+
+  window.addCsrfToken = function (form) {
+    if (!form || !token || String(form.method || 'GET').toUpperCase() !== 'POST') return;
+    if (form.querySelector('input[name="csrf_token"]')) return;
+    var input = document.createElement('input');
+    input.type = 'hidden'; input.name = 'csrf_token'; input.value = token;
+    form.appendChild(input);
+  };
+
+  document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(window.addCsrfToken);
+  document.addEventListener('submit', function (event) { window.addCsrfToken(event.target); }, true);
+  var nativeSubmit = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () {
+    window.addCsrfToken(this);
+    return nativeSubmit.call(this);
+  };
+
+  var originalFetch = window.fetch;
+  window.fetch = function (input, init) {
+    init = init || {};
+    var requestUrl = input instanceof Request ? input.url : input;
+    var method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    var url;
+    try { url = new URL(requestUrl, window.location.href); } catch (e) { return originalFetch.apply(this, arguments); }
+    if (token && url.origin === window.location.origin && !['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)) {
+      var headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      headers.set('X-CSRFToken', token);
+      headers.set('X-Requested-With', 'XMLHttpRequest');
+      init.headers = headers;
+    }
+    return originalFetch.call(this, input, init);
+  };
+})();
 </script>
 <main>
   {% with messages = get_flashed_messages() %}

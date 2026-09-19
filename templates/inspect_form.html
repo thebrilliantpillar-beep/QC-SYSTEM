@@ -1385,7 +1385,10 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
       var body = JSON.stringify(collectFormData());
       if (body !== lastSent && navigator.sendBeacon) {
-        navigator.sendBeacon(SAVE_URL, new Blob([body], { type: 'application/json' }));
+        var data = new FormData();
+        data.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+        data.append('payload', body);
+        navigator.sendBeacon(SAVE_URL, data);
       }
     } catch (e) {}
   });

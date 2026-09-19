@@ -454,6 +454,7 @@ async function doComplete() {
   const form = document.createElement('form');
   form.method = 'POST';
   form.action = COMP_URL;
+  window.addCsrfToken(form);
   document.body.appendChild(form);
   form.submit();
 }
@@ -574,8 +575,10 @@ window.addEventListener('beforeunload', () => {
     units: units,
   });
   try {
-    navigator.sendBeacon(SAVE_URL,
-      new Blob([payload], {type: 'application/json'}));
+    const data = new FormData();
+    data.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+    data.append('payload', payload);
+    navigator.sendBeacon(SAVE_URL, data);
   } catch (e) {}
 });
 
