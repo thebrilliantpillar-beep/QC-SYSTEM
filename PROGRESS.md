@@ -8,6 +8,11 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-20**: Claude-Codex 협업 프로토콜 수립 — `AGENTS.md` 맨 위에 협업 규칙 섹션
+  추가 (PERMISSION_PROFILE, 대체 commit 3조건, `docs/EMERGENCY_HANDOFF.md` 형식,
+  금지 명령 목록). `docs/ai-sidekick-handoff.md`가 최신 프로젝트 브리핑임을 안내.
+  커밋 `c149810`.
+
 - **2026-09-17 (추가6)**: 사용자가 스크린샷으로 우선검사 배지 버그를 정확히 짚어줌
   — 체크 안 해도 배지가 계속 보이던 실제 버그(커밋 `efd392c`). 근본원인:
   HTML `hidden` 속성이 `.badge{display:inline-block}` 작성자 CSS에 밀려 무시됨
