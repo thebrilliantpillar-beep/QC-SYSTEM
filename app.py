@@ -33,7 +33,7 @@ def _check_license():
 _check_license()
 # ──────────────────────────────────────────────
 
-import os, base64, io, time, shutil, re, zipfile, tempfile, uuid
+import os, base64, io, time, shutil, re, zipfile, tempfile, uuid, sys
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
@@ -110,7 +110,19 @@ def format_datetime_korean(value):
 app.jinja_env.filters['aql_display'] = format_aql_display
 app.jinja_env.filters['date_korean'] = format_date_korean
 app.jinja_env.filters['datetime_korean'] = format_datetime_korean
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-later")
+_secret_key = os.environ.get("SECRET_KEY", "").strip()
+if not _secret_key:
+    print(
+        "[오류] SECRET_KEY 환경변수가 설정되지 않았습니다.\n"
+        "로컬 개발: 터미널에서 아래 명령을 실행한 뒤 재기동하세요.\n"
+        "  PowerShell:  $env:SECRET_KEY = \"임의의긴문자열\"\n"
+        "  명령 프롬프트: set SECRET_KEY=임의의긴문자열\n"
+        "  Linux/macOS:  export SECRET_KEY=임의의긴문자열\n"
+        "Render: 대시보드 > 해당 서비스 > Environment > SECRET_KEY 값을 확인하세요.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+app.secret_key = _secret_key
 app.permanent_session_lifetime = timedelta(hours=24)  # 하루 한 번 로그인하면 그 뒤로 계속 유지 (admin 제외)
 
 SIGNATURE_DIR = os.path.join(db.DATA_DIR, "signatures")
