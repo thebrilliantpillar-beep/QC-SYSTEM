@@ -93,6 +93,17 @@ emergency_handoff_signal:
 
 ### P-5. 작업 시작 전 반드시 확인하는 것
 
+#### 에이전트 유형별 읽기 조건
+
+| 에이전트 | 상황 | 읽어야 하는 것 |
+|---|---|---|
+| 모든 에이전트 | 항상 | `PROGRESS.md` 최상단 |
+| planner | 구조 변경·신기능·대개편 요청 시 | `docs/archive/` 최신 `bootstrap-*.md` |
+| developer | planner 스펙에 "bootstrap 참고" 명시된 경우 | `docs/archive/` 최신 `bootstrap-*.md` |
+| quality-watcher / designer / reuse-scout | — | 불필요 |
+
+#### Codex 전용 추가 확인
+
 Emergency Handoff 유무와 무관하게:
 
 1. `git log --oneline -5` — 최근 작업 맥락

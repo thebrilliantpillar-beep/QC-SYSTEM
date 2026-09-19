@@ -8,6 +8,10 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-20 (추가)**: TBD-0001 확정(`docs/archive/` 폴더) + CONFLICT-0001 해결(P-4 archive
+  복사 규칙 추가) + AGENTS.md 구버전 오류 4건 수정(자동차 부품 표기, NCR 게이트, AQL 줄수).
+  Bootstrap Record 생성: `docs/archive/bootstrap-20260920.md`.
+
 - **2026-09-20**: Claude-Codex 협업 프로토콜 수립 — `AGENTS.md` 맨 위에 협업 규칙 섹션
   추가 (PERMISSION_PROFILE, 대체 commit 3조건, `docs/EMERGENCY_HANDOFF.md` 형식,
   금지 명령 목록). `docs/ai-sidekick-handoff.md`가 최신 프로젝트 브리핑임을 안내.
