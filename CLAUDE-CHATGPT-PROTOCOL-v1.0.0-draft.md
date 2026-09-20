@@ -148,6 +148,10 @@ caused_by, result_of, verified_by, handoff_to, affects, related_to
 
 다른 Record Type에 대한 완전한 status enum과 공통 status lifecycle은 **TBD**다.
 
+### 5.1.1 QMS 적용: ISSUE는 append-only (2026-09-21 사용자 결정, TBD-0005)
+
+위 `ISSUE.status`(OPEN→...→RESOLVED/CLOSED) enum은 프로토콜이 제시하는 일반 옵션으로 계속 남겨둔다 — 다른 구현체가 이 방식을 쓰는 것을 막지 않는다. 다만 **IQC QMS(`.collab`)는 이 옵션을 쓰지 않기로 확정했다**: `ISSUE.status`는 생성 후 절대 바꾸지 않고 항상 `ACTIVE`로 남으며, "해소됐다"는 사실은 status 전이가 아니라 별도 `STATE` Record(TASK 범위, `issue_record_id`+`issue_resolution` 필드로 연결)로 표현한다. 구현은 `.collab/qms_audit.py`의 `workflow_issue_is_active()`/`cmd_workflow_issue_resolution()`, 근거는 `.collab/README.md`의 "ISSUE는 append-only다" 절 참고. 이건 QMS의 로컬 선택이지 이 프로토콜 전체의 공통 규격 승격이 아니다.
+
 ## 6. Knowledge State, Confidence, Evidence와 Interpretation
 
 모든 핵심 Record의 `knowledge_state`는 다음 중 하나다.
@@ -204,6 +208,16 @@ READ → ANALYZE → VERIFY → PROPOSE → EXECUTE
 
 `CRITICAL` 작업은 자동 실행하지 않으며 사용자 승인 또는 별도 명시적 정책을 요구한다. 승인 전에도 분석·재현·영향 분석·수정안 제안까지는 진행할 수 있다.
 
+### 7.3.1 QMS 적용: GIT_COMMIT·DEPLOY의 구체적 결속 방식 (2026-09-21, TBD-0007 GIT_COMMIT/DEPLOY 부분)
+
+§8 표의 `GIT_COMMIT`="정책에 따름", `DEPLOY`="사용자 승인"은 일반 원칙일 뿐 구체적 메커니즘을 정하지 않는다. IQC QMS(`.collab`)는 다음과 같은 구체적 참조 구현을 갖고 있다 — 이걸 프로토콜 전역 표준으로 확정하는 것은 아니며, 다른 구현체가 다른 방식을 쓸 수 있다.
+
+- **GIT_COMMIT**: `git-commit-authorize`가 현재 staged diff(경로·모드·blob ID 전부)를 SHA-256으로 해시해 1회성 `DECISION`에 결속한다. `pre-commit` 훅이 그 manifest를 다시 계산해 대조하고, `post-commit`이 실제로 만들어진 commit과 매칭될 때만 승인을 소비한다 — commit 생성은 로컬에서 결정적이라 "성공 이후에만 소비"가 안전하게 보장된다.
+- **DEPLOY**: `deploy-authorize`가 배포 대상 commit hash(HEAD)를 캡처해 1회성 `DECISION`에 결속한다. `pre-push` 훅(remote 이름이 `deploy`일 때만 작동)이 이를 대조한다. **GIT_COMMIT과 달리 push는 네트워크 작업이라 "성공 이후에만 소비"를 보장할 로컬 훅이 없다** — 그래서 승인은 `pre-push` 통과 시점에 바로 소비되고, 그 뒤 push 자체가 실패해도 재사용할 수 없다(재시도하려면 `deploy-authorize`를 다시 호출). 이 비대칭은 의도적으로 받아들인 한계로 문서화한다.
+- **UPDATE_STATE**: "조건부"의 실제 의미는 QMS에서는 별도의 UPDATE_STATE 전용 승인 게이트가 없다는 것이다 — `STATE` Record는 이미 인가된 workflow run(§9의 workflow 레인, task/run/token 검증 완료) 안에서 자동 생성될 때만 조건 충족으로 본다. workflow 밖에서 임의로 STATE를 쓰는 경로는 없다.
+
+근거·구현 상세: `.collab/README.md`의 "Git commit boundary"/"Deploy boundary" 절.
+
 ## 8. Operation Registry
 
 Operation은 프로젝트 데이터가 아닌 Protocol Registry다. 각 Operation은 다음을 갖는다.
@@ -240,6 +254,12 @@ Operation + Agent Permission Profile + Scope + Current Risk + Approval Status + 
 ```
 
 모두를 검사하고, 성공·차단·실패를 포함한 결과를 `AUDIT_EVENT`에 기록한다.
+
+### 8.1 QMS 적용: Operation Registry와 workflow 레인의 의도된 분리 (2026-09-21 사용자 결정, TBD-0006)
+
+IQC QMS(`.collab`)의 실제 구현에는 위 Operation Registry 경로 외에 **별도의 두 번째 인가 경로("workflow 레인")**가 있다: `workflow-authorize`/`workflow-start`/`workflow-dispatch`/`workflow-result`/`workflow-finalize`와 `.collab` 검증용 `run` 명령이다. 이 레인은 task/run/token으로 스코프가 좁혀지는 다단계 서브에이전트 파이프라인 전용 의미론을 가지며, 위 표의 `OP_REGISTRY`를 거치지 않고 Agent Permission Profile을 직접 조회한다. `GIT_COMMIT`(과 이후 `DEPLOY`)은 두 레인이 만나는 지점으로, Registry에 정식 등록돼 있으면서 QMS가 추가 보증(§7.3.1)을 얹었다.
+
+**사용자가 이 두 레인을 통합하지 않고 의도적으로 분리 유지하기로 결정했다** — 이미 검증된 코드·테스트를 건드리는 리팩터링 비용 대비 이득이 불분명했기 때문. 이건 QMS의 구현 선택이며, `allowed_agents`/`conditions`를 포함한 Operation Registry 전체 목록의 공통 규격화(TBD-0006 원안)를 완결한 것은 아니다 — 다른 구현체가 Registry 하나로 통합하는 방식을 택해도 무방하다. 근거·상세: `.collab/README.md`의 "인가 경로는 두 갈래다" 절.
 
 ## 9. AI-to-AI 통신
 
@@ -481,9 +501,9 @@ NEXT_ACTION
 | TBD-0002 | Record와 Message ID 형식 | TBD | NO | 불변·전역 고유성 원칙만 확정 |
 | TBD-0003 | Timestamp·직렬화 형식 | TBD | NO | Envelope/Record의 표준 표현 미정 |
 | TBD-0004 | AI Interpretation의 독립 Record Type/저장 위치 | TBD | YES | Evidence와 분리·Relation 연결 원칙만 확정 |
-| TBD-0005 | 전체 Record별 status enum 및 공통 lifecycle | TBD | YES | TASK/REQUEST/ISSUE/REVIEW 및 ACTIVE/SUPERSEDED만 확정 |
-| TBD-0006 | Operation Registry의 전체 목록·Agent별 allowed_agents/conditions | TBD | YES | 표의 기본 Operation만 확정 |
-| TBD-0007 | `UPDATE_STATE`의 조건부 승인 및 `GIT_COMMIT` 정책 세부 | TBD | YES | 조건부/정책에 따름으로만 합의 |
+| TBD-0005 | 전체 Record별 status enum 및 공통 lifecycle | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 다른 Record Type의 일반 enum은 여전히 TBD |
+| TBD-0006 | Operation Registry의 전체 목록·Agent별 allowed_agents/conditions | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. Registry 자체의 전역 표준화는 여전히 TBD |
+| TBD-0007 | `UPDATE_STATE`의 조건부 승인 및 `GIT_COMMIT` 정책 세부 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. DEPLOY도 같이 다뤘다(원 Topic 범위 확장) |
 | TBD-0008 | Merge 구현 알고리즘·필드 비교 정밀도 | TBD | YES | 허용/금지 원칙은 확정 |
 | TBD-0009 | 추가 Relation Type 표준화 | TBD | NO | 현재 합의 목록 외 관계명 미정 |
 | TBD-0010 | Audit event ordering·retention 구현 | TBD | NO | append-only·필수 의미만 확정 |
@@ -500,6 +520,9 @@ TBD Registry에 등록됐다가 이후 확정된 항목이다.
 | ID | Topic | 사용자 결정 필요 | 확정일 | 결정 내용 | 근거 | 반영 위치 | Bootstrap |
 |---|---|---|---|---|---|---|---|
 | TBD-0001 | Archive Storage Backend | YES | 2026-09-20 | 현재 저장소: `.collab/` (Runtime DB·JSONL 미러·`handoffs/`); 초기 `docs/archive/` 결정은 이관으로 대체 | 사용자 2026-09-20 이관 결정. 초기 근거와 기록은 보존하며, 현재 근거·이관 범위는 `docs/archive/CHANGE-20260920-archive-backend-migration.md` | AGENTS.md P-4·P-5, 프로토콜 §12.1.1 | `docs/archive/bootstrap-20260920.md` (역사 자료) |
+| TBD-0005 | 전체 Record별 status enum 및 공통 lifecycle (QMS 적용 범위) | YES | 2026-09-21 | QMS의 `ISSUE`는 append-only로 확정: status는 항상 `ACTIVE`, 해소는 별도 `STATE` Record로 표현(status enum으로 직접 전이하지 않음). `TASK`(IN_PROGRESS/PARTIAL/COMPLETED)·`REQUEST`(기존 제안과 일치 확인)는 이미 쓰던 대로 유지, 그 외 Record Type은 `ACTIVE`/`SUPERSEDED` 외 추가 lifecycle 없이 유지. 일반 프로토콜의 전체 status enum(§5.1)은 여전히 미결 | `docs/protocol-tbd-roadmap.md`의 TBD-0005 분석에서 발견한 코드 내 불일치(OPEN vs ACTIVE 두 관행 혼재)를 근거로 사용자가 직접 결정 | 프로토콜 §5.1.1, `.collab/README.md`("ISSUE는 append-only다"), `.collab/qms_audit.py`(merge-conflict ISSUE 생성부 `status="OPEN"`→`"ACTIVE"` 수정) | — |
+| TBD-0006 | Operation Registry의 전체 목록·Agent별 allowed_agents/conditions (QMS 적용 범위) | YES | 2026-09-21 | QMS는 Operation Registry와 workflow 전용 인가 레인을 통합하지 않고 의도적으로 분리 유지하기로 확정 — 문서화만 하고 리팩터링은 하지 않음. Registry의 `allowed_agents`/`conditions` 전체 목록 자체는 여전히 미완성(TBD) | `docs/protocol-tbd-roadmap.md`의 TBD-0006 분석(두 레인이 문서화 없이 갈라져 있던 걸 발견 — CLAUDE.md 20절의 `_can_make_final_decision()` 사고와 같은 유형의 리스크로 판단)을 근거로 사용자가 직접 결정 | 프로토콜 §8.1, `.collab/README.md`("인가 경로는 두 갈래다") | — |
+| TBD-0007 | `UPDATE_STATE`의 조건부 승인 및 `GIT_COMMIT` 정책 세부 (QMS 적용 범위, DEPLOY로 확장) | YES | 2026-09-21 | GIT_COMMIT의 staged-diff manifest 결속 방식을 문서화하고, 같은 조사에서 발견한 "DEPLOY 승인이 GIT_COMMIT보다 약함" 격차를 사용자가 즉시 강화하기로 결정 — `deploy-authorize`+`pre-push` 훅으로 배포 대상 commit hash에 1회성 승인을 결속(단, push는 네트워크 작업이라 GIT_COMMIT과 달리 승인을 사후-성공 확인 없이 pre-push 시점에 소비하는 한계가 있음, 문서에 명시). UPDATE_STATE는 "인가된 workflow run 안에서만 자동 허용"으로 현재 동작을 문서화만 함(추가 게이트 신설 안 함) | 사용자가 `docs/protocol-tbd-roadmap.md` 제시 후 "지금 바로 강화" 선택 | 프로토콜 §7.3.1, `.collab/README.md`("Deploy boundary"), `.collab/qms_audit.py`(`deploy-authorize`/`deploy_authorization()`/`preflight()` DEPLOY 분기), `.collab/hooks/pre-push`(신규), `.collab/hooks/install-post-commit-hook.ps1`(pre-push 설치 추가), `.collab/tests/test_qms_audit.py`(신규 테스트 2건) | — |
 
 ## 20. Agent Capability & Model Fit
 

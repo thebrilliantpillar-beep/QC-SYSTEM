@@ -121,6 +121,7 @@ def connect():
     CREATE TABLE IF NOT EXISTS workflow_authorization_usage (authorization_record TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE, task_id INTEGER NOT NULL REFERENCES tasks(id), actor TEXT NOT NULL, scope_hash TEXT NOT NULL, request_hash TEXT NOT NULL, consumed_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS git_commit_preflights (preflight_id TEXT PRIMARY KEY, approval_record TEXT NOT NULL REFERENCES protocol_records(record_id), actor TEXT NOT NULL, manifest_hash TEXT NOT NULL, tree_hash TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS git_commit_authorization_usage (approval_record TEXT PRIMARY KEY REFERENCES protocol_records(record_id), preflight_id TEXT NOT NULL UNIQUE REFERENCES git_commit_preflights(preflight_id), actor TEXT NOT NULL, commit_hash TEXT NOT NULL UNIQUE, manifest_hash TEXT NOT NULL, tree_hash TEXT NOT NULL, consumed_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS deploy_authorization_usage (approval_record TEXT PRIMARY KEY REFERENCES protocol_records(record_id), actor TEXT NOT NULL, remote TEXT NOT NULL, commit_hash TEXT NOT NULL, consumed_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workflow_authorizer_secrets (version TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, configured_at TEXT NOT NULL);
     CREATE TRIGGER IF NOT EXISTS workflow_authorizer_secrets_no_update BEFORE UPDATE ON workflow_authorizer_secrets BEGIN SELECT RAISE(ABORT, 'workflow authorizer secret hash is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS workflow_authorizer_secrets_no_delete BEFORE DELETE ON workflow_authorizer_secrets BEGIN SELECT RAISE(ABORT, 'workflow authorizer secret hash is retained'); END;
@@ -130,6 +131,8 @@ def connect():
     CREATE TRIGGER IF NOT EXISTS git_commit_preflights_no_delete BEFORE DELETE ON git_commit_preflights BEGIN SELECT RAISE(ABORT, 'git commit preflights are retained'); END;
     CREATE TRIGGER IF NOT EXISTS git_commit_authorization_usage_no_update BEFORE UPDATE ON git_commit_authorization_usage BEGIN SELECT RAISE(ABORT, 'git commit authorization usage is append-only'); END;
     CREATE TRIGGER IF NOT EXISTS git_commit_authorization_usage_no_delete BEFORE DELETE ON git_commit_authorization_usage BEGIN SELECT RAISE(ABORT, 'git commit authorization usage is retained'); END;
+    CREATE TRIGGER IF NOT EXISTS deploy_authorization_usage_no_update BEFORE UPDATE ON deploy_authorization_usage BEGIN SELECT RAISE(ABORT, 'deploy authorization usage is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS deploy_authorization_usage_no_delete BEFORE DELETE ON deploy_authorization_usage BEGIN SELECT RAISE(ABORT, 'deploy authorization usage is retained'); END;
     CREATE TRIGGER IF NOT EXISTS protocol_records_no_update BEFORE UPDATE ON protocol_records BEGIN SELECT RAISE(ABORT, 'protocol_records are append-only'); END;
     CREATE TRIGGER IF NOT EXISTS protocol_records_no_delete BEFORE DELETE ON protocol_records BEGIN SELECT RAISE(ABORT, 'protocol_records are append-only'); END;
     CREATE TRIGGER IF NOT EXISTS protocol_relations_no_update BEFORE UPDATE ON protocol_relations BEGIN SELECT RAISE(ABORT, 'protocol_relations are append-only'); END;
@@ -271,7 +274,40 @@ def git_commit_authorization(con, record_id, actor, manifest_hash):
     return True, "approved"
 
 
-def preflight(con, actor, operation, *, approval="MISSING", scope="", task_id=None, approval_record=None, staged_manifest_hash=None):
+def deploy_authorization(con, record_id, actor, remote, commit_hash):
+    """DEPLOY용 git_commit_authorization 대응물.
+
+    GIT_COMMIT과 달리 배포는 "커밋이 로컬에 만들어졌는가"처럼 성공을 사후에 확실히
+    관찰할 로컬 훅이 없다(post-commit에 대응하는 post-push는 없음, 원격 push 성공
+    여부는 네트워크에 달려있다) — 그래서 이 승인은 두 단계(preflight 기록→사후 소비)
+    가 아니라 pre-push 시점에 바로 소비한다(preflight() 안에서). push 자체가
+    네트워크 오류 등으로 실패해도 이미 소비된 것으로 남는다 — 재시도하려면
+    deploy-authorize를 다시 호출해야 한다. 이건 알려진 한계이지 버그가 아니다."""
+    if not record_id or not remote or not commit_hash:
+        return False, "approval record·remote·commit_hash가 모두 필요합니다."
+    row = con.execute("SELECT created_by,knowledge_state,status,payload_json FROM protocol_records WHERE record_id=? AND record_type='DECISION'", (record_id,)).fetchone()
+    if not row:
+        return False, "approval Record를 찾지 못했습니다."
+    payload = json.loads(row[3])
+    used = con.execute("SELECT 1 FROM deploy_authorization_usage WHERE approval_record=?", (record_id,)).fetchone()
+    valid = (
+        row[0] == "user" and row[1] == "CONFIRMED_DECISION" and row[2] == "ACTIVE"
+        and payload.get("decision_type") == "DEPLOY_AUTHORIZATION"
+        and payload.get("operation") == "DEPLOY"
+        and payload.get("authorized_actor") == actor
+        and payload.get("remote") == remote
+        and payload.get("commit_hash") == commit_hash
+        and payload.get("approval_state") == "APPROVED"
+        and payload.get("direct_user_instruction") is True
+        and payload.get("one_time_use") is True
+        and not used
+    )
+    if not valid:
+        return False, "actor·remote·commit_hash·승인 상태 또는 1회 사용 여부가 승인 Record와 일치하지 않습니다."
+    return True, "approved"
+
+
+def preflight(con, actor, operation, *, approval="MISSING", scope="", task_id=None, approval_record=None, staged_manifest_hash=None, deploy_commit_hash=None, deploy_remote=None):
     if operation not in OP_REGISTRY: raise ValueError("Operation Registry에 없는 행위입니다. TBD-0006을 임의로 채우지 않습니다.")
     need,risk,policy=OP_REGISTRY[operation]; have,profile_approval=actor_permission(con,actor,operation)
     allowed=PERMISSION_ORDER.get(have,-1)>=PERMISSION_ORDER[need]
@@ -288,16 +324,31 @@ def preflight(con, actor, operation, *, approval="MISSING", scope="", task_id=No
             reason = "checks passed" if decision_ok else ("hook manifest differs from current staged index" if not manifest_ok else decision_reason)
         except ValueError as exc:
             decision_ok=False; allowed=False; reason=str(exc)
+    elif operation=="DEPLOY" and deploy_commit_hash:
+        # GIT_COMMIT과 달리 배포 성공을 사후에 확실히 관찰할 로컬 훅이 없어(post-push
+        # 없음), 두 단계로 안 나누고 이 preflight 통과 시점에 바로 소비한다(아래).
+        try:
+            decision_ok, decision_reason = deploy_authorization(con, approval_record, actor, deploy_remote, deploy_commit_hash)
+            allowed = decision_ok
+            reason = "checks passed" if decision_ok else decision_reason
+        except ValueError as exc:
+            decision_ok=False; allowed=False; reason=str(exc)
     result="ALLOWED" if allowed and (not approval_needed or approved) and decision_ok else "BLOCKED"
     event_data={"operation":operation,"required_permission":need,"granted_permission":have,"risk_level":risk,"approval_status":approval,"approval_record":approval_record,"scope":scope,"reason":reason if result=="BLOCKED" else "checks passed"}
     if manifest:
         event_data.update({"staged_manifest_hash":manifest["hash"],"staged_tree_hash":manifest["tree_hash"],"staged_paths":manifest["paths"]})
+    if operation=="DEPLOY" and deploy_commit_hash:
+        event_data.update({"deploy_commit_hash":deploy_commit_hash,"deploy_remote":deploy_remote})
     event(con,"OPERATION_PREFLIGHT",actor,f"{operation}: {result}",task_id,result,event_data)
     if result=="ALLOWED" and operation=="GIT_COMMIT":
         preflight_id="git-preflight-"+uuid.uuid4().hex
         con.execute("INSERT INTO git_commit_preflights VALUES(?,?,?,?,?,?)", (preflight_id, approval_record, actor, manifest["hash"], manifest["tree_hash"], now()))
         con.commit()
         event(con, "GIT_COMMIT_PREFLIGHT_ALLOWED", actor, "Staged manifest matched one-time Git commit approval", status="ALLOWED", data={"preflight_id":preflight_id,"approval_record":approval_record,"manifest_hash":manifest["hash"],"tree_hash":manifest["tree_hash"],"paths":manifest["paths"]})
+    if result=="ALLOWED" and operation=="DEPLOY" and deploy_commit_hash:
+        con.execute("INSERT INTO deploy_authorization_usage VALUES(?,?,?,?,?)", (approval_record, actor, deploy_remote, deploy_commit_hash, now()))
+        con.commit()
+        event(con, "DEPLOY_AUTHORIZATION_CONSUMED", actor, "Deploy approval consumed at pre-push (push success itself is not locally observable)", status="RECORDED", data={"approval_record":approval_record,"remote":deploy_remote,"commit_hash":deploy_commit_hash})
     return result,need,risk
 
 def event(con, event_type, actor, summary, task_id=None, status="RECORDED", data=None):
@@ -935,6 +986,34 @@ def cmd_git_commit(args):
         event(con,"GIT_COMMIT_AUTHORIZATION_CONSUMED",args.actor,"Successful commit consumed one-time authorization",status="RECORDED",data={"commit":sha_value,"approval_record":approval_record,"preflight_id":preflight[0],"manifest_hash":preflight[2],"tree_hash":preflight[3]})
         con.close()
 
+
+def cmd_deploy_authorize(args):
+    if args.actor not in {"claude", "codex"}:
+        raise ValueError("Deploy authorization actor는 claude 또는 codex여야 합니다.")
+    repo = git_repo_root()
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True, capture_output=True)
+    if head.returncode or not re.fullmatch(r"[0-9a-f]{40,64}", head.stdout.strip()):
+        raise ValueError("HEAD commit hash를 계산하지 못했습니다.")
+    commit_hash = head.stdout.strip()
+    with lock():
+        con=connect()
+        # git-commit-authorize와 같은 성격: 사용자 직접 지시의 운영상 근거이며 채팅
+        # 출처를 기술적으로 증명하지 않는다. HEAD의 정확한 commit hash + remote 이름에
+        # 결속된 1회성 승인이다 — 그 사이 HEAD가 바뀌면(추가 커밋 등) 승인은 무효가 된다.
+        decision=record(con, "DECISION", "user", {
+            "decision_type":"DEPLOY_AUTHORIZATION", "operation":"DEPLOY", "approval_state":"APPROVED",
+            "authorized_actor":args.actor, "remote":args.remote, "commit_hash":commit_hash,
+            "scope":redact(args.scope), "scope_summary":redact(args.scope),
+            "user_request_hash":_workflow_hash(args.user_request), "user_request_summary":redact(args.user_request),
+            "decision":"사용자가 지정 actor에게 현재 HEAD 커밋의 지정 remote 배포를 직접 지시함",
+            "decided_by":"USER", "one_time_use":True, "direct_user_instruction":True, "operational_evidence_only":True,
+        }, knowledge_state="CONFIRMED_DECISION", status="ACTIVE", risk_level="HIGH")
+        event(con, "DEPLOY_AUTHORIZATION_RECORDED", "user", "Per-deploy direct user instruction recorded", status="CONFIRMED", data={"approval_record":decision["record_id"],"authorized_actor":args.actor,"remote":args.remote,"commit_hash":commit_hash,"technical_identity_proof":False})
+        con.close()
+    print("DEPLOY_APPROVAL_RECORD="+decision["record_id"])
+    print("DEPLOY_COMMIT="+commit_hash)
+
+
 def cmd_bootstrap(args):
     """Create protocol records from local facts. It never changes Claude's existing configuration."""
     with lock():
@@ -1006,7 +1085,7 @@ def cmd_relation(args):
 
 def cmd_preflight(args):
     with lock():
-        con=connect(); result,need,risk=preflight(con,args.actor,args.operation,approval=args.approval,scope=args.scope,task_id=args.task,approval_record=getattr(args,"approval_record",None),staged_manifest_hash=getattr(args,"staged_manifest",None)); con.close()
+        con=connect(); result,need,risk=preflight(con,args.actor,args.operation,approval=args.approval,scope=args.scope,task_id=args.task,approval_record=getattr(args,"approval_record",None),staged_manifest_hash=getattr(args,"staged_manifest",None),deploy_commit_hash=getattr(args,"deploy_commit",None),deploy_remote=getattr(args,"remote",None)); con.close()
     print(f"{result}: permission={need}, risk={risk}"); return 0 if result=="ALLOWED" else 3
 
 def cmd_handoff(args):
@@ -1094,7 +1173,12 @@ def cmd_conflict(args):
         con.execute("INSERT INTO protocol_conflicts VALUES(?,?,?,?,?,?,?)",(cid,args.target_record,args.base_version,current,redact(reason),now(),"OPEN")); con.commit()
         conflict_item={"conflict_id":cid,"target_record_id":args.target_record,"incoming_base_version":args.base_version,"current_version":current,"reason":redact(reason),"created_at":now(),"status":"OPEN"}
         with (CONFLICTS_DIR/f"{conflict_item['created_at'][:7]}.jsonl").open("a",encoding="utf-8",newline="\n") as f: f.write(canonical(conflict_item)+"\n")
-        issue=record(con,"ISSUE",args.actor,{"title":"Record version/merge conflict","description":reason,"priority":"HIGH","discovered_by":args.actor,"facts":{"target_record_id":args.target_record,"incoming_base_version":args.base_version,"current_version":current},"attempts":[],"failed_hypotheses":[],"current_hypothesis":"automatic merge prohibited until user-approved implementation","next_action":"USER_DECISION_REQUIRED","risks":"silent overwrite"},knowledge_state="CONFLICT",status="OPEN",risk_level="HIGH")
+        # TBD-0005 (2026-09-21 resolved): ISSUE는 append-only로 취급한다 — status는
+        # 절대 안 바꾸고(항상 ACTIVE), "해소됐다"는 사실은 별도 STATE Record로 연결해
+        # 표현한다(workflow ISSUE와 동일한 관행, workflow_issue_is_active() 참고).
+        # 예전엔 이 자리만 status="OPEN"으로 시작해서 다른 값(RESOLVED 등)으로 바뀔 걸
+        # 전제한 것처럼 보였는데, 실제로 이 status를 UPDATE하는 코드는 어디에도 없었다.
+        issue=record(con,"ISSUE",args.actor,{"title":"Record version/merge conflict","description":reason,"priority":"HIGH","discovered_by":args.actor,"facts":{"target_record_id":args.target_record,"incoming_base_version":args.base_version,"current_version":current},"attempts":[],"failed_hypotheses":[],"current_hypothesis":"automatic merge prohibited until user-approved implementation","next_action":"USER_DECISION_REQUIRED","risks":"silent overwrite"},knowledge_state="CONFLICT",status="ACTIVE",risk_level="HIGH")
         relation(con,args.actor,args.target_record,issue["record_id"],"contradicts")
         event(con,"CONFLICT_DETECTED",args.actor,"Automatic merge blocked; conflict recorded",status="BLOCKED",data={"conflict_id":cid,"issue_record":issue["record_id"],"target_record":args.target_record,"base_version":args.base_version,"current_version":current})
         con.close()
@@ -1511,11 +1595,12 @@ def parser():
     x=sp.add_parser("staged-manifest"); x.set_defaults(fn=cmd_staged_manifest)
     x=sp.add_parser("git-commit-authorize"); x.add_argument("--actor",required=True,choices=("claude","codex")); x.add_argument("--scope",required=True); x.add_argument("--user-request",required=True); x.set_defaults(fn=cmd_git_commit_authorize)
     x=sp.add_parser("record-git-commit"); x.add_argument("--actor",default=os.environ.get("QMS_AUDIT_ACTOR","user")); x.add_argument("--commit"); x.add_argument("--approval-record"); x.set_defaults(fn=cmd_git_commit)
+    x=sp.add_parser("deploy-authorize"); x.add_argument("--actor",required=True,choices=("claude","codex")); x.add_argument("--scope",required=True); x.add_argument("--user-request",required=True); x.add_argument("--remote",required=True); x.set_defaults(fn=cmd_deploy_authorize)
     x=sp.add_parser("bootstrap-protocol"); x.set_defaults(fn=cmd_bootstrap)
     x=sp.add_parser("migrate-legacy"); x.set_defaults(fn=cmd_migrate_legacy)
     x=sp.add_parser("record"); x.add_argument("--record-type",required=True,choices=sorted(RECORD_TYPES)); x.add_argument("--actor",required=True); x.add_argument("--payload",required=True); x.add_argument("--knowledge-state",default="FACT",choices=sorted(KNOWLEDGE)); x.add_argument("--status",default="ACTIVE"); x.add_argument("--risk-level",choices=sorted(RISKS)); x.add_argument("--scope",default=""); x.add_argument("--approval",default="MISSING",choices=("MISSING","REQUESTED","APPROVED","REJECTED")); x.set_defaults(fn=cmd_record)
     x=sp.add_parser("relate"); x.add_argument("--actor",required=True); x.add_argument("--from-record",required=True); x.add_argument("--to-record",required=True); x.add_argument("--relation-type",required=True,choices=sorted(RELATIONS)); x.set_defaults(fn=cmd_relation)
-    x=sp.add_parser("preflight"); x.add_argument("--actor",required=True); x.add_argument("--operation",required=True,choices=sorted(OP_REGISTRY)); x.add_argument("--approval",default="MISSING",choices=("MISSING","REQUESTED","APPROVED","REJECTED")); x.add_argument("--approval-record"); x.add_argument("--staged-manifest"); x.add_argument("--scope",default=""); x.add_argument("--task",type=int); x.set_defaults(fn=cmd_preflight)
+    x=sp.add_parser("preflight"); x.add_argument("--actor",required=True); x.add_argument("--operation",required=True,choices=sorted(OP_REGISTRY)); x.add_argument("--approval",default="MISSING",choices=("MISSING","REQUESTED","APPROVED","REJECTED")); x.add_argument("--approval-record"); x.add_argument("--staged-manifest"); x.add_argument("--deploy-commit"); x.add_argument("--remote"); x.add_argument("--scope",default=""); x.add_argument("--task",type=int); x.set_defaults(fn=cmd_preflight)
     x=sp.add_parser("handoff"); x.add_argument("--task",type=int); x.add_argument("--actor",required=True); x.add_argument("--new-owner",required=True); x.add_argument("--payload",required=True); x.add_argument("--approval",default="MISSING",choices=("MISSING","REQUESTED","APPROVED","REJECTED")); x.add_argument("--emergency",action="store_true"); x.set_defaults(fn=cmd_handoff)
     x=sp.add_parser("accept-handoff"); x.add_argument("--handoff",required=True); x.add_argument("--actor",required=True); x.add_argument("--basis",required=True); x.add_argument("--verification",required=True); x.add_argument("--approval",default="MISSING",choices=("MISSING","REQUESTED","APPROVED","REJECTED")); x.set_defaults(fn=cmd_accept_handoff_v2)
     x=sp.add_parser("search"); x.add_argument("--query",required=True); x.add_argument("--limit",type=int,default=20); x.set_defaults(fn=cmd_search)

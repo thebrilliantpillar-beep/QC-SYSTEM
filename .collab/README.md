@@ -40,7 +40,8 @@
 .\.collab\qms-audit.ps1 bootstrap-protocol
 .\.collab\qms-audit.ps1 migrate-legacy
 
-# 실행 전 권한·위험·승인 경계 확인 (차단도 AUDIT_EVENT에 기록)
+# 실행 전 권한·위험·승인 경계 확인 (차단도 AUDIT_EVENT에 기록) — 아래는 Operation 문법
+# 예시일 뿐, 실제 배포 절차는 "Deploy boundary" 절(deploy-authorize + pre-push)을 따를 것.
 .\.collab\qms-audit.ps1 preflight --actor user --operation DEPLOY --approval APPROVED
 
 # 표준 Record 작성. STATE/RULE/DECISION/PERMISSION_PROFILE은 승인 상태를 명시한다.
@@ -111,6 +112,25 @@ git commit -m "..."
 
 This is operational evidence of the direct instruction, not cryptographic proof of who sent a chat message. It grants no file, DB, deployment, or arbitrary Git permission, and `--no-verify` remains prohibited by the project rules.
 
+### Deploy boundary (2026-09-21, TBD-0007 DEPLOY part)
+
+`git push deploy main` (the command that actually triggers a production deploy on this project's Render setup — see CLAUDE.md's Render deployment notes) is gated the same way `git commit` is, via a `pre-push` hook that only activates when the remote name is exactly `deploy`. Pushes to any other remote (e.g. `origin`, a plain backup) are never gated.
+
+```powershell
+# The instructed Claude/Codex main actor runs this only after the user directly requests this deploy,
+# with HEAD already at the exact commit to be deployed.
+.\.collab\qms-audit.ps1 deploy-authorize --actor codex --scope "iqc-app" --user-request "user's direct deploy instruction" --remote deploy
+# Save the returned DEPLOY_APPROVAL_RECORD. The actor sets these only for this one push:
+$env:QMS_AUDIT_ACTOR = "codex"
+$env:QMS_AUDIT_DEPLOY_APPROVAL = "APPROVED"
+$env:QMS_AUDIT_DEPLOY_APPROVAL_RECORD = "rec-..."
+git push deploy main
+```
+
+**Important asymmetry with the commit boundary — read before assuming the same guarantee**: `GIT_COMMIT`'s approval is only consumed by `post-commit`, *after* Git has locally and deterministically created the matching commit — there is no way for that step to fire without the commit actually existing. A `git push` has no equivalent local guarantee: the push happens over the network and can fail (auth, connectivity, remote rejection) after this repo's own hooks have already run, and there is no `post-push` hook that fires only on confirmed success. So the one-time `DEPLOY_AUTHORIZATION` approval is consumed inside `pre-push` itself, before the network push is attempted. A push that fails after `pre-push` passes still consumes the approval — retrying requires calling `deploy-authorize` again. This is a known, accepted limitation of gating a network operation with a local hook, not a bug; do not describe this mechanism as being as strong as the commit boundary's guarantee.
+
+The approval is bound to the exact HEAD commit hash captured at `deploy-authorize` time (not to a diff or manifest — a push has no "staged" concept). If HEAD moves (another commit, a rebase) between authorize and push, the bound commit hash no longer matches what's being pushed and the hook blocks it.
+
 
 ## Claude·Codex 서브에이전트 워크플로우
 
@@ -167,3 +187,16 @@ $env:QMS_WORKFLOW_CAPABILITY_TOKEN = "<workflow-start 출력 token>"
 `workflow-finalize`는 필수 역할 누락, quality-watcher의 PASS 이외 결과 또는 검증 공백, 요구된 렌더링 또는 E2E 근거 누락, `FAIL`/`PARTIAL`/`NOT_APPLICABLE` 결과, 미해결 `ISSUE`를 `PARTIAL`과 차단 근거로 남기고 종료 코드 3을 반환한다. developer·designer·quality-watcher의 `PARTIAL`/`UNVERIFIED`/`NEEDS_VERIFICATION` 검증 상태도 차단한다. planner·reuse-scout은 `outcome: PASS`, 비어 있지 않은 `coverage_limits`, 실제 `issues` 없음인 경우에만 그 역할의 검증 범위 한계가 완료를 막지 않는다.
 
 QMS 파일 수정·테스트는 사용자에게 직접 지시받은 actor가 자동 기록한 승인된 작업 범위에서만 수행할 수 있다. 이 workflow profile이나 token은 commit·deploy 권한을 부여하지 않는다. commit·deploy는 언제나 각각 사용자 직접 지시와 별도 승인 Record가 필요하다. 일반 사용자가 터미널에서 직접 수행한 명령은 workflow가 자동 기록하지 않으므로, 필요할 때 기존 `run` 명령으로 목적·범위·결과를 해당 TASK에 남긴다.
+
+## ISSUE는 append-only다 (2026-09-21, TBD-0005 확정)
+
+`ISSUE` Record는 생성 후 `status`를 절대 바꾸지 않는다 — 항상 `ACTIVE`로 남는다. "해소됐다"는 사실은 status를 바꾸는 게 아니라 `workflow-issue-resolution`으로 만드는 **별도 STATE Record**(`scope_type=TASK`, `issue_record_id`, `issue_resolution: RESOLVED|SUPERSEDED`)로 표현하고, `workflow_issue_is_active()`가 그 연결을 보고 판단한다. 이건 이 프로젝트의 다른 append-only 감사 기록(`AUDIT_EVENT`, `protocol_relations`, `protocol_adapters`, iqc-app 쪽의 `activity_log` 등)과 같은 철학이다 — ISSUE Record를 만드는 새 코드를 추가할 때 `status="OPEN"`이나 다른 값으로 시작해서 나중에 바꿀 생각으로 짜지 말 것.
+
+## 인가 경로는 두 갈래다 — Operation Registry와 workflow 레인 (2026-09-21, TBD-0006 확정: 의도된 분리, 통합 안 함)
+
+이 CLI에는 서로 다른 두 인가 메커니즘이 **의도적으로** 분리돼 있다.
+
+- **Operation Registry + `preflight()`**: `OP_REGISTRY`에 등록된 굵은 단위 행위(`READ`/`RUN_TEST`/`GIT_COMMIT`/`DEPLOY` 등)를 위한 일반 경로. Agent Permission Profile을 조회해서 권한·승인 필요 여부를 계산한다.
+- **workflow 레인**: `workflow-authorize`/`workflow-start`/`workflow-dispatch`/`workflow-result`/`workflow-finalize`와 `.collab` 검증 명령(`run`) 전용. `workflow_allowed()`/`workflow_test_permission_allowed()`/`workflow_runner_allowed()`가 PERMISSION_PROFILE을 직접 조회하며, `OP_REGISTRY`나 `preflight()`를 거치지 않는다. task/run/token으로 스코프가 좁혀지는 다단계 서브에이전트 파이프라인 전용 의미론이라 Registry의 "agent+operation+scope" 모델과 안 맞기 때문이다.
+
+`GIT_COMMIT`은 두 레인이 만나는 유일한 지점이다 — Registry에 정식 등록된 Operation이면서, QMS가 `git-commit-authorize`의 manifest 결속으로 그 위에 추가 보증을 얹었다(`DEPLOY`도 2026-09-21부터 동일한 패턴). **이 두 레인을 하나로 통합하는 리팩터링은 하지 않기로 결정했다** — 이미 통과 중인 테스트(`.collab/tests/test_qms_audit.py`)를 건드리는 리스크 대비 이득이 불분명하기 때문. 새 workflow 전용 Operation이 필요해지면 `OP_REGISTRY`에 넣지 말고 이 레인 쪽에 추가할 것 — 세 번째 병렬 레인이 생길 조짐이 보이면 그때 통합을 재검토한다.

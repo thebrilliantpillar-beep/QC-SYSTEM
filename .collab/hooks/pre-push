@@ -1,0 +1,29 @@
+#!/bin/sh
+# QMS collaboration pre-push boundary for DEPLOY. This enforces a recorded
+# per-deploy approval before Git pushes to the production remote — pushes to
+# any other remote (e.g. a plain backup) pass through untouched.
+#
+# Unlike GIT_COMMIT, there is no local post-push hook that fires only on a
+# confirmed successful push (network pushes can fail after this hook exits 0).
+# So the one-time approval is consumed here, at pre-push time, not after
+# confirmed success. A push that fails after this hook passes still consumes
+# the approval; retrying requires a fresh `deploy-authorize` call. This is a
+# known, documented limitation, not a bug — see .collab/README.md.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -f "$ROOT/.collab/qms_audit.py" ] || exit 0
+
+REMOTE_NAME="$1"
+[ "$REMOTE_NAME" = "deploy" ] || exit 0
+
+if [ "${QMS_AUDIT_DEPLOY_APPROVAL:-}" != "APPROVED" ] || [ -z "${QMS_AUDIT_DEPLOY_APPROVAL_RECORD:-}" ]; then
+  echo "QMS deploy blocked: a direct-user DEPLOY_AUTHORIZATION Record is required (see .collab/README.md)." >&2
+  exit 1
+fi
+
+while read local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+  if ! python "$ROOT/.collab/qms_audit.py" preflight --actor "${QMS_AUDIT_ACTOR:-user}" --operation DEPLOY --approval APPROVED --approval-record "$QMS_AUDIT_DEPLOY_APPROVAL_RECORD" --deploy-commit "$local_sha" --remote "$REMOTE_NAME" --scope "git pre-push to $REMOTE_NAME" >/dev/null; then
+    echo "QMS deploy blocked: $local_ref ($local_sha) does not match the approved commit/actor/remote, or the approval was already used." >&2
+    exit 1
+  fi
+done

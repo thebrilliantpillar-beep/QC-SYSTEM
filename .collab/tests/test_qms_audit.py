@@ -93,6 +93,7 @@ class AuditCliTests(unittest.TestCase):
         hook_dir = self.root / ".collab" / "hooks"; hook_dir.mkdir(parents=True)
         shutil.copy2(HOOKS / "post-commit", hook_dir / "post-commit")
         shutil.copy2(HOOKS / "pre-commit", hook_dir / "pre-commit")
+        shutil.copy2(HOOKS / "pre-push", hook_dir / "pre-push")
         shutil.copy2(HOOKS / "install-post-commit-hook.ps1", hook_dir / "install-post-commit-hook.ps1")
         installer = hook_dir / "install-post-commit-hook.ps1"
         first = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer)], cwd=self.root, capture_output=True)
@@ -222,6 +223,87 @@ class AuditCliTests(unittest.TestCase):
         db = sqlite3.connect(collab / "runtime" / "audit.sqlite3")
         self.assertIsNotNone(db.execute("SELECT 1 FROM git_commit_authorization_usage WHERE approval_record=?", (approval,)).fetchone())
         db.close()
+
+    def test_deploy_authorization_actor_remote_commit_and_one_time_consume(self):
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git unavailable")
+        repo = self.root / "deploy-repo"; repo.mkdir()
+        subprocess.run([git, "init", "-q", "-b", "main"], cwd=repo, check=True)
+        subprocess.run([git, "config", "user.email", "audit@example.test"], cwd=repo, check=True)
+        subprocess.run([git, "config", "user.name", "Audit Test"], cwd=repo, check=True)
+        collab = repo / ".collab"; collab.mkdir()
+        shutil.copy2(SOURCE, collab / "qms_audit.py")
+        (repo / "app.py").write_text("print(1)\n", encoding="utf-8")
+        subprocess.run([git, "add", "app.py"], cwd=repo, check=True)
+        subprocess.run([git, "commit", "-m", "app"], cwd=repo, check=True)
+        head = subprocess.run([git, "rev-parse", "HEAD"], cwd=repo, text=True, capture_output=True).stdout.strip()
+        auth = subprocess.run([sys.executable, "qms_audit.py", "deploy-authorize", "--actor", "codex", "--scope", "iqc-app", "--user-request", "deploy to production", "--remote", "deploy"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(auth.returncode, 0, auth.stderr)
+        approval = next(line.split("=", 1)[1] for line in auth.stdout.splitlines() if line.startswith("DEPLOY_APPROVAL_RECORD="))
+        commit = next(line.split("=", 1)[1] for line in auth.stdout.splitlines() if line.startswith("DEPLOY_COMMIT="))
+        self.assertEqual(commit, head)
+        wrong_actor = subprocess.run([sys.executable, "qms_audit.py", "preflight", "--actor", "claude", "--operation", "DEPLOY", "--approval", "APPROVED", "--approval-record", approval, "--deploy-commit", commit, "--remote", "deploy"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(wrong_actor.returncode, 3)
+        wrong_remote = subprocess.run([sys.executable, "qms_audit.py", "preflight", "--actor", "codex", "--operation", "DEPLOY", "--approval", "APPROVED", "--approval-record", approval, "--deploy-commit", commit, "--remote", "origin"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(wrong_remote.returncode, 3)
+        wrong_commit = subprocess.run([sys.executable, "qms_audit.py", "preflight", "--actor", "codex", "--operation", "DEPLOY", "--approval", "APPROVED", "--approval-record", approval, "--deploy-commit", "0"*40, "--remote", "deploy"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(wrong_commit.returncode, 3)
+        valid = subprocess.run([sys.executable, "qms_audit.py", "preflight", "--actor", "codex", "--operation", "DEPLOY", "--approval", "APPROVED", "--approval-record", approval, "--deploy-commit", commit, "--remote", "deploy"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        db = sqlite3.connect(collab / "runtime" / "audit.sqlite3")
+        self.assertEqual(db.execute("SELECT actor,remote,commit_hash FROM deploy_authorization_usage WHERE approval_record=?", (approval,)).fetchone(), ("codex", "deploy", commit))
+        db.close()
+        # One-time use: the exact same call must now be rejected.
+        reused = subprocess.run([sys.executable, "qms_audit.py", "preflight", "--actor", "codex", "--operation", "DEPLOY", "--approval", "APPROVED", "--approval-record", approval, "--deploy-commit", commit, "--remote", "deploy"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(reused.returncode, 3)
+        self.assertEqual(subprocess.run([sys.executable, "qms_audit.py", "verify"], cwd=collab, text=True, capture_output=True).returncode, 0)
+
+    def test_deploy_pre_push_hook_blocks_missing_approval_and_gates_only_deploy_remote(self):
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git unavailable")
+        repo = self.root / "push-repo"; repo.mkdir()
+        subprocess.run([git, "init", "-q", "-b", "main"], cwd=repo, check=True)
+        subprocess.run([git, "config", "user.email", "audit@example.test"], cwd=repo, check=True)
+        subprocess.run([git, "config", "user.name", "Audit Test"], cwd=repo, check=True)
+        collab = repo / ".collab"; collab.mkdir()
+        shutil.copy2(SOURCE, collab / "qms_audit.py")
+        (repo / "app.py").write_text("print(1)\n", encoding="utf-8")
+        subprocess.run([git, "add", "app.py"], cwd=repo, check=True)
+        subprocess.run([git, "commit", "-m", "app"], cwd=repo, check=True)
+        target = repo / ".git" / "hooks" / "pre-push"
+        shutil.copy2(HOOKS / "pre-push", target); target.chmod(target.stat().st_mode | 0o111)
+        # A bare repo stands in for the real "deploy" remote (GitHub) in this test.
+        bare_deploy = self.root / "bare-deploy.git"
+        subprocess.run([git, "init", "-q", "--bare", "-b", "main", str(bare_deploy)], check=True)
+        subprocess.run([git, "remote", "add", "deploy", str(bare_deploy)], cwd=repo, check=True)
+        bare_backup = self.root / "bare-backup.git"
+        subprocess.run([git, "init", "-q", "--bare", "-b", "main", str(bare_backup)], check=True)
+        subprocess.run([git, "remote", "add", "origin", str(bare_backup)], cwd=repo, check=True)
+        # A differently-named remote (origin) is never gated, even with no approval at all.
+        unrelated_push = subprocess.run([git, "push", "origin", "main"], cwd=repo, text=True, capture_output=True)
+        self.assertEqual(unrelated_push.returncode, 0, unrelated_push.stderr)
+        # deploy remote with no approval env vars must be blocked.
+        blocked = subprocess.run([git, "push", "deploy", "main"], cwd=repo, text=True, capture_output=True)
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("QMS deploy blocked", blocked.stderr)
+        # With a valid one-time approval, the push to deploy succeeds.
+        auth = subprocess.run([sys.executable, "qms_audit.py", "deploy-authorize", "--actor", "codex", "--scope", "iqc-app", "--user-request", "deploy to production", "--remote", "deploy"], cwd=collab, text=True, capture_output=True)
+        self.assertEqual(auth.returncode, 0, auth.stderr)
+        approval = next(line.split("=", 1)[1] for line in auth.stdout.splitlines() if line.startswith("DEPLOY_APPROVAL_RECORD="))
+        env = {**os.environ, "QMS_AUDIT_DEPLOY_APPROVAL": "APPROVED", "QMS_AUDIT_DEPLOY_APPROVAL_RECORD": approval, "QMS_AUDIT_ACTOR": "codex"}
+        allowed = subprocess.run([git, "push", "deploy", "main"], cwd=repo, text=True, capture_output=True, env=env)
+        if "couldn't create signal pipe, Win32 error 5" in allowed.stderr:
+            self.skipTest("Git-for-Windows hook subprocess signal pipe unavailable on this host")
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        db = sqlite3.connect(collab / "runtime" / "audit.sqlite3")
+        self.assertIsNotNone(db.execute("SELECT 1 FROM deploy_authorization_usage WHERE approval_record=?", (approval,)).fetchone())
+        db.close()
+        # One-time-use rejection at the qms_audit.py command level is covered by
+        # test_deploy_authorization_actor_remote_commit_and_one_time_consume above;
+        # a real second push here would be a no-op (nothing changed) and git would
+        # not even invoke pre-push, so it would not actually exercise that path.
 
     def test_git_preflight_rejects_generic_decision_record(self):
         self.assertEqual(self.invoke('bootstrap-protocol').returncode,0)
