@@ -1790,17 +1790,34 @@ def build_outbound_excel(batch, items, photo_dir):
     ws.title = "출고내역"
     ws.sheet_view.showGridLines = False
 
-    bold = Font(bold=True)
+    # 2026-09-20: 사용자가 준 참고파일("출고 패킹리스트 변경본.xlsx")을 openpyxl로
+    # 직접 열어 서식을 대조해 정확히 맞췄다 — 폰트명(맑은 고딕)까지 명시한 것도
+    # 참고파일이 모든 셀에 이 폰트명을 박아뒀기 때문(그대로 재현).
+    KFONT = "맑은 고딕"
+    bold = Font(bold=True, name=KFONT)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    thin = Side(style="thin", color="B7BEC9")
+    # 25절 함정: 6자리 hex만 주면 Side/Font 색상 모두 알파가 "00"(투명)으로 채워진다
+    # (openpyxl Color 공통 버그, Font/InlineFont뿐 아니라 Border Side에도 똑같이 재현됨
+    # — 참고파일 실측 색상 FFB7BEC9와 대조해서 이번에 처음 발견). 반드시 8자리로 명시.
+    thin = Side(style="thin", color="FFB7BEC9")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    header_fill = PatternFill("solid", fgColor="E7EAF0")
+    header_fill = PatternFill("solid", fgColor="FFE7EAF0")  # 25절: fill도 8자리 필수(같은 버그)
+    # 참고파일 실측 색상(PASS=파랑/FAIL=빨강/SPECIAL=주황, 전부 굵게) — 품질확인 9종(D~L)과
+    # 전체판정(O) 양쪽에 다 쓴다. "해당없음"은 참고파일에서도 별도 강조색이 없어(기본
+    # 검정) 매핑에서 뺐다. 8자리 alpha "FF" 필수(25절, 6자리만 주면 투명 처리되는 버그).
+    _OUTBOUND_RESULT_COLORS = {"PASS": "FF0000FF", "FAIL": "FFFF0000", "SPECIAL": "FFFFC000"}
+
+    def _outbound_value_font(v):
+        if not v:
+            return None
+        return Font(bold=True, color=_OUTBOUND_RESULT_COLORS.get(v), name=KFONT)
 
     # ── 제목 행 ──
     ws["A1"] = "출고 내역서"
-    ws["A1"].font = Font(bold=True, size=16)
+    ws["A1"].font = Font(bold=True, size=16, name=KFONT)
     ws.merge_cells("A1:O1")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 23.6
 
     # ── 배치 메타정보 행 ──
     ws["A3"] = f"거래처 {batch.get('customer') or ''}"
@@ -1820,7 +1837,7 @@ def build_outbound_excel(batch, items, photo_dir):
         "제품명/모델명",                            # C(3)
         "볼트/너트 체결 상태\n(가대/탱크 다리)",    # D(4)
         "QR 번호\n부착 상태 확인",                 # E(5)
-        "하우징 커버\n포장 상태",                   # F(6)
+        "하우징 커버 포장 상태",                    # F(6)
         "RST단자\n나무판 결착",                    # G(7)
         "스티커 부착 상태",                         # H(8)
         "도장 상태",                               # I(9)
@@ -1848,24 +1865,17 @@ def build_outbound_excel(batch, items, photo_dir):
         c.fill = header_fill
         c.alignment = center
         c.border = border
-    ws.row_dimensions[HEADER_ROW].height = 52
+    ws.row_dimensions[HEADER_ROW].height = 60
 
-    # ── 6행: 서브텍스트 (D~L의 상세 설명, A~C는 병합으로 비워둠) ──
+    # ── 6행: 서브텍스트("검사 기준" — A~C는 라벨, D~L은 항목별 상세 설명) ──
+    # 문구는 database.OUTBOUND_CHECK_CRITERIA 하나로 관리한다(8-1절 원칙) —
+    # 출고 스캔 화면(templates/outbound_scan.html)의 "품질확인" 카드도 같은 딕셔너리를 쓴다.
     SUB_ROW = HEADER_ROW + 1
     ws.merge_cells(start_row=SUB_ROW, start_column=1, end_row=SUB_ROW, end_column=3)
-    sub_fill = PatternFill("solid", fgColor="F0F2F7")
-    sub_font = Font(size=9)
-    sub_texts = {
-        4:  "각각 해당 위치에 체결상태 확인",
-        5:  "탱크에 S/N 및 QR 번호의 부착 여부",
-        6:  "커버에 하우징이 노출이 되는지 확인",
-        7:  "볼트가 단자에 잘 고정 되었는지",
-        8:  "정격표시/배큠표시/오픈락/골든이글",
-        9:  "도장 벗겨짐/파임/오염",
-        10: "부속품 유무",
-        11: "LIFT RING 에 노란색 케이블 타이",
-        12: "투입상태(초록)확인",
-    }
+    sub_fill = PatternFill("solid", fgColor="FFEEECE1")
+    sub_font = Font(size=10, name=KFONT)
+    sub_texts = {i + 4: db.OUTBOUND_CHECK_CRITERIA[f] for i, f in enumerate(db.OUTBOUND_CHECK_FIELDS)}
+    ws.cell(row=SUB_ROW, column=1, value="검사 기준")
     for col_i in range(1, 16):
         c = ws.cell(row=SUB_ROW, column=col_i)
         if col_i in sub_texts:
@@ -1874,10 +1884,14 @@ def build_outbound_excel(batch, items, photo_dir):
         c.fill = sub_fill
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = border
-    ws.row_dimensions[SUB_ROW].height = 28
+    ws.row_dimensions[SUB_ROW].height = 26.15
 
-    # ── 열 너비 ──
-    widths = [6, 27.64, 22, 18.71, 12, 12, 11, 11, 11, 12, 11, 12, 16.36, 17.21, 11.29]
+    # ── 열 너비 ── 참고파일 원본 XML(<cols>)을 직접 열어 확인: D~L(품질확인 9종) 전부가
+    # "min=4 max=12" 하나의 범위로 같은 폭(18.7109375)을 쓴다 — openpyxl로 낱개 열
+    # (get_column_letter)마다 column_dimensions.get()을 해보면 D 이외엔 None으로 잘못
+    # 보여서(범위 지정이라 개별 글자 키에 안 잡힘) 처음엔 "E~L은 폭 미지정"으로 오판했었다
+    # — 실제로는 D~L 전부 18.71로 동일. 반드시 zipfile로 raw XML을 대조해서 확인할 것.
+    widths = [6, 27.64, 22, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 16.36, 17.21, 11.29]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -1892,7 +1906,7 @@ def build_outbound_excel(batch, items, photo_dir):
 
     # MDW=8 환경(CLAUDE.md 7-4-1절, 이 워크북도 동일하게 확인됨)
     col_widths_emu = [_excel_col_width_to_emu(w) for w in widths]
-    ROW_HEIGHT_PT = 80
+    ROW_HEIGHT_PT = 80.05
     row_height_emu = ROW_HEIGHT_PT * 12700
 
     # 0-based 열 인덱스: A=0...O=14. 인디케이터사진=M(12), 본체사진=N(13)
@@ -1921,15 +1935,20 @@ def build_outbound_excel(batch, items, photo_dir):
             c = ws.cell(row=row_i, column=j, value=v)
             c.border = border
             c.alignment = center
+            if 4 <= j <= 12:  # D~L: 품질확인 9종만 색칠(A~C 순번/S·N/제품명은 제외)
+                font = _outbound_value_font(v)
+                if font:
+                    c.font = font
 
         # 13=인디케이터사진(M), 14=본체사진(N) — 값은 안 씀, _place_photos_in_area가 채움
         ws.cell(row=row_i, column=13).border = border
         ws.cell(row=row_i, column=14).border = border
 
-        result_cell = ws.cell(row=row_i, column=15, value=it.get("result_effective") or "")
+        result_value = it.get("result_effective") or ""
+        result_cell = ws.cell(row=row_i, column=15, value=result_value)
         result_cell.border = border
         result_cell.alignment = center
-        result_cell.font = bold
+        result_cell.font = _outbound_value_font(result_value) or bold
 
         photos = it.get("photos") or []
         indicator_paths = [
@@ -1947,6 +1966,13 @@ def build_outbound_excel(batch, items, photo_dir):
                                [row_height_emu], PHOTO_INDICATOR_COL, row_i - 1, PILImage, stretch=True)
         _place_photos_in_area(ws, body_paths, [col_widths_emu[PHOTO_BODY_COL]],
                                [row_height_emu], PHOTO_BODY_COL, row_i - 1, PILImage, stretch=True)
+
+    # 데이터 마지막 행 바로 다음, K열(케이블타이)에 안내문구 — 참고파일 그대로.
+    # 항목 0건이어도(items가 비어도) DATA_START_ROW 자리에 그대로 찍는다.
+    note_row = DATA_START_ROW + len(items)
+    note_cell = ws.cell(row=note_row, column=11, value="* 케이블 타이는 PASS,FAIL,해당없음 3개 항목임.")
+    note_cell.font = Font(name=KFONT)
+    note_cell.alignment = center
 
     buf = _io.BytesIO()
     wb.save(buf)

@@ -8635,7 +8635,8 @@ def outbound_scan_edit(batch_id):
                            plan_rows=progress["rows"], plan_summary=progress["summary"],
                            body_photo_enabled=db.outbound_body_photo_enabled(),
                            can_revoke_confirm=can_revoke_confirm,
-                           check_fields=[(f, db.OUTBOUND_CHECK_LABELS[f], db.OUTBOUND_CHECK_SHORT_LABELS[f])
+                           check_fields=[(f, db.OUTBOUND_CHECK_LABELS[f], db.OUTBOUND_CHECK_SHORT_LABELS[f],
+                                          db.OUTBOUND_CHECK_CRITERIA[f])
                                          for f in db.OUTBOUND_CHECK_FIELDS])
 
 

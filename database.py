@@ -57,6 +57,20 @@ OUTBOUND_CHECK_SHORT_LABELS = {
     "check_cable": "케이블타이",
     "check_indicator": "인디케이터",
 }
+# 2026-09-20: 사용자가 준 실제 "출고 패킹리스트" 참고파일의 6행("검사 기준") 문구
+# 그대로 — 출고 스캔 화면(새 항목 입력 카드)과 report_builder.build_outbound_excel()의
+# 6행이 둘 다 이 딕셔너리 하나를 쓴다(8-1절 공용헬퍼 원칙, 문구를 두 곳에 복붙하지 않음).
+OUTBOUND_CHECK_CRITERIA = {
+    "check_tie": "각각 해당 위치에 체결상태 확인",
+    "check_qr": "탱크에 S/N 및 QR 번호의 부착 여부",
+    "check_wrap": "커버에 하우징이 노출이 되는지 확인",
+    "check_rst": "볼트가 단자에 잘 고정 되었는지",
+    "check_sticker": "정격표시/ 배큠표시/오픈락/골든이글",
+    "check_paint": "도장 벗겨짐/파임/오염",
+    "check_access": "부속품 유무",
+    "check_cable": "LIFT RING 에 노란색 케이블 타이",
+    "check_indicator": "투입상태(초록)확인",
+}
 
 
 def compute_outbound_item_auto_result(item):

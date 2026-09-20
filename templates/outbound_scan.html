@@ -18,10 +18,15 @@
      (행당 ~22px x 5행 ≈ 사진 그리드 셀 높이와 비슷한 수준). 대신 가로 폭은 표 전체를
      감싸는 overflow-x:auto 래퍼가 처리하므로 버튼 터치영역은 좁히지 않는다. */
   #itemsTable td:nth-child(3) { padding-top:7px; padding-bottom:7px; vertical-align:middle; }
-  .ob-check-list { display:flex; flex-direction:column; gap:3px; min-width:200px; }
-  .ob-check-row { display:flex; align-items:center; gap:6px; }
-  .ob-check-label { font-size:11px; flex:0 0 64px; text-align:left; white-space:normal;
-                     line-height:1.2; color:var(--text); }
+  .ob-check-list { display:flex; flex-direction:column; gap:8px; min-width:240px; }
+  .ob-check-row { display:flex; flex-direction:column; gap:3px; padding-bottom:8px;
+                  border-bottom:1px solid var(--border); }
+  .ob-check-row:last-child { border-bottom:none; padding-bottom:0; }
+  .ob-check-label { font-size:12px; font-weight:700; text-align:left; white-space:normal;
+                     line-height:1.25; color:var(--text); }
+  .ob-check-criteria { font-size:11px; font-weight:400; color:var(--muted, #6b7280);
+                        line-height:1.25; margin-top:-1px; }
+  .ob-check-btns { display:flex; gap:6px; }
   .ob-check-btn { border:1px solid var(--border); background:#fff; cursor:pointer; flex:1; min-width:0;
                   font-size:11.5px; font-weight:600; padding:4px 8px; border-radius:6px; line-height:1.3;
                   opacity:.45; transition:opacity .1s, box-shadow .1s; }
@@ -47,6 +52,7 @@
   .qchk-panel { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
   .qchk-row { display:flex; flex-direction:column; gap:4px; }
   .qchk-label { font-size:12.5px; font-weight:700; color:var(--text); }
+  .qchk-criteria { font-size:11.5px; font-weight:400; color:var(--muted, #6b7280); margin-top:-2px; }
   .qchk-btns { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
   .qchk-btn { border:1.5px solid var(--border); background:#fff; border-radius:8px;
               min-height:42px; font-size:12.5px; font-weight:700; cursor:pointer;
@@ -103,9 +109,10 @@
     <div style="margin-top:14px;">
       <p class="muted" style="margin:0 0 6px; font-size:12.5px;">품질확인 (9개 항목)</p>
       <div class="qchk-panel" id="curChecksPanel">
-        {% for field, label, short in check_fields %}
+        {% for field, label, short, criteria in check_fields %}
         <div class="qchk-row" data-field="{{ field }}">
-          <span class="qchk-label" title="{{ label }}">{{ short }}</span>
+          <span class="qchk-label">{{ label }}</span>
+          <span class="qchk-criteria">{{ criteria }}</span>
           <div class="qchk-btns">
             <button type="button" class="qchk-btn pass" data-value="PASS" onclick="setCurCheck('{{ field }}','PASS',this)">합격</button>
             <button type="button" class="qchk-btn fail" data-value="FAIL" onclick="setCurCheck('{{ field }}','FAIL',this)">불합격</button>
@@ -213,9 +220,11 @@
             </div>
             <div class="ob-checks-detail" id="ob-checks-{{ it.id }}" style="display:none; margin-top:6px;">
               <div class="ob-check-list" data-item="{{ it.id }}">
-                {% for field, label, short in check_fields %}
+                {% for field, label, short, criteria in check_fields %}
                 <div class="ob-check-row" data-field="{{ field }}">
-                  <span class="ob-check-label" title="{{ label }}">{{ short }}</span>
+                  <span class="ob-check-label">{{ label }}</span>
+                  <span class="ob-check-criteria">{{ criteria }}</span>
+                  <div class="ob-check-btns">
                   {% set btn_opts = [('PASS','합격'), ('FAIL','불합격'), ('해당없음','해당없음') if field == 'check_cable' else ('SPECIAL','특채')] %}
                   {% for v, txt in btn_opts %}
                   <button type="button"
@@ -223,6 +232,7 @@
                           data-value="{{ v }}" {{ 'disabled' if batch.confirmed_at else '' }}
                           onclick="setOutboundCheck({{ it.id }}, '{{ field }}', '{{ v }}', this)">{{ txt }}</button>
                   {% endfor %}
+                  </div>
                 </div>
                 {% endfor %}
               </div>
@@ -395,7 +405,7 @@
   var batchId = {{ batch.id }};
   var bodyPhotoEnabled = {{ 'true' if body_photo_enabled else 'false' }};
 
-  var CHECK_FIELDS = [{% for f, label, short in check_fields %}["{{ f }}", "{{ label }}"],{% endfor %}];
+  var CHECK_FIELDS = [{% for f, label, short, criteria in check_fields %}["{{ f }}", "{{ label }}", "{{ criteria }}"],{% endfor %}];
   var RESULT_LABEL_MAP = { PASS: ['badge pass', '합격'], FAIL: ['badge fail', '불합격'], SPECIAL: ['badge special', '특채'], '해당없음': ['badge na', '해당없음'] };
 
   // 2026-09-16: "새 항목 스캔·입력" 카드 전용 상태 — 아직 서버에 item이 없는 단계라
@@ -478,12 +488,15 @@
       '<div class="ob-checks-detail" id="ob-checks-' + itemId + '" style="display:none;margin-top:6px;">' +
       '<div class="ob-check-list" data-item="' + itemId + '">';
     CHECK_FIELDS.forEach(function (pair) {
-      var field = pair[0], label = pair[1];
-      html += '<div class="ob-check-row" data-field="' + field + '"><span class="ob-check-label">' + label + '</span>';
-      [['PASS', 'badge pass', '합격'], ['FAIL', 'badge fail', '불합격'], ['SPECIAL', 'badge special', '특채']].forEach(function (t) {
+      var field = pair[0], label = pair[1], criteria = pair[2];
+      var thirdBtn = field === 'check_cable' ? ['해당없음', 'badge na', '해당없음'] : ['SPECIAL', 'badge special', '특채'];
+      html += '<div class="ob-check-row" data-field="' + field + '">' +
+        '<span class="ob-check-label">' + label + '</span>' +
+        '<span class="ob-check-criteria">' + criteria + '</span><div class="ob-check-btns">';
+      [['PASS', 'badge pass', '합격'], ['FAIL', 'badge fail', '불합격'], thirdBtn].forEach(function (t) {
         html += '<button type="button" class="ob-check-btn ' + t[1] + '" data-value="' + t[0] + '" onclick="setOutboundCheck(' + itemId + ', \'' + field + '\', \'' + t[0] + '\', this)">' + t[2] + '</button>';
       });
-      html += '</div>';
+      html += '</div></div>';
     });
     html += '</div>' +
       '<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;">' +
