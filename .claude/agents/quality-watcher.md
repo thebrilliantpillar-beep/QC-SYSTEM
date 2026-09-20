@@ -54,9 +54,10 @@ model: haiku
 `.collab` 명령을 직접 실행하거나 원장을 직접 수정하지 않는다. 사용자의 직접 지시를 받은 메인 actor(Claude 또는 Codex)가 배정 때 제공한 `TASK_ID`·`REQUEST_RECORD`를 사용해 최종 보고의 맨 끝에 아래 `ARCHIVE_RESULT` 블록을 **JSON 한 객체**로 낸다. 배정한 메인 actor만 이를 `workflow-result`으로 수집·기록한다.
 
 ```json
-ARCHIVE_RESULT: {"role":"quality-watcher","outcome":"PASS|FAIL|PARTIAL|NOT_APPLICABLE","summary":"사실 기반 결과","scope":"검토·변경 범위","evidence":[{"type":"inspection|render|e2e|test|review","status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","role":"<역할>","detail":"확인 근거"}],"verification_status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","issues":["확실한 결함 또는 확인 필요"],"next_action":"다음 담당자가 할 일"}
+ARCHIVE_RESULT: {"role":"quality-watcher","outcome":"PASS|FAIL|PARTIAL|NOT_APPLICABLE","summary":"사실 기반 결과","scope":"검토·변경 범위","evidence":[{"type":"inspection|render|e2e|test|review","status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","role":"<역할>","detail":"확인 근거"}],"verification_status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","issues":["확실한 결함 또는 확인 필요"],"coverage_limits":["비결함 검토 범위 한계"],"next_action":"다음 담당자가 할 일"}
 ```
 
 - 내부 추론, 비밀값, 전체 터미널 명령은 넣지 않는다. `WORKFLOW_CAPABILITY_TOKEN`은 절대 보고·프롬프트·파일에 넣지 않는다. 재현에 필요한 결과와 근거만 적는다.
 - `PASS`는 실제로 확인한 범위에만 사용한다. 미수행 검증이나 불확실성은 `PARTIAL` 또는 `NEEDS_VERIFICATION`으로 남긴다.
+- `coverage_limits`는 실제 결함·후속 조치가 아닌 검토 범위 한계만 문자열 배열로 적는다. `issues`에 적은 항목만 활성 ISSUE가 된다. planner·reuse-scout은 `PASS`와 비어 있지 않은 `coverage_limits`가 함께 있을 때만 해당 한계가 완료를 막지 않는다. developer·designer·quality-watcher의 `PARTIAL`/`UNVERIFIED`/`NEEDS_VERIFICATION`은 `coverage_limits`가 있어도 완료를 막는다.
 - 화면·CSS·문서 시각 변경은 `evidence`에 실제 렌더링 확인 근거를 명시한다. 요구된 end-to-end 검증도 동일하다.

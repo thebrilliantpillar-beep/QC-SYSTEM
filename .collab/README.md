@@ -158,6 +158,12 @@ $env:QMS_WORKFLOW_CAPABILITY_TOKEN = "<workflow-start 출력 token>"
 
 이 범위 밖의 명령, 잘못된 actor·task·run·token은 실행 전에 차단·감사 기록된다. 이 profile은 임의 shell 명령, QMS 파일·DB 변경, Git, commit, deploy 권한을 주지 않는다. 명령 전문과 출력 전문은 원장에 저장하지 않는다.
 
-서브에이전트는 TASK 범위의 상대방 기록도 읽되 CLI·SQLite·JSONL 원장을 직접 쓰지 않고 `ARCHIVE_RESULT`만 낸다. `workflow-finalize`는 필수 역할 누락, quality-watcher 실패·미수행, 요구된 렌더링 또는 E2E 근거 누락, 미해결 FAIL·ISSUE 또는 PARTIAL/UNKNOWN 근거가 있으면 `PARTIAL`과 차단 근거를 남기고 종료 코드 3을 반환한다.
+서브에이전트는 TASK 범위의 상대방 기록도 읽되 CLI·SQLite·JSONL 원장을 직접 쓰지 않고 아래 `ARCHIVE_RESULT`만 낸다. `coverage_limits`는 실제 결함이나 후속 조치가 아닌 검토 범위 한계의 문자열 배열이며, `issues`에 적은 항목만 활성 `ISSUE` Record가 된다.
+
+```json
+{"role":"planner","outcome":"PASS|FAIL|PARTIAL|NOT_APPLICABLE","summary":"사실 기반 결과","scope":"검토·변경 범위","evidence":[{"type":"inspection|render|e2e|test|review","status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","role":"현재 역할","detail":"확인 근거"}],"verification_status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","issues":["실제 결함 또는 후속 조치"],"coverage_limits":["비결함 검토 범위 한계"],"next_action":"다음 담당자 작업"}
+```
+
+`workflow-finalize`는 필수 역할 누락, quality-watcher의 PASS 이외 결과 또는 검증 공백, 요구된 렌더링 또는 E2E 근거 누락, `FAIL`/`PARTIAL`/`NOT_APPLICABLE` 결과, 미해결 `ISSUE`를 `PARTIAL`과 차단 근거로 남기고 종료 코드 3을 반환한다. developer·designer·quality-watcher의 `PARTIAL`/`UNVERIFIED`/`NEEDS_VERIFICATION` 검증 상태도 차단한다. planner·reuse-scout은 `outcome: PASS`, 비어 있지 않은 `coverage_limits`, 실제 `issues` 없음인 경우에만 그 역할의 검증 범위 한계가 완료를 막지 않는다.
 
 QMS 파일 수정·테스트는 사용자에게 직접 지시받은 actor가 자동 기록한 승인된 작업 범위에서만 수행할 수 있다. 이 workflow profile이나 token은 commit·deploy 권한을 부여하지 않는다. commit·deploy는 언제나 각각 사용자 직접 지시와 별도 승인 Record가 필요하다. 일반 사용자가 터미널에서 직접 수행한 명령은 workflow가 자동 기록하지 않으므로, 필요할 때 기존 `run` 명령으로 목적·범위·결과를 해당 TASK에 남긴다.

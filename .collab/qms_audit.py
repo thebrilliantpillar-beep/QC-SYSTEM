@@ -644,7 +644,7 @@ def cmd_workflow_dispatch(args):
         "role": args.role, "archive_result_contract": {
             "role": args.role, "outcome": "PASS|FAIL|PARTIAL|NOT_APPLICABLE", "summary": "fact-based result",
             "scope": "reviewed/changed scope", "evidence": ["test, file, render, or inspection evidence"],
-            "verification_status": "VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION", "issues": [], "next_action": "next step",
+            "verification_status": "VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION", "issues": [], "coverage_limits": [], "next_action": "next step",
         },
     }
     print("REQUEST_RECORD=" + request["record_id"])
@@ -653,13 +653,15 @@ def cmd_workflow_dispatch(args):
 
 def cmd_workflow_result(args):
     result = parse_json_object(args.result, "ARCHIVE_RESULT")
-    required = {"role", "outcome", "summary", "scope", "evidence", "verification_status", "issues", "next_action"}
+    required = {"role", "outcome", "summary", "scope", "evidence", "verification_status", "issues", "coverage_limits", "next_action"}
     missing = required - set(result)
     if missing: raise ValueError("ARCHIVE_RESULT 필수 필드 누락: " + ", ".join(sorted(missing)))
     if result["role"] not in WORKFLOW_ROLES or result["role"] != args.role: raise ValueError("ARCHIVE_RESULT role이 배정 역할과 다릅니다.")
     if result["outcome"] not in WORKFLOW_OUTCOMES: raise ValueError("ARCHIVE_RESULT outcome 값이 올바르지 않습니다.")
     if result["verification_status"] not in {"VERIFIED", "PARTIAL", "UNVERIFIED", "NEEDS_VERIFICATION"}: raise ValueError("verification_status 값이 올바르지 않습니다.")
-    if not isinstance(result["evidence"], list) or not isinstance(result["issues"], list): raise ValueError("evidence와 issues는 배열이어야 합니다.")
+    if not isinstance(result["evidence"], list) or not isinstance(result["issues"], list) or not isinstance(result["coverage_limits"], list): raise ValueError("evidence, issues, coverage_limits는 배열이어야 합니다.")
+    if any(not isinstance(item, str) or not item.strip() for item in result["issues"]): raise ValueError("issues 항목은 비어 있지 않은 문자열이어야 합니다.")
+    if any(not isinstance(item, str) or not item.strip() for item in result["coverage_limits"]): raise ValueError("coverage_limits 항목은 비어 있지 않은 문자열이어야 합니다.")
     with lock():
         con = connect(); task_exists(con, args.task)
         if not workflow_runner_allowed(con, args.actor, args.task, args.run, args.capability_token, "workflow-result", result["scope"]):
@@ -681,7 +683,7 @@ def cmd_workflow_result(args):
             if item["status"] not in {"VERIFIED", "PARTIAL", "UNVERIFIED", "NEEDS_VERIFICATION"}: raise ValueError("evidence status 값이 올바르지 않습니다.")
             if item["role"] != args.role: raise ValueError("evidence role은 ARCHIVE_RESULT role과 정확히 일치해야 합니다.")
         evidence = record(con, "EVIDENCE", args.actor, {
-            "source_type": "subagent_final_report", "content": {"summary": result["summary"], "evidence": result["evidence"], "outcome": result["outcome"]},
+            "source_type": "subagent_final_report", "content": {"summary": result["summary"], "evidence": result["evidence"], "outcome": result["outcome"], "coverage_limits": result["coverage_limits"]},
             "verification_status": result["verification_status"], "scope": result["scope"],
             "workflow_task_id": args.task, "workflow_run_id": args.run, "workflow_role": args.role, "request_record": args.request,
         }, knowledge_state="FACT" if result["outcome"] != "PARTIAL" else "UNKNOWN", status="ACTIVE", risk_level="LOW")
@@ -777,6 +779,24 @@ def cmd_workflow_issue_resolution(args):
     print("ISSUE_RESOLUTION_RECORD=" + state["record_id"])
 
 
+def workflow_result_has_blocking_gap(evidence):
+    """Return whether a final report leaves a completion-blocking result gap.
+
+    Planner and reuse-scout can report a PASS with a declared, non-defect coverage
+    limit. Their limited verification does not replace developer/designer/quality
+    verification, which remains a completion gate.
+    """
+    outcome = evidence.get("content", {}).get("outcome")
+    if outcome in {"FAIL", "PARTIAL", "NOT_APPLICABLE"}:
+        return True
+    verification = evidence.get("verification_status")
+    if verification not in {"PARTIAL", "UNVERIFIED", "NEEDS_VERIFICATION"}:
+        return False
+    role = evidence.get("workflow_role")
+    coverage_limits = evidence.get("content", {}).get("coverage_limits", [])
+    return not (role in {"planner", "reuse-scout"} and outcome == "PASS" and bool(coverage_limits))
+
+
 def cmd_workflow_finalize(args):
     with lock():
         con = connect(); task_exists(con, args.task)
@@ -797,7 +817,7 @@ def cmd_workflow_finalize(args):
         if task_payload.get("visual_change") and not any(item.get("type") == "render" and item.get("status") == "VERIFIED" and item.get("role") in {"developer", "designer", "quality-watcher"} for item in typed_evidence): blockers.append("시각 변경의 실제 렌더링 VERIFIED 근거 누락")
         if task_payload.get("e2e_required") and not any(item.get("type") == "e2e" and item.get("status") == "VERIFIED" and item.get("role") in {"developer", "quality-watcher"} for item in typed_evidence): blockers.append("필수 end-to-end VERIFIED 근거 누락")
         if any(e.get("content", {}).get("outcome") == "FAIL" for e in evidence_payloads): blockers.append("FAIL 결과가 해결되지 않음")
-        if any(e.get("content", {}).get("outcome") in {"PARTIAL", "NOT_APPLICABLE"} or e.get("verification_status") in {"PARTIAL", "UNVERIFIED", "NEEDS_VERIFICATION"} for e in evidence_payloads): blockers.append("unknown/partial 결과가 해결되지 않음")
+        if any(workflow_result_has_blocking_gap(e) for e in evidence_payloads): blockers.append("unknown/partial 결과가 해결되지 않음")
         open_issues = [r for r in results if r["record_type"] == "ISSUE" and workflow_issue_is_active(con, r["record_id"], task_record)]
         if open_issues: blockers.append("미해결 ISSUE가 있음")
         status = "COMPLETED" if not blockers else "PARTIAL"

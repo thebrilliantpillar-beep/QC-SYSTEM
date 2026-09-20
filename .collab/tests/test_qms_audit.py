@@ -258,10 +258,10 @@ class AuditCliTests(unittest.TestCase):
         return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
 
     @staticmethod
-    def report(role, *, outcome='PASS', verification='VERIFIED', evidence=None, issues=None):
+    def report(role, *, outcome='PASS', verification='VERIFIED', evidence=None, issues=None, coverage_limits=None):
         return {'role': role, 'outcome': outcome, 'summary': role+' result', 'scope': 'x',
                 'evidence': evidence if evidence is not None else [{'type':'inspection','status':verification,'role':role,'detail':'checked'}],
-                'verification_status': verification, 'issues': issues or [], 'next_action': 'next'}
+                'verification_status': verification, 'issues': issues or [], 'coverage_limits': coverage_limits or [], 'next_action': 'next'}
 
     def dispatch(self, task, run, token, role, actor='claude'):
         dispatched=self.invoke('workflow-dispatch','--task',str(task),'--run',run,'--capability-token',token,'--actor',actor,'--role',role,'--scope','x','--why','test','--work','work')
@@ -330,6 +330,71 @@ class AuditCliTests(unittest.TestCase):
         self.assertEqual(final.returncode, 3); self.assertIn('unknown/partial', final.stdout); self.assertIn('ISSUE', final.stdout)
         self.assertEqual(self.invoke('verify').returncode, 0)
 
+
+    def test_workflow_allows_planner_declared_coverage_limit_without_issue(self):
+        task, run, token = self.workflow_start()
+        reports = {
+            'planner': self.report('planner', verification='PARTIAL', coverage_limits=['planner does not execute the live CLI']),
+            'developer': self.report('developer'),
+            'quality-watcher': self.report('quality-watcher'),
+        }
+        for role in ('planner', 'developer', 'quality-watcher'):
+            request = self.dispatch(task, run, token, role)
+            self.assertEqual(self.result(task, run, token, role, request, reports[role]).returncode, 0)
+        final = self.invoke('workflow-finalize', '--task', str(task), '--run', run, '--capability-token', token, '--actor', 'claude')
+        self.assertEqual(final.returncode, 0, final.stdout)
+        db = sqlite3.connect(self.root/'runtime'/'audit.sqlite3')
+        payload = json.loads(db.execute("select payload_json from protocol_records where record_type='EVIDENCE' and json_extract(payload_json, '$.workflow_role')='planner' order by rowid desc limit 1").fetchone()[0])
+        db.close()
+        self.assertEqual(payload['content']['coverage_limits'], ['planner does not execute the live CLI'])
+
+    def test_workflow_blocks_planner_partial_without_coverage_or_with_actual_issue(self):
+        task, run, token = self.workflow_start()
+        reports = {
+            'planner': self.report('planner', verification='PARTIAL'),
+            'developer': self.report('developer'),
+            'quality-watcher': self.report('quality-watcher'),
+        }
+        for role in ('planner', 'developer', 'quality-watcher'):
+            request = self.dispatch(task, run, token, role)
+            self.assertEqual(self.result(task, run, token, role, request, reports[role]).returncode, 0)
+        blocked = self.invoke('workflow-finalize', '--task', str(task), '--run', run, '--capability-token', token, '--actor', 'claude')
+        self.assertEqual(blocked.returncode, 3); self.assertIn('unknown/partial', blocked.stdout)
+
+        task2, run2, token2 = self.workflow_start()
+        reports2 = {
+            'planner': self.report('planner', verification='PARTIAL', coverage_limits=['no live CLI'], issues=['implementation defect found']),
+            'developer': self.report('developer'),
+            'quality-watcher': self.report('quality-watcher'),
+        }
+        for role in ('planner', 'developer', 'quality-watcher'):
+            request = self.dispatch(task2, run2, token2, role)
+            self.assertEqual(self.result(task2, run2, token2, role, request, reports2[role]).returncode, 0)
+        blocked_issue = self.invoke('workflow-finalize', '--task', str(task2), '--run', run2, '--capability-token', token2, '--actor', 'claude')
+        self.assertEqual(blocked_issue.returncode, 3); self.assertIn('ISSUE', blocked_issue.stdout)
+
+    def test_workflow_blocks_developer_or_quality_verification_gap(self):
+        for limited_role in ('developer', 'quality-watcher'):
+            task, run, token = self.workflow_start()
+            reports = {
+                'planner': self.report('planner'),
+                'developer': self.report('developer'),
+                'quality-watcher': self.report('quality-watcher'),
+            }
+            reports[limited_role] = self.report(limited_role, verification='PARTIAL', coverage_limits=['not a completion exemption'])
+            for role in ('planner', 'developer', 'quality-watcher'):
+                request = self.dispatch(task, run, token, role)
+                self.assertEqual(self.result(task, run, token, role, request, reports[role]).returncode, 0)
+            blocked = self.invoke('workflow-finalize', '--task', str(task), '--run', run, '--capability-token', token, '--actor', 'claude')
+            self.assertEqual(blocked.returncode, 3); self.assertIn('unknown/partial', blocked.stdout)
+
+    def test_workflow_result_validates_coverage_limits(self):
+        task, run, token = self.workflow_start()
+        request = self.dispatch(task, run, token, 'planner')
+        missing = self.report('planner'); missing.pop('coverage_limits')
+        self.assertEqual(self.result(task, run, token, 'planner', request, missing).returncode, 2)
+        invalid = self.report('planner', coverage_limits=[''])
+        self.assertEqual(self.result(task, run, token, 'planner', request, invalid).returncode, 2)
 
     def test_workflow_rejects_evidence_role_impersonation(self):
         task, run, token = self.workflow_start('--visual-change', '--e2e-required')
