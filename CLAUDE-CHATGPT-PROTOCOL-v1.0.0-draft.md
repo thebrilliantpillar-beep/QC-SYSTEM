@@ -87,6 +87,14 @@ IQC QMS(`.collab`)는 이미 구체적 구현을 갖고 있다: 타임스탬프�
 
 **주의**: 초 단위 절삭 때문에 같은 초에 여러 이벤트가 생기면 타임스탬프만으로는 순서를 구분할 수 없다 — 그래서 QMS는 순서 보장을 타임스탬프에 맡기지 않는다(§15.1 참고). 이 형식과 canonical 직렬화 방식은 QMS의 구체적 구현 사례로 문서화하는 것이며 프로토콜 전역 표준으로 확정하는 것은 아니다. `record_id`/`message_id` 생성 규칙(TBD-0002)과 낙관적 잠금 구현(`record_version` 증가 방식)은 이 절과 별개로 여전히 미결이다.
 
+### 4.1.2 QMS 적용: ID·타임스탬프 형식은 권장 관례다, 강제 규격이 아니다 (2026-09-21, TBD-0002 및 TBD-0003 전역표준화 여부 — 최종 결론)
+
+TBD-0002(ID 형식)와 TBD-0003의 "이 형식을 프로토콜 전역표준으로 못박을지" 질문에 대한 최종 결론이다.
+
+- **ID 형식**: QMS는 `record_id`="rec-"+UUID4 hex 32자, `run_id`="run-"+UUID4 hex, `message_id`="msg-"+UUID4 hex를 쓴다(`qms_audit.py:25,177`). 타입 접두어+UUID4 조합으로 생성 후 불변·전역 고유(충돌 확률 무시 가능)라는 프로토콜 §4.1의 요구는 이미 충족한다.
+- **최종 결론(양쪽 다 동일한 논리)**: 이 구체적 알고리즘들(ID 접두어 방식, ISO8601+canonical JSON)을 프로토콜 v1의 **강제 규격으로 승격하지 않는다.** 대신 "권장 관례"로만 문서에 남긴다 — 다른 구현체(ChatGPT 등)는 프로토콜이 실제로 요구하는 성질(ID는 불변·전역고유; 직렬화는 재현 가능하고 해시 가능)만 지키면 다른 구체적 알고리즘을 써도 무방하다. 강제 규격으로 못박지 않는 이유: 이미 검증된 QMS 구현을 다른 도구에 강요할 실익이 없고, 형식 자체보다 "불변성·순서 무결성"이라는 성질이 실제로 지켜지는지가 중요하기 때문.
+- **낙관적 잠금(`record_version` 증가 방식)은 이 결론과 별개로 여전히 미결**이다 — QMS는 append-only 설계라 `record_version`을 증가시키며 덮어쓰는 경로 자체가 없어(TBD-0008 참고, 병합 미구현) 참고할 실제 구현이 없다.
+
 ### 4.2 개념의 엄격한 분리
 
 | 개념 | 역할 |
@@ -120,6 +128,12 @@ caused_by, result_of, verified_by, handoff_to, affects, related_to
 ```
 
 시간·조건 변화에 따른 사실 변화는 가능한 경우 관계와 시점·범위를 통해 표현하며, 단지 기록이 다르다는 이유만으로 충돌로 취급하지 않는다. 추가 관계명(`changed_after`, `valid_during` 등)의 표준화는 **TBD**다.
+
+### 4.3.1 QMS 적용: 추가 Relation Type 없음, 필요 시 추가 (2026-09-21, TBD-0009 — 최종 결론)
+
+IQC QMS(`.collab`)의 `RELATIONS` 상수(`qms_audit.py:157`)는 프로토콜 §4.3의 합의 목록 11종(`based_on`/`supports`/`contradicts`/`supersedes`/`superseded_by`/`caused_by`/`result_of`/`verified_by`/`handoff_to`/`affects`/`related_to`)과 정확히 일치하며, 예시로 언급된 `changed_after`/`valid_during`을 포함해 추가 관계명을 만든 적이 한 번도 없다.
+
+**최종 결론**: 지금 미리 추가 관계명을 만들지 않는다(YAGNI) — 실제로 필요했던 사례가 없기 때문이다. 이건 "영원히 안 만든다"가 아니라 "필요한 사례가 실제로 생기면 그때 정확히 그 필요에 맞춰 추가한다"는 결정이며, 추상적으로 미리 만들어두지 않겠다는 것 자체가 이 TBD에 대한 확정 답변이다.
 
 ## 5. Record Types
 
@@ -454,11 +468,11 @@ AUDIT_EVENT
 
 성공뿐 아니라 권한·승인·위험 검사로 차단된 시도도 기록한다. 로그는 “누가, 언제, 무엇을, 어떤 권한·승인 상태로 시도했고 어떤 결과가 났는가”를 재구성할 수 있어야 한다. `event_id` 형식, 시간 정렬·보존 구현은 **TBD**다.
 
-### 15.1 QMS 적용: 정렬은 해결됨, 보존은 여전히 미결 (2026-09-21, TBD-0010 — 정렬 부분 한정)
+### 15.1 QMS 적용: 정렬·보존 둘 다 최종 결론 (2026-09-21, TBD-0010)
 
 **정렬**: IQC QMS(`.collab`)는 타임스탬프가 아니라 SQLite의 단조증가 `seq` 컬럼 + SHA-256 해시체인(각 이벤트가 직전 이벤트의 해시를 포함)으로 순서를 보장한다. `verify` 명령이 이 체인을 매번 검증해 재정렬·변조를 잡아낸다. §4.1.1에서 언급한 타임스탬프 초단위 절삭 문제는 이 방식 덕분에 실제 순서 보장에 영향을 주지 않는다.
 
-**보존(retention)**: 여전히 미결이다. QMS는 현재 어떤 보존기간·삭제 정책도 구현하지 않았다 — 모든 이벤트를 SQLite와 Git 추적 JSONL 미러 양쪽에 영구 보관한다. 이건 QMS가 다른 감사성 기록(iqc-app의 `activity_log` 등)에 이미 적용해온 "감사 기록은 삭제하지 않는다"는 원칙과 일치하는 잠정 입장이며, 구체적 보존기간·콜드 아카이브 방식을 정한 것은 아니다 — 저장소 크기가 실제 문제가 될 때 재검토한다.
+**보존(retention) — 최종 결론**: QMS는 **구체적 보존기간을 정하지 않고, 어떤 이벤트도 삭제하지 않는다**를 확정 답변으로 채택한다. 모든 이벤트를 SQLite와 Git 추적 JSONL 미러 양쪽에 영구 보관하며, 콜드 아카이브·자동 삭제 같은 도구는 만들지 않는다. 이건 QMS가 다른 감사성 기록(iqc-app의 `activity_log` 등)에 이미 적용해온 "감사 기록은 삭제하지 않는다"는 원칙과 정확히 일치하는 확정 입장이다 — "언젠가 수치를 정한다"가 아니라 "수치 자체를 정하지 않는 것"이 QMS의 최종 정책이다. `.collab/events/*.jsonl`이 Git 추적 대상이라 연 단위로 저장소가 계속 커지는 비용은 감수한다(현재 규모는 미미함) — 실제로 저장소 크기가 문제가 되면 그건 이 정책을 재검토하는 게 아니라 "콜드 아카이브 도구를 새로 만드는" 별개의 후속 결정이다.
 
 ## 16. Resource / Token Management
 
@@ -528,15 +542,15 @@ NEXT_ACTION
 | ID | Topic | Status | User decision required | 비고 |
 |---|---|---|---|---|
 | TBD-0001 | Archive Storage Backend | RESOLVED | YES — 확정일 2026-09-20 | → Resolved entries 참조 |
-| TBD-0002 | Record와 Message ID 형식 | TBD | NO | 불변·전역 고유성 원칙만 확정 |
-| TBD-0003 | Timestamp·직렬화 형식 | TBD | NO | 정렬 방식은 §4.1.1에서 QMS 적용 사례로 문서화(2026-09-21). 전역 표준 승격은 여전히 미결 |
+| TBD-0002 | Record와 Message ID 형식 | RESOLVED (QMS 적용 범위) | NO — 확정일 2026-09-21 | → Resolved entries 참조. 다른 구현체는 알고리즘 자유, "불변·전역고유"만 지키면 됨 |
+| TBD-0003 | Timestamp·직렬화 형식 | RESOLVED (QMS 적용 범위) | NO — 확정일 2026-09-21 | → Resolved entries 참조. 정렬(§4.1.1)·전역표준화 여부(§4.1.2) 둘 다 결론 남 |
 | TBD-0004 | AI Interpretation의 독립 Record Type/저장 위치 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 다른 구현체의 Record Type 이름·구조 자유는 유지 |
 | TBD-0005 | 전체 Record별 status enum 및 공통 lifecycle | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 다른 Record Type의 일반 enum은 여전히 TBD |
 | TBD-0006 | Operation Registry의 전체 목록·Agent별 allowed_agents/conditions | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. Registry 자체의 전역 표준화는 여전히 TBD |
 | TBD-0007 | `UPDATE_STATE`의 조건부 승인 및 `GIT_COMMIT` 정책 세부 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. DEPLOY도 같이 다뤘다(원 Topic 범위 확장) |
 | TBD-0008 | Merge 구현 알고리즘·필드 비교 정밀도 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 필드 단위 자동 Merge를 실제로 구현하는 것 자체는 다른 구현체에 여전히 열려 있음 |
-| TBD-0009 | 추가 Relation Type 표준화 | TBD | NO | 현재 합의 목록 외 관계명 미정 |
-| TBD-0010 | Audit event ordering·retention 구현 | TBD | NO | 정렬은 §15.1에서 QMS 적용 사례로 RESOLVED 문서화(2026-09-21, seq+해시체인). 보존기간·콜드 아카이브 방식은 여전히 미결 |
+| TBD-0009 | 추가 Relation Type 표준화 | RESOLVED (QMS 적용 범위) | NO — 확정일 2026-09-21 | → Resolved entries 참조. "필요 시 추가"가 최종 결론, 새 관계명 미리 안 만듦 |
+| TBD-0010 | Audit event ordering·retention 구현 | RESOLVED (QMS 적용 범위) | NO — 확정일 2026-09-21 | → Resolved entries 참조. 정렬(seq+해시체인)·보존("삭제 안 함", 구체 수치 없음) 둘 다 결론 남 |
 | TBD-0011 | Protocol compatibility adapter/migration 형식 | RESOLVED (QMS 적용 범위, 게이트 부분만) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 실제 payload 변환 형식은 첫 MAJOR 버전 제안 시까지 여전히 미결 |
 
 `Status`는 이 §19 Registry 내부에서만 사용하는 항목 상태값이다: `TBD`(미결) / `RESOLVED`(해결됨).
@@ -556,6 +570,10 @@ TBD Registry에 등록됐다가 이후 확정된 항목이다.
 | TBD-0004 | AI Interpretation의 독립 Record Type/저장 위치 (QMS 적용 범위) | YES | 2026-09-21 | QMS는 `AI_INTERPRETATION` Record Type(필드: `interpretation`/`derived_from`/`scope`, `based_on` Relation으로 EVIDENCE와 연결)을 이미 구현·검증(TASK 5·6 smoke test)됐던 것으로 확정 — 다른 구현체는 같은 원칙만 지키면 다른 이름·구조를 써도 무방 | 사용자가 `docs/protocol-tbd-roadmap.md`의 "기술안 먼저 작성 가능" 항목 승인("응") | 프로토콜 §6.1, `.collab/qms_audit.py`(`cmd_workflow_result()`) | — |
 | TBD-0008 | Merge 구현 알고리즘·필드 비교 정밀도 (QMS 적용 범위) | YES | 2026-09-21 | QMS는 자동 Merge를 어떤 Record Type에도 구현하지 않고, 모든 버전 충돌을 `CONFLICT`+`USER_DECISION_REQUIRED`로 처리하기로 확정 — file lock이 동시쓰기 자체를 직렬화하므로 안전하다고 판단 | 사용자가 `docs/protocol-tbd-roadmap.md`의 "기술안 먼저 작성 가능" 항목 승인("응") | 프로토콜 §12.2.1 | — |
 | TBD-0011 | Protocol compatibility adapter/migration 형식 (QMS 적용 범위, 게이트 부분만) | YES | 2026-09-21 | QMS의 `register-adapter`는 버전 불일치 Envelope를 거부하지 않게 허용목록에 등록하는 "게이트"일 뿐, 실제 payload 변환 로직은 없다는 것을 확정 — 실제 변환 형식 설계는 첫 MAJOR 버전 제안이 나올 때까지 의도적으로 미룸(추상 설계는 틀릴 위험이 크다고 판단) | 사용자가 `docs/protocol-tbd-roadmap.md`의 "기술안 먼저 작성 가능" 항목 승인("응") | 프로토콜 §17.2 | — |
+| TBD-0002 | Record와 Message ID 형식 (QMS 적용 범위) | NO | 2026-09-21 | QMS의 ID 형식(타입 접두어+UUID4 hex)을 "권장 관례"로 확정 — 프로토콜의 강제 규격으로 승격하지 않음. 다른 구현체는 "불변·전역고유"라는 성질만 지키면 다른 알고리즘 사용 가능 | `docs/protocol-tbd-roadmap.md`에서 사용자가 "당분간 TBD 유지"로 분류했던 항목을 "지금 해결하자"고 직접 지시 | 프로토콜 §4.1.2 | — |
+| TBD-0003 | Timestamp·직렬화 형식 (QMS 적용 범위) | NO | 2026-09-21 | 정렬 방식(§4.1.1, ISO8601+canonical JSON)에 이어 "전역표준 승격 여부"까지 확정 — TBD-0002와 같은 논리로 권장 관례일 뿐 강제 규격화하지 않음. 낙관적 잠금(`record_version` 증가 방식)은 참고할 QMS 구현이 없어 별개로 미결 유지 | 사용자가 "지금 해결하자" 직접 지시 | 프로토콜 §4.1.2 | — |
+| TBD-0009 | 추가 Relation Type 표준화 (QMS 적용 범위) | NO | 2026-09-21 | 현재 11종 외 추가 관계명(`changed_after`/`valid_during` 등)을 미리 만들지 않기로 확정(YAGNI) — 실제 필요 사례가 생기면 그때 추가한다는 것 자체가 최종 결론 | 사용자가 "지금 해결하자" 직접 지시 | 프로토콜 §4.3.1 | — |
+| TBD-0010 | Audit event ordering·retention 구현 (QMS 적용 범위) | NO | 2026-09-21 | 정렬(seq+해시체인)에 이어 보존기간도 확정 — "구체적 보존기간을 정하지 않고 삭제하지 않는다"가 QMS의 최종 정책. 저장소가 실제로 커지는 문제가 생기면 그건 별개의 후속 결정(콜드 아카이브 도구)이지 이 정책 자체의 재검토가 아님 | 사용자가 "지금 해결하자" 직접 지시 | 프로토콜 §15.1 | — |
 
 ## 20. Agent Capability & Model Fit
 
