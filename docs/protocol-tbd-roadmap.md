@@ -13,6 +13,14 @@
 > - TBD-0007: 권장안이 아니라 **"지금 바로 강화"**를 선택. `deploy-authorize`/`pre-push` 훅 신설로 DEPLOY도 GIT_COMMIT과 같은 수준(commit hash 결속)으로 강화, 테스트 2건 추가, 프로토콜 §7.3.1/README 문서화 완료(단 push는 네트워크 작업이라 승인을 pre-push 시점에 소비하는 한계는 문서에 명시).
 >
 > 이 상세 분석은 그 결정이 나온 근거 기록으로 그대로 보존한다. 최신 확정 내용은 `CLAUDE-CHATGPT-PROTOCOL-v1.0.0-draft.md` §19 Resolved entries를 참고할 것.
+>
+> **2026-09-21 추가 업데이트 — "② Claude/Codex가 기술안으로 먼저 작성해도 되는 항목" 4건도 사용자 승인("응") 후 전부 문서화 완료.**
+> - TBD-0004: `AI_INTERPRETATION` Record Type을 QMS 적용 사례로 확정 → 프로토콜 §6.1.
+> - TBD-0008: "자동 Merge 미구현, 항상 CONFLICT" 정책 확정 → 프로토콜 §12.2.1.
+> - TBD-0011: `register-adapter`는 게이트일 뿐 변환 엔진이 아니라고 명시(변환 형식은 여전히 미결) → 프로토콜 §17.2.
+> - TBD-0003·TBD-0010(정렬 부분만): 타임스탬프/직렬화 형식과 audit event 정렬 방식을 QMS 적용 사례로 문서화 → 프로토콜 §4.1.1/§15.1. (전역 표준 승격, 보존기간 구체 수치는 "③ 당분간 TBD 유지"로 그대로 남음)
+>
+> 전부 코드 변경 없는 순수 문서화라 quality-watcher 검증은 생략했다(CLAUDE.md 11절 예외). 이제 남은 건 "③ 당분간 TBD 유지"뿐이다: TBD-0002(ID 포맷 전역표준화), TBD-0009(추가 Relation Type), TBD-0010(보존기간 구체 수치), TBD-0011(실제 변환 포맷 설계).
 
 ## 읽기 전 지켜야 할 전제
 

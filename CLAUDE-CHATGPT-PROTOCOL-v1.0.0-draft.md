@@ -81,6 +81,12 @@ protocol_version
 - 위험도가 적용되지 않는 Record의 `risk_level`은 `NONE`을 사용한다.
 - Record의 구체적 직렬화 형식, ID 생성 규칙, 낙관적 잠금 구현 방식은 **TBD**다.
 
+### 4.1.1 QMS 적용: Timestamp·직렬화 형식 (2026-09-21, TBD-0003 — 정렬 방식 한정)
+
+IQC QMS(`.collab`)는 이미 구체적 구현을 갖고 있다: 타임스탬프는 UTC ISO8601, 초 단위(마이크로초 절삭), `Z` 접미사(`qms_audit.py`의 `now()`). 직렬화는 키 정렬(`sort_keys=True`) + 공백 없는 압축 JSON(`separators=(",",":")`, `canonical()`)이며, 이 canonical 형태를 저장·미러링뿐 아니라 해시체인 계산(무결성)에도 그대로 쓴다.
+
+**주의**: 초 단위 절삭 때문에 같은 초에 여러 이벤트가 생기면 타임스탬프만으로는 순서를 구분할 수 없다 — 그래서 QMS는 순서 보장을 타임스탬프에 맡기지 않는다(§15.1 참고). 이 형식과 canonical 직렬화 방식은 QMS의 구체적 구현 사례로 문서화하는 것이며 프로토콜 전역 표준으로 확정하는 것은 아니다. `record_id`/`message_id` 생성 규칙(TBD-0002)과 낙관적 잠금 구현(`record_version` 증가 방식)은 이 절과 별개로 여전히 미결이다.
+
 ### 4.2 개념의 엄격한 분리
 
 | 개념 | 역할 |
@@ -169,6 +175,12 @@ caused_by, result_of, verified_by, handoff_to, affects, related_to
 `CONFIDENCE`는 `knowledge_state`와 별도의 판단 보조 필드이며 `HIGH`, `MEDIUM`, `LOW`를 사용한다. 예를 들어 `INFERENCE + HIGH`는 근거가 충분한 추론일 뿐 FACT는 아니다.
 
 `EVIDENCE.verification_status`는 `UNVERIFIED`, `VERIFIED`, `CONFLICTED`를 사용한다. Evidence 내용은 원본을 보존하며 AI의 요약·해석으로 덮어쓰지 않는다. AI View/Interpretation의 독립 Record Type 또는 저장 위치는 **TBD**이나, Evidence와 분리되고 `RELATION`으로 근거를 연결해야 한다.
+
+### 6.1 QMS 적용: `AI_INTERPRETATION` Record Type (2026-09-21, TBD-0004)
+
+위 TBD는 "AI View/Interpretation을 Evidence와 분리해서 저장해야 한다"는 원칙만 정하고 구체적 Record Type 이름·필드는 열어뒀다. IQC QMS(`.collab`)는 이미 구체적 구현을 갖고 있다: `AI_INTERPRETATION`이라는 독립 Record Type을 두고 필수 필드로 `interpretation`(해석 내용), `derived_from`(근거가 된 `EVIDENCE` Record ID), `scope`를 요구하며, 항상 `based_on` Relation으로 그 `EVIDENCE`와 연결한다. `.collab/qms_audit.py`의 `cmd_workflow_result()`가 서브에이전트(planner/developer/quality-watcher 등) 결과를 기록할 때마다 EVIDENCE와 짝을 지어 자동 생성한다 — 2026-09-20~21의 두 차례 Claude workflow smoke test(TASK 5, TASK 6)에서 end-to-end로 실제 동작이 검증됐다.
+
+**이 QMS 구현을 프로토콜 전역 표준으로 승격하는 것은 아니다** — 다른 구현체(ChatGPT 등)는 같은 원칙(Evidence와 분리 + Relation 연결)만 지키면 다른 Record Type 이름이나 필드 구조를 써도 무방하다. QMS 내부에서 Codex가 별도로 interpretation류 Record를 만드는 경로가 생기면 이 `AI_INTERPRETATION` 타입명·필드를 그대로 재사용할 것을 권장한다(형식 드리프트 방지).
 
 ## 7. Risk, Permission, Approval
 
@@ -358,6 +370,12 @@ RULE, DECISION, PERMISSION_PROFILE, DB_DATA
 
 중요 데이터의 변경은 비교 후 필요한 경우 `USER_DECISION_REQUIRED`로 올린다. 모든 Merge는 검증 전 완료로 취급하지 않는다.
 
+### 12.2.1 QMS 적용: 자동 Merge를 구현하지 않는다 (2026-09-21, TBD-0008)
+
+위 "일반 데이터는 자동 Merge할 수 있다"는 프로토콜의 일반 옵션으로 남겨둔다. IQC QMS(`.collab`)는 **이 옵션을 아예 쓰지 않기로 확정했다** — RULE/DECISION/PERMISSION_PROFILE/DB_DATA뿐 아니라 **모든 Record Type**에 대해 자동 Merge 코드가 어디에도 없다. 버전 충돌이 감지되면 예외 없이 `CONFLICT` knowledge_state의 `ISSUE` Record(`next_action: USER_DECISION_REQUIRED`)로 귀결된다(`.collab/qms_audit.py`의 `relate`/`conflict` 명령).
+
+이 선택이 안전한 이유는 QMS의 모든 쓰기가 `qms_audit.py`의 파일 잠금(`with lock():`)으로 이미 직렬화돼 있어, 프로토콜이 상정하는 "동시에 다른 필드를 고친 두 변경" 같은 상황 자체가 현재 구조상 거의 발생하지 않기 때문이다. 즉 지금 QMS에는 병합 로직을 만들 실질적 필요가 없다(YAGNI) — 다른 구현체가 실제 동시-편집 필요가 있어 필드 단위 자동 Merge를 구현하는 것을 막지 않는다.
+
 ### 12.3 Evidence 충돌과 시간 변화
 
 동일 대상의 기록 차이는 먼저 대상·시점·조건/범위·출처·원본 Evidence·검증 상태를 비교한다.
@@ -436,6 +454,12 @@ AUDIT_EVENT
 
 성공뿐 아니라 권한·승인·위험 검사로 차단된 시도도 기록한다. 로그는 “누가, 언제, 무엇을, 어떤 권한·승인 상태로 시도했고 어떤 결과가 났는가”를 재구성할 수 있어야 한다. `event_id` 형식, 시간 정렬·보존 구현은 **TBD**다.
 
+### 15.1 QMS 적용: 정렬은 해결됨, 보존은 여전히 미결 (2026-09-21, TBD-0010 — 정렬 부분 한정)
+
+**정렬**: IQC QMS(`.collab`)는 타임스탬프가 아니라 SQLite의 단조증가 `seq` 컬럼 + SHA-256 해시체인(각 이벤트가 직전 이벤트의 해시를 포함)으로 순서를 보장한다. `verify` 명령이 이 체인을 매번 검증해 재정렬·변조를 잡아낸다. §4.1.1에서 언급한 타임스탬프 초단위 절삭 문제는 이 방식 덕분에 실제 순서 보장에 영향을 주지 않는다.
+
+**보존(retention)**: 여전히 미결이다. QMS는 현재 어떤 보존기간·삭제 정책도 구현하지 않았다 — 모든 이벤트를 SQLite와 Git 추적 JSONL 미러 양쪽에 영구 보관한다. 이건 QMS가 다른 감사성 기록(iqc-app의 `activity_log` 등)에 이미 적용해온 "감사 기록은 삭제하지 않는다"는 원칙과 일치하는 잠정 입장이며, 구체적 보존기간·콜드 아카이브 방식을 정한 것은 아니다 — 저장소 크기가 실제 문제가 될 때 재검토한다.
+
 ## 16. Resource / Token Management
 
 AI는 Token, Time, Compute, Cost, Tool Limit을 지속적으로 고려한다. 자원 부족은 실패가 아니라 정상적인 Handoff 사유다.
@@ -473,6 +497,12 @@ MAJOR.MINOR.PATCH
 
 MAJOR 변경은 반드시 사용자 결정이 필요하다. 구체적인 compatibility adapter 형식은 **TBD**다.
 
+### 17.2 QMS 적용: `register-adapter`는 게이트이지 변환 엔진이 아니다 (2026-09-21, TBD-0011)
+
+IQC QMS(`.collab`)에는 이미 `register-adapter` 명령과 append-only `protocol_adapters` 테이블이 있다. 다만 이건 **"버전이 다른 Envelope를 거부하지 않고 허용목록에 등록"하는 게이트일 뿐**이다 — `validate_envelope()`가 `protocol_version`이 현재 버전과 다르면 등록된 adapter가 없는 한 무조건 거부한다. **실제로 옛 구조의 payload를 새 구조로 변환하는 코드는 어디에도 없다.** 프로토콜이 아직 한 번도 1.0.0을 벗어난 적이 없어 이 메커니즘이 진짜 버전 전환에 쓰인 적도 없다.
+
+TBD-0011이 묻는 "compatibility adapter 형식"이 이 게이트 자체를 뜻하는 거라면 그 부분은 QMS 구현으로 확인됐지만, "옛 Record를 새 구조로 실제 변환하는 형식"은 여전히 미결로 남겨둔다 — 실제 MAJOR 버전 전환 사례가 하나도 없는 상태에서 추상적으로 변환 형식을 설계하면 틀릴 위험이 크다고 판단했기 때문이다. 첫 MAJOR 버전이 실제로 제안될 때 이 부분을 다시 열어 그 구체적 전환 필요에 맞춰 결정한다.
+
 ## 18. Common Reporting Standard
 
 작업 결과와 판단 보고는 사실과 해석을 분리해 최소한 다음을 포함한다.
@@ -499,15 +529,15 @@ NEXT_ACTION
 |---|---|---|---|---|
 | TBD-0001 | Archive Storage Backend | RESOLVED | YES — 확정일 2026-09-20 | → Resolved entries 참조 |
 | TBD-0002 | Record와 Message ID 형식 | TBD | NO | 불변·전역 고유성 원칙만 확정 |
-| TBD-0003 | Timestamp·직렬화 형식 | TBD | NO | Envelope/Record의 표준 표현 미정 |
-| TBD-0004 | AI Interpretation의 독립 Record Type/저장 위치 | TBD | YES | Evidence와 분리·Relation 연결 원칙만 확정 |
+| TBD-0003 | Timestamp·직렬화 형식 | TBD | NO | 정렬 방식은 §4.1.1에서 QMS 적용 사례로 문서화(2026-09-21). 전역 표준 승격은 여전히 미결 |
+| TBD-0004 | AI Interpretation의 독립 Record Type/저장 위치 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 다른 구현체의 Record Type 이름·구조 자유는 유지 |
 | TBD-0005 | 전체 Record별 status enum 및 공통 lifecycle | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 다른 Record Type의 일반 enum은 여전히 TBD |
 | TBD-0006 | Operation Registry의 전체 목록·Agent별 allowed_agents/conditions | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. Registry 자체의 전역 표준화는 여전히 TBD |
 | TBD-0007 | `UPDATE_STATE`의 조건부 승인 및 `GIT_COMMIT` 정책 세부 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. DEPLOY도 같이 다뤘다(원 Topic 범위 확장) |
-| TBD-0008 | Merge 구현 알고리즘·필드 비교 정밀도 | TBD | YES | 허용/금지 원칙은 확정 |
+| TBD-0008 | Merge 구현 알고리즘·필드 비교 정밀도 | RESOLVED (QMS 적용 범위) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 필드 단위 자동 Merge를 실제로 구현하는 것 자체는 다른 구현체에 여전히 열려 있음 |
 | TBD-0009 | 추가 Relation Type 표준화 | TBD | NO | 현재 합의 목록 외 관계명 미정 |
-| TBD-0010 | Audit event ordering·retention 구현 | TBD | NO | append-only·필수 의미만 확정 |
-| TBD-0011 | Protocol compatibility adapter/migration 형식 | TBD | YES | 과거 기록 불변 원칙만 확정 |
+| TBD-0010 | Audit event ordering·retention 구현 | TBD | NO | 정렬은 §15.1에서 QMS 적용 사례로 RESOLVED 문서화(2026-09-21, seq+해시체인). 보존기간·콜드 아카이브 방식은 여전히 미결 |
+| TBD-0011 | Protocol compatibility adapter/migration 형식 | RESOLVED (QMS 적용 범위, 게이트 부분만) | YES — 확정일 2026-09-21 | → Resolved entries 참조. 실제 payload 변환 형식은 첫 MAJOR 버전 제안 시까지 여전히 미결 |
 
 `Status`는 이 §19 Registry 내부에서만 사용하는 항목 상태값이다: `TBD`(미결) / `RESOLVED`(해결됨).
 프로토콜 공통 Record status를 새로 정의하지 않는다.
@@ -523,6 +553,9 @@ TBD Registry에 등록됐다가 이후 확정된 항목이다.
 | TBD-0005 | 전체 Record별 status enum 및 공통 lifecycle (QMS 적용 범위) | YES | 2026-09-21 | QMS의 `ISSUE`는 append-only로 확정: status는 항상 `ACTIVE`, 해소는 별도 `STATE` Record로 표현(status enum으로 직접 전이하지 않음). `TASK`(IN_PROGRESS/PARTIAL/COMPLETED)·`REQUEST`(기존 제안과 일치 확인)는 이미 쓰던 대로 유지, 그 외 Record Type은 `ACTIVE`/`SUPERSEDED` 외 추가 lifecycle 없이 유지. 일반 프로토콜의 전체 status enum(§5.1)은 여전히 미결 | `docs/protocol-tbd-roadmap.md`의 TBD-0005 분석에서 발견한 코드 내 불일치(OPEN vs ACTIVE 두 관행 혼재)를 근거로 사용자가 직접 결정 | 프로토콜 §5.1.1, `.collab/README.md`("ISSUE는 append-only다"), `.collab/qms_audit.py`(merge-conflict ISSUE 생성부 `status="OPEN"`→`"ACTIVE"` 수정) | — |
 | TBD-0006 | Operation Registry의 전체 목록·Agent별 allowed_agents/conditions (QMS 적용 범위) | YES | 2026-09-21 | QMS는 Operation Registry와 workflow 전용 인가 레인을 통합하지 않고 의도적으로 분리 유지하기로 확정 — 문서화만 하고 리팩터링은 하지 않음. Registry의 `allowed_agents`/`conditions` 전체 목록 자체는 여전히 미완성(TBD) | `docs/protocol-tbd-roadmap.md`의 TBD-0006 분석(두 레인이 문서화 없이 갈라져 있던 걸 발견 — CLAUDE.md 20절의 `_can_make_final_decision()` 사고와 같은 유형의 리스크로 판단)을 근거로 사용자가 직접 결정 | 프로토콜 §8.1, `.collab/README.md`("인가 경로는 두 갈래다") | — |
 | TBD-0007 | `UPDATE_STATE`의 조건부 승인 및 `GIT_COMMIT` 정책 세부 (QMS 적용 범위, DEPLOY로 확장) | YES | 2026-09-21 | GIT_COMMIT의 staged-diff manifest 결속 방식을 문서화하고, 같은 조사에서 발견한 "DEPLOY 승인이 GIT_COMMIT보다 약함" 격차를 사용자가 즉시 강화하기로 결정 — `deploy-authorize`+`pre-push` 훅으로 배포 대상 commit hash에 1회성 승인을 결속(단, push는 네트워크 작업이라 GIT_COMMIT과 달리 승인을 사후-성공 확인 없이 pre-push 시점에 소비하는 한계가 있음, 문서에 명시). UPDATE_STATE는 "인가된 workflow run 안에서만 자동 허용"으로 현재 동작을 문서화만 함(추가 게이트 신설 안 함) | 사용자가 `docs/protocol-tbd-roadmap.md` 제시 후 "지금 바로 강화" 선택 | 프로토콜 §7.3.1, `.collab/README.md`("Deploy boundary"), `.collab/qms_audit.py`(`deploy-authorize`/`deploy_authorization()`/`preflight()` DEPLOY 분기), `.collab/hooks/pre-push`(신규), `.collab/hooks/install-post-commit-hook.ps1`(pre-push 설치 추가), `.collab/tests/test_qms_audit.py`(신규 테스트 2건) | — |
+| TBD-0004 | AI Interpretation의 독립 Record Type/저장 위치 (QMS 적용 범위) | YES | 2026-09-21 | QMS는 `AI_INTERPRETATION` Record Type(필드: `interpretation`/`derived_from`/`scope`, `based_on` Relation으로 EVIDENCE와 연결)을 이미 구현·검증(TASK 5·6 smoke test)됐던 것으로 확정 — 다른 구현체는 같은 원칙만 지키면 다른 이름·구조를 써도 무방 | 사용자가 `docs/protocol-tbd-roadmap.md`의 "기술안 먼저 작성 가능" 항목 승인("응") | 프로토콜 §6.1, `.collab/qms_audit.py`(`cmd_workflow_result()`) | — |
+| TBD-0008 | Merge 구현 알고리즘·필드 비교 정밀도 (QMS 적용 범위) | YES | 2026-09-21 | QMS는 자동 Merge를 어떤 Record Type에도 구현하지 않고, 모든 버전 충돌을 `CONFLICT`+`USER_DECISION_REQUIRED`로 처리하기로 확정 — file lock이 동시쓰기 자체를 직렬화하므로 안전하다고 판단 | 사용자가 `docs/protocol-tbd-roadmap.md`의 "기술안 먼저 작성 가능" 항목 승인("응") | 프로토콜 §12.2.1 | — |
+| TBD-0011 | Protocol compatibility adapter/migration 형식 (QMS 적용 범위, 게이트 부분만) | YES | 2026-09-21 | QMS의 `register-adapter`는 버전 불일치 Envelope를 거부하지 않게 허용목록에 등록하는 "게이트"일 뿐, 실제 payload 변환 로직은 없다는 것을 확정 — 실제 변환 형식 설계는 첫 MAJOR 버전 제안이 나올 때까지 의도적으로 미룸(추상 설계는 틀릴 위험이 크다고 판단) | 사용자가 `docs/protocol-tbd-roadmap.md`의 "기술안 먼저 작성 가능" 항목 승인("응") | 프로토콜 §17.2 | — |
 
 ## 20. Agent Capability & Model Fit
 
