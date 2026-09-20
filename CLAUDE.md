@@ -911,10 +911,18 @@ AQL·PPM·Cpk·Cp·NCR·4M·로트·특채 등 **약어나 품질 용어가 나�
 
 **대개편·구조 변경 시 planner 스폰 규칙 (2026-09-20)**: 신기능 대거 추가, 화면 전반
 개편, DB 스키마 변경 등 구조적 변경이 포함된 요청에서 planner를 스폰할 때는 프롬프트에
-`docs/archive/` 폴더의 최신 `bootstrap-*.md` 경로를 명시적으로 포함해 읽게 해야 한다 —
-프로토콜 확정 결정 이력(TBD 해결 내용, CONFLICT 해결 내용)을 모르면 이미 확정된 설계를
-다시 논쟁하거나 어긋난 방향으로 스펙을 짤 수 있다. developer 스폰 프롬프트에도 planner가
-"bootstrap 참고"를 명시했으면 같이 포함한다.
+.collab/README.md와 `.collab/events/`의 최신 Record/Evidence를 명시적으로 포함해 읽게 해야 한다 —
+현재 협업 결정·검토·감사·인계 이력을 모르면 이미 확정된 설계를 다시 논쟁하거나 어긋난 방향으로
+스펙을 짤 수 있다. 과거 결정의 원문이 필요할 때는 `docs/archive/`의 역사 자료를 추가로 지정한다.
+developer 스폰 프롬프트에도 planner가 "협업 기록 참고"를 명시했으면 같이 포함한다.
+
+**.collab 워크플로우 연결 (2026-09-20)**: 사용자가 터미널 또는 대화에서 Claude 또는 Codex 중 한 메인 에이전트에게 기능·화면·동작 변경을 직접 지시하면, 지시받은 actor만 기존 `planner → developer → (필요 시 designer) → quality-watcher` 순서를 바꾸지 않고 `.collab/qms-audit.ps1` 워크플로우로 이력을 묶는다. 지시받은 메인 actor는 해당 사용자 지시가 확인된 직후 `workflow-authorize --actor <claude|codex> --scope ... --user-request ...`를 자동 실행해 1회성 `WORKFLOW_AUTHORIZATION` DECISION을 남기고, 그 Record를 `workflow-start --actor ... --authorization-record ...`에 지정한다. 이 Record는 사용자 직접 지시의 운영상 근거이며 입력자를 기술적으로 증명하지 않는다. Claude·Codex·서브에이전트는 사용자 직접 지시 없이 자신을 위해 승인 Record를 만들거나 사용자 지시를 추정해서는 안 된다. actor·scope·사용자 지시가 정확히 일치하고 아직 사용되지 않은 v2 직접 지시 승인만 시작할 수 있다. v1 secret 기반 승인은 역사 보존만 하며 새 시작에는 사용할 수 없다. 이 과정은 다른 actor의 기록을 읽고 인계·검토하는 것을 허용하지만, 기록만으로 자동 작업을 시작하게 하지는 않는다.
+
+시작 시 `TASK_ID`와 기준 범위·필수 역할·시각/E2E 검증 여부를 기록한다. 역할마다 `workflow-dispatch`가 출력한 `ARCHIVE_CONTEXT`를 위임 프롬프트에 그대로 포함한다. `RUN_ID`는 포함하되 capability token은 절대 포함하지 않는다. 서브에이전트는 CLI를 직접 쓰지 않고 `ARCHIVE_RESULT` 최종 보고만 내며, 지시받은 메인 actor가 `workflow-result`로 한 번만 수집한다. 역할별 dispatch와 각 REQUEST 결과도 task/run 안에서 한 번만 기록된다. 모든 필수 결과 뒤에만 `workflow-finalize`를 실행한다.
+
+`workflow-finalize`는 planner/developer/quality-watcher 등 시작 시 정한 필수 역할 결과, quality-watcher PASS, 시각 변경의 실제 렌더링 근거, 필요 시 end-to-end 근거를 확인한다. 하나라도 없거나 FAIL 결과·활성 ISSUE·PARTIAL/UNKNOWN 근거가 있으면 `COMPLETED`를 만들지 않고 `PARTIAL` STATE와 차단 근거를 남긴다. ISSUE 해소는 원본 ISSUE를 수정하지 않고 현재 TASK 범위의 별도 STATE에 `issue_record_id`, `issue_resolution`, 해결 Evidence를 연결해 남긴다. 이후 세션 재개가 필요하면 기존 HANDOFF 절차로 인계한다.
+
+이 연결부는 Claude와 Codex에 `.collab workflow orchestration only` 범위의 기록 종합 권한만 부여한다. 시작 시 UUID `RUN_ID`를 발급하고, 런타임 SQLite에는 capability token의 해시만 저장한다. 원문 token은 `workflow-start` 출력 뒤 해당 메인 세션의 비밀 문맥 또는 환경에만 보관한다. 후속 명령은 task·run·runner·token·활성 작업 상태를 검사한다. 이 token은 운영 문맥을 구분하는 최소 보호이며 OS 차원의 서브에이전트 프로세스 신원을 증명하지 않는다. 따라서 token을 어떤 서브에이전트 프롬프트·보고·파일에도 전달하지 않는다. QMS 파일·DB 변경은 사용자 직접 작업 지시 및 작업별 승인 범위로만 가능하며, commit·deploy는 항상 각각의 별도 사용자 지시와 승인 Record가 필요하다. 사용자 터미널의 일반 `run` 기록 동작은 그대로 유지한다.
 
 **개발-디자인 경계**: developer는 기능이 동작하는 최소 마크업까지만 작성하고 시각적
 스타일은 임의로 꾸미지 않는다. designer는 CSS·레이아웃·타이포그래피만 수정하고

@@ -1,0 +1,3 @@
+# Python test bytecode is transient and must not enter the QMS archive.
+__pycache__/
+*.py[cod]

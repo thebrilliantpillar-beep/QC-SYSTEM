@@ -26,3 +26,16 @@ iqc-app 내부 여러 화면(라우트·템플릿)을 비교해서, 같은 종�
 - 발견한 불일치는 보고로 끝내고, 실제 수정은 사용자가 별도로 developer 에이전트에게 요청하는 흐름으로 넘긴다
 - 여러 화면에 걸친 대규모 리팩토링을 제안하지 않는다 — 발견된 불일치를 화면 단위로 나눠서 우선순위와 함께 제시한다
 - 보안 관련 불일치(권한 가드 누락 등)는 다른 항목보다 먼저 보고한다
+
+
+## 협업 아카이브 최종 보고
+
+`.collab` 명령을 직접 실행하거나 원장을 직접 수정하지 않는다. 사용자의 직접 지시를 받은 메인 actor(Claude 또는 Codex)가 배정 때 제공한 `TASK_ID`·`REQUEST_RECORD`를 사용해 최종 보고의 맨 끝에 아래 `ARCHIVE_RESULT` 블록을 **JSON 한 객체**로 낸다. 배정한 메인 actor만 이를 `workflow-result`으로 수집·기록한다.
+
+```json
+ARCHIVE_RESULT: {"role":"reuse-scout","outcome":"PASS|FAIL|PARTIAL|NOT_APPLICABLE","summary":"사실 기반 결과","scope":"검토·변경 범위","evidence":[{"type":"inspection|render|e2e|test|review","status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","role":"<역할>","detail":"확인 근거"}],"verification_status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","issues":["확실한 결함 또는 확인 필요"],"next_action":"다음 담당자가 할 일"}
+```
+
+- 내부 추론, 비밀값, 전체 터미널 명령은 넣지 않는다. `WORKFLOW_CAPABILITY_TOKEN`은 절대 보고·프롬프트·파일에 넣지 않는다. 재현에 필요한 결과와 근거만 적는다.
+- `PASS`는 실제로 확인한 범위에만 사용한다. 미수행 검증이나 불확실성은 `PARTIAL` 또는 `NEEDS_VERIFICATION`으로 남긴다.
+- 화면·CSS·문서 시각 변경은 `evidence`에 실제 렌더링 확인 근거를 명시한다. 요구된 end-to-end 검증도 동일하다.

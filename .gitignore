@@ -40,3 +40,8 @@ temp/
 
 # Claude Code 세션 (launch.json은 유지)
 .claude/projects/
+# QMS collaboration runtime (events JSONL remains versioned)
+.collab/runtime/audit.sqlite3
+.collab/runtime/audit.sqlite3-shm
+.collab/runtime/audit.sqlite3-wal
+.collab/runtime/.lock

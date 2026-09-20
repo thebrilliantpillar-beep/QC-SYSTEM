@@ -1,0 +1,15 @@
+#!/bin/sh
+# QMS collaboration pre-commit boundary. This enforces a recorded approval
+# before Git creates a commit; post-commit only observes a commit already made.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -f "$ROOT/.collab/qms_audit.py" ] || exit 0
+if [ "${QMS_AUDIT_GIT_APPROVAL:-}" != "APPROVED" ] || [ -z "${QMS_AUDIT_GIT_APPROVAL_RECORD:-}" ]; then
+  echo "QMS commit blocked: a direct-user GIT_COMMIT_AUTHORIZATION Record is required." >&2
+  exit 1
+fi
+MANIFEST=$(python "$ROOT/.collab/qms_audit.py" staged-manifest 2>/dev/null | sed -n 's/^STAGED_MANIFEST=//p')
+if [ -z "$MANIFEST" ]; then
+  echo "QMS commit blocked: staged manifest could not be calculated." >&2
+  exit 1
+fi
+python "$ROOT/.collab/qms_audit.py" preflight --actor "${QMS_AUDIT_ACTOR:-user}" --operation GIT_COMMIT --approval APPROVED --approval-record "$QMS_AUDIT_GIT_APPROVAL_RECORD" --staged-manifest "$MANIFEST" --scope "git pre-commit staged manifest" >/dev/null || exit 1

@@ -1,0 +1,12 @@
+#!/bin/sh
+# QMS collaboration audit hook (observation only). It never grants approval and never breaks an already-created commit.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+ORIGINAL="$ROOT/.git/hooks/post-commit.qms-original"
+if [ -f "$ORIGINAL" ]; then sh "$ORIGINAL" || true; fi
+[ -f "$ROOT/.collab/qms_audit.py" ] || exit 0
+COMMIT=$(git rev-parse HEAD 2>/dev/null) || exit 0
+if ! python "$ROOT/.collab/qms_audit.py" record-git-commit --actor "${QMS_AUDIT_ACTOR:-user}" --commit "$COMMIT" --approval-record "${QMS_AUDIT_GIT_APPROVAL_RECORD:-}" >/dev/null 2>&1; then
+  DIR="$ROOT/.collab/outbox/postcommit-failures"
+  mkdir -p "$DIR" || exit 0
+  printf '{"commit":"%s","observed_at":"%s","reason":"record-git-commit or approval consume failed"}\n' "$COMMIT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DIR/$COMMIT.json" || true
+fi

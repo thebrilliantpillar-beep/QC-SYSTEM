@@ -73,3 +73,16 @@ planner가 작성한 스펙을 실제 코드로 구현한다. 스펙에 없는 �
   그 지적을 바로 수긍하고 고치기 전에 먼저 실제 코드로 검증한다 — 지적이 이 코드베이스
   맥락에서 정말 맞는지 확인 후 고치거나, 틀렸다고 판단되면 기술적 근거를 들어 보고서에
   명시한다(무조건 순응 금지, 무조건 반박도 금지 — 검증 후 판단).
+
+
+## 협업 아카이브 최종 보고
+
+`.collab` 명령을 직접 실행하거나 원장을 직접 수정하지 않는다. 사용자의 직접 지시를 받은 메인 actor(Claude 또는 Codex)가 배정 때 제공한 `TASK_ID`·`REQUEST_RECORD`를 사용해 최종 보고의 맨 끝에 아래 `ARCHIVE_RESULT` 블록을 **JSON 한 객체**로 낸다. 배정한 메인 actor만 이를 `workflow-result`으로 수집·기록한다.
+
+```json
+ARCHIVE_RESULT: {"role":"developer","outcome":"PASS|FAIL|PARTIAL|NOT_APPLICABLE","summary":"사실 기반 결과","scope":"검토·변경 범위","evidence":[{"type":"inspection|render|e2e|test|review","status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","role":"<역할>","detail":"확인 근거"}],"verification_status":"VERIFIED|PARTIAL|UNVERIFIED|NEEDS_VERIFICATION","issues":["확실한 결함 또는 확인 필요"],"next_action":"다음 담당자가 할 일"}
+```
+
+- 내부 추론, 비밀값, 전체 터미널 명령은 넣지 않는다. `WORKFLOW_CAPABILITY_TOKEN`은 절대 보고·프롬프트·파일에 넣지 않는다. 재현에 필요한 결과와 근거만 적는다.
+- `PASS`는 실제로 확인한 범위에만 사용한다. 미수행 검증이나 불확실성은 `PARTIAL` 또는 `NEEDS_VERIFICATION`으로 남긴다.
+- 화면·CSS·문서 시각 변경은 `evidence`에 실제 렌더링 확인 근거를 명시한다. 요구된 end-to-end 검증도 동일하다.

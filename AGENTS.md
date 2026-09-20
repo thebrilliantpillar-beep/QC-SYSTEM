@@ -11,53 +11,60 @@
 
 ## CODEX 협업 프로토콜
 
-### P-1. Codex의 기본 역할
+### P-1. Claude·Codex의 기본 역할과 사용자 직접 지시
 
-Claude Code(메인 에이전트)가 이 프로젝트의 주 개발 담당이다.
+Claude Code는 이 프로젝트의 주 개발 담당이다. Codex와 Claude 모두 **사용자가 해당 메인 에이전트에게 직접 지시한 작업**만 시작할 수 있다. 두 에이전트는 `.collab`의 관련 TASK·Evidence·Review·Handoff를 서로 읽고 이어서 검토할 수 있다.
 
 | 모드 | 조건 | 가능한 것 |
 |---|---|---|
-| **기본** | 항상 | 읽기 전용 조사, 보고, 질문 |
-| **대체** | Emergency Handoff 존재 + 사용자 명시적 승인 | 파일 수정, commit |
+| 기본 | 사용자 직접 지시 없음 | 읽기 전용 조사, 보고, 질문 |
+| 사용자 직접 작업 | 해당 actor가 사용자 직접 지시를 받은 뒤 자동 기록한 1회성 `WORKFLOW_AUTHORIZATION` DECISION + 파일 범위 일치 | 해당 범위 파일 수정·테스트·서브에이전트 작업 종합·`.collab` 기록 |
+| 긴급 인계 | Emergency Handoff + 사용자 명시 승인 | 인계 범위의 조사·수정·테스트·기록 |
+| commit / deploy | 위 작업 권한과 별개로, 각각 사용자 명시 지시와 해당 승인 Record | 해당 한 번의 commit 또는 deploy |
+
+선제 작업, 사용자 지시를 다른 actor의 지시로 간주하는 일, 기록만을 근거로 한 자동 재개는 금지한다.
 
 ### P-2. PERMISSION_PROFILE
 
 ```yaml
 filesystem_access:
-  iqc_app:   read_only   # C:\Users\Jaiden\Desktop\iqc-app
+  iqc_app:
+    default: read_only
+    direct_user_task: matching_workflow_authorization_scope_only
   elevation: 작업별 명시적 사용자 승인 필요
 
 git_commit:
-  iqc_app:          filesystem_scope_으로_차단
-  elevation_후:     사용자_승인_여전히_필요
+  iqc_app: 사용자_직접_commit_지시_및_승인_Record_없이는_차단
 
-destructive_git_hook:
-  status: UNKNOWN
-  note: >
-    Claude Code의 git-guardrail.py 훅(reset --hard / push --force /
-    clean -f / checkout . / branch -D 차단)은 ai-sidekick-handoff.md
-    3-6절에서 확인됨. Codex 전용 동급 훅은 미구현 — 지침으로만 작동.
+deploy:
+  iqc_app: 사용자_직접_deploy_지시_및_승인_Record_없이는_차단
+
+workflow_orchestration:
+  actors: [claude, codex]
+  condition: 해당_actor가_직접_받은_사용자_지시를_자동_기록한_일회성_WORKFLOW_AUTHORIZATION_DECISION
+  scope: .collab_workflow_orchestration_only
+  note: 자동화는 .collab 기록 종합 권한만 부여하며, QMS 파일 수정·테스트는 P-1/P-3의 사용자 직접 지시와 일치하는 승인 범위에서 별도로 발생함. commit·deploy는 별도 사용자 지시와 승인 Record가 필요함
 
 emergency_handoff_signal:
-  file:      docs/EMERGENCY_HANDOFF.md   # 고정 경로
+  file: docs/EMERGENCY_HANDOFF.md
   condition: 파일_존재 AND 사용자_명시적_승인
-  absent:    Codex_선제_개입_금지
+  absent: Codex_선제_개입_금지
 ```
 
-### P-3. Codex 대체 commit의 3가지 필수 조건
+### P-3. Codex 작업·commit 경계
 
-아래 **세 조건을 모두** 만족해야 Codex가 파일 수정·commit을 시도할 수 있다:
+Codex가 사용자의 직접 작업 지시로 QMS 파일을 수정·테스트하려면 다음이 모두 필요하다.
 
-1. `docs/EMERGENCY_HANDOFF.md`가 존재하고 Claude가 명시적으로 남긴 것이어야 함
-2. 사용자가 이 세션에서 Codex 대체 commit을 **명시적으로 승인**함
+1. 사용자가 이 세션에서 Codex에게 해당 작업을 직접 지시함
+2. Codex가 해당 사용자 직접 지시를 받은 뒤 `.collab`에 자동 기록한, Codex·작업 범위·사용자 지시와 일치하는 미사용 `WORKFLOW_AUTHORIZATION` DECISION Record가 있음
 3. Codex 실행 환경의 filesystem 권한이 해당 경로의 쓰기를 허용함
 
-셋 중 하나라도 빠지면 Codex는 **관찰·보고만** 하고 변경하지 않는다.
+commit·deploy는 위 조건으로 허용되지 않는다. 각각 사용자의 별도 명시 지시와 해당 승인 Record가 필요하다. Emergency Handoff로 대체 작업을 하는 경우에도 commit·deploy의 별도 경계는 같다.
 
 ### P-4. EMERGENCY_HANDOFF.md 형식
 
 파일 없음 = 정상 상태. Claude가 중단 직전에만 남기며, 매 중단마다 덮어쓴다.
-덮어쓰기 전에 기존 파일이 있으면 `docs/archive/handoff-<HANDOFF_ID>.md`로 먼저 복사해 이력을 보존한다.
+덮어쓰기 전에 기존 파일이 있으면 `.collab/handoffs/handoff-<HANDOFF_ID>.md`로 먼저 복사해 이력을 보존하고, 표준 기록 도구로 `HANDOFF`·`CHANGE`·`AUDIT_EVENT`를 남긴다. `docs/archive/`의 기존 파일은 역사 보존용 레거시 자료이며 삭제하거나 이동하지 않는다.
 
 ```markdown
 # EMERGENCY HANDOFF
@@ -97,10 +104,10 @@ emergency_handoff_signal:
 
 | 에이전트 | 상황 | 읽어야 하는 것 |
 |---|---|---|
-| 모든 에이전트 | 항상 | `PROGRESS.md` 최상단 |
-| planner | 구조 변경·신기능·대개편 요청 시 | `docs/archive/` 최신 `bootstrap-*.md` |
-| developer | planner 스펙에 "bootstrap 참고" 명시된 경우 | `docs/archive/` 최신 `bootstrap-*.md` |
-| quality-watcher / designer / reuse-scout | — | 불필요 |
+| 모든 메인·서브에이전트 | 작업을 수락하거나 인계받을 때 | `PROGRESS.md` 최상단, `.collab/README.md`, 현재 TASK 범위의 다른 actor 기록·Evidence·Review·Handoff |
+| planner | 구조 변경·신기능·대개편 요청 시 | 위 자료와 `.collab/events/` 최신 관련 기록, 필요한 기존 `docs/archive/` 역사 자료 |
+| developer | planner 스펙에 "협업 기록 참고" 명시된 경우 | planner가 지정한 `.collab/` Record/Evidence 및 필요한 기존 `docs/archive/` 역사 자료 |
+| quality-watcher / designer / reuse-scout | 위임받은 TASK가 있는 경우 | `ARCHIVE_CONTEXT`의 TASK·REQUEST·직전 결과 Record와 관련 Evidence |
 
 #### Codex 전용 추가 확인
 
@@ -111,9 +118,9 @@ Emergency Handoff 유무와 무관하게:
 3. `PROGRESS.md` 최상단 항목 — 가장 최근 완료 작업
 4. `docs/EMERGENCY_HANDOFF.md` 존재 여부
 
-**긴급 대체 모드(P-3 조건 충족 시)에만 추가로 읽는 것:**
+**긴급 대체 모드 또는 사용자 직접 작업의 자동 기록 후에만 추가로 읽는 것:**
 
-5. `docs/archive/` 폴더의 최신 `bootstrap-*.md` — 프로토콜 확정 결정 이력
+5. `.collab/README.md`, `.collab/events/`의 최신 관련 Record/Evidence 및 `.collab/handoffs/` 최신 Handoff — 현재 협업·인계 이력. 과거 결정의 원문이 필요할 때만 `docs/archive/` 역사 자료를 추가로 확인
 
 ### P-6. 이 프로젝트에서 절대 하면 안 되는 것
 

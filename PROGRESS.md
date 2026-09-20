@@ -8,6 +8,21 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-20 (협업 아카이브 대칭화)**: 사용자 직접 지시를 받은 Claude 또는 Codex가 동일한 `.collab` workflow를 시작하도록 보완. 지시받은 메인 actor가 사용자 직접 지시를 자동 기록하는 작업별 1회성 `WORKFLOW_AUTHORIZATION` DECISION, actor·scope·요청·run·token 검증, 역할 배정·결과의 1회 기록, 상대 actor 기록 읽기 규칙을 추가했다. workflow는 QMS 파일 수정·테스트의 작업 범위 기록만 다루며, commit·deploy는 여전히 각각 사용자 직접 지시와 승인 Record가 필요하다. 미커밋 상태.
+
+- **2026-09-20**: 8d7f63e(출고 엑셀 15열 확장) quality-watcher 재검증 → HIGH 결함 1건 발견해
+  즉시 수정 (커밋 02da686). `outbound_item_check_update`가 field/value를 각각만 검증하고
+  조합은 안 봐서 check_cable 외 필드에 "해당없음", check_cable에 "특채"가 API 직접호출로
+  저장될 수 있었음 — `database.py`에 `OUTBOUND_FIELD_ALLOWED_VALUES`(필드별 허용값) 신설.
+
+- **2026-09-20**: 출고 엑셀 서식 15열 확장 + 검사항목 9개로 업데이트 (커밋 8d7f63e).
+  스티커·도장·케이블타이·INDICATOR 4개 신규 항목, 케이블타이는 PASS/FAIL/해당없음 3종.
+  DB ALTER TABLE 자동 추가, 출고 스캔 UI, 엑셀 Row6 기준 설명 행 포함.
+
+- **2026-09-20 (아카이브 이관 결정)**: 사용자가 Emergency Handoff를 포함한 QMS 협업 기록 저장소를
+  `.collab/`으로 통합하도록 결정. `docs/archive/`의 bootstrap 등 기존 기록은 삭제·이동하지 않고
+  역사 자료로 보존. 적용 근거와 범위는 `docs/archive/CHANGE-20260920-archive-backend-migration.md` 참조.
+
 - **2026-09-20 (추가)**: TBD-0001 확정(`docs/archive/` 폴더) + CONFLICT-0001 해결(P-4 archive
   복사 규칙 추가) + AGENTS.md 구버전 오류 4건 수정(자동차 부품 표기, NCR 게이트, AQL 줄수).
   Bootstrap Record 생성: `docs/archive/bootstrap-20260920.md`.

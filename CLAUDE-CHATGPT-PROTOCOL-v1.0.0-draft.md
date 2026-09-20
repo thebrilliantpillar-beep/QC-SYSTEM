@@ -306,7 +306,19 @@ CONTINUE_SAFE_WORK → CONNECTION_RESTORED → SYNC → CONFLICT_CHECK → VERIF
 - File은 Persistent Representation이다: Git, 사람 검토, 백업, 개발 환경 연동, 원본 Evidence 보존.
 - 같은 `record_id`의 DB와 File은 서로 독립된 진실 원천이 아니라 동일 Record의 서로 다른 저장 표현이다.
 
-구체적인 DB, 파일 형식, 동기화 주기 및 adapter 구현은 **TBD**다.
+### 12.1.1 QMS 적용 저장소 (2026-09-20 사용자 결정)
+
+IQC QMS의 현재 협업 원장은 프로젝트 루트의 `.collab/`이다.
+
+- Runtime DB: `.collab/runtime/audit.sqlite3`
+- Git 추적 파일 미러: `.collab/events/YYYY-MM.jsonl`
+- Emergency Handoff 본문: `.collab/handoffs/handoff-<HANDOFF_ID>.md`
+- 현재 Handoff 신호: `docs/EMERGENCY_HANDOFF.md` (존재 여부만 신호로 사용)
+- 기록 진입점: `.collab/qms-audit.ps1`
+
+`docs/archive/`의 기존 bootstrap·handoff 자료는 레거시 역사 자료로 보존한다. 이관은 삭제·이동이 아니며, 새 기록과 새 Handoff는 `.collab/`에만 생성한다. 이관 근거와 이전 저장소의 역사적 사실은 `docs/archive/CHANGE-20260920-archive-backend-migration.md`에 보존한다.
+
+구체적인 DB와 파일 미러의 현재 구현은 위 경로로 확정한다. 충돌 병합 알고리즘·추가 Relation 표준화·감사 보존 정책은 §19의 해당 TBD를 유지한다.
 
 ### 12.2 동기화와 병합
 
@@ -427,7 +439,13 @@ MAJOR.MINOR.PATCH
 - MINOR: 호환성을 유지하는 기능·필드 추가
 - PATCH: 오류 수정·표현 명확화·문서 수정
 
-과거 Record는 새 프로토콜 버전이 생겨도 수정하지 않는다. 필요하면 호환 변환 규칙(adapter/migration)을 사용한다. 프로토콜 변경은 다음을 거친다.
+과거 Record는 새 프로토콜 버전이 생겨도 수정하지 않는다. 필요하면 호환 변환 규칙(adapter/migration)을 사용한다.
+
+### 17.1 QMS Archive Backend Migration (2026-09-20)
+
+사용자는 QMS 협업 기록과 Emergency Handoff의 현재 저장소를 `.collab/`으로 통합하도록 승인했다. 이는 기존 `docs/archive/` 기록을 삭제하거나 수정하지 않는 저장소 이관이며, 이전 결정·경로는 `CHANGE-20260920-archive-backend-migration`이 `supersedes` 관계로 보존한다. 적용 범위는 §12.1.1과 AGENTS.md P-4·P-5이며, 프로토콜의 미결 항목을 일괄 해결하는 변경은 아니다.
+
+프로토콜 변경은 다음을 거친다.
 
 ```text
 제안 → 영향 분석 → Claude/ChatGPT 검토 → 사용자 승인 → 새 Protocol Version → 적용 → 검증
@@ -481,7 +499,7 @@ TBD Registry에 등록됐다가 이후 확정된 항목이다.
 
 | ID | Topic | 사용자 결정 필요 | 확정일 | 결정 내용 | 근거 | 반영 위치 | Bootstrap |
 |---|---|---|---|---|---|---|---|
-| TBD-0001 | Archive Storage Backend | YES | 2026-09-20 | 저장소: `docs/archive/` / 파일명: `handoff-YYYYMMDD-HHMMSS.md` | `docs/archive/bootstrap-20260920.md` CONFIRMED DECISIONS — git 이력 보존, Claude·Codex 양측 접근 가능, 외부 서비스 불필요 | AGENTS.md P-4 | `docs/archive/bootstrap-20260920.md` |
+| TBD-0001 | Archive Storage Backend | YES | 2026-09-20 | 현재 저장소: `.collab/` (Runtime DB·JSONL 미러·`handoffs/`); 초기 `docs/archive/` 결정은 이관으로 대체 | 사용자 2026-09-20 이관 결정. 초기 근거와 기록은 보존하며, 현재 근거·이관 범위는 `docs/archive/CHANGE-20260920-archive-backend-migration.md` | AGENTS.md P-4·P-5, 프로토콜 §12.1.1 | `docs/archive/bootstrap-20260920.md` (역사 자료) |
 
 ## 20. Agent Capability & Model Fit
 
