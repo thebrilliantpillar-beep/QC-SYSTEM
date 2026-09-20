@@ -54,10 +54,12 @@
   .qchk-btn.pass { color:var(--pass); }
   .qchk-btn.fail { color:var(--fail); }
   .qchk-btn.special { color:#ea580c; }
+  .qchk-btn.na { color:#6b7280; }
   .qchk-btn.active { opacity:1; box-shadow:inset 0 0 0 2px currentColor; }
   .qchk-btn.pass.active { background:#dcfce7; }
   .qchk-btn.fail.active { background:#fee2e2; }
   .qchk-btn.special.active { background:#ffedd5; }
+  .qchk-btn.na.active { background:#f3f4f6; }
   .qchk-preview .qchk-label { color:var(--muted, #6b7280); }
   .qchk-preview .qchk-btns > span { display:flex; align-items:center; justify-content:center;
               border:1.5px dashed var(--border); border-radius:8px; min-height:38px;
@@ -99,7 +101,7 @@
     </div>
 
     <div style="margin-top:14px;">
-      <p class="muted" style="margin:0 0 6px; font-size:12.5px;">품질확인 (5개 항목)</p>
+      <p class="muted" style="margin:0 0 6px; font-size:12.5px;">품질확인 (9개 항목)</p>
       <div class="qchk-panel" id="curChecksPanel">
         {% for field, label, short in check_fields %}
         <div class="qchk-row" data-field="{{ field }}">
@@ -107,7 +109,11 @@
           <div class="qchk-btns">
             <button type="button" class="qchk-btn pass" data-value="PASS" onclick="setCurCheck('{{ field }}','PASS',this)">합격</button>
             <button type="button" class="qchk-btn fail" data-value="FAIL" onclick="setCurCheck('{{ field }}','FAIL',this)">불합격</button>
+            {% if field == 'check_cable' %}
+            <button type="button" class="qchk-btn na" data-value="해당없음" onclick="setCurCheck('{{ field }}','해당없음',this)">해당없음</button>
+            {% else %}
             <button type="button" class="qchk-btn special" data-value="SPECIAL" onclick="setCurCheck('{{ field }}','SPECIAL',this)">특채</button>
+            {% endif %}
           </div>
         </div>
         {% endfor %}
@@ -210,9 +216,10 @@
                 {% for field, label, short in check_fields %}
                 <div class="ob-check-row" data-field="{{ field }}">
                   <span class="ob-check-label" title="{{ label }}">{{ short }}</span>
-                  {% for v, txt in [('PASS','합격'), ('FAIL','불합격'), ('SPECIAL','특채')] %}
+                  {% set btn_opts = [('PASS','합격'), ('FAIL','불합격'), ('해당없음','해당없음') if field == 'check_cable' else ('SPECIAL','특채')] %}
+                  {% for v, txt in btn_opts %}
                   <button type="button"
-                          class="ob-check-btn {{ 'badge pass' if v=='PASS' else ('badge fail' if v=='FAIL' else 'badge special') }}{{ ' active' if it[field] == v else '' }}"
+                          class="ob-check-btn {{ 'badge pass' if v=='PASS' else ('badge fail' if v=='FAIL' else ('badge na' if v=='해당없음' else 'badge special')) }}{{ ' active' if it[field] == v else '' }}"
                           data-value="{{ v }}" {{ 'disabled' if batch.confirmed_at else '' }}
                           onclick="setOutboundCheck({{ it.id }}, '{{ field }}', '{{ v }}', this)">{{ txt }}</button>
                   {% endfor %}
@@ -389,7 +396,7 @@
   var bodyPhotoEnabled = {{ 'true' if body_photo_enabled else 'false' }};
 
   var CHECK_FIELDS = [{% for f, label, short in check_fields %}["{{ f }}", "{{ label }}"],{% endfor %}];
-  var RESULT_LABEL_MAP = { PASS: ['badge pass', '합격'], FAIL: ['badge fail', '불합격'], SPECIAL: ['badge special', '특채'] };
+  var RESULT_LABEL_MAP = { PASS: ['badge pass', '합격'], FAIL: ['badge fail', '불합격'], SPECIAL: ['badge special', '특채'], '해당없음': ['badge na', '해당없음'] };
 
   // 2026-09-16: "새 항목 스캔·입력" 카드 전용 상태 — 아직 서버에 item이 없는 단계라
   // db.compute_outbound_item_auto_result()를 호출할 대상이 없다. 그래서 그 함수의
@@ -399,7 +406,8 @@
   var curChecks = {};
 
   function computeAutoResultClient(vals) {
-    if (vals.some(function (v) { return ['PASS', 'FAIL', 'SPECIAL'].indexOf(v) === -1; })) return null;
+    var valid = ['PASS', 'FAIL', 'SPECIAL', '해당없음'];
+    if (vals.some(function (v) { return valid.indexOf(v) === -1; })) return null;
     if (vals.indexOf('FAIL') !== -1) return 'FAIL';
     if (vals.indexOf('SPECIAL') !== -1) return 'SPECIAL';
     return 'PASS';

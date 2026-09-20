@@ -8774,8 +8774,8 @@ def outbound_item_edit(item_id):
 @app.route("/outbound/item/<int:item_id>/check", methods=["POST"])
 @perm_required("outbound")
 def outbound_item_check_update(item_id):
-    """5개 품질확인항목(체결/QR/간지포장/RST/부속품) 중 하나를 PASS/FAIL/SPECIAL로
-    저장한다. 터치 한 번 = 저장 한 번(기존 사진 업로드와 같은 즉시저장 아키텍처)."""
+    """9개 품질확인항목(체결/QR/포장/RST/스티커/도장/부속품/케이블타이/인디케이터) 중 하나를
+    PASS/FAIL/SPECIAL/해당없음으로 저장한다. 터치 한 번 = 저장 한 번(즉시저장 아키텍처)."""
     item = db.get_outbound_item(item_id)
     if item is None:
         return jsonify({"ok": False, "error": "항목을 찾을 수 없어."}), 404

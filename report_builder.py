@@ -1769,8 +1769,9 @@ def build_outbound_excel(batch, items, photo_dir):
 
     batch: {"customer", "ship_date", "handler", "round_no"} 등을 가진 dict.
     items: database.list_outbound_items()의 형태 — 각 item에 "photos" 리스트(각 photo는
-           {"file_path", "kind"}, kind는 'indicator'/'body'), 그리고 2026-09-15부터
-           5개 check_*(체결/QR/간지포장/RST/부속품, 값은 'PASS'/'FAIL'/'SPECIAL'/None)와
+           {"file_path", "kind"}, kind는 'indicator'/'body'), 그리고 2026-09-20부터
+           9개 check_*(check_tie/qr/wrap/rst/sticker/paint/access/cable/indicator,
+           값은 'PASS'/'FAIL'/'SPECIAL'/'해당없음'/None)와
            "result_auto"/"result_effective"(자동판정/실제적용판정, database.py에서 계산됨)가
            같이 붙어 온다.
     photo_dir: 사진이 실제 저장된 디렉터리(app.py의 OUTBOUND_PHOTO_DIR) — DB에는 파일명만
@@ -1795,41 +1796,88 @@ def build_outbound_excel(batch, items, photo_dir):
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_fill = PatternFill("solid", fgColor="E7EAF0")
 
+    # ── 제목 행 ──
     ws["A1"] = "출고 내역서"
     ws["A1"].font = Font(bold=True, size=16)
-    ws.merge_cells("A1:K1")
+    ws.merge_cells("A1:O1")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
+    # ── 배치 메타정보 행 ──
     ws["A3"] = f"거래처 {batch.get('customer') or ''}"
     ws["C3"] = f"차수 {batch.get('round_no') or ''}"
     ws["D3"] = f"출고일 {batch.get('ship_date') or ''}"
-    ws["K3"] = f"담당자 {batch.get('handler') or ''}"
-    for cell in ("A3", "C3", "D3", "K3"):
+    ws["O3"] = f"담당자 {batch.get('handler') or ''}"
+    for cell in ("A3", "C3", "D3", "O3"):
         ws[cell].font = bold
 
-    # 2026-09-15 확장: 실제 회사 서식 예시 데이터로 확정한 11열 구조.
-    # 순번/S·N/제품명·모델명(1~3) → 품질확인 5종(4~8) → 사진 2종(9~10) → 판정(11).
+    # ── 5행: 헤더 (A~L은 단일행, M/N/O는 M5:M6, N5:N6, O5:O6 병합) ──
+    # 2026-09-20: 11열 → 15열 확장. A~C 기본정보, D~L 품질확인 9종, M 인디케이터사진,
+    # N 본체사진, O 판정. M/N/O는 두 행을 병합해 헤더와 서브텍스트 행을 같이 씀.
     HEADER_ROW = 5
     headers = [
-        "순번", "S/N", "제품명/모델명",
-        "체결 상태 확인\n(가대 다리, 탱크 다리,\n네마)",
-        "QR 번호\n부착 상태 확인",
-        "간지 포장 상태",
-        "RST단자\n나무판 결착",
-        "부속품 유무 확인",
-        "인디케이터 사진", "본체사진", "판정",
+        "순번",                                    # A(1)
+        "S/N",                                     # B(2)
+        "제품명/모델명",                            # C(3)
+        "볼트/너트 체결 상태\n(가대/탱크 다리)",    # D(4)
+        "QR 번호\n부착 상태 확인",                 # E(5)
+        "하우징 커버\n포장 상태",                   # F(6)
+        "RST단자\n나무판 결착",                    # G(7)
+        "스티커 부착 상태",                         # H(8)
+        "도장 상태",                               # I(9)
+        "부속품 유무 확인",                         # J(10)
+        "케이블 타이 식별\n(155V)",                # K(11)
+        "INDICATOR\n상태 확인",                    # L(12)
+        "인디케이터 사진",                          # M(13) — M5:M6 병합
+        "본체사진",                                # N(14) — N5:N6 병합
+        "판정",                                    # O(15) — O5:O6 병합
     ]
+    # M/N/O(13~15)는 먼저 값을 쓴 뒤 병합(merge 후 쓰면 하위 셀이 None이 돼 값이 날아감)
     for i, h in enumerate(headers, start=1):
         c = ws.cell(row=HEADER_ROW, column=i, value=h)
         c.font = bold
         c.fill = header_fill
         c.alignment = center
         c.border = border
-    ws.row_dimensions[HEADER_ROW].height = 60  # 헤더가 셀 폭에서 자동줄바꿈까지 겹쳐 4줄까지
-    # 늘어나는 열이 있어 45pt로는 첫 줄이 위로 잘렸다(2026-09-15 LibreOffice 렌더로 확인,
-    # 계획문서 수치보다 키움 — 계획에 없던 자잘한 버그 수정).
+    # M5:M6, N5:N6, O5:O6 병합 — 사진/판정 열은 서브텍스트 행 없이 하나로
+    for col in (13, 14, 15):
+        ws.merge_cells(start_row=HEADER_ROW, start_column=col,
+                       end_row=HEADER_ROW + 1, end_column=col)
+        # 병합 후 상단 셀 서식 재지정 (병합이 하위 셀 서식을 초기화할 수 있음)
+        c = ws.cell(row=HEADER_ROW, column=col)
+        c.font = bold
+        c.fill = header_fill
+        c.alignment = center
+        c.border = border
+    ws.row_dimensions[HEADER_ROW].height = 52
 
-    widths = [6, 16, 22, 12, 12, 11, 11, 12, 16, 16, 9]
+    # ── 6행: 서브텍스트 (D~L의 상세 설명, A~C는 병합으로 비워둠) ──
+    SUB_ROW = HEADER_ROW + 1
+    ws.merge_cells(start_row=SUB_ROW, start_column=1, end_row=SUB_ROW, end_column=3)
+    sub_fill = PatternFill("solid", fgColor="F0F2F7")
+    sub_font = Font(size=9)
+    sub_texts = {
+        4:  "각각 해당 위치에 체결상태 확인",
+        5:  "탱크에 S/N 및 QR 번호의 부착 여부",
+        6:  "커버에 하우징이 노출이 되는지 확인",
+        7:  "볼트가 단자에 잘 고정 되었는지",
+        8:  "정격표시/배큠표시/오픈락/골든이글",
+        9:  "도장 벗겨짐/파임/오염",
+        10: "부속품 유무",
+        11: "LIFT RING 에 노란색 케이블 타이",
+        12: "투입상태(초록)확인",
+    }
+    for col_i in range(1, 16):
+        c = ws.cell(row=SUB_ROW, column=col_i)
+        if col_i in sub_texts:
+            c.value = sub_texts[col_i]
+        c.font = sub_font
+        c.fill = sub_fill
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = border
+    ws.row_dimensions[SUB_ROW].height = 28
+
+    # ── 열 너비 ──
+    widths = [6, 27.64, 22, 18.71, 12, 12, 11, 11, 11, 12, 11, 12, 16.36, 17.21, 11.29]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -1842,39 +1890,43 @@ def build_outbound_excel(batch, items, photo_dir):
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-    # 2026-09-15: Calibri 기준 7*9525 근사값을 썼다가 실제 Excel COM 측정으로 잘못됨을
-    # 확인했다 — I열(문자단위 16)의 실제 렌더 폭이 96pt인데 7*9525 계산은 84pt(87.5%)만
-    # 나와서 stretch=True 사진이 셀 폭보다 좁게 채워지는 원인이었다. _excel_col_width_to_emu()
-    # (mdw=8, ECMA-376 공식) 로 계산하면 정확히 96pt가 나와 실측과 일치한다 — 이 워크북도
-    # QR 라벨 워크북과 마찬가지로 MDW=8 환경이다(7-4-1절, 임의로 7 재사용하지 말 것).
+    # MDW=8 환경(CLAUDE.md 7-4-1절, 이 워크북도 동일하게 확인됨)
     col_widths_emu = [_excel_col_width_to_emu(w) for w in widths]
     ROW_HEIGHT_PT = 80
     row_height_emu = ROW_HEIGHT_PT * 12700
 
-    # 0-based 열 인덱스: A=0...K=10. 인디케이터사진=I(8), 본체사진=J(9).
-    PHOTO_INDICATOR_COL = 8
-    PHOTO_BODY_COL = 9
+    # 0-based 열 인덱스: A=0...O=14. 인디케이터사진=M(12), 본체사진=N(13)
+    PHOTO_INDICATOR_COL = 12  # 0-based → column 13(M)
+    PHOTO_BODY_COL = 13       # 0-based → column 14(N)
 
-    DATA_START_ROW = HEADER_ROW + 1
+    DATA_START_ROW = SUB_ROW + 1  # = 7
     for offset, it in enumerate(items):
         row_i = DATA_START_ROW + offset
         ws.row_dimensions[row_i].height = ROW_HEIGHT_PT
         values = [
-            offset + 1, it["serial_no"], it.get("product_name") or "",
-            it.get("check_tie") or "", it.get("check_qr") or "",
-            it.get("check_wrap") or "", it.get("check_rst") or "",
+            offset + 1,
+            it["serial_no"],
+            it.get("product_name") or "",
+            it.get("check_tie") or "",
+            it.get("check_qr") or "",
+            it.get("check_wrap") or "",
+            it.get("check_rst") or "",
+            it.get("check_sticker") or "",
+            it.get("check_paint") or "",
             it.get("check_access") or "",
+            it.get("check_cable") or "",
+            it.get("check_indicator") or "",
         ]
         for j, v in enumerate(values, start=1):
             c = ws.cell(row=row_i, column=j, value=v)
             c.border = border
             c.alignment = center
 
-        # 9=인디케이터사진, 10=본체사진 (값은 안 씀, _place_photos_in_area가 이미지로 채움)
-        ws.cell(row=row_i, column=9).border = border
-        ws.cell(row=row_i, column=10).border = border
+        # 13=인디케이터사진(M), 14=본체사진(N) — 값은 안 씀, _place_photos_in_area가 채움
+        ws.cell(row=row_i, column=13).border = border
+        ws.cell(row=row_i, column=14).border = border
 
-        result_cell = ws.cell(row=row_i, column=11, value=it.get("result_effective") or "")
+        result_cell = ws.cell(row=row_i, column=15, value=it.get("result_effective") or "")
         result_cell.border = border
         result_cell.alignment = center
         result_cell.font = bold

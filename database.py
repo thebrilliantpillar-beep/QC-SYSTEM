@@ -12,42 +12,57 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "iqc.db")
 
-# ---------- 2026-09-15 확장: 출고 항목 품질확인 5종 + 전체판정 ----------
+# ---------- 2026-09-20 확장: 출고 항목 품질확인 9종 + 전체판정 ----------
 # 사용자가 준 실제 회사 "출고 내역서" 서식 헤더 순서 그대로. 배치(차수) 단위가 아니라
 # 항목(S/N, outbound_items 한 행) 단위다 — 실제 첨부 엑셀을 openpyxl로 직접 읽어서 확인함.
-OUTBOUND_CHECK_FIELDS = ["check_tie", "check_qr", "check_wrap", "check_rst", "check_access"]
+# 2026-09-20: 5종 → 9종으로 확장 (스티커/도장/케이블타이/인디케이터 추가, 항목명 일부 변경)
+OUTBOUND_CHECK_FIELDS = [
+    "check_tie", "check_qr", "check_wrap", "check_rst",
+    "check_sticker", "check_paint", "check_access",
+    "check_cable", "check_indicator",
+]
 OUTBOUND_CHECK_LABELS = {
-    "check_tie": "체결 상태 확인 (가대 다리, 탱크 다리, 네마)",
+    "check_tie": "볼트/너트 체결 상태 (가대/탱크 다리)",
     "check_qr": "QR 번호 부착 상태 확인",
-    "check_wrap": "간지 포장 상태",
+    "check_wrap": "하우징 커버 포장 상태",
     "check_rst": "RST단자 나무판 결착",
+    "check_sticker": "스티커 부착 상태",
+    "check_paint": "도장 상태",
     "check_access": "부속품 유무 확인",
+    "check_cable": "케이블 타이 식별 (155V)",
+    "check_indicator": "INDICATOR 상태 확인",
 }
-OUTBOUND_RESULT_VALUES = ("PASS", "FAIL", "SPECIAL")
+# 2026-09-20: check_cable은 "해당없음" 포함 4종, 나머지는 3종.
+# "해당없음"은 FAIL/SPECIAL이 아니어서 자동판정에서 PASS와 동일하게 취급됨.
+OUTBOUND_RESULT_VALUES = ("PASS", "FAIL", "SPECIAL", "해당없음")
 # 2026-09-16: "새 항목 스캔·입력" 카드 안 좁은 폭에 넣을 축약 라벨. 정식 명칭은
 # OUTBOUND_CHECK_LABELS(표 헤더·엑셀 출력용)를 계속 쓰고, 이건 카드 UI 전용 —
 # 화면에선 이 짧은 텍스트를 쓰고 title 속성에 정식 명칭을 붙여 보완한다.
 OUTBOUND_CHECK_SHORT_LABELS = {
     "check_tie": "체결상태",
     "check_qr": "QR 부착",
-    "check_wrap": "간지포장",
+    "check_wrap": "커버포장",
     "check_rst": "RST단자",
+    "check_sticker": "스티커",
+    "check_paint": "도장상태",
     "check_access": "부속품",
+    "check_cable": "케이블타이",
+    "check_indicator": "인디케이터",
 }
 
 
 def compute_outbound_item_auto_result(item):
-    """item: dict(다섯 개 check_* 키 포함 — sqlite3.Row면 호출 전에 dict()로 바꿀 것).
-    5개 전부 값이 있어야 계산하고, 하나라도 비어있으면(None, 아직 안 눌러봄) None을
+    """item: dict(아홉 개 check_* 키 포함 — sqlite3.Row면 호출 전에 dict()로 바꿀 것).
+    9개 전부 값이 있어야 계산하고, 하나라도 비어있으면(None, 아직 안 눌러봄) None을
     돌려준다("미검사").
 
+    "해당없음"은 OUTBOUND_RESULT_VALUES에 포함돼 있어 미검사로 안 잡히고,
+    FAIL/SPECIAL이 아니므로 자동판정에서 PASS와 동일하게 취급된다.
+
     우선순위: FAIL이 하나라도 있으면 무조건 FAIL(SPECIAL이 섞여 있어도 FAIL이 이긴다) →
-    그 다음 SPECIAL이 하나라도 있으면 SPECIAL → 전부 PASS면 PASS.
+    그 다음 SPECIAL이 하나라도 있으면 SPECIAL → 전부 PASS/해당없음이면 PASS.
     (2026-09-16, 사용자가 명시적으로 확정: "Special이 있어도 Fail이 들어가면 무조건
-    최종 판결은 Fail" — 실제 회사 서식 예시 데이터(PASS,PASS,PASS,FAIL,SPECIAL →
-    SPECIAL로 표시돼 있던 것)와는 반대 순서지만, 사용자가 그 예시를 뒤집어 직접
-    정정했다. 이 순서를 절대 바꾸지 말 것 — SPECIAL을 먼저 체크하면 사용자가
-    정정한 것과 다른 결과가 나온다.)"""
+    최종 판결은 Fail" — 이 순서를 절대 바꾸지 말 것.)"""
     vals = [item.get(f) for f in OUTBOUND_CHECK_FIELDS]
     if any(v not in OUTBOUND_RESULT_VALUES for v in vals):
         return None
@@ -776,8 +791,9 @@ def init_db():
     """)
 
     existing_oi_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_items)").fetchall()]
-    # 2026-09-15 확장: 출고 전 5개 품질확인항목(PASS/FAIL/SPECIAL) + 전체판정 수동 오버라이드.
-    # 자동판정 값 자체는 저장하지 않는다 — compute_outbound_item_auto_result()가 5개
+    # 2026-09-15 확장: 출고 전 품질확인항목(PASS/FAIL/SPECIAL/해당없음) + 전체판정 수동 오버라이드.
+    # 2026-09-20: 5→9개로 확장(check_sticker/paint/cable/indicator 추가).
+    # 자동판정 값 자체는 저장하지 않는다 — compute_outbound_item_auto_result()가 9개
     # check_* 컬럼에서 매번 계산한다(CLAUDE.md 8-1절, 저장값-계산값 불일치 사고 방지).
     for _ob_col in OUTBOUND_CHECK_FIELDS + ["result_override"]:
         if _ob_col not in existing_oi_cols:
@@ -4336,7 +4352,7 @@ def outbound_plan_progress(batch_id):
 
     반환: {"rows": [{"serial_no", "model_label", "status"}, ...],
            "summary": {"planned_total", "matched", "extra"}}
-    status: 'confirmed'(스캔됨 + 필요 사진 전부 있음 + 5개 품질확인항목 전부 선택됨) /
+    status: 'confirmed'(스캔됨 + 필요 사진 전부 있음 + 9개 품질확인항목 전부 선택됨) /
     'incomplete'(스캔은 됐는데 사진 또는 품질확인이 부족함) / 'pending'(아직 안 스캔됨).
 
     본체사진이 "필요 사진"에 들어가는지는 이 함수를 호출하는 시점의
