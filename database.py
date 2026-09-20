@@ -35,6 +35,14 @@ OUTBOUND_CHECK_LABELS = {
 # 2026-09-20: check_cable은 "해당없음" 포함 4종, 나머지는 3종.
 # "해당없음"은 FAIL/SPECIAL이 아니어서 자동판정에서 PASS와 동일하게 취급됨.
 OUTBOUND_RESULT_VALUES = ("PASS", "FAIL", "SPECIAL", "해당없음")
+# 필드별로 실제 허용되는 값(위 OUTBOUND_RESULT_VALUES는 "존재하는 값 전체"일 뿐,
+# 필드마다 어떤 값이 유효한지는 이걸로 걸러야 한다 — check_cable만 "해당없음"을 받고
+# SPECIAL은 못 받는다, 나머지는 반대. 2026-09-20 quality-watcher가 이 검증 누락을
+# HIGH로 지적: 이게 없으면 API를 직접 호출해 check_tie="해당없음" 같은 값을 넣을 수 있었다.
+OUTBOUND_FIELD_ALLOWED_VALUES = {
+    f: ("PASS", "FAIL", "해당없음") if f == "check_cable" else ("PASS", "FAIL", "SPECIAL")
+    for f in OUTBOUND_CHECK_FIELDS
+}
 # 2026-09-16: "새 항목 스캔·입력" 카드 안 좁은 폭에 넣을 축약 라벨. 정식 명칭은
 # OUTBOUND_CHECK_LABELS(표 헤더·엑셀 출력용)를 계속 쓰고, 이건 카드 UI 전용 —
 # 화면에선 이 짧은 텍스트를 쓰고 title 속성에 정식 명칭을 붙여 보완한다.

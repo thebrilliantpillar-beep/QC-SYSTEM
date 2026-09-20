@@ -8788,7 +8788,7 @@ def outbound_item_check_update(item_id):
     value = request.form.get("value", "")
     if field not in db.OUTBOUND_CHECK_FIELDS:
         return jsonify({"ok": False, "error": "잘못된 검사항목이야."}), 400
-    if value not in db.OUTBOUND_RESULT_VALUES:
+    if value not in db.OUTBOUND_FIELD_ALLOWED_VALUES[field]:
         return jsonify({"ok": False, "error": "잘못된 판정값이야."}), 400
 
     db.update_outbound_item_check(item_id, field, value)
