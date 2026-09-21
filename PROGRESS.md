@@ -8,6 +8,24 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-21 (출고 확인 정책 2건 + 서명, 커밋 d9b2343, origin·deploy 양쪽 push 완료)**:
+  ① 차수 계획(outbound_planned_items)에 있는데 아직 스캔 안 된 S/N이 있으면 출고 확인을
+  막는다(기존엔 반대방향 "계획외 항목 존재"만 막았음, 이번에 대칭 방향 추가).
+  ② 출고 확인을 최종결정권자(`_can_make_final_decision`) 게이트 + 서명 필수로 전환
+  (`static/signature_pad.js` 재사용, `static/signatures/outbound{batch_id}.png` 저장,
+  `outbound_batches.confirm_signature` 컬럼 신설). 서명 필수화로 `outbound_history.html`
+  인라인 확인 버튼은 상세화면(`outbound_scan_edit`) 링크로 교체됨.
+  ③ 출고 이력 엑셀(`build_outbound_excel`) 최상단 우측(2행, N:O열)에 확인자 이름+서명
+  이미지 삽입 — `TwoCellAnchor`로 배치(7-4-2절 `OneCellAnchor+ext` 셀 전체 늘어남 버그
+  회피), 실제 Excel COM으로 오차 0.2pt 이내 정밀 검증 완료. planner→developer→
+  quality-watcher 순서로 진행, 전부 PASS.
+
+- **2026-09-21 (QR 항목 문구 수정, 커밋 85ae32f)**: 출고 스캔·엑셀의 QR 검사 항목을
+  "QR 번호 부착 상태 확인"→"QR 번호 부착 리셉터클 캡 결합", 검사기준도 리셉터클 캡
+  장착 여부까지 포함하도록 수정. 문구가 길어져 엑셀 6행이 잘리던 걸 E열 너비만
+  18.71→26으로 넓혀 해결(다른 열은 참고파일 그대로). quality-watcher 검증 통과,
+  origin·deploy 양쪽 push 완료.
+
 - **2026-09-21 (TBD 전체 마무리, 커밋 d31c2f2, origin push 완료)**: 사용자가 "③ 당분간 TBD 유지" 항목도 "지금
   해결하자"고 직접 지시해 TBD-0002/0003(전역표준화 여부)/0009/0010(보존기간)을 전부
   "권장 관례로만, 강제 규격화 안 함"/"필요 시 추가"/"삭제 안 함, 구체 수치 없음"으로
