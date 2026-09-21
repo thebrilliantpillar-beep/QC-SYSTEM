@@ -8,6 +8,18 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-21 (workflow-dispatch 누락 사고 기록 + CLI 인코딩 버그 수정, 커밋 0c34ff7,
+  origin push 완료, deploy 불필요)**: 사용자가 ".collab에 다 기록되고 있는지" 질문 →
+  확인해보니 이 세션 9개 커밋이 실시간 workflow-dispatch 없이 진행됐던 걸 발견. 원인은
+  GIT_COMMIT/DEPLOY만 pre-commit/pre-push 훅으로 기술적 강제되고 workflow 계열은 순수
+  관례라 매번 빠뜨린 것. CLAUDE.md 13-1절에 이 사고와 "앞으로 Claude·Codex 둘 다 서브
+  에이전트 호출마다 실시간 workflow-start/dispatch/result/finalize" 규칙을 명문화,
+  이미 끝난 9개 커밋은 TASK #7로 사후요약만 남김. 조사 중 `.collab/qms_audit.py`가
+  제목에 em dash 등 cp949 미지원 문자가 있으면 status/search 자체가 크래시하는 실제
+  버그도 발견·수정(`errors="replace"`만 켜고 encoding은 안 건드림 — 처음에 encoding도
+  utf-8로 바꿨다가 subprocess.run(text=True) 호출부의 로케일 디코딩 가정과 어긋나서
+  기존 테스트 7개를 깨뜨렸고, 재수정 후 33개 전체 재확인 통과).
+
 - **2026-09-21 (출고 스티커 부착 기준 참고 팝업 신규, origin·deploy 양쪽 push 예정)**: 출고
   스캔 화면 "스티커 부착 상태" 옆에 "기준 보기" 버튼 추가 — 스캔 중인 S/N으로 21개 CKMR
   모델(전압코드+접미사코드+P코드 매칭, 사용자 확인 완료) 중 하나를 자동 매칭해서 스티커
