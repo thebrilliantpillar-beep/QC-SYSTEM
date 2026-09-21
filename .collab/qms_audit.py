@@ -1624,6 +1624,22 @@ def parser():
     return p
 
 def main():
+    # 2026-09-21 실제 사고: 이 CLI의 출력에 em dash(—) 등 cp949로 못 옮기는 문자가 하나만
+    # 있어도(예: start/note/decision --title·--summary에 흔히 들어감) Windows 콘솔에서
+    # UnicodeEncodeError로 명령 자체가 죽어서(status/search 등 조회 명령까지) 기록을
+    # 남기지도 확인하지도 못하는 상태가 됐었다.
+    # 처음엔 encoding="utf-8"로 강제했는데, 이러면 이 CLI를 subprocess.run(text=True)로
+    # (encoding 지정 없이) 호출하는 쪽(.collab/tests/test_qms_audit.py 포함, 부모가 로케일
+    # 기본 인코딩=cp949로 디코딩)과 인코딩이 어긋나서 부모 쪽 리더 스레드가
+    # UnicodeDecodeError를 내고 stdout이 통째로 None이 되는 회귀가 났다(테스트 7건 실패로
+    # 실제 확인함). 그래서 인코딩 자체는 그대로 두고 errors="replace"만 켠다 — 이러면
+    # 어느 쪽 인코딩을 쓰든(직접 실행/subprocess 양쪽) 못 옮기는 문자만 "?"로 바뀌고
+    # 크래시는 안 난다.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
     try:
         args=parser().parse_args(); code=args.fn(args); return code or 0
     except (ValueError, RuntimeError, sqlite3.Error) as exc: print(f"[qms-audit error] {exc}",file=sys.stderr); return 2

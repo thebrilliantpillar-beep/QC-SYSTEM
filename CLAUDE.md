@@ -987,6 +987,44 @@ preload할지 전수 검토했다. **`skills:` 필드는 권한 부여가 아니
   대안도 검토했으나, 호출 빈도가 낮은 에이전트에 영구적으로 남는 리스크 대비 이득이
   불분명해서 최종 보류 — reuse-scout 호출 빈도가 늘거나 구체적 불편이 확인되면 재검토.
 
+### 13-1. 실제 사고 — `workflow-dispatch` 계열이 세션 내내 전면 누락됐었다 (2026-09-21)
+
+사용자가 "아카이브에 다 기록되고 있는거 맞지?"라고 물어서 확인해보니, **아니었다.** 그 세션에서
+planner→developer→quality-watcher를 여러 차례(출고 확인 정책, 검사자/등록자 구분, 스티커
+참고 팝업 등) 돌려서 실제 기능 9개를 커밋·배포까지 했는데, `.collab status`로 확인하니
+그 세션 관련 TASK가 단 하나도 없었다 — 가장 최근 TASK가 전날(9/20) "workflow smoke test"
+(말 그대로 메커니즘 자체를 테스트한 것이지 실사용이 아님)에서 멈춰 있었다.
+
+**원인(직접 확인)**: `GIT_COMMIT`/`DEPLOY`는 `pre-commit`/`pre-push` git hook이 **기술적으로
+차단**한다 — `git-commit-authorize`/`deploy-authorize`를 안 거치면 커밋·푸시 자체가 그냥
+실패해서 어쩔 수 없이 매번 지켰다. 반면 `workflow-authorize`/`workflow-start`/
+`workflow-dispatch`/`workflow-result`/`workflow-finalize`는 **Agent 도구 호출을 막는
+장치가 전혀 없다** — 순수하게 "매번 기억해서 스스로 호출해야 하는 관례"일 뿐이라, 여러
+기능을 연달아 처리하는 동안 실제 산출물(코드 커밋)에 집중하느라 매번 빠뜨렸다. 12절의
+"인가 경로는 두 갈래다(TBD-0006, 의도된 분리)"가 정확히 이 비대칭의 근거였는데, 그
+비대칭이 실제로 이런 누락으로 이어진 첫 실증 사례다.
+
+**조치**:
+- 이미 끝난 그 세션의 커밋 9건(baseline `85ae32f` 이후)은 `.collab` TASK #7로 **사후
+  요약**만 남겼다(`start`/`end`, `workflow-*` 아님 — 실시간 dispatch가 아니었다는 걸
+  요약 안에 명시했음, 없었던 일을 있었던 것처럼 꾸미지 않음).
+- **이제부터 Claude·Codex 양쪽 다, planner/developer/quality-watcher/designer/reuse-scout
+  서브에이전트를 하나라도 부를 일이 있으면 반드시 그 호출 "직전"에 실시간으로**
+  `workflow-start`(작업당 최초 1회) → 역할마다 `workflow-dispatch` → 결과 받으면 즉시
+  `workflow-result` → 전체 끝나면 `workflow-finalize` 순서를 지킨다. "나중에 몰아서
+  기록하면 되지"라고 미루지 말 것 — 이번 사고가 정확히 그렇게 났다. `git-commit-authorize`
+  를 매번 잊지 않고 지킨 이유가 "안 지키면 커밋이 실패해서"였다는 걸 기억하고, 이
+  workflow 절차도 기술적 강제가 없다는 이유로 똑같이 가볍게 여기지 말 것.
+- **상대 actor(Claude↔Codex)의 작업 이력·자기 자신의 과거 작업 이력 둘 다 이미
+  조회 가능하다** — 같은 SQLite 원장(`​.collab/runtime/audit.sqlite3`)에 두 actor가 같이
+  쓰기 때문에 별도 공유 장치가 필요 없다. `python .collab/qms_audit.py status --limit N`
+  으로 최근 TASK 전체(actor 무관, 상태 포함)를 훑고, `search --query "<키워드>"`로
+  특정 작업을 찾고, `current-state --task <ID>`로 특정 TASK의 최신 확정 사실을 본다.
+  **다른 actor가 같은 파일을 이미 건드리고 있는지, 또는 본인이 예전에 이미 비슷한 걸
+  했는지를 새 작업 시작 전에 `status`/`search`로 먼저 확인하는 걸 습관으로 만들 것**
+  (특히 큰 구조변경 전에는 13절의 "planner에게 .collab/README.md와 최신 Record 읽히기"
+  지시와 같은 이유 — 과거 결정을 모르고 재작업/충돌하는 걸 막기 위함).
+
 ## 14. 성적서 관련 4개 삭제버튼 — 전부 admin 전용 (2026-09-08 최종 확정, 되돌리지 말 것)
 
 `templates/_admin_delete.html`의 `admin_delete_bar` 매크로는 `show` 인자로 노출 조건을
