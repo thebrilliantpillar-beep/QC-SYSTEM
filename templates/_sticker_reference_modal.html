@@ -1,0 +1,99 @@
+{# 스티커 부착 기준 참고 팝업(공용) — openStickerReferenceModal() 호출해서 사용.
+   화면당 한 번만 include. _drawing_modal.html과 같은 구조지만 PDF가 아니라
+   표+이미지라 pdf.js는 안 씀. #}
+<div id="stickerRefModal" style="display:none; position:fixed; inset:0; z-index:9000;
+     background:rgba(0,0,0,.6); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; width:min(96vw,640px); max-height:88vh;
+              display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.35);">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:12px 18px; border-bottom:1px solid #DDE0E6;">
+      <span style="font-weight:700; font-size:15px;">📎 스티커 부착 기준</span>
+      <button type="button" onclick="closeStickerReferenceModal()" style="font-size:20px;
+              background:none; border:none; cursor:pointer; color:#6b7280; padding:4px 8px; border-radius:6px;">✕</button>
+    </div>
+    <div id="stickerRefBody" style="flex:1; overflow:auto; padding:16px;">
+      <p class="muted" style="font-size:13px;">불러오는 중…</p>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  function renderModel(model) {
+    var html = '<h4 style="margin:0 0 4px; font-size:15px;">' + model.model_no +
+      '<span class="muted" style="font-weight:400; font-size:13px;"> — ' + model.display_name + '</span></h4>';
+    if (model.items.length === 0) {
+      html += '<p class="muted" style="font-size:13px;">관리자가 아직 이 모델의 기준 데이터를 업로드하지 않았어.</p>';
+    } else {
+      html += '<table style="margin-top:10px;"><thead><tr><th>No.</th><th>스티커</th><th>부착 면</th><th>수량</th></tr></thead><tbody>';
+      model.items.forEach(function (it) {
+        html += '<tr><td>' + (it.no || '') + '</td><td>' + it.label + '</td><td>' +
+          (it.attach_face || '') + '</td><td>' + (it.qty || '') + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    if (model.image_url) {
+      html += '<img src="' + model.image_url + '" alt="참고 이미지" style="max-width:100%; margin-top:12px; border-radius:8px; border:1px solid #DDE0E6;">';
+    } else {
+      html += '<p class="muted" style="font-size:13px; margin-top:10px;">참고 이미지 없음</p>';
+    }
+    document.getElementById('stickerRefBody').innerHTML = html;
+  }
+
+  function renderSearchFallback(message) {
+    var html = '<p style="color:var(--fail); font-size:13.5px;">⚠ ' + message + '</p>' +
+      '<div style="display:flex; gap:8px; margin-top:10px;">' +
+      '<input type="text" id="stickerRefSearchInput" placeholder="모델명/자재번호로 검색" style="flex:1;">' +
+      '<button type="button" class="btn secondary" style="margin-top:0;" onclick="stickerRefRunSearch()">검색</button>' +
+      '</div><div id="stickerRefSearchResults" style="margin-top:10px;"></div>';
+    document.getElementById('stickerRefBody').innerHTML = html;
+  }
+
+  window.stickerRefRunSearch = function () {
+    var q = document.getElementById('stickerRefSearchInput').value.trim();
+    fetch('/sticker-reference/search?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var box = document.getElementById('stickerRefSearchResults');
+        if (!data.results.length) { box.innerHTML = '<p class="muted" style="font-size:13px;">검색 결과 없어.</p>'; return; }
+        box.innerHTML = data.results.map(function (m, i) {
+          return '<button type="button" class="btn secondary" style="display:block; width:100%; text-align:left; margin-top:6px;" ' +
+            'data-idx="' + i + '" onclick="stickerRefSelectByIdx(this)">' + m.model_no + ' — ' + m.display_name + '</button>';
+        }).join('');
+        window._stickerRefSearchCache = data.results;
+      }).catch(function () {});
+  };
+
+  window.stickerRefSelectByIdx = function (btn) {
+    var idx = parseInt(btn.getAttribute('data-idx'), 10);
+    renderModel(window._stickerRefSearchCache[idx]);
+  };
+
+  window.openStickerReferenceModal = function () {
+    var modal = document.getElementById('stickerRefModal');
+    var serialField = document.getElementById('curSerial');
+    var serial = serialField ? serialField.value.trim() : '';
+    modal.style.display = 'flex';
+    document.getElementById('stickerRefBody').innerHTML = '<p class="muted" style="font-size:13px;">불러오는 중…</p>';
+    if (!serial) {
+      renderSearchFallback('먼저 S/N을 스캔하거나 입력해줘. 아래에서 직접 검색할 수도 있어.');
+      return;
+    }
+    fetch('/sticker-reference/resolve?serial_no=' + encodeURIComponent(serial))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) { renderModel(data.model); }
+        else { renderSearchFallback(data.message || '자동 매칭에 실패했어.'); }
+      })
+      .catch(function () { renderSearchFallback('불러오기 실패(네트워크 확인).'); });
+  };
+
+  window.closeStickerReferenceModal = function () {
+    document.getElementById('stickerRefModal').style.display = 'none';
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var modal = document.getElementById('stickerRefModal');
+    if (modal) modal.addEventListener('click', function (e) { if (e.target === this) closeStickerReferenceModal(); });
+  });
+})();
+</script>

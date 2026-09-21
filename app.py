@@ -8623,6 +8623,19 @@ def outbound_photo_file(filename):
     return send_from_directory(OUTBOUND_PHOTO_DIR, filename)
 
 
+# 스티커 부착 기준 참고이미지 — 서명/도면/출고사진과 동일하게 DATA_DIR(영구 디스크)
+# 기준으로 둔다. Flask 기본 static 라우트를 쓰면 관리자가 업로드한 새 이미지이 git
+# 배포(재체크아웃)로 사라질 수 있으므로 반드시 DATA_DIR + 전용 라우트를 쓴다.
+STICKER_REFERENCE_DIR = os.path.join(db.DATA_DIR, "sticker_reference")
+os.makedirs(STICKER_REFERENCE_DIR, exist_ok=True)
+
+
+@app.route("/static/sticker_reference/<path:filename>")
+@perm_required("outbound")
+def sticker_reference_file(filename):
+    return send_from_directory(STICKER_REFERENCE_DIR, filename)
+
+
 @app.route("/outbound/scan")
 @perm_required("outbound")
 def outbound_scan_list():
@@ -9163,9 +9176,11 @@ _OUTBOUND_RULE_KIND_LABELS = {"voltage": "전압코드", "suffix": "접미사", 
 @perm_required("outbound")
 def outbound_rules():
     rules = {kind: db.list_classify_rules(kind) for kind in _OUTBOUND_RULE_KIND_LABELS}
+    sticker_models = db.list_sticker_reference_models()
     return render_template("outbound_rules.html", rules=rules,
                            kind_labels=_OUTBOUND_RULE_KIND_LABELS,
-                           body_photo_enabled=db.outbound_body_photo_enabled())
+                           body_photo_enabled=db.outbound_body_photo_enabled(),
+                           sticker_models=sticker_models)
 
 
 @app.route("/outbound/settings/body-photo", methods=["POST"])
@@ -9227,6 +9242,87 @@ def outbound_rule_delete(kind, code):
     return redirect(url_for("outbound_rules"))
 
 
+@app.route("/sticker-reference/admin/upload", methods=["POST"])
+@perm_required("outbound")
+def sticker_reference_upload():
+    file = request.files.get("sticker_file")
+    if not file:
+        flash("엑셀 파일을 선택해줘.")
+        return redirect(url_for("outbound_rules"))
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp_path = tmp.name
+            file.save(tmp.name)
+        summary = db.import_sticker_reference_from_excel(tmp_path, STICKER_REFERENCE_DIR)
+        flash(f"스티커 기준 임포트 완료 — 모델 {summary['imported']}건 갱신 "
+              f"(이미지 없음 {summary['no_image']}건, 신규 미분류 모델 {summary['new_unmatched']}건)")
+        record_change("스티커 기준 임포트", "sticker_reference_model", None,
+                      f"{summary['imported']}건, 신규미분류 {summary['new_unmatched']}건")
+    except KeyError:
+        flash("엑셀 파일에 '모델별 도면' 시트가 없어. 시트명을 확인해줘.")
+    except Exception as e:
+        flash(f"임포트 중 오류: {e}")
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+    return redirect(url_for("outbound_rules"))
+
+
+@app.route("/sticker-reference/admin/<model_no>/codes", methods=["POST"])
+@perm_required("outbound")
+def sticker_reference_update_codes(model_no):
+    db.set_sticker_reference_codes(
+        model_no,
+        request.form.get("voltage_code", "").strip(),
+        request.form.get("suffix_code", "").strip(),
+        request.form.get("pcode", "").strip())
+    record_change("스티커 기준 매칭코드 수정", "sticker_reference_model", None, model_no)
+    flash(f"'{model_no}' 매칭코드가 저장됐어.")
+    return redirect(url_for("outbound_rules"))
+
+
+@app.route("/sticker-reference/admin/new", methods=["POST"])
+@perm_required("outbound")
+def sticker_reference_create():
+    model_no = request.form.get("model_no", "").strip()
+    if not model_no:
+        flash("모델번호를 입력해줘.")
+        return redirect(url_for("outbound_rules"))
+    ok = db.create_sticker_reference_model(
+        model_no,
+        voltage_code=request.form.get("voltage_code", ""),
+        suffix_code=request.form.get("suffix_code", ""),
+        pcode=request.form.get("pcode", ""))
+    if not ok:
+        flash(f"'{model_no}'는 이미 등록된 모델이야. 코드 수정이나 엑셀 재업로드를 이용해줘.")
+    else:
+        record_change("스티커 기준 모델 등록", "sticker_reference_model", None, model_no)
+        flash(f"'{model_no}' 모델이 등록됐어. 항목표/이미지는 엑셀 업로드로 채워줘.")
+    return redirect(url_for("outbound_rules"))
+
+
+@app.route("/sticker-reference/admin/<model_no>/delete", methods=["POST"])
+@perm_required("outbound")
+def sticker_reference_delete(model_no):
+    ok = db.delete_sticker_reference_model(model_no)
+    if ok:
+        try:
+            # 경로 이탈 방지 — import 쪽과 동일한 파일명 정규화(database.py 참고).
+            safe_model_no = re.sub(r"[^A-Za-z0-9_-]", "", model_no)
+            os.remove(os.path.join(STICKER_REFERENCE_DIR, f"{safe_model_no}.png"))
+        except OSError:
+            pass
+        record_change("스티커 기준 모델 삭제", "sticker_reference_model", None, model_no)
+        flash(f"'{model_no}' 모델이 삭제됐어.")
+    else:
+        flash("존재하지 않는 모델이야.")
+    return redirect(url_for("outbound_rules"))
+
+
 @app.route("/outbound/classify-bulk", methods=["POST"])
 @perm_required("outbound")
 def outbound_classify_bulk():
@@ -9242,6 +9338,23 @@ def outbound_classify_bulk():
     rules = db.get_classify_rules()
     labels = [db.classify_serial_no(s, rules=rules) for s in serials]
     return jsonify({"labels": labels})
+
+
+@app.route("/sticker-reference/resolve")
+@perm_required("outbound")
+def sticker_reference_resolve():
+    serial_no = (request.args.get("serial_no") or "").strip()
+    if not serial_no:
+        return jsonify({"ok": False, "reason": "not_ckmr",
+                        "message": "먼저 S/N을 스캔하거나 입력해줘."})
+    return jsonify(db.resolve_sticker_reference(serial_no))
+
+
+@app.route("/sticker-reference/search")
+@perm_required("outbound")
+def sticker_reference_search():
+    q = request.args.get("q", "")
+    return jsonify({"results": db.search_sticker_reference_models(q)})
 
 
 @app.route("/outbound/round")
@@ -9437,6 +9550,7 @@ ensure_inspect_method_fill_20260825()
 ensure_supplier_contacts_migration_20260907()
 ensure_outbound_rules_seed_20260915()
 ensure_outbound_inspected_by_backfill_20260921()
+db.ensure_sticker_reference_match_seed()
 ensure_material_category_import_20260907()
 db.ensure_ncr_columns_migration()
 db.ensure_defect_types_seed_20260908()

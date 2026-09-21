@@ -867,6 +867,34 @@ def init_db():
     """)
     # ---- 2026-09-15 확장(모델명 분류 규칙) 끝 ----
 
+    # ---- 2026-09-21 신규: 스티커 부착 기준 참고(출고 스캔 "기준 보기" 팝업용) ----
+    # assembly_masters(5-0절)/material_bom_links(18절)와 완전히 별개 — CKMR 모델별
+    # 스티커 4종 부착면/수량 표 + 참고이미지를 보여주기 위한 순수 조회용 참고 데이터.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sticker_reference_models (
+            model_no      TEXT PRIMARY KEY,
+            voltage_code  TEXT,
+            suffix_code   TEXT,
+            pcode         TEXT,
+            image_path    TEXT,
+            updated_at    TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sticker_reference_items (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_no      TEXT NOT NULL REFERENCES sticker_reference_models(model_no),
+            no            TEXT,
+            label         TEXT NOT NULL,
+            attach_face   TEXT,
+            qty           TEXT,
+            sort_order    INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sticker_ref_items_model "
+                "ON sticker_reference_items(model_no)")
+    # ---- 2026-09-21 신규 끝 ----
+
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
     for col in ("round_no", "confirmed_by", "confirmed_at", "confirm_signature"):
@@ -4306,6 +4334,339 @@ def get_classify_rules():
     return {"voltage": voltage, "suffix": suffix, "pcode": pcode}
 
 
+def _match_ckmr(serial_no, rules):
+    """CKMR 리클로저 본체 패턴 매칭 + 접미사 코드 결정. classify_serial_no()와
+    resolve_sticker_reference()가 공유한다(8-1절 원칙, 2026-09-21 추출).
+    매칭 실패(정규식 자체가 안 맞음) 시 None. 성공 시 dict:
+      volt_code: 전압코드 1자리 문자열
+      suffix_raw: S/N에 실제로 붙은 접미사 원문(빈 문자열 가능)
+      suffix_code: 매핑표에서 매칭된 코드. suffix_raw가 없으면 "", 매핑표에
+                   없는 접미사면 None(=인식 실패), 매칭되면 그 코드 문자열
+      pcode: 괄호 안 숫자 문자열 또는 None"""
+    m = _CKMR_RE.match((serial_no or "").strip())
+    if not m:
+        return None
+    volt_code, suffix_raw, pcode = m.group(1), m.group(2), m.group(3)
+    suffix_code = ""
+    if suffix_raw:
+        suffix_code = None
+        for code, label in rules["suffix"]:
+            if suffix_raw.startswith(code):
+                suffix_code = code
+                break
+    return {"volt_code": volt_code, "suffix_raw": suffix_raw,
+            "suffix_code": suffix_code, "pcode": pcode}
+
+
+# 2026-09-21 확정값(사용자 확인 완료) — 스티커 부착 기준 참고자료의 21개 CKMR 모델과
+# 기존 출고 분류 규칙(전압코드/접미사코드/P코드)의 매칭표. resolve_sticker_reference()가
+# S/N에서 뽑아낸 (volt_code, suffix_code, pcode)와 이 표의 값을 비교해서 모델을 찾는다.
+# 이 표를 벗어난 model_no는 import_sticker_reference_excel()이 새로 발견했을 때
+# 코드 3개를 NULL로 남기고, 관리자가 /outbound/rules 화면에서 수동으로 채운다.
+STICKER_MODEL_MATCH_KEYS = {
+    "CKMR1070": ("7", "S", None),
+    "CKMR1080": ("7", "S", "19"),
+    "CKMR1200": ("8", "S", "19"),
+    "CKMR1280": ("8", "S", None),
+    "CKMR3000": ("7", "HT3", None),
+    "CKMR3010": ("7", "HAT3", None),
+    "CKMR3050": ("7", "HT1", None),
+    "CKMR3060": ("7", "HAT1", None),
+    "CKMR3080": ("7", "HT3", "32"),
+    "CKMR3500": ("8", "HAT3", None),
+    "CKMR3510": ("8", "HT3", None),
+    "CKMR3580": ("8", "HT1", None),
+    "CKMR3590": ("8", "HT3", "32"),
+    "CKMR4000": ("7", "H", None),
+    "CKMR4020": ("7", "H", "42"),
+    "CKMR4050": ("7", "HA", None),
+    "CKMR6050": ("7", "VA", None),
+    "CKMR8800": ("8", "H", None),
+    "CKMR8830": ("8", "H", "42"),
+    "CKMR8880": ("8", "HA", None),
+    "CKMR9880": ("9", "H", None),
+}
+
+STICKER_REF_NOT_CKMR = "not_ckmr"
+STICKER_REF_UNRECOGNIZED_CODE = "unrecognized_code"
+STICKER_REF_NO_MODEL = "no_registered_model"
+
+
+def ensure_sticker_reference_match_seed():
+    """STICKER_MODEL_MATCH_KEYS 21건을 sticker_reference_models에 심는다. items/image_path는
+    비워두고(관리자 업로드로만 채움, Task 6) 코드 3개만 채워서 resolve_sticker_reference()가
+    업로드 이전에도 모델 식별은 가능하게 한다. INSERT OR IGNORE라 이미 있는 행(업로드로
+    새로 생겼거나 관리자가 수동으로 채운 행 포함)은 절대 덮어쓰지 않는다. 삭제 기능이
+    있으므로(Task 6) 매 재시작마다 다시 실행돼도 무해하게 설계 — 별도 settings 플래그 불필요."""
+    conn = get_conn()
+    for model_no, (volt, suf, pc) in STICKER_MODEL_MATCH_KEYS.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO sticker_reference_models "
+            "(model_no, voltage_code, suffix_code, pcode) VALUES (?, ?, ?, ?)",
+            (model_no, volt, suf, pc))
+    conn.commit()
+    conn.close()
+
+
+def bom_model_label(model_no):
+    """material_bom_links.model_name(예: "CKMR1070 본체 15kV 단상")에서 이 model_no로
+    시작하는 한글 표시명을 찾는다(18절 — assembly_masters와 무관). 못 찾으면 model_no
+    자체를 돌려준다(값 유실 방지, 8-3절과 같은 원칙). 표시명은 별도 컬럼에 저장하지
+    않고 항상 이 함수로 조회한다 — material_bom_links가 갱신되면 자동으로 최신 반영됨."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT model_name FROM material_bom_links "
+        "WHERE model_name = ? OR model_name LIKE ? ORDER BY model_name LIMIT 1",
+        (model_no, model_no + " %")).fetchone()
+    conn.close()
+    return row["model_name"] if row else model_no
+
+
+def _sticker_reference_items(model_no):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT no, label, attach_face, qty FROM sticker_reference_items "
+        "WHERE model_no=? ORDER BY sort_order", (model_no,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _sticker_reference_model_dict(row):
+    """sticker_reference_models 행(sqlite3.Row) -> API/화면 공용 dict.
+    resolve/search/list 세 곳 모두 이 함수 하나로 통일한다(8-1절)."""
+    model_no = row["model_no"]
+    return {
+        "model_no": model_no,
+        "display_name": bom_model_label(model_no),
+        "voltage_code": row["voltage_code"] or "",
+        "suffix_code": row["suffix_code"] or "",
+        "pcode": row["pcode"] or "",
+        "image_url": f"/static/sticker_reference/{row['image_path']}" if row["image_path"] else None,
+        "has_image": bool(row["image_path"]),
+        "items": _sticker_reference_items(model_no),
+        "item_count": len(_sticker_reference_items(model_no)),
+    }
+
+
+def resolve_sticker_reference(serial_no, rules=None):
+    """S/N으로 스티커 부착 기준 모델을 자동 매칭. 반환:
+      성공: {"ok": True, "model": {...}}  (_sticker_reference_model_dict 형태)
+      실패: {"ok": False, "reason": STICKER_REF_*, "message": "..."}"""
+    serial_no = (serial_no or "").strip()
+    if rules is None:
+        rules = get_classify_rules()
+
+    match = _match_ckmr(serial_no, rules)
+    if match is None:
+        return {"ok": False, "reason": STICKER_REF_NOT_CKMR,
+                "message": "이 항목은 리클로저 본체가 아니라서 자동 매칭 대상이 아니야."}
+
+    volt_label = rules["voltage"].get(match["volt_code"])
+    if volt_label is None or (match["suffix_raw"] and match["suffix_code"] is None):
+        return {"ok": False, "reason": STICKER_REF_UNRECOGNIZED_CODE,
+                "message": "S/N의 전압코드 또는 접미사를 인식하지 못했어."}
+
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM sticker_reference_models WHERE voltage_code=? AND suffix_code=? AND pcode IS ?",
+        (match["volt_code"], match["suffix_code"] or "", match["pcode"])).fetchone()
+    conn.close()
+    if row is None:
+        label = classify_serial_no(serial_no, rules) or volt_label
+        return {"ok": False, "reason": STICKER_REF_NO_MODEL,
+                "message": f"'{label}' 조합은 아직 등록된 도면이 없어."}
+
+    return {"ok": True, "model": _sticker_reference_model_dict(row)}
+
+
+def search_sticker_reference_models(query):
+    """model_no 또는 BOM 한글 표시명으로 검색(자동매칭 실패 시 폴백 UI용). 행이 최대
+    수십 건뿐이라 전체 스캔 후 파이썬에서 필터링한다(과설계 방지)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM sticker_reference_models ORDER BY model_no").fetchall()
+    conn.close()
+    q = (query or "").strip().lower()
+    results = []
+    for row in rows:
+        d = _sticker_reference_model_dict(row)
+        if not q or q in row["model_no"].lower() or q in d["display_name"].lower():
+            results.append(d)
+    return results
+
+
+def list_sticker_reference_models():
+    """관리 화면(/outbound/rules 카드)용 전체 목록. _sticker_reference_model_dict()를
+    그대로 재사용 — search와 다른 shape을 새로 만들지 않는다(8-1절)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM sticker_reference_models ORDER BY model_no").fetchall()
+    conn.close()
+    return [_sticker_reference_model_dict(r) for r in rows]
+
+
+def set_sticker_reference_codes(model_no, voltage_code, suffix_code, pcode):
+    """관리자가 수동으로 매칭 코드 3개를 채우거나 고칠 때(신규 발견 모델 대응).
+    빈 문자열은 NULL로 저장(=아직 미분류)."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE sticker_reference_models SET voltage_code=?, suffix_code=?, pcode=?, "
+        "updated_at=datetime('now','localtime') WHERE model_no=?",
+        (voltage_code or None, suffix_code or None, pcode or None, model_no))
+    conn.commit()
+    conn.close()
+
+
+def create_sticker_reference_model(model_no, voltage_code="", suffix_code="", pcode=""):
+    """개별 신규 모델 등록 — model_no만 갖고 빈 모델(항목 없음, 이미지 없음)을 하나 만든다.
+    이미 있는 model_no면 아무것도 안 하고 False를 돌려준다(엑셀 재업로드/코드수정 폼으로
+    유도 — upsert로 조용히 덮어쓰면 기존 항목표를 실수로 날릴 위험이 있어서 막음).
+    표시명은 별도 저장 안 함 — bom_model_label()이 항상 조회해서 계산한다."""
+    model_no = (model_no or "").strip()
+    if not model_no:
+        return False
+    conn = get_conn()
+    exists = conn.execute(
+        "SELECT 1 FROM sticker_reference_models WHERE model_no=?", (model_no,)).fetchone()
+    if exists:
+        conn.close()
+        return False
+    conn.execute(
+        "INSERT INTO sticker_reference_models (model_no, voltage_code, suffix_code, pcode) "
+        "VALUES (?, ?, ?, ?)",
+        (model_no, (voltage_code or "").strip() or None,
+         (suffix_code or "").strip() or None, (pcode or "").strip() or None))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def delete_sticker_reference_model(model_no):
+    """모델 삭제 — sticker_reference_items(자식)부터 지우고 sticker_reference_models(부모)를
+    지운다(SQLite는 기본 FK cascade가 없어 수동으로 순서를 지켜야 함). 이미지 파일은
+    여기서 안 지운다 — 파일 경로는 app.py(STICKER_REFERENCE_DIR)만 알고 있으므로 실제
+    os.remove는 호출부(app.py) 책임. 반환: 실제로 지웠으면 True, 없던 model_no면 False."""
+    conn = get_conn()
+    exists = conn.execute(
+        "SELECT 1 FROM sticker_reference_models WHERE model_no=?", (model_no,)).fetchone()
+    if not exists:
+        conn.close()
+        return False
+    conn.execute("DELETE FROM sticker_reference_items WHERE model_no=?", (model_no,))
+    conn.execute("DELETE FROM sticker_reference_models WHERE model_no=?", (model_no,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def import_sticker_reference_from_excel(filepath, image_dir):
+    """스티커 부착 기준 참고파일("모델별 도면" 시트)을 파싱해서 sticker_reference_models/
+    sticker_reference_items를 갱신하고 참고이미지를 image_dir에 저장한다.
+
+    블록 구조(34행 간격, 첫 블록은 엑셀 1행부터):
+      오프셋0: A=모델번호(CKMRxxxx)
+      오프셋2~5: A=No. B=스티커명 C=부착 면 D=수량 (4행, 라벨 비어있으면 스킵)
+      오프셋7: 참고이미지 1장 앵커(있으면 저장, 없으면 기존 이미지 보존)
+
+    voltage_code/suffix_code/pcode는 이 파일에서 읽지 않는다 — 기존 행이 이미 채워져
+    있으면 절대 덮어쓰지 않고(관리자 수동편집 보존), 새 model_no면 STICKER_MODEL_MATCH_KEYS에
+    있는 값을 쓰거나 없으면 NULL로 남긴다.
+
+    반환: {"imported": 갱신된 모델 수, "no_image": 이미지를 못 찾은 모델 수,
+           "new_unmatched": 21개표에 없는 새 모델 수(코드 미배정, 관리자가 채워야 함)}"""
+    import openpyxl
+    os.makedirs(image_dir, exist_ok=True)
+
+    wb = openpyxl.load_workbook(filepath, data_only=True)
+    try:
+        ws = wb["모델별 도면"]
+        images_by_row = {}
+        for img in ws._images:
+            images_by_row[img.anchor._from.row] = img
+
+        summary = {"imported": 0, "no_image": 0, "new_unmatched": 0}
+        conn = get_conn()
+        cur = conn.cursor()
+
+        block_i = 0
+        while block_i < 200:
+            start0 = block_i * 34
+            model_no = ws.cell(row=start0 + 1, column=1).value
+            if model_no is None or str(model_no).strip() == "":
+                break
+            model_no = str(model_no).strip()
+
+            items = []
+            for r_off in range(2, 6):
+                row1 = start0 + r_off + 1
+                no_val = ws.cell(row=row1, column=1).value
+                label = ws.cell(row=row1, column=2).value
+                face = ws.cell(row=row1, column=3).value
+                qty = ws.cell(row=row1, column=4).value
+                if label is None or str(label).strip() == "":
+                    continue
+                items.append((
+                    str(no_val).strip() if no_val is not None else "",
+                    str(label).strip(),
+                    str(face).strip() if face is not None else "",
+                    str(qty).strip() if qty is not None else ""))
+
+            existing = cur.execute(
+                "SELECT voltage_code, suffix_code, pcode, image_path FROM sticker_reference_models WHERE model_no=?",
+                (model_no,)).fetchone()
+
+            if existing and (existing["voltage_code"] or existing["suffix_code"] or existing["pcode"]):
+                voltage_code, suffix_code, pcode = existing["voltage_code"], existing["suffix_code"], existing["pcode"]
+            else:
+                keys = STICKER_MODEL_MATCH_KEYS.get(model_no)
+                if keys:
+                    voltage_code, suffix_code, pcode = keys
+                else:
+                    voltage_code, suffix_code, pcode = None, None, None
+                    summary["new_unmatched"] += 1
+
+            image_path = existing["image_path"] if existing else None
+            img = images_by_row.get(start0 + 7)
+            if img is not None:
+                try:
+                    img_bytes = img._data()
+                except Exception:
+                    img_bytes = None
+                if img_bytes:
+                    # 경로 이탈 방지 — model_no는 엑셀 셀 값이라 슬래시/역슬래시/".." 등이
+                    # 섞여 들어올 수 있으므로 파일명에 안전한 문자만 남긴다(quality-watcher 지적).
+                    safe_model_no = re.sub(r"[^A-Za-z0-9_-]", "", model_no)
+                    fname = f"{safe_model_no}.png"
+                    with open(os.path.join(image_dir, fname), "wb") as f:
+                        f.write(img_bytes)
+                    image_path = fname
+            if image_path is None:
+                summary["no_image"] += 1
+
+            cur.execute("""
+                INSERT INTO sticker_reference_models
+                    (model_no, voltage_code, suffix_code, pcode, image_path, updated_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
+                ON CONFLICT(model_no) DO UPDATE SET
+                    voltage_code=excluded.voltage_code, suffix_code=excluded.suffix_code,
+                    pcode=excluded.pcode, image_path=excluded.image_path, updated_at=excluded.updated_at
+            """, (model_no, voltage_code, suffix_code, pcode, image_path))
+
+            cur.execute("DELETE FROM sticker_reference_items WHERE model_no=?", (model_no,))
+            for order, (no_val, label, face, qty) in enumerate(items, start=1):
+                cur.execute(
+                    "INSERT INTO sticker_reference_items (model_no, no, label, attach_face, qty, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?, ?)", (model_no, no_val, label, face, qty, order))
+
+            summary["imported"] += 1
+            block_i += 1
+
+        conn.commit()
+        conn.close()
+    finally:
+        wb.close()
+
+    return summary
+
+
 def classify_serial_no(serial_no, rules=None):
     """S/N 문자열로 제품 분류 라벨을 계산한다.
 
@@ -4326,23 +4687,24 @@ def classify_serial_no(serial_no, rules=None):
     if rules is None:
         rules = get_classify_rules()
 
-    m = _CKMR_RE.match(serial_no)
-    if m:
-        volt_code, suffix_raw, pcode = m.group(1), m.group(2), m.group(3)
-        volt_label = rules["voltage"].get(volt_code)
+    match = _match_ckmr(serial_no, rules)
+    if match:
+        volt_label = rules["voltage"].get(match["volt_code"])
         if volt_label is None:
             return None
-        suffix_label = None
-        for code, label in rules["suffix"]:
-            if suffix_raw.startswith(code):
-                suffix_label = label
-                break
-        if suffix_raw and suffix_label is None:
+        if match["suffix_raw"] and match["suffix_code"] is None:
             return None  # 접미사가 있는데 매핑표에 없으면 분류 불가(미확정 접미사)
+        suffix_label = None
+        if match["suffix_code"]:
+            for code, label in rules["suffix"]:
+                if code == match["suffix_code"]:
+                    suffix_label = label
+                    break
         parts = [volt_label]
         if suffix_label:
             parts.append(suffix_label)
         label = " ".join(parts)
+        pcode = match["pcode"]
         if pcode:
             label += f" ({pcode}P)"
             special = rules["pcode"].get(pcode)

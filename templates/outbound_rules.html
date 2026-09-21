@@ -68,4 +68,71 @@
   </form>
 </div>
 {% endfor %}
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">📎 스티커 부착 기준</h3>
+  <p class="muted" style="margin:0 0 10px; font-size:13.5px;">
+    모델별로 부착해야 할 스티커(번호/라벨/부착면/수량)와 참고 이미지를 관리하는 표야.
+    매칭은 위 전압코드·접미사·P코드 값으로 이뤄지니, 모델을 새로 등록했으면 이 값들도
+    맞게 채워줘야 해. 항목표·이미지는 엑셀 업로드로 채워지고, 여기서는 모델 등록/코드
+    수정/삭제만 할 수 있어.
+  </p>
+
+  <form method="POST" action="{{ url_for('sticker_reference_upload') }}"
+        enctype="multipart/form-data"
+        style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+    <input type="file" name="sticker_file" accept=".xlsx,.xls" required>
+    <button type="submit" style="margin-top:0;">엑셀 업로드</button>
+    <span class="muted" style="font-size:12.5px;">같은 모델번호가 이미 있으면 항목표/이미지가 갱신돼(매칭코드는 유지).</span>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>모델번호</th><th>표시명</th><th style="width:80px;">전압</th>
+        <th style="width:80px;">접미사</th><th style="width:80px;">P코드</th>
+        <th style="width:60px;">항목수</th><th style="width:60px;">이미지</th>
+        <th style="width:220px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in sticker_models %}
+      <tr>
+        <td>{{ m.model_no }}</td>
+        <td>{{ m.display_name }}</td>
+        <td><input type="text" name="voltage_code" form="sr-codes-{{ loop.index }}"
+                    value="{{ m.voltage_code }}" style="width:60px;"></td>
+        <td><input type="text" name="suffix_code" form="sr-codes-{{ loop.index }}"
+                    value="{{ m.suffix_code }}" style="width:60px;"></td>
+        <td><input type="text" name="pcode" form="sr-codes-{{ loop.index }}"
+                    value="{{ m.pcode }}" style="width:60px;"></td>
+        <td style="text-align:center;">{{ m.item_count }}</td>
+        <td style="text-align:center;">{{ '있음' if m.has_image else '-' }}</td>
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <form id="sr-codes-{{ loop.index }}" method="POST"
+                  action="{{ url_for('sticker_reference_update_codes', model_no=m.model_no) }}"></form>
+            <button type="submit" form="sr-codes-{{ loop.index }}" class="btn secondary" style="margin-top:0;">코드 저장</button>
+            <form method="POST" action="{{ url_for('sticker_reference_delete', model_no=m.model_no) }}"
+                  onsubmit="return confirm('{{ m.model_no }} 모델을 지울까? 항목표와 이미지도 같이 지워져.');">
+              <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">삭제</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" style="text-align:center; color:var(--muted);">등록된 모델이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="POST" action="{{ url_for('sticker_reference_create') }}"
+        style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+    <input type="text" name="model_no" placeholder="모델번호 (필수, 예: CKMR1070)" required style="width:180px;">
+    <input type="text" name="voltage_code" placeholder="전압코드 (선택)" style="width:110px;">
+    <input type="text" name="suffix_code" placeholder="접미사 (선택)" style="width:110px;">
+    <input type="text" name="pcode" placeholder="P코드 (선택)" style="width:110px;">
+    <button type="submit" style="margin-top:0;">모델 등록</button>
+  </form>
+</div>
 {% endblock %}

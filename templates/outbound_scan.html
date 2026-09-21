@@ -111,7 +111,11 @@
       <div class="qchk-panel" id="curChecksPanel">
         {% for field, label, short, criteria in check_fields %}
         <div class="qchk-row" data-field="{{ field }}">
-          <span class="qchk-label">{{ label }}</span>
+          <span class="qchk-label">{{ label }}
+            {% if field == 'check_sticker' %}
+            <button type="button" class="btn secondary" style="margin-top:0; padding:3px 10px; font-size:11px;" onclick="openStickerReferenceModal()">📎 기준 보기</button>
+            {% endif %}
+          </span>
           <span class="qchk-criteria">{{ criteria }}</span>
           <div class="qchk-btns">
             <button type="button" class="qchk-btn pass" data-value="PASS" onclick="setCurCheck('{{ field }}','PASS',this)">합격</button>
@@ -863,4 +867,5 @@
 })();
 </script>
 {% endif %}
+{% include "_sticker_reference_modal.html" %}
 {% endblock %}
