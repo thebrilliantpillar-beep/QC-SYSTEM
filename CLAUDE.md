@@ -1025,6 +1025,51 @@ planner→developer→quality-watcher를 여러 차례(출고 확인 정책, 검
   (특히 큰 구조변경 전에는 13절의 "planner에게 .collab/README.md와 최신 Record 읽히기"
   지시와 같은 이유 — 과거 결정을 모르고 재작업/충돌하는 걸 막기 위함).
 
+### 13-2. 실제 사고 — `capability-check`(§20 Agent Capability & Model Fit)도 매번 빠뜨리고 있었다 (2026-09-21)
+
+13-1절 사고를 사용자에게 보고하면서, "그럼 프로토콜 21개 섹션 전체를 상황마다 다 지킬 수
+있냐"는 재확인 질문을 받고 `CLAUDE-CHATGPT-PROTOCOL-v1.0.0-draft.md` 전체(21개 섹션)를
+실제로 다시 읽어 하나씩 대조했다. 방어적으로 "다 됩니다"라고 답하지 않고 정직하게 나눠서
+보고했다:
+
+- **기술적으로 강제돼서 실제로 항상 지켜지는 것**: `GIT_COMMIT`(pre-commit 훅)·`DEPLOY`
+  (pre-push 훅) 둘뿐.
+- **13-1절로 막 고친 것**: `workflow-dispatch` 계열 — 아직 실전에서 한 번도 라이브로
+  써본 적 없다는 것도 같이 인정했다(어제 "smoke test"뿐, 이번 사후기록은 실시간 아님).
+- **한 번도 안 써봐서 확신 없다고 인정한 것**: AI 간 통신(`envelope`), Handoff/Owner
+  Transfer, Emergency Handoff, Merge/Conflict(`conflict`/`relate`) — 이번 세션엔 그런
+  상황 자체가 안 생겨서 실전 검증이 없다.
+- **바로 그 자리에서 추가로 발견한 두 번째 누락**: §20 "Agent Capability & Model Fit"의
+  `capability-check` — TASK에 배정한 에이전트(planner/developer/quality-watcher 등)가
+  그 TASK에 적합한지 `PASS`/`INSUFFICIENT`/`UNKNOWN`으로 판단 근거(`capability_basis`)와
+  함께 기록해야 하는데, 이번 세션 내내 에이전트를 그냥 습관대로 골랐지 이 절차를 formal
+  하게 밟은 적이 한 번도 없었다 — **13-1절의 workflow-dispatch 누락과 정확히 같은 종류의
+  실수**(기술 강제가 없는 관례라 매번 잊음)였다.
+
+사용자가 "이것도 CLAUDE.md에 같이 박아넣고 다음부터 지켜. 중요한 프로젝트야"라고 명시적으로
+지시했다.
+
+**조치 — 이제부터 지킬 구체적 절차**: `workflow-dispatch`로 서브에이전트 하나를 배정할
+때마다(13-1절의 실시간 절차와 같은 시점), **그 직후에** 아래처럼 `capability-check`도
+같이 기록한다:
+
+```powershell
+python .collab/qms_audit.py capability-check --task <TASK_ID> --actor <claude|codex> `
+  --agent <역할명(planner/developer/quality-watcher/designer/reuse-scout)> `
+  --required "<이 TASK가 요구하는 능력 한 줄>" `
+  --result PASS --basis "<왜 이 에이전트로 충분한지 근거 한 줄>"
+```
+
+- 요구능력(`--required`)과 근거(`--basis`)는 매 TASK마다 실제로 다르게 채운다 — 형식적으로
+  아무 문구나 채우는 걸 방지하기 위해, "이 TASK가 정확히 뭘 요구하는지"를 한 줄로 요약하는
+  습관 자체가 배정 판단을 더 신중하게 만든다(프로토콜 §20.1의 취지 — "기존 배정을
+  재설계하려는 게 아니라 TASK별 적합성을 확인·기록하는 것"과 일치).
+- `INSUFFICIENT`나 `UNKNOWN`이 나오면(예: 이 프로젝트에 없는 전문 도메인 지식이 필요한
+  경우) §20.4에 따라 임의로 그냥 진행하지 말고, 적합한 에이전트를 다시 찾거나 사용자에게
+  먼저 확인한다 — Model 이름이 더 강력해 보인다는 이유만으로 임의 교체하지 않는다.
+- 13-1절과 마찬가지로 **"나중에 몰아서 기록"으로 미루지 말 것** — 두 사고 모두 정확히
+  그렇게 나서 실제로 여러 기능이 통째로 누락된 채 지나갔다.
+
 ## 14. 성적서 관련 4개 삭제버튼 — 전부 admin 전용 (2026-09-08 최종 확정, 되돌리지 말 것)
 
 `templates/_admin_delete.html`의 `admin_delete_bar` 매크로는 `show` 인자로 노출 조건을
