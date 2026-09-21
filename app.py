@@ -322,6 +322,24 @@ def ensure_supplier_contacts_migration_20260907():
                      "supplier_contacts", None, f"{migrated}건 이관됨 (대상 {len(candidates)}건)")
 
 
+def ensure_outbound_inspected_by_backfill_20260921():
+    """2026-09-21 검사자(inspected_by) 필드 신설 이전에 생성된 기존 outbound_items는
+    이 값이 NULL이다. 사용자 확정 — 그 항목들은 전부 당시 실제 작업자였던 "윤주호"로
+    일괄 채운다(그 항목들의 수정/삭제 권한도 이걸로 "검사자 본인" 조건이 생긴다 —
+    지금까지는 차수 등록자만 수정/삭제할 수 있었음). 1회성, settings 플래그로 멱등."""
+    if db.get_setting("outbound_inspected_by_backfill_20260921", "0") == "1":
+        return
+    conn = db.get_conn()
+    cur = conn.execute(
+        "UPDATE outbound_items SET inspected_by='윤주호' WHERE inspected_by IS NULL OR inspected_by=''")
+    updated = cur.rowcount
+    conn.commit()
+    conn.close()
+    db.set_setting("outbound_inspected_by_backfill_20260921", "1")
+    db.log_activity(None, "system", "system", "출고 항목 검사자 일괄 채움 (배포 마이그레이션)",
+                     "outbound_items", None, f"{updated}건 → 윤주호")
+
+
 def ensure_outbound_rules_seed_20260915():
     """모델명 자동분류 규칙 초기값을 1회만 심는다(설계문서 확정값). settings 플래그로
     멱등 처리 — 사용자가 화면에서 규칙을 지운 뒤 서버가 재시작돼도 되살아나면 안 되므로,
@@ -9418,6 +9436,7 @@ ensure_perm_migration()
 ensure_inspect_method_fill_20260825()
 ensure_supplier_contacts_migration_20260907()
 ensure_outbound_rules_seed_20260915()
+ensure_outbound_inspected_by_backfill_20260921()
 ensure_material_category_import_20260907()
 db.ensure_ncr_columns_migration()
 db.ensure_defect_types_seed_20260908()
