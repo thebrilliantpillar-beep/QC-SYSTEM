@@ -27,7 +27,7 @@
 <div class="card">
   <table>
     <thead>
-      <tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>항목수</th><th>엑셀</th><th>확인</th></tr>
+      <tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>항목수</th><th>엑셀</th><th>확인</th></tr>
     </thead>
     <tbody>
       {% for b in batches %}
@@ -36,6 +36,8 @@
         <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}">{{ b.customer or '-' }}</a></td>
         <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
         <td>{{ b.handler or '-' }}</td>
+        <td>{{ b.created_by or '-' }}</td>
+        <td>{{ b.inspectors or '-' }}</td>
         <td>{{ b.item_count }}</td>
         <td><a href="{{ url_for('outbound_batch_excel', batch_id=b.id) }}">📊 엑셀</a></td>
         <td>
@@ -51,7 +53,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7" style="text-align:center; color:var(--muted);">출고 이력이 없어.</td></tr>
+      <tr><td colspan="9" style="text-align:center; color:var(--muted);">출고 이력이 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>

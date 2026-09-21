@@ -536,6 +536,21 @@ def _outbound_batch_lock_response(batch, redirect_endpoint, **redirect_kwargs):
     return redirect(url_for(redirect_endpoint, **redirect_kwargs))
 
 
+def _outbound_item_edit_allowed(item, batch, actor):
+    """저장된 출고 항목(S/N) 수정/삭제를 이 사용자가 할 수 있는지 판단한다.
+    '이 항목을 등록한 검사자 본인'(item['inspected_by']) 또는 '이 차수를 등록한
+    사람'(batch['created_by']) 둘 중 하나여야 한다 — 2026-09-21 사용자 확정,
+    admin 예외도 outbound_delete 권한 예외도 없다(22절의 outbound_batch_confirm_revoke()
+    와 다른 조합이니 헷갈리지 말 것 — 거기는 admin OR 확인자, 여기는 검사자 OR 등록자).
+    actor는 반드시 g.user["display_name"] or g.user["username"] 로 호출부가 미리 계산해서
+    넘겨야 한다(22절 경고 — 다르게 계산하면 표시이름 설정된 계정이 자기 항목도 못 고치는
+    버그가 난다). 마이그레이션 이전 항목은 inspected_by가 None이라 검사자 조건은 항상
+    거짓이 되고, 그 차수의 등록자만 수정/삭제할 수 있다(의도된 동작)."""
+    if not batch:
+        return False
+    return actor == item["inspected_by"] or actor == batch["created_by"]
+
+
 def _approval_status_label(status, overall_result, approval_type):
     """status_display()와 같은 규칙을 raw 값(row 객체 아님)으로 받아 라벨만 돌려준다 —
     검사이력 외에도 NCR·반품처럼 원본 성적서를 조인해서 쓰는 목록의 검색 필터에서
@@ -8627,6 +8642,8 @@ def outbound_scan_edit(batch_id):
     is_admin_user = (g.user["username"] or "").strip().lower() == "admin"
     can_revoke_confirm = bool(batch["confirmed_at"]) and (
         is_admin_user or (batch["confirmed_by"] or "") == actor)
+    for it in items:
+        it["can_edit"] = _outbound_item_edit_allowed(it, batch, actor)
     # planned_serials/items가 이미 로드돼 있으므로 outbound_batch_has_unplanned_items()로
     # 다시 조회하지 않고 같은 로직을 메모리에서 계산한다(불필요한 DB 왕복 방지).
     has_unplanned = bool(planned_serials) and any(it["serial_no"] not in planned_serials for it in items)
@@ -8693,7 +8710,8 @@ def outbound_item_add(batch_id):
         return jsonify({"ok": False, "error": "차수 계획에 없는 S/N이라 추가할 수 없어."}), 400
     product_name = request.form.get("product_name", "").strip()
 
-    item_id = db.add_outbound_item(batch_id, serial_no, product_name, None)
+    actor = g.user["display_name"] or g.user["username"]
+    item_id = db.add_outbound_item(batch_id, serial_no, product_name, None, inspected_by=actor)
     body_enabled = db.outbound_body_photo_enabled()
     photos = []
 
@@ -8722,6 +8740,7 @@ def outbound_item_add(batch_id):
         return jsonify({"ok": True, "item": {
             "id": item_id, "serial_no": serial_no,
             "product_name": product_name, "photos": photos,
+            "inspected_by": actor,
         }})
     flash("항목이 추가됐어.")
     return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
@@ -8768,6 +8787,13 @@ def outbound_item_edit(item_id):
     locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=item["batch_id"])
     if locked:
         return locked
+    actor = g.user["display_name"] or g.user["username"]
+    if not _outbound_item_edit_allowed(item, batch, actor):
+        msg = "이 항목은 등록한 검사자 본인 또는 차수 등록자만 수정할 수 있어."
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "error": msg}), 403
+        flash(msg)
+        return redirect(url_for("outbound_scan_edit", batch_id=item["batch_id"]))
     product_name = request.form.get("product_name", "").strip()
     # 수량칸은 UI에서 완전히 제거됐다(2026-09-15 확장) — 이 라우트는 폼에서 수량을
     # 받지 않고 기존 값을 그대로 보존한다(멋대로 None으로 지우면 하위호환용으로 남겨둔
@@ -8848,6 +8874,13 @@ def outbound_item_delete(item_id):
     locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=batch_id)
     if locked:
         return locked
+    actor = g.user["display_name"] or g.user["username"]
+    if not _outbound_item_edit_allowed(item, batch, actor):
+        msg = "이 항목은 등록한 검사자 본인 또는 차수 등록자만 삭제할 수 있어."
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "error": msg}), 403
+        flash(msg)
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
     photo_names = db.delete_outbound_item(item_id)
     for fname in photo_names:
         try:
@@ -9027,6 +9060,8 @@ def outbound_batches_export():
         ("거래처", "customer", 18),
         ("출고(예정)일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
         ("담당자", "handler", 12),
+        ("차수 등록자", "created_by", 14),
+        ("검사자", "inspectors", 20),
         ("항목수", "item_count", 10),
         ("확인상태", _confirm_status, 20),
     ]

@@ -1815,7 +1815,7 @@ def build_outbound_excel(batch, items, photo_dir):
     # ── 제목 행 ──
     ws["A1"] = "출고 내역서"
     ws["A1"].font = Font(bold=True, size=16, name=KFONT)
-    ws.merge_cells("A1:O1")
+    ws.merge_cells("A1:P1")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 23.6
 
@@ -1826,6 +1826,11 @@ def build_outbound_excel(batch, items, photo_dir):
     ws["O3"] = f"담당자 {batch.get('handler') or ''}"
     for cell in ("A3", "C3", "D3", "O3"):
         ws[cell].font = bold
+
+    # 4행: 제목(1)/메타정보(3) 아래, 헤더(5) 위의 빈 스페이서 행 — 2026-09-21까지
+    # 아무 용도로도 안 쓰였음(확인됨, awk로 재검증). 차수 등록자 표시를 여기 추가.
+    ws["A4"] = f"등록자 {batch.get('created_by') or ''}"
+    ws["A4"].font = bold
 
     # ── 5행: 헤더 (A~L은 단일행, M/N/O는 M5:M6, N5:N6, O5:O6 병합) ──
     # 2026-09-20: 11열 → 15열 확장. A~C 기본정보, D~L 품질확인 9종, M 인디케이터사진,
@@ -1847,6 +1852,7 @@ def build_outbound_excel(batch, items, photo_dir):
         "인디케이터 사진",                          # M(13) — M5:M6 병합
         "본체사진",                                # N(14) — N5:N6 병합
         "판정",                                    # O(15) — O5:O6 병합
+        "검사자",                                   # P(16) — 병합 없음(2026-09-21 신설)
     ]
     # M/N/O(13~15)는 먼저 값을 쓴 뒤 병합(merge 후 쓰면 하위 셀이 None이 돼 값이 날아감)
     for i, h in enumerate(headers, start=1):
@@ -1876,7 +1882,7 @@ def build_outbound_excel(batch, items, photo_dir):
     sub_font = Font(size=10, name=KFONT)
     sub_texts = {i + 4: db.OUTBOUND_CHECK_CRITERIA[f] for i, f in enumerate(db.OUTBOUND_CHECK_FIELDS)}
     ws.cell(row=SUB_ROW, column=1, value="검사 기준")
-    for col_i in range(1, 16):
+    for col_i in range(1, 17):
         c = ws.cell(row=SUB_ROW, column=col_i)
         if col_i in sub_texts:
             c.value = sub_texts[col_i]
@@ -1894,7 +1900,7 @@ def build_outbound_excel(batch, items, photo_dir):
     # 2026-09-21: E열(QR 검사기준)만 문구가 길어져서(사용자 요청) 참고파일 기본폭
     # 18.71로는 6행이 2줄을 넘어 위로 잘렸다(LibreOffice 렌더로 실측 확인) — 사용자가
     # "너비 조정해도 됨"이라고 명시해서 이 열만 넓혔다(나머지 D/F~L은 참고파일 그대로 18.71).
-    widths = [6, 27.64, 22, 18.71, 26, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 16.36, 17.21, 11.29]
+    widths = [6, 27.64, 22, 18.71, 26, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 18.71, 16.36, 17.21, 11.29, 12]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -1999,6 +2005,11 @@ def build_outbound_excel(batch, items, photo_dir):
         result_cell.border = border
         result_cell.alignment = center
         result_cell.font = _outbound_value_font(result_value) or bold
+
+        inspector_cell = ws.cell(row=row_i, column=16, value=it.get("inspected_by") or "")
+        inspector_cell.border = border
+        inspector_cell.alignment = center
+        inspector_cell.font = Font(name=KFONT)
 
         photos = it.get("photos") or []
         indicator_paths = [

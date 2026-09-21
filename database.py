@@ -821,6 +821,14 @@ def init_db():
         if _ob_col not in existing_oi_cols:
             cur.execute(f"ALTER TABLE outbound_items ADD COLUMN {_ob_col} TEXT")
 
+    if "inspected_by" not in existing_oi_cols:
+        # 2026-09-21 확장: 항목(S/N)을 등록한 사용자 표시이름. app.py의 outbound_item_add()가
+        # 생성 시점에 채운다. 저장된 항목의 수정/삭제 권한을 "이 항목의 검사자 본인" 또는
+        # "이 차수의 등록자"(outbound_batches.created_by)로 제한하는 데 쓴다(사용자 확정,
+        # admin 예외·outbound_delete 권한 예외 없음). 마이그레이션 이전에 생성된 기존 항목은
+        # NULL로 남는다 — 그 항목은 차수 등록자만 수정/삭제 가능해진다(의도된 동작, 버그 아님).
+        cur.execute("ALTER TABLE outbound_items ADD COLUMN inspected_by TEXT")
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS outbound_item_photos (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4060,7 +4068,10 @@ def list_outbound_batches(query=None, limit=200):
                  WHERE p3.batch_id = b.id
                    AND NOT EXISTS (SELECT 1 FROM outbound_items i3
                                     WHERE i3.batch_id = p3.batch_id AND i3.serial_no = p3.serial_no)
-               ) AS missing_count
+               ) AS missing_count,
+               (SELECT GROUP_CONCAT(DISTINCT i4.inspected_by) FROM outbound_items i4
+                 WHERE i4.batch_id = b.id AND i4.inspected_by IS NOT NULL AND i4.inspected_by != ''
+               ) AS inspectors
           FROM outbound_batches b
           LEFT JOIN outbound_items i ON i.batch_id = b.id
          WHERE 1=1
@@ -4105,12 +4116,12 @@ def delete_outbound_batches(batch_ids):
     return photo_paths
 
 
-def add_outbound_item(batch_id, serial_no, product_name, quantity):
+def add_outbound_item(batch_id, serial_no, product_name, quantity, inspected_by=None):
     conn = get_conn()
     cur = conn.execute("""
-        INSERT INTO outbound_items (batch_id, serial_no, product_name, quantity)
-        VALUES (?, ?, ?, ?)
-    """, (batch_id, serial_no, product_name, quantity))
+        INSERT INTO outbound_items (batch_id, serial_no, product_name, quantity, inspected_by)
+        VALUES (?, ?, ?, ?, ?)
+    """, (batch_id, serial_no, product_name, quantity, inspected_by))
     conn.commit()
     item_id = cur.lastrowid
     conn.close()

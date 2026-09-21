@@ -183,7 +183,7 @@
   <table id="itemsTable">
     <thead>
       <tr>
-        <th>S/N</th><th>제품명/모델명</th><th>판정</th><th>인디케이터 사진</th>
+        <th>S/N</th><th>제품명/모델명</th><th>검사자</th><th>판정</th><th>인디케이터 사진</th>
         {% if body_photo_enabled %}<th>본체 사진</th>{% endif %}
         <th></th>
       </tr>
@@ -196,7 +196,7 @@
           {% else %}<span class="plan-badge extra">계획외</span>{% endif %}
         </td>
         <td>
-          {% if batch.confirmed_at %}
+          {% if batch.confirmed_at or not it.can_edit %}
           {{ it.product_name or '-' }}
           {% else %}
           <form method="POST" action="{{ url_for('outbound_item_edit', item_id=it.id) }}"
@@ -207,6 +207,7 @@
           </form>
           {% endif %}
         </td>
+        <td>{{ it.inspected_by or '-' }}</td>
         <td>
           <div class="ob-result" data-item="{{ it.id }}">
             {% set eff = it.result_effective %}
@@ -298,7 +299,7 @@
         </td>
         {% endif %}
         <td>
-          {% if not batch.confirmed_at %}
+          {% if not batch.confirmed_at and it.can_edit %}
           <form method="POST" action="{{ url_for('outbound_item_delete', item_id=it.id) }}"
                 onsubmit="return confirm('이 항목을 삭제할까?');">
             <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">삭제</button>
@@ -307,7 +308,7 @@
         </td>
       </tr>
       {% else %}
-      <tr class="empty-row"><td colspan="{{ 6 if body_photo_enabled else 5 }}" style="text-align:center; color:var(--muted);">저장된 항목이 없어.</td></tr>
+      <tr class="empty-row"><td colspan="{{ 7 if body_photo_enabled else 6 }}" style="text-align:center; color:var(--muted);">저장된 항목이 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -316,6 +317,7 @@
 
 <div class="card">
   <h3 style="margin-top:0; font-size:15px;">출고 정보</h3>
+  <p class="muted" style="margin:0 0 10px; font-size:13px;">차수 등록자: <b style="color:var(--text);">{{ batch.created_by or '-' }}</b></p>
   {% if batch.confirmed_at %}
   <div style="display:flex; gap:12px; flex-wrap:wrap;">
     <div style="flex:1; min-width:100px;"><label>차수</label><p style="margin:4px 0 0;">{{ batch.round_no or '-' }}</p></div>
@@ -729,6 +731,7 @@
       '<td><form method="POST" action="/outbound/item/' + item.id + '/edit" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
       '<input type="text" name="product_name" value="' + (item.product_name || '').replace(/"/g, '&quot;') + '" placeholder="제품명/모델명" style="flex:1;min-width:160px;">' +
       '<button type="submit" class="btn secondary" style="margin-top:0;">저장</button></form></td>' +
+      '<td>' + (item.inspected_by || '-') + '</td>' +
       resultCellHtml(item.id) +
       photosCell('indicator', pending.indicator);
     if (bodyPhotoEnabled) html += photosCell('body', pending.body);
