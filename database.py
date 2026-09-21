@@ -23,7 +23,7 @@ OUTBOUND_CHECK_FIELDS = [
 ]
 OUTBOUND_CHECK_LABELS = {
     "check_tie": "볼트/너트 체결 상태 (가대/탱크 다리)",
-    "check_qr": "QR 번호 부착 상태 확인",
+    "check_qr": "QR 번호 부착 리셉터클 캡 결합",
     "check_wrap": "하우징 커버 포장 상태",
     "check_rst": "RST단자 나무판 결착",
     "check_sticker": "스티커 부착 상태",
@@ -62,7 +62,7 @@ OUTBOUND_CHECK_SHORT_LABELS = {
 # 6행이 둘 다 이 딕셔너리 하나를 쓴다(8-1절 공용헬퍼 원칙, 문구를 두 곳에 복붙하지 않음).
 OUTBOUND_CHECK_CRITERIA = {
     "check_tie": "각각 해당 위치에 체결상태 확인",
-    "check_qr": "탱크에 S/N 및 QR 번호의 부착 여부",
+    "check_qr": "탱크에 S/N 및 QR 번호 부착 및 리셉터클 캡 장착 여부",
     "check_wrap": "커버에 하우징이 노출이 되는지 확인",
     "check_rst": "볼트가 단자에 잘 고정 되었는지",
     "check_sticker": "정격표시/ 배큠표시/오픈락/골든이글",
