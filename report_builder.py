@@ -1912,6 +1912,53 @@ def build_outbound_excel(batch, items, photo_dir):
     ROW_HEIGHT_PT = 80.05
     row_height_emu = ROW_HEIGHT_PT * 12700
 
+    # ── 확인자(최종결정권자) 서명 — 최상단 우측(2026-09-21, 사용자 확정) ──
+    # 2행은 제목(1행)과 배치 메타정보(3행) 사이의 빈 스페이서 행이라 여기를 썼다(9-20 개편으로
+    # 15열 구성이 됐어도 이 행 자체는 여전히 완전히 비어있다). batch['confirm_signature']는
+    # app.py의 _save_signature(f"outbound{batch_id}", ...)가 저장한 전체 경로(다른 서명
+    # 파일들과 같은 규칙). 이미지는 SIGNATURE_WIDTH_CM/HEIGHT_CM(5.7×2.3cm, 이 파일의 다른
+    # 서명 삽입과 동일 고정 규격)로 N:O(0-based 13~14) 영역 안에 중앙 배치. OneCellAnchor+ext는
+    # 실제 엑셀에서 셀 전체로 늘어나는 실측 버그가 있어(7-4-2절) QR 라벨과 같은 방식으로
+    # TwoCellAnchor의 from/to 두 좌표를 직접 계산한다. batch는 이 함수 호출부(app.py의
+    # outbound_batch_excel())가 dict(row)로 넘겨주는 일반 dict라 .get()으로 접근한다.
+    # 행 높이는 확인/서명이 실제로 있을 때만 늘린다 — 미확인 배치까지 매번 빈 큰 행을
+    # 만들 이유가 없다(planner 의사코드는 항상 세팅이었으나 불필요한 여백이라 조건부로 좁힘).
+    CONFIRM_ROW = 2
+    CONFIRM_ROW_HEIGHT_PT = 85
+    confirmed_by = batch.get("confirmed_by")
+    sig_path = batch.get("confirm_signature")
+    if confirmed_by or (sig_path and os.path.exists(sig_path)):
+        ws.row_dimensions[CONFIRM_ROW].height = CONFIRM_ROW_HEIGHT_PT
+    if confirmed_by:
+        ws.merge_cells(start_row=CONFIRM_ROW, start_column=11, end_row=CONFIRM_ROW, end_column=13)
+        label_cell = ws.cell(row=CONFIRM_ROW, column=11)
+        label_cell.value = f"확인(승인)자： {confirmed_by}"
+        label_cell.font = Font(bold=True, name=KFONT, size=11)
+        label_cell.alignment = Alignment(horizontal="right", vertical="center")
+    if sig_path and os.path.exists(sig_path):
+        col_n_emu, col_o_emu = col_widths_emu[13], col_widths_emu[14]  # N=14열, O=15열(1-based)
+        slot_w_emu = col_n_emu + col_o_emu
+        slot_h_emu = CONFIRM_ROW_HEIGHT_PT * 12700
+        img_w_emu = cm_to_EMU(SIGNATURE_WIDTH_CM)
+        img_h_emu = cm_to_EMU(SIGNATURE_HEIGHT_CM)
+        x_off = max(0, (slot_w_emu - img_w_emu) // 2)
+        y_off = max(0, (slot_h_emu - img_h_emu) // 2)
+
+        def _resolve_sig_col(x_emu):
+            if x_emu <= col_n_emu:
+                return 13, int(x_emu)          # 0-based col 13 = N열
+            return 14, int(x_emu - col_n_emu)  # 0-based col 14 = O열
+
+        from_col, from_off = _resolve_sig_col(x_off)
+        to_col, to_off = _resolve_sig_col(x_off + img_w_emu)
+        sig_img = XLImage(sig_path)
+        sig_img.anchor = TwoCellAnchor(
+            editAs="oneCell",
+            _from=AnchorMarker(col=from_col, colOff=from_off, row=CONFIRM_ROW - 1, rowOff=int(y_off)),
+            to=AnchorMarker(col=to_col, colOff=to_off, row=CONFIRM_ROW - 1, rowOff=int(y_off + img_h_emu)),
+        )
+        ws.add_image(sig_img)
+
     # 0-based 열 인덱스: A=0...O=14. 인디케이터사진=M(12), 본체사진=N(13)
     PHOTO_INDICATOR_COL = 12  # 0-based → column 13(M)
     PHOTO_BODY_COL = 13       # 0-based → column 14(N)

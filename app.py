@@ -8630,8 +8630,14 @@ def outbound_scan_edit(batch_id):
     # planned_serials/items가 이미 로드돼 있으므로 outbound_batch_has_unplanned_items()로
     # 다시 조회하지 않고 같은 로직을 메모리에서 계산한다(불필요한 DB 왕복 방지).
     has_unplanned = bool(planned_serials) and any(it["serial_no"] not in planned_serials for it in items)
+    # 2026-09-21: 반대 방향(계획에는 있는데 아직 스캔 안 된 항목)도 이미 로드된
+    # progress["rows"](outbound_plan_progress)에서 계산 — 별도 쿼리 추가 안 함.
+    has_missing_planned = any(r["status"] == "pending" for r in progress["rows"])
+    can_confirm, confirm_block_reason = _can_make_final_decision(g.user, "출고 확인")
     return render_template("outbound_scan.html", batch=batch, items=items,
                            planned_serials=planned_serials, has_unplanned=has_unplanned,
+                           has_missing_planned=has_missing_planned,
+                           can_confirm=can_confirm, confirm_block_reason=confirm_block_reason or "",
                            plan_rows=progress["rows"], plan_summary=progress["summary"],
                            body_photo_enabled=db.outbound_body_photo_enabled(),
                            can_revoke_confirm=can_revoke_confirm,
@@ -8732,7 +8738,6 @@ def outbound_serial_check():
         return jsonify({"registered": False, "used_in_other_batch": None,
                         "used_in_other_batch_customer": None,
                         "classified_label": None, "in_plan": None})
-    registered = db.serial_exists(serial_no)
     other_batch_id = db.find_outbound_item_batch(serial_no, exclude_batch_id=exclude_batch_id)
     other_batch_customer = None
     if other_batch_id:
@@ -8740,6 +8745,10 @@ def outbound_serial_check():
         other_batch_customer = b["customer"] if b else None
     classified_label = db.classify_serial_no(serial_no)
     in_plan = db.planned_item_exists(exclude_batch_id, serial_no) if exclude_batch_id else None
+    # 이번 배치의 차수 계획에 이미 있는 S/N이면 "완제품 S/N 발급" 이력에 별도로 없어도
+    # 미등록 경고를 안 띄운다 — 계획에 들어있다는 것 자체가 이미 검증된 것으로 본다
+    # (사용자 요청, 2026-09-21).
+    registered = db.serial_exists(serial_no) or bool(in_plan)
     return jsonify({
         "registered": registered,
         "used_in_other_batch": other_batch_id,
@@ -8923,16 +8932,45 @@ def outbound_batch_confirm(batch_id):
     if batch is None:
         flash("존재하지 않는 출고 배치야.")
         return redirect(url_for("outbound_history"))
+
+    # 2026-09-21 사용자 확정: 출고 확인도 승인/특채/불합격 확정·업체성적표 승인처럼
+    # 최종결정권자만 할 수 있는 최종 결정으로 바뀌었다. @perm_required("outbound")는
+    # 이 화면 자체 접근 권한이고, 실제 "확인" 액션은 이 게이트를 추가로 통과해야 한다.
+    allowed, why = _can_make_final_decision(g.user, "출고 확인")
+    if not allowed:
+        flash(why)
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
     # 2026-09-16 사용자 확정: 차수 계획에 없는 항목이 남아있으면 출고 확인 자체를 막는다
     # (출고 스캔/출고 이력 두 화면이 이 라우트 하나를 공유하므로 여기 한 곳만 게이트하면
     # 양쪽 다 자동으로 막힌다 — CLAUDE.md 8-1절 원칙).
     if db.outbound_batch_has_unplanned_items(batch_id):
         flash("차수 계획에 없는 항목이 남아있어 출고 확인을 할 수 없어. '계획외' 표시된 항목을 먼저 정리해줘.")
-        return redirect(request.referrer or url_for("outbound_history"))
-    db.confirm_outbound_batch(batch_id, g.user["display_name"] or g.user["username"])
-    record_change("출고 확인", "outbound_batch", batch_id, batch["customer"] or "")
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
+    # 2026-09-21 사용자 확정: 반대 방향(계획에는 있는데 아직 스캔 안 된 항목)도 확인을 막는다.
+    if db.outbound_batch_has_unscanned_planned_items(batch_id):
+        flash("차수 계획에 등록된 S/N 중 아직 스캔되지 않은 항목이 있어 출고 확인을 할 수 없어. "
+              "'계획 대비 진행상황'에서 남은 항목을 먼저 스캔해줘.")
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
+    # 2026-09-21 사용자 확정: 최종결정권자 서명 필수. static/signature_pad.js 공용 패드를
+    # 재사용하고, 파일명은 다른 문서 유형과 안 겹치게 "outbound{batch_id}" 접두어를 쓴다
+    # (NCR이 "ncr{id}"를 쓰는 것과 같은 관례, _save_signature() 그대로 재사용).
+    signature_data = request.form.get("signature_data", "").strip()
+    if not signature_data:
+        flash("서명을 먼저 해줘.")
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+    signature_path, sig_err = _save_signature(f"outbound{batch_id}", signature_data)
+    if sig_err:
+        flash(f"서명 저장 실패: {sig_err}")
+        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
+    confirmed_by = g.user["display_name"] or g.user["username"]
+    db.confirm_outbound_batch(batch_id, confirmed_by, signature_path=signature_path)
+    record_change("출고 확인", "outbound_batch", batch_id, f"{batch['customer'] or ''} — 확인자 {confirmed_by}")
     flash("출고 확인 처리됐어.")
-    return redirect(request.referrer or url_for("outbound_history"))
+    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
 
 
 @app.route("/outbound/batch/<int:batch_id>/revoke-confirm", methods=["POST"])
@@ -8980,6 +9018,8 @@ def outbound_batches_export():
             return f"확인완료 ({b['confirmed_by']})"
         if b["planned_count"] and b["unplanned_count"]:
             return "계획외 항목 있음"
+        if b["planned_count"] and b["missing_count"]:
+            return f"계획 미완료 ({b['missing_count']}건)"
         return "미확인"
 
     columns = [

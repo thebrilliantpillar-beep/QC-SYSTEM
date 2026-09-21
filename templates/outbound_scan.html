@@ -353,9 +353,22 @@
   </form>
   {% if has_unplanned %}
   <p style="margin-top:10px; color:var(--fail); font-size:13px;">⚠ 차수 계획에 없는 항목("계획외")이 남아있어 출고 확인을 할 수 없어. 아래 목록에서 정리한 뒤 다시 시도해줘.</p>
+  {% elif has_missing_planned %}
+  <p style="margin-top:10px; color:var(--fail); font-size:13px;">⚠ 차수 계획에 등록된 S/N 중 아직 스캔되지 않은 항목이 있어 출고 확인을 할 수 없어. 아래 "계획 대비 진행상황"에서 남은 항목을 먼저 스캔해줘.</p>
+  {% elif not can_confirm %}
+  <p style="margin-top:10px; color:var(--fail); font-size:13px;">🔒 출고 확인은 최종결정권자만 할 수 있어. {{ confirm_block_reason }}</p>
   {% else %}
   <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=batch.id) }}" style="margin-top:10px;">
-    <button type="submit" class="btn secondary" style="margin-top:0;">✅ 출고 확인</button>
+    <b style="font-size:13.5px; color:#2B3140; display:block; margin-bottom:6px;">✍️ 확인(승인) 서명 <span style="color:var(--fail);">*</span></b>
+    <input type="hidden" name="signature_data" id="obSigData">
+    <canvas id="obSigPad" width="340" height="120"
+            style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
+                   touch-action:none; display:block; max-width:100%;"></canvas>
+    <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+      <button type="button" onclick="obClearSig()" class="btn secondary" style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
+      <button type="button" onclick="obLoadDefaultSig()" class="btn secondary" style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
+    </div>
+    <button type="submit" class="btn secondary" style="margin-top:10px;" onclick="return obPrepareSign()">✅ 서명하고 출고 확인</button>
   </form>
   {% endif %}
   {% endif %}
@@ -828,4 +841,23 @@
   CollapsibleSections.init('details.sec[data-sec]', 'outbound-scan-sec-');
 })();
 </script>
+{% if not batch.confirmed_at and not has_unplanned and not has_missing_planned and can_confirm %}
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
+<script>
+(function () {
+  var pad = SignaturePad.attach('obSigPad');
+  if (!pad) return;
+  window.obClearSig = function () { pad.clear(); };
+  window.obLoadDefaultSig = function () {
+    pad.loadDefault(function (ok) {
+      if (!ok) alert('저장된 기본 서명이 없어. 승인 화면에서 먼저 저장해줘.');
+    });
+  };
+  window.obPrepareSign = function () {
+    return pad.fillAndConfirm('obSigData',
+      '이 출고 건을 확인 처리할까?\n확인 후에는 항목/사진/배치정보 수정이 잠겨.');
+  };
+})();
+</script>
+{% endif %}
 {% endblock %}

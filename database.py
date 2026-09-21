@@ -861,7 +861,7 @@ def init_db():
 
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
-    for col in ("round_no", "confirmed_by", "confirmed_at"):
+    for col in ("round_no", "confirmed_by", "confirmed_at", "confirm_signature"):
         if col not in existing_ob_cols:
             cur.execute(f"ALTER TABLE outbound_batches ADD COLUMN {col} TEXT")
 
@@ -4008,28 +4008,31 @@ def update_outbound_batch(batch_id, customer, ship_date, handler, round_no=None)
     conn.close()
 
 
-def confirm_outbound_batch(batch_id, confirmed_by):
+def confirm_outbound_batch(batch_id, confirmed_by, signature_path=None):
     """확인 시 이 배치의 항목 추가/수정/삭제·배치정보 수정을 잠근다(2026-09-15 변경 —
     예전엔 '확인은 순수 기록용, 잠금 아님'이 설계문서 확정사항이었으나 사용자가 명시적으로
     잠금 방식으로 바꿔달라고 요청해 뒤집었다). 실제 잠금 강제는 app.py의
     _outbound_batch_lock_response()가 각 수정 라우트 앞단에서 한다 — 이 함수 자체는
-    여전히 confirmed_by/confirmed_at 두 컬럼만 채우는 단순 UPDATE다."""
+    여전히 단순 UPDATE다. 2026-09-21: 최종결정권자 서명 경로(confirm_signature)도 같이
+    저장한다(사용자 확정 — 출고 확인도 승인/NCR/업체성적표처럼 서명이 필수인 최종 결정으로
+    바뀌었다)."""
     conn = get_conn()
     conn.execute("""
-        UPDATE outbound_batches SET confirmed_by=?, confirmed_at=datetime('now','localtime')
+        UPDATE outbound_batches SET confirmed_by=?, confirmed_at=datetime('now','localtime'),
+               confirm_signature=?
         WHERE id=?
-    """, (confirmed_by, batch_id))
+    """, (confirmed_by, signature_path, batch_id))
     conn.commit()
     conn.close()
 
 
 def revoke_outbound_batch_confirm(batch_id):
-    """출고 확인을 취소하고 잠금을 풀어준다(confirmed_by/confirmed_at을 NULL로).
-    서명·해시 같은 부수 상태가 없는 기능이라(성적서 승인 회수의 8-2-10절과 달리)
-    이 두 컬럼만 초기화하면 된다."""
+    """출고 확인을 취소하고 잠금을 풀어준다. 2026-09-21: 서명이 생기면서 8-2-10절과
+    같은 원칙 적용 — 확인이 취소됐는데 확인자 서명이 남아 있으면 안 된다. 성적서
+    승인 회수와 같은 관례로 DB 포인터만 NULL로 하고 실제 PNG 파일은 지우지 않는다."""
     conn = get_conn()
     conn.execute("""
-        UPDATE outbound_batches SET confirmed_by=NULL, confirmed_at=NULL
+        UPDATE outbound_batches SET confirmed_by=NULL, confirmed_at=NULL, confirm_signature=NULL
         WHERE id=?
     """, (batch_id,))
     conn.commit()
@@ -4052,7 +4055,12 @@ def list_outbound_batches(query=None, limit=200):
                  WHERE i2.batch_id = b.id
                    AND NOT EXISTS (SELECT 1 FROM outbound_planned_items p2
                                     WHERE p2.batch_id = i2.batch_id AND p2.serial_no = i2.serial_no)
-               ) AS unplanned_count
+               ) AS unplanned_count,
+               (SELECT COUNT(*) FROM outbound_planned_items p3
+                 WHERE p3.batch_id = b.id
+                   AND NOT EXISTS (SELECT 1 FROM outbound_items i3
+                                    WHERE i3.batch_id = p3.batch_id AND i3.serial_no = p3.serial_no)
+               ) AS missing_count
           FROM outbound_batches b
           LEFT JOIN outbound_items i ON i.batch_id = b.id
          WHERE 1=1
@@ -4450,6 +4458,27 @@ def outbound_batch_has_unplanned_items(batch_id):
     """, (batch_id,)).fetchone()[0]
     conn.close()
     return unplanned_count > 0
+
+
+def outbound_batch_has_unscanned_planned_items(batch_id):
+    """차수 계획(outbound_planned_items)에 등록된 S/N 중 아직 스캔(outbound_items)되지
+    않은 게 하나라도 있으면 True. 계획 자체가 없으면(자유 등록 배치) False —
+    outbound_batch_has_unplanned_items()와 같은 전제(2026-09-21 사용자 확정: '계획에는
+    있는데 아직 안 채워진' 반대 방향도 출고 확인을 막는다). outbound_batch_confirm()
+    라우트가 이 함수로 확인 처리를 게이트한다."""
+    conn = get_conn()
+    planned_count = conn.execute(
+        "SELECT COUNT(*) FROM outbound_planned_items WHERE batch_id=?", (batch_id,)).fetchone()[0]
+    if planned_count == 0:
+        conn.close()
+        return False
+    missing_count = conn.execute("""
+        SELECT COUNT(*) FROM outbound_planned_items p
+         WHERE p.batch_id=? AND NOT EXISTS (
+             SELECT 1 FROM outbound_items i WHERE i.batch_id=p.batch_id AND i.serial_no=p.serial_no)
+    """, (batch_id,)).fetchone()[0]
+    conn.close()
+    return missing_count > 0
 
 
 def delete_planned_item(planned_id):

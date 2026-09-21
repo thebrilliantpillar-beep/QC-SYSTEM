@@ -43,10 +43,10 @@
           <span style="color:var(--pass); font-size:12.5px;">✅ {{ b.confirmed_by }}<br>{{ b.confirmed_at | datetime_korean }}</span>
           {% elif b.planned_count and b.unplanned_count %}
           <span style="color:var(--fail); font-size:11.5px;" title="차수 계획에 없는 항목이 있어 확인할 수 없어">⚠ 계획외 항목 있음</span>
+          {% elif b.planned_count and b.missing_count %}
+          <span style="color:var(--fail); font-size:11.5px;" title="차수 계획에 등록된 S/N 중 아직 스캔 안 된 항목이 있어 확인할 수 없어">⚠ 계획 미완료 ({{ b.missing_count }}건)</span>
           {% else %}
-          <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=b.id) }}">
-            <button type="submit" class="btn secondary" style="margin-top:0; font-size:12px; padding:4px 10px;">확인</button>
-          </form>
+          <a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}" class="btn secondary" style="margin-top:0; font-size:12px; padding:4px 10px;">서명 후 확인 →</a>
           {% endif %}
         </td>
       </tr>
