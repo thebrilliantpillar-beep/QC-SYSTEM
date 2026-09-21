@@ -69,7 +69,7 @@ OUTBOUND_CHECK_CRITERIA = {
     "check_paint": "도장 벗겨짐/파임/오염",
     "check_access": "부속품 유무",
     "check_cable": "LIFT RING 에 노란색 케이블 타이",
-    "check_indicator": "투입상태(초록)확인",
+    "check_indicator": "투입상태(빨강)확인",
 }
 
 
