@@ -124,7 +124,7 @@ if not _secret_key:
     )
     sys.exit(1)
 app.secret_key = _secret_key
-app.permanent_session_lifetime = timedelta(hours=24)  # 하루 한 번 로그인하면 그 뒤로 계속 유지 (admin 제외)
+app.permanent_session_lifetime = timedelta(hours=6)  # 2026-09-21 사용자 요청으로 24→6시간 축소 (admin 제외)
 csrf = CSRFProtect(app)
 
 
