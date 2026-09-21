@@ -1970,6 +1970,8 @@ def build_outbound_excel(batch, items, photo_dir):
     PHOTO_BODY_COL = 13       # 0-based → column 14(N)
 
     DATA_START_ROW = SUB_ROW + 1  # = 7
+    # 2026-09-21 사용자 요청: 제목~검사기준(1~6행) 틀고정 — 7행부터 스크롤되게.
+    ws.freeze_panes = f"A{DATA_START_ROW}"
     for offset, it in enumerate(items):
         row_i = DATA_START_ROW + offset
         ws.row_dimensions[row_i].height = ROW_HEIGHT_PT
