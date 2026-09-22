@@ -189,9 +189,34 @@
       —
       {% endif %}
     </td>
+    {% if can_edit %}
+    <td>
+      <input type="text" name="model_name" value="{{ r['model_name'] }}" form="bomEdit{{ r['id'] }}"
+             style="width:110px; padding:4px 6px; font-size:12.5px;">
+    </td>
+    <td>
+      <select name="level" form="bomEdit{{ r['id'] }}" style="width:auto; padding:4px; font-size:12.5px;">
+        {% for lv in [1,2,3,4,5] %}
+        <option value="{{ lv }}" {% if r['level']==lv %}selected{% endif %}>Lv{{ lv }}</option>
+        {% endfor %}
+      </select>
+      {% if r['manually_edited'] %}<span class="badge muted" style="font-size:10px;" title="사용자가 직접 수정 — 재임포트해도 이 행은 유지돼">✎ 수정됨</span>{% endif %}
+    </td>
+    <td>
+      <div style="display:flex; gap:4px; align-items:center;">
+        <input type="text" name="parent_material_no" value="{{ r['parent_material_no'] or '' }}" form="bomEdit{{ r['id'] }}"
+               style="width:100px; padding:4px 6px; font-size:12.5px;">
+        <button type="submit" form="bomEdit{{ r['id'] }}" style="margin:0; padding:4px 9px; font-size:11.5px;" title="저장">💾</button>
+      </div>
+    </td>
+    {% else %}
     <td>{{ r['model_name'] }}</td>
-    <td><span class="badge muted">Lv{{ r['level'] }}</span></td>
+    <td>
+      <span class="badge muted">Lv{{ r['level'] }}</span>
+      {% if r['manually_edited'] %}<span class="badge muted" style="font-size:10px;" title="사용자가 직접 수정 — 재임포트해도 이 행은 유지돼">✎</span>{% endif %}
+    </td>
     <td>{{ r['parent_material_no'] or '—' }}</td>
+    {% endif %}
     <td>{{ r['kind'] or '—' }}</td>
     <td>
       {% if r['material_name'] is none %}
@@ -225,6 +250,14 @@
   {% endfor %}
 </table>
 </div>
+{% if can_edit %}
+{% for r in rows %}
+<form id="bomEdit{{ r['id'] }}" method="POST"
+      action="{{ url_for('materials_bom_links_edit', link_id=r['id']) }}" style="display:none;">
+  <input type="hidden" name="next" value="{{ request.full_path }}">
+</form>
+{% endfor %}
+{% endif %}
 {% include "_drawing_modal.html" %}
 {% set p = pager %}{% include "_pager.html" %}
 

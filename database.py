@@ -461,6 +461,11 @@ def init_db():
         # BOM 원본의 "규격사양(SPEC)" 열 — materials.material_name은 절대 안 건드리고,
         # "자재 찾기"에서 미등록 자재를 등록할 때 이름을 자동으로 채워주는 참고용 값.
         cur.execute("ALTER TABLE material_bom_links ADD COLUMN bom_name TEXT")
+    if "manually_edited" not in existing_bom_cols:
+        # 사용자가 "자재 찾기"에서 model_name/parent_material_no/level을 직접 수정한
+        # 행 표시(2026-09-22). 이 플래그가 1인 행은 import_bom_from_excel() 재임포트
+        # 시 덮어쓰기 대상에서 제외된다 — CLAUDE.md 18절 참고.
+        cur.execute("ALTER TABLE material_bom_links ADD COLUMN manually_edited INTEGER NOT NULL DEFAULT 0")
 
     # 4-1. 검사 입력 임시저장 — 검사자가 입력하는 즉시 서버에 저장된다.
     #      예전엔 브라우저 localStorage에만 있어서 태블릿이 꺼지거나 기기를 바꾸면 날아갔다.
@@ -3471,7 +3476,7 @@ _BOM_ALLOWED_UNITS = {"pc", "set", "ea"}
 
 def import_bom_from_excel(filepath):
     """통합BOM 엑셀("통합BOM" 시트)에서 자재별 계층(모델/Lv/상위품목코드) 정보를 읽어
-    material_bom_links에 전량 재삽입한다(재임포트 시 기존 데이터는 전부 삭제 후 다시 채움).
+    material_bom_links에 재삽입한다.
 
     시트 구조(2026-09-09 확인, 헤더 2행/데이터 3행부터):
       1~5=Lv1~Lv5(그 중 하나만 값 있음)  6=모델명  7=Rev(안씀)  8=품목코드
@@ -3479,7 +3484,14 @@ def import_bom_from_excel(filepath):
       10=소요량  11=단위  12=1대당누적  13=상위품목코드  14=구분  15=적용모델수(안씀)  16~=모델별 매트릭스(안씀)
 
     구분이 '완제품'인 행은 제외. 단위가 Pc/SET/EA(대소문자·공백 무시)가 아니면 제외.
-    반환: {"imported", "skipped_unit", "skipped_no_code", "skipped_finished_good", "skipped_no_level"}"""
+
+    2026-09-22부터 전량 재삽입이 아니다 — manually_edited=1인 행(사용자가 "자재 찾기"에서
+    직접 수정한 행, update_bom_link() 참고)은 보존하고, (material_no, source_row_no)를
+    매칭키로 써서 중복 삽입도 방지한다. 원본 엑셀 행순서가 바뀌면 이 매칭이 깨져 중복이
+    생길 수 있다는 게 알려진 한계다 — 화면의 '✎ 수정됨' 배지로 사람이 인지할 수 있게만
+    해뒀다(자동 재매칭은 하지 않음).
+    반환: {"imported", "skipped_unit", "skipped_no_code", "skipped_finished_good",
+           "skipped_no_level", "preserved_edited"}"""
     import openpyxl
 
     wb = openpyxl.load_workbook(filepath, data_only=True)
@@ -3490,7 +3502,7 @@ def import_bom_from_excel(filepath):
         wb.close()
 
     summary = {"imported": 0, "skipped_unit": 0, "skipped_no_code": 0,
-               "skipped_finished_good": 0, "skipped_no_level": 0}
+               "skipped_finished_good": 0, "skipped_no_level": 0, "preserved_edited": 0}
     rows_to_insert = []
 
     for row_no, row in enumerate(rows_raw, start=3):
@@ -3545,18 +3557,64 @@ def import_bom_from_excel(filepath):
 
     conn = get_conn()
     try:
-        conn.execute("DELETE FROM material_bom_links")
+        edited_keys = {
+            (r["material_no"], r["source_row_no"])
+            for r in conn.execute(
+                "SELECT material_no, source_row_no FROM material_bom_links WHERE manually_edited = 1"
+            ).fetchall()
+        }
+
+        filtered_rows = []
+        for row in rows_to_insert:
+            # row 튜플 순서: (material_no, parent_material_no, model_name, level, kind,
+            #                 qty_per_parent, qty_per_model, unit, source_row_no, bom_name)
+            key = (row[0], row[8])
+            if key in edited_keys:
+                summary["preserved_edited"] += 1
+                summary["imported"] -= 1
+                continue
+            filtered_rows.append(row)
+
+        conn.execute("DELETE FROM material_bom_links WHERE manually_edited = 0")
         conn.executemany("""
             INSERT INTO material_bom_links
                 (material_no, parent_material_no, model_name, level, kind,
                  qty_per_parent, qty_per_model, unit, source_row_no, bom_name)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, rows_to_insert)
+        """, filtered_rows)
         conn.commit()
     finally:
         conn.close()
 
     return summary
+
+
+def update_bom_link(link_id, model_name, parent_material_no, level):
+    """'자재 찾기'에서 BOM 연동 행 하나의 model_name/parent_material_no/level을 사용자가
+    직접 수정(2026-09-22). kind는 수정 대상이 아니다(사용자 확정 범위, CLAUDE.md 18절).
+    manually_edited=1로 표시돼 다음 import_bom_from_excel() 재임포트 때 이 행은
+    덮어쓰기 대상에서 제외된다. 실패 시 ValueError(사람이 읽을 문구)를 낸다."""
+    model_name = (model_name or "").strip()
+    if not model_name:
+        raise ValueError("모델명은 비워둘 수 없어.")
+    try:
+        level_int = int(level)
+    except (TypeError, ValueError):
+        raise ValueError("Lv는 1~5 사이 숫자여야 해.")
+    if level_int < 1 or level_int > 5:
+        raise ValueError("Lv는 1~5 사이여야 해.")
+    parent_material_no = (parent_material_no or "").strip() or None
+
+    conn = get_conn()
+    try:
+        conn.execute("""
+            UPDATE material_bom_links
+            SET model_name = ?, parent_material_no = ?, level = ?, manually_edited = 1
+            WHERE id = ?
+        """, (model_name, parent_material_no, level_int, link_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_bom_links_for_material(material_no):
@@ -3626,7 +3684,8 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
 
     sql = f"""
         SELECT b.id, b.material_no, m.material_name, b.bom_name, b.level, b.model_name,
-               b.parent_material_no, b.kind, b.qty_per_parent, b.qty_per_model, b.unit, m.category
+               b.parent_material_no, b.kind, b.qty_per_parent, b.qty_per_model, b.unit, m.category,
+               b.manually_edited
         FROM material_bom_links b
         LEFT JOIN materials m ON m.material_no = b.material_no
         WHERE {" AND ".join(where)}

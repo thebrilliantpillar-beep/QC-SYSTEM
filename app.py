@@ -2195,6 +2195,28 @@ def materials_bom_links_delete_bulk():
     return redirect(return_to)
 
 
+@app.route("/materials/bom-links/<int:link_id>/edit", methods=["POST"])
+@perm_required("material_edit")
+def materials_bom_links_edit(link_id):
+    """'자재 찾기'에서 BOM 연동 행(모델/Lv/상위품목코드)을 직접 수정. manually_edited=1로
+    표시돼 다음 재임포트 때 이 행만 덮어쓰기를 건너뛰고 보존된다(CLAUDE.md 18절)."""
+    model_name = request.form.get("model_name", "").strip()
+    parent_material_no = request.form.get("parent_material_no", "").strip()
+    level_raw = request.form.get("level", "").strip()
+    return_to = _find_return_to(url_for("material_find"))
+
+    try:
+        db.update_bom_link(link_id, model_name, parent_material_no or None, level_raw)
+    except ValueError as e:
+        flash(str(e))
+        return redirect(return_to)
+
+    record_change("BOM 연동 정보 수정", "material_bom_links", str(link_id),
+                  f"모델={model_name}, Lv={level_raw}, 상위품목코드={parent_material_no or '(없음)'}")
+    flash("BOM 정보가 저장됐어.")
+    return redirect(return_to)
+
+
 @app.route("/spec/<material_no>/rename", methods=["POST"])
 @perm_required("material_edit")
 def spec_material_rename(material_no):
@@ -7685,11 +7707,13 @@ def import_bom():
             tmp_path = tmp.name
             file.save(tmp.name)
         summary = db.import_bom_from_excel(tmp_path)
+        preserved_note = f" · 직접수정 보존 {summary['preserved_edited']}건" if summary['preserved_edited'] else ""
         flash(f"BOM 임포트 완료 — 등록 {summary['imported']}건 "
               f"(스킵: 단위 {summary['skipped_unit']} / 품목코드없음 {summary['skipped_no_code']} / "
-              f"완제품 {summary['skipped_finished_good']} / Lv없음 {summary['skipped_no_level']})")
+              f"완제품 {summary['skipped_finished_good']} / Lv없음 {summary['skipped_no_level']})" + preserved_note)
         record_change("BOM 계층 임포트", "material", None,
-                      f"등록 {summary['imported']}건, 스킵 {summary['skipped_unit']+summary['skipped_no_code']+summary['skipped_finished_good']+summary['skipped_no_level']}건")
+                      f"등록 {summary['imported']}건, 스킵 {summary['skipped_unit']+summary['skipped_no_code']+summary['skipped_finished_good']+summary['skipped_no_level']}건, "
+                      f"보존 {summary['preserved_edited']}건")
     except KeyError:
         flash("엑셀 파일에 '통합BOM' 시트가 없어. 시트명을 확인해줘.")
     except Exception as e:
@@ -7766,6 +7790,7 @@ def material_find_export():
         ("구분", "kind", 10),
         ("자재분류", "category", 14),
         ("도면등록여부", lambda r: "등록" if r["material_no"] in drawing_materials else "미등록", 12),
+        ("수정됨", lambda r: "✎ 수정됨" if r["manually_edited"] else "", 10),
     ]
     buf = report_builder.build_list_excel("자재찾기", columns, rows, filter_summary=filt or None)
     return _send_list_excel(buf, "자재찾기")

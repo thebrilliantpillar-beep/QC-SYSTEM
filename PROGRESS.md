@@ -8,6 +8,27 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-22 (자재 찾기 BOM 인라인 수정, origin·deploy 양쪽 push 예정)**: "자재 찾기"
+  (`/materials/find`) 화면에서 BOM 연동 행의 모델명/상위품목코드/Lv 3개 필드를 인라인
+  수정 가능하게 함(구분은 제외). 수정한 행은 `manually_edited=1`로 표시("✎ 수정됨"
+  배지)되고, BOM 엑셀 재임포트(전량삭제후재삽입 방식)해도 그 행만 덮어쓰기에서 제외돼
+  보존됨 — 매칭키는 `(material_no, source_row_no)`(원본 엑셀 행순서가 바뀌면 중복 생길
+  수 있다는 게 알려진 한계, 배지로 인지 가능). 엑셀 내보내기에도 "수정됨" 컬럼 추가.
+  planner(2회, 최초안+CRUD 스펙 아님 순수 스펙 보강)→developer→quality-watcher 순서로
+  진행, 전부 PASS. **이번에도 workflow-dispatch/capability-check를 실시간으로 안
+  지켰다** — 어제(13-1/13-2절) 약속하고 하루만에 재발, TASK #8로 사후 기록만 남김
+  (CLAUDE.md에 더 강한 조치가 필요한지는 재발 패턴이 계속되면 재검토).
+
+- **2026-09-21 (capability-check 누락 사고 추가 기록, 커밋 df84483, origin push 완료,
+  deploy 불필요)**: workflow-dispatch 사고(13-1절) 보고 후 사용자가 "프로토콜 전체를
+  상황마다 다 지킬 수 있냐"고 재확인 → `CLAUDE-CHATGPT-PROTOCOL-v1.0.0-draft.md` 21개
+  섹션 전체를 실제로 재대조. GIT_COMMIT/DEPLOY만 진짜 기술강제, 나머지(AI간 통신/
+  Handoff/Emergency Handoff/Merge-Conflict/Capability Check)는 전부 미검증 또는
+  미실행이라고 정직하게 보고. 그중 §20 Agent Capability & Model Fit의
+  `capability-check`가 workflow-dispatch와 같은 원인(기술강제 없는 관례)으로 매번
+  누락되고 있던 걸 발견 — 사용자가 "이것도 CLAUDE.md에 박아넣고 다음부터 지켜, 중요한
+  프로젝트야"라고 지시해 13-2절 신설. TASK #7에 후속 note로 보강 기록.
+
 - **2026-09-21 (workflow-dispatch 누락 사고 기록 + CLI 인코딩 버그 수정, 커밋 0c34ff7,
   origin push 완료, deploy 불필요)**: 사용자가 ".collab에 다 기록되고 있는지" 질문 →
   확인해보니 이 세션 9개 커밋이 실시간 workflow-dispatch 없이 진행됐던 걸 발견. 원인은
