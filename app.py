@@ -39,11 +39,25 @@ from functools import wraps
 from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify
 from flask_wtf.csrf import CSRFProtect, CSRFError
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import database as db
 import report_builder
 import spec_import as spec_import_module
 
 app = Flask(__name__)
+
+# DATA_DIR이 설정돼 있으면 Render(운영) 환경으로 간주한다(render.yaml이 심어준다,
+# 새 환경변수를 만들지 않고 기존 신호를 재사용 — CLAUDE.md 20절 관례).
+# 로컬은 이 값이 없으므로 아래 두 보안설정 모두 항상 False/미적용으로 남는다.
+_is_production = bool(os.environ.get("DATA_DIR", "").strip())
+
+if _is_production:
+    # Render는 앞단에 리버스 프록시가 있어 실제 클라이언트 IP/프로토콜이
+    # X-Forwarded-* 헤더로 전달된다 — 로컬에서까지 이 헤더를 신뢰하면 LAN의
+    # 누구나 헤더를 위조해 IP 판별을 속일 수 있으므로 운영환경에서만 적용한다.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 # ──────────────────────────────────────────────
 # 유틸리티 함수
@@ -125,7 +139,13 @@ if not _secret_key:
     sys.exit(1)
 app.secret_key = _secret_key
 app.permanent_session_lifetime = timedelta(hours=6)  # 2026-09-21 사용자 요청으로 24→6시간 축소 (admin 제외)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# 로컬(HTTP)에서 Secure를 켜면 브라우저가 쿠키를 안 보내 로그인이 깨진다 —
+# 반드시 _is_production일 때만 True.
+app.config["SESSION_COOKIE_SECURE"] = _is_production
 csrf = CSRFProtect(app)
+limiter = Limiter(key_func=get_remote_address, app=app, default_limits=[], storage_uri="memory://")
 
 
 @app.errorhandler(CSRFError)
@@ -153,22 +173,6 @@ BACKUP_DIR = os.path.join(db.DATA_DIR, "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 BACKUP_README = os.path.join(BACKUP_DIR, "README.txt")
 
-
-@app.route("/static/signatures/<path:filename>")
-def signature_file(filename):
-    # 서명 이미지는 static/ 안이 아니라 DATA_DIR(영구 디스크)에 저장되므로
-    # Flask 기본 static 라우트 대신 이 라우트가 대신 서빙한다 (URL은 그대로 유지)
-    return send_from_directory(SIGNATURE_DIR, filename)
-
-
-@app.route("/static/ncr_photos/<path:filename>")
-def ncr_photo_file(filename):
-    return send_from_directory(NCR_PHOTO_DIR, filename)
-
-
-@app.route("/static/improvement_photos/<path:filename>")
-def improvement_photo_file(filename):
-    return send_from_directory(IMPROVEMENT_PHOTO_DIR, filename)
 
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin1234"
@@ -823,7 +827,41 @@ role_required = perm_required
 admin_required = perm_required()  # "users" 권한 보유자만
 
 
+@app.route("/static/signatures/<path:filename>")
+@login_required
+def signature_file(filename):
+    # 서명 이미지는 static/ 안이 아니라 DATA_DIR(영구 디스크)에 저장되므로
+    # Flask 기본 static 라우트 대신 이 라우트가 대신 서빙한다 (URL은 그대로 유지)
+    return send_from_directory(SIGNATURE_DIR, filename)
+
+
+@app.route("/static/ncr_photos/<path:filename>")
+@perm_required("ncr", "ncr_confirm")
+def ncr_photo_file(filename):
+    return send_from_directory(NCR_PHOTO_DIR, filename)
+
+
+@app.route("/static/improvement_photos/<path:filename>")
+@perm_required("improvement")
+def improvement_photo_file(filename):
+    return send_from_directory(IMPROVEMENT_PHOTO_DIR, filename)
+
+
+def _is_safe_redirect_target(url):
+    """로그인 후 돌아갈 next 값이 이 사이트 내부의 상대경로인지 검사한다(오픈
+    리다이렉트 방지). 스킴이 없고 '/'로 시작하며, '//'나 '/\\'로 시작하지 않아야
+    한다(프로토콜-상대 URL 방어 포함)."""
+    if not url:
+        return False
+    if not url.startswith("/"):
+        return False
+    if url.startswith("//") or url.startswith("/\\"):
+        return False
+    return True
+
+
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute", methods=["POST"])
 def login():
     if request.method == "GET" and g.user is not None:
         # 이미 로그인된 상태로 /login에 들어오면(북마크, 뒤로가기 등) 로그인 폼 위에
@@ -841,6 +879,8 @@ def login():
         session["user_id"] = user["id"]
         session["last_seen"] = time.time()
         next_url = request.args.get("next") or url_for("home")
+        if not _is_safe_redirect_target(next_url):
+            next_url = url_for("home")
         return redirect(next_url)
 
     return render_template("login.html")
@@ -4062,6 +4102,25 @@ def _can_make_final_decision(user, what="승인·특채·불합격 확정"):
     return False, f"{what}은(는) 최종결정권자만 할 수 있어. (현재 최종결정권자: {names})"
 
 
+def _can_send_ncr(ncr, user):
+    """NCR 발송(ncr_send_email/ncr_eml)을 이 사용자가 할 수 있는지 판단한다.
+    세분화 permission이 아니라 신원(identity) 기반 게이트다(2026-09-23 사용자 확정) —
+    '작성자 본인' 또는 'ncr_confirm 권한 보유자(중간 관리자)' 또는 '최종결정권자'만
+    발송 가능. _can_make_final_decision()과 달리 폴백(최종결정권자 미지정 시 approve
+    권한만으로 통과)이 없다 — 사용자 원문에 그 폴백 언급이 없어 범위를 넓히지 않기
+    위해 별도로 만들었다."""
+    if user is None:
+        return False
+    actor = user["display_name"] or user["username"]
+    if actor == ncr["issued_by"]:
+        return True
+    if "ncr_confirm" in _user_perms(user):
+        return True
+    if bool(user["is_final_approver"]):
+        return True
+    return False
+
+
 @app.route("/inspection/<int:inspection_id>/approve", methods=["POST"])
 @perm_required("approve")
 def approve(inspection_id):
@@ -6826,6 +6885,9 @@ def ncr_eml(ncr_id):
     if ncr is None:
         flash("통보서를 찾을 수 없어.")
         return redirect(url_for("ncr_list"))
+    if not _can_send_ncr(ncr, g.user):
+        flash("NCR 발송은 작성자, 확인 권한 보유자, 최종결정권자만 할 수 있어.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
     ncr_dict = dict(ncr)
     photos_raw = _json.loads(ncr["photos"] or "[]")
@@ -6964,6 +7026,9 @@ def ncr_send_email(ncr_id):
     if ncr is None:
         flash("통보서를 찾을 수 없어.")
         return redirect(url_for("home"))
+    if not _can_send_ncr(ncr, g.user):
+        flash("NCR 발송은 작성자, 확인 권한 보유자, 최종결정권자만 할 수 있어.")
+        return redirect(url_for("ncr_detail", ncr_id=ncr_id))
 
     to_email = request.form.get("to_email", "").strip()
     if not to_email:

@@ -8,6 +8,24 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-23 (보안 감사 후속 수정 5건, origin·deploy 양쪽 push 예정)**: 사용자 요청으로
+  방어적 보안 감사(인증우회+DevTools노출+크롤링방어) 실시, 실제 취약점 2건(치명적)+3건
+  (높음) 발견 후 전부 수정. ①서명/NCR사진/개선사진 정적라우트 3개가 비인증 상태였던 걸
+  각각 login_required/ncr권한/improvement권한으로 막음. ②NCR 발송(ncr_send_email/
+  ncr_eml)이 "작성" 권한만으로 뚫리던 걸 "작성자 본인+ncr_confirm(중간관리자)+
+  최종결정권자" 신원기반 게이트(`_can_send_ncr()`, 폴백 없음)로 축소 — 사용자가 직접
+  범위 확정. ③로그인 next 파라미터 오픈리다이렉트 방지(`_is_safe_redirect_target()`).
+  ④Flask-Limiter 도입, 로그인 분당 10회 제한(실제 패키지로 재검증: 10회 통과 후
+  11번째부터 429). ⑤세션쿠키 SECURE를 DATA_DIR(Render 배포 신호) 기준 조건부로,
+  ProxyFix도 운영에서만 적용(로컬 로그인 회귀 없음 확인) — Render의 실제
+  X-Forwarded-Proto 전달 여부는 배포 후 실측 필요(TBD로 명시). 중간위험도 항목
+  (admin 기본비번 확인/평문비번 타이밍공격/엑셀 전량추출)은 보류, 추후 논의.
+  **이번엔 workflow-authorize→workflow-start→workflow-dispatch(역할별)+
+  capability-check→workflow-result→workflow-finalize를 전부 실시간으로 완주**
+  (TASK #9, `WORKFLOW_STATUS=COMPLETED`) — planner/developer/quality-watcher 5종
+  서브에이전트를 AGENT 레코드로 최초 등록하는 사전작업도 같이 함. 13-1/13-2절 규칙이
+  세 번째 시도만에 제대로 지켜짐.
+
 - **2026-09-22 (자재 찾기 BOM 인라인 수정, origin·deploy 양쪽 push 예정)**: "자재 찾기"
   (`/materials/find`) 화면에서 BOM 연동 행의 모델명/상위품목코드/Lv 3개 필드를 인라인
   수정 가능하게 함(구분은 제외). 수정한 행은 `manually_edited=1`로 표시("✎ 수정됨"
