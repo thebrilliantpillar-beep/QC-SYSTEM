@@ -527,6 +527,8 @@ def inject_perm_labels():
         nav_counts["inspect"] = len(db.list_intake(status="대기"))
         nav_counts["approve"] = len(db.list_inspections(status="pending"))
         nav_counts["output"]  = len(db.list_pending_output_inspections())
+        if "outbound" in user_perms:
+            nav_counts["outbound_approve"] = db.count_outbound_pending_batches()
         # 소분류 뱃지
         try:
             followup = db.get_defect_followup()

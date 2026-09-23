@@ -4143,6 +4143,16 @@ def get_outbound_batch(batch_id):
     return row
 
 
+def count_outbound_pending_batches():
+    """출고 승인대기(미확인) 배치 수 — 네비게이션 배지용 가벼운 COUNT만.
+    list_outbound_batches()의 무거운 서브쿼리 집계를 배지 표시마다 돌리지 않기 위해
+    별도로 뺐다(8-1절 — 목적이 다른 조회는 재사용보다 전용 쿼리가 맞는 경우)."""
+    conn = get_conn()
+    n = conn.execute("SELECT COUNT(*) FROM outbound_batches WHERE confirmed_at IS NULL").fetchone()[0]
+    conn.close()
+    return n
+
+
 def list_outbound_batches(query=None, limit=200):
     conn = get_conn()
     body_required = 1 if outbound_body_photo_enabled() else 0
