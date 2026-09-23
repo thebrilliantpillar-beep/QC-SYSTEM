@@ -145,6 +145,16 @@
     <input type="hidden" name="signature_data" id="sigData">
     <div style="background:#fff; border:1px solid var(--border); border-radius:9px; padding:12px;">
       <b style="font-size:13.5px; color:#2B3140;">✍️ 최종결정권자 승인 서명</b>
+      <div id="srRegSigBox" style="display:none; text-align:center; margin:8px 0;">
+        <img id="srRegSigImg" style="max-width:220px; max-height:90px; display:block; margin:0 auto;
+             border:1px solid var(--border); border-radius:8px; background:#fff; padding:6px;">
+        <div style="font-size:12px; color:var(--muted, #6b7280); margin-top:5px;">등록된 서명(도장)</div>
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
+      <div id="srNoRegSigBox" style="display:none; font-size:12.5px; color:var(--muted, #6b7280); margin:8px 0;">
+        등록된 서명(도장) 없음 — 계정관리에서 등록하기
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
       <canvas id="sigPad" width="340" height="120"
               style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%; margin-top:8px;"></canvas>
@@ -522,6 +532,14 @@ window.addEventListener('beforeprint', function () {
     return pad.fillAndConfirm('sigData',
       '이 성적표를 승인할까?\n승인 후에는 협력사로 발송할 수 있어.');
   };
+  fetch('/signature/default/check').then(function (r) { return r.json(); }).then(function (d) {
+    if (d.exists) {
+      document.getElementById('srRegSigImg').src = d.url + '?t=' + Date.now();
+      document.getElementById('srRegSigBox').style.display = 'block';
+    } else {
+      document.getElementById('srNoRegSigBox').style.display = 'block';
+    }
+  }).catch(function () {});
 })();
 </script>
 {% endif %}

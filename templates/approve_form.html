@@ -483,19 +483,25 @@ function showApproveWarn(title, msg){
 
     {# 직접 서명 영역 #}
     <div id="drawArea">
+      <div id="regSigBox" style="display:none; text-align:center; margin-bottom:10px;">
+        <img id="regSigImg" style="max-width:220px; max-height:90px; display:block; margin:0 auto;
+             border:1px solid var(--border); border-radius:8px; background:#fff; padding:6px;">
+        <div style="font-size:12px; color:var(--muted, #6b7280); margin-top:5px;">등록된 서명(도장)</div>
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
+      <div id="noRegSigBox" style="display:none; font-size:12.5px; color:var(--muted, #6b7280); margin-bottom:8px;">
+        등록된 서명(도장) 없음 — 계정관리에서 등록하기
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
       <canvas id="sigPad" width="340" height="120"
               style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%;"></canvas>
+      <input type="hidden" id="drawStampType" name="signature_stamp_type_draw" value="sign">
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
         <button type="button" onclick="clearSig()" class="btn secondary sm">지우기</button>
         <button type="button" onclick="saveDefaultSig()" class="btn secondary sm">💾 서명 저장</button>
         <button type="button" onclick="loadDefaultSig()" id="loadSigBtn" class="btn secondary sm"
                 style="display:none;">📂 저장된 서명 불러오기</button>
-      </div>
-      {# 저장된 서명 미리보기 #}
-      <div id="savedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#F9F9F8;
-           border:1px solid #DDE0E6; border-radius:6px; font-size:12.5px; color:#6b7280;">
-        저장된 서명: <img id="savedSigImg" style="height:36px; vertical-align:middle; margin-left:6px;">
       </div>
     </div>
 
@@ -591,12 +597,17 @@ function showApproveWarn(title, msg){
 var sigPad = SignaturePad.attach('sigPad');
 
 (function () {
-  /* 저장해둔 기본 서명이 있으면 '불러오기' 버튼과 미리보기를 켠다 */
+  /* 저장해둔 기본 서명이 있으면 '불러오기' 버튼과 서명패드 위 미리보기를 켠다.
+     없으면 "등록된 서명(도장) 없음" 안내를 보여준다. */
   fetch('/signature/default/check').then(r => r.json()).then(function (d) {
-    if (!d.exists) return;
-    document.getElementById('loadSigBtn').style.display = 'inline-flex';
-    document.getElementById('savedSigImg').src = d.url + '?t=' + Date.now();
-    document.getElementById('savedSigPreview').style.display = 'block';
+    document.getElementById('drawStampType').value = d.is_stamp ? 'stamp' : 'sign';
+    if (d.exists) {
+      document.getElementById('loadSigBtn').style.display = 'inline-flex';
+      document.getElementById('regSigImg').src = d.url + '?t=' + Date.now();
+      document.getElementById('regSigBox').style.display = 'block';
+    } else {
+      document.getElementById('noRegSigBox').style.display = 'block';
+    }
   }).catch(function () {});
 })();
 
@@ -606,7 +617,10 @@ function setSigMethod(method) {
   document.getElementById('hiddenSigMethod').value = method;
 }
 
-function clearSig() { sigPad.clear(); }
+function clearSig() {
+  sigPad.clear();
+  document.getElementById('drawStampType').value = 'sign';
+}
 
 /* 지금 그린 서명을 내 기본 서명으로 저장 */
 function saveDefaultSig() {
@@ -619,8 +633,9 @@ function saveDefaultSig() {
       if (!d.ok) { alert('저장 실패: ' + (d.error || '')); return; }
       alert('서명이 저장됐어. 다음 승인 시 불러올 수 있어.');
       document.getElementById('loadSigBtn').style.display = 'inline-flex';
-      document.getElementById('savedSigImg').src = d.url + '?t=' + Date.now();
-      document.getElementById('savedSigPreview').style.display = 'block';
+      document.getElementById('regSigImg').src = d.url + '?t=' + Date.now();
+      document.getElementById('regSigBox').style.display = 'block';
+      document.getElementById('noRegSigBox').style.display = 'none';
     }).catch(function () { alert('서버 오류.'); });
 }
 

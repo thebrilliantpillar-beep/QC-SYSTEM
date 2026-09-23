@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}출고 승인 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .ob-photo-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); gap:8px; margin-top:8px; max-width:180px; }
+  .ob-photo-grid img { width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+  .plan-summary { display:flex; gap:16px; flex-wrap:wrap; font-size:13.5px; }
+  .plan-summary b { font-size:16px; }
+  .plan-badge { display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; font-weight:700; margin-left:6px; }
+  .plan-badge.ok { background:#d1fae5; color:#065f46; }
+  .plan-badge.extra { background:#fef3c7; color:#92400e; }
+  .ob-check-list { display:flex; flex-direction:column; gap:8px; min-width:240px; }
+  .ob-check-row { display:flex; flex-direction:column; gap:3px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  .ob-check-row:last-child { border-bottom:none; padding-bottom:0; }
+  .ob-check-label { font-size:12px; font-weight:700; color:var(--text); }
+  .ob-check-criteria { font-size:11px; font-weight:400; color:var(--muted, #6b7280); margin-top:-1px; }
+  .ob-check-btns { display:flex; gap:6px; }
+  .ob-check-btn { border:1px solid var(--border); background:#fff; flex:1; min-width:0; font-size:11.5px; font-weight:600; padding:4px 8px; border-radius:6px; opacity:.3; }
+  .ob-check-btn.active { opacity:1; box-shadow:inset 0 0 0 1.5px currentColor; }
+  .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); margin-top:16px; overflow:hidden; }
+  .sec > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex; align-items:center; gap:9px; font-size:15px; font-weight:800; color:#2B3140; }
+  .sec > summary::-webkit-details-marker { display:none; }
+  .sec .arrow { color:#9ca3af; font-size:12px; margin-left:auto; transition:transform .15s; display:inline-block; }
+  .sec[open] .arrow { transform:rotate(90deg); }
+  .sec .body { border-top:1px solid var(--border); padding:16px; }
+  .ob-sig-preview { max-width:280px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+</style>
+
+<h2>✅ 출고 승인 <span class="muted" style="font-size:14px; font-weight:400;">— {{ batch.round_no or ('#' ~ batch.id) }}</span></h2>
+<p class="muted" style="margin-top:-8px; font-size:13px;">
+  이 화면은 검사 결과 리뷰 + 승인 서명 전용이야. 항목을 새로 스캔·수정하려면
+  <a href="{{ url_for('outbound_scan_edit', batch_id=batch.id) }}">출고 스캔 화면</a>에서 해줘.
+</p>
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">출고 정보</h3>
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:100px;"><label>차수</label><p style="margin:4px 0 0;">{{ batch.round_no or '-' }}</p></div>
+    <div style="flex:1; min-width:170px;"><label>거래처</label><p style="margin:4px 0 0;">{{ batch.customer or '-' }}</p></div>
+    <div style="flex:1; min-width:150px;"><label>출고(예정)일</label><p style="margin:4px 0 0;">{{ batch.ship_date or '-' }}</p></div>
+    <div style="flex:1; min-width:150px;"><label>담당자</label><p style="margin:4px 0 0;">{{ batch.handler or '-' }}</p></div>
+    <div style="flex:1; min-width:150px;"><label>차수 등록자</label><p style="margin:4px 0 0;">{{ batch.created_by or '-' }}</p></div>
+  </div>
+
+  {% if batch.confirmed_at %}
+  <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+    <p style="margin:0 0 8px; color:var(--pass); font-size:13.5px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출고 확인함</p>
+    {% if signature_filename %}
+    <img class="ob-sig-preview" src="{{ url_for('signature_file', filename=signature_filename) }}" alt="확인 서명">
+    {% endif %}
+    {% if can_revoke_confirm %}
+    <form method="POST" action="{{ url_for('outbound_batch_confirm_revoke', batch_id=batch.id) }}" style="margin-top:10px;" onsubmit="return confirm('출고 확인을 회수하고 다시 수정 가능하게 할까?');">
+      <input type="hidden" name="return_to" value="approval">
+      <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">↺ 확인 회수</button>
+    </form>
+    {% endif %}
+  </div>
+  {% elif has_unplanned %}
+  <p style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); color:var(--fail); font-size:13px;">⚠ 차수 계획에 없는 항목("계획외")이 남아있어 출고 확인을 할 수 없어. <a href="{{ url_for('outbound_scan_edit', batch_id=batch.id) }}">출고 스캔 화면</a>에서 정리한 뒤 다시 와줘.</p>
+  {% elif has_missing_planned %}
+  <p style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); color:var(--fail); font-size:13px;">⚠ 차수 계획에 등록된 S/N 중 아직 스캔되지 않은 항목이 있어 출고 확인을 할 수 없어. <a href="{{ url_for('outbound_scan_edit', batch_id=batch.id) }}">출고 스캔 화면</a>에서 마저 스캔해줘.</p>
+  {% elif not can_confirm %}
+  <p style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); color:var(--fail); font-size:13px;">🔒 출고 확인은 최종결정권자만 할 수 있어. {{ confirm_block_reason }}</p>
+  {% else %}
+  <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+    <form method="POST" action="{{ url_for('outbound_batch_confirm', batch_id=batch.id) }}">
+      <input type="hidden" name="return_to" value="approval">
+      <b style="font-size:13.5px; color:#2B3140; display:block; margin-bottom:6px;">✍️ 확인(승인) 서명 <span style="color:var(--fail);">*</span></b>
+      <div id="apRegSigBox" style="display:none; text-align:center; margin-bottom:10px;">
+        <img id="apRegSigImg" style="max-width:220px; max-height:90px; display:block; margin:0 auto; border:1px solid var(--border); border-radius:8px; background:#fff; padding:6px;">
+        <div style="font-size:12px; color:var(--muted, #6b7280); margin-top:5px;">등록된 서명(도장)</div>
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
+      <div id="apNoRegSigBox" style="display:none; font-size:12.5px; color:var(--muted, #6b7280); margin-bottom:8px;">
+        등록된 서명(도장) 없음 — 계정관리에서 등록하기
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
+      <input type="hidden" name="signature_data" id="obSigData">
+      <canvas id="obSigPad" width="340" height="120" style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff; touch-action:none; display:block; max-width:100%;"></canvas>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <button type="button" onclick="obClearSig()" class="btn secondary" style="padding:6px 14px; font-size:13px; margin-top:0;">지우기</button>
+        <button type="button" onclick="obLoadDefaultSig()" class="btn secondary" style="padding:6px 14px; font-size:13px; margin-top:0;">📂 저장된 서명 불러오기</button>
+      </div>
+      <button type="submit" class="btn secondary" style="margin-top:10px;" onclick="return obPrepareSign()">✅ 서명하고 출고 확인</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">검사 결과 ({{ items|length }}건, 읽기전용)</h3>
+  <div style="overflow-x:auto;">
+  <table>
+    <thead><tr><th>S/N</th><th>제품명/모델명</th><th>검사자</th><th>판정</th><th>인디케이터 사진</th>{% if body_photo_enabled %}<th>본체 사진</th>{% endif %}</tr></thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td>{{ it.serial_no }} {% if it.serial_no in planned_serials %}<span class="plan-badge ok">계획</span>{% else %}<span class="plan-badge extra">계획외</span>{% endif %}</td>
+        <td>{{ it.product_name or '-' }}</td>
+        <td>{{ it.inspected_by or '-' }}</td>
+        <td>
+          {% set eff = it.result_effective %}
+          {% if eff == 'PASS' %}<span class="badge pass">합격</span>
+          {% elif eff == 'FAIL' %}<span class="badge fail">불합격</span>
+          {% elif eff == 'SPECIAL' %}<span class="badge special">특채</span>
+          {% else %}<span class="muted">미검사</span>{% endif %}
+          {% if it.result_override %}<span class="muted" style="font-size:11px;"> (수동)</span>{% endif %}
+          <div style="margin-top:4px;"><button type="button" class="btn secondary" style="margin-top:0; padding:2px 8px; font-size:11px;" onclick="toggleObChecks({{ it.id }})">세부 ▾</button></div>
+          <div id="ob-checks-{{ it.id }}" style="display:none; margin-top:6px;">
+            <div class="ob-check-list">
+              {% for field, label, short, criteria in check_fields %}
+              <div class="ob-check-row">
+                <span class="ob-check-label">{{ label }}</span>
+                <span class="ob-check-criteria">{{ criteria }}</span>
+                <div class="ob-check-btns">
+                {% set btn_opts = [('PASS','합격'), ('FAIL','불합격'), ('해당없음','해당없음') if field == 'check_cable' else ('SPECIAL','특채')] %}
+                {% for v, txt in btn_opts %}
+                <button type="button" disabled class="ob-check-btn {{ 'badge pass' if v=='PASS' else ('badge fail' if v=='FAIL' else ('badge na' if v=='해당없음' else 'badge special')) }}{{ ' active' if it[field] == v else '' }}">{{ txt }}</button>
+                {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </td>
+        <td><div class="ob-photo-grid">{% for p in it.photos if (p.kind or 'indicator') == 'indicator' %}<img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">{% else %}<span class="muted" style="font-size:12px;">없음</span>{% endfor %}</div></td>
+        {% if body_photo_enabled %}
+        <td><div class="ob-photo-grid">{% for p in it.photos if p.kind == 'body' %}<img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">{% else %}<span class="muted" style="font-size:12px;">없음</span>{% endfor %}</div></td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ 6 if body_photo_enabled else 5 }}" style="text-align:center; color:var(--muted);">등록된 항목이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<details class="sec" data-sec="outbound-approval-plan-progress" open>
+  <summary>계획 대비 진행상황<span class="arrow">▶</span></summary>
+  <div class="body">
+    <div class="plan-summary">
+      <span>계획 <b>{{ plan_summary.planned_total }}</b>개 중 <b>{{ plan_summary.matched }}</b>개 확인됨</span>
+      <span>계획외 <b>{{ plan_summary.extra }}</b>건</span>
+    </div>
+    <table style="margin-top:10px;">
+      <thead><tr><th>S/N</th><th>모델명</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for r in plan_rows %}
+        <tr>
+          <td>{{ r.serial_no }}</td>
+          <td>{{ r.model_label or '-' }}</td>
+          <td>
+            {% if r.status == 'confirmed' %}<span class="plan-badge ok">✅ 확인됨</span>
+            {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ 사진 미비</span>
+            {% else %}<span class="muted">⬜ 미스캔</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" style="text-align:center; color:var(--muted);">등록된 계획이 없어.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
+<script>
+  window.toggleObChecks = function (itemId) {
+    var el = document.getElementById('ob-checks-' + itemId);
+    if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+  };
+  CollapsibleSections.init('details.sec[data-sec]', 'outbound-approval-sec-');
+</script>
+{% if not batch.confirmed_at and not has_unplanned and not has_missing_planned and can_confirm %}
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
+<script>
+(function () {
+  var pad = SignaturePad.attach('obSigPad');
+  if (!pad) return;
+  window.obClearSig = function () { pad.clear(); };
+  window.obLoadDefaultSig = function () {
+    pad.loadDefault(function (ok) { if (!ok) alert('저장된 기본 서명이 없어. 승인 화면에서 먼저 저장해줘.'); });
+  };
+  window.obPrepareSign = function () {
+    return pad.fillAndConfirm('obSigData', '이 출고 건을 확인 처리할까?\n확인 후에는 항목/사진/배치정보 수정이 잠겨.');
+  };
+  fetch('/signature/default/check').then(function (r) { return r.json(); }).then(function (d) {
+    if (d.exists) {
+      document.getElementById('apRegSigImg').src = d.url + '?t=' + Date.now();
+      document.getElementById('apRegSigBox').style.display = 'block';
+    } else {
+      document.getElementById('apNoRegSigBox').style.display = 'block';
+    }
+  }).catch(function () {});
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -137,6 +137,38 @@
   </form>
 </div>
 
+{# ── 서명(도장) 등록 ── #}
+<div class="card">
+  <h3 style="margin-top:0;">✍️ 서명(도장) 등록</h3>
+  <p class="hint" style="margin-top:0;">
+    이 계정으로 로그인해서 승인·출고확인 등에 서명할 때, 여기 등록해둔 이미지이 서명란
+    위쪽에 항상 함께 보여. 실제 서명 처리는 여전히 그 화면의 서명 패드에서 이뤄지고,
+    이 이미지는 "📂 저장된 서명 불러오기"로 패드에 그대로 옮겨서 쓸 수도 있어.
+  </p>
+  {% if has_signature %}
+  <div style="text-align:center; margin-bottom:12px;">
+    <img src="{{ url_for('signature_file', filename='user_' ~ u['id'] ~ '_default.png') }}?v={{ sig_version }}"
+         style="max-width:220px; max-height:90px; display:block; margin:0 auto;
+                border:1px solid var(--border); border-radius:8px; background:#fff; padding:6px;">
+    <div style="font-size:12px; color:var(--muted, #6b7280); margin-top:6px;">
+      등록된 서명({{ '도장' if is_stamp else '사인' }})
+    </div>
+  </div>
+  {% else %}
+  <p class="muted" style="margin-bottom:12px;">아직 등록된 서명(도장)이 없어.</p>
+  {% endif %}
+  <form method="POST" action="{{ url_for('user_signature_upload', user_id=u['id']) }}"
+        enctype="multipart/form-data" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <input type="file" name="signature_file" accept=".png" required>
+    <span style="display:flex; gap:12px; align-items:center; font-size:13px;">
+      <label class="sig-radio"><input type="radio" name="signature_stamp_type" value="sign" required> ✍️ 사인</label>
+      <label class="sig-radio"><input type="radio" name="signature_stamp_type" value="stamp" required> 🟥 도장</label>
+    </span>
+    <button type="submit" style="margin:0;">{{ '다시 업로드' if has_signature else '업로드' }}</button>
+  </form>
+  <p class="hint" style="margin:6px 0 0;">업로드할 이미지가 도장인지 사인인지 반드시 골라야 해.</p>
+</div>
+
 {# ── 계정 삭제 ── #}
 {% if not is_self %}
 <div class="card" style="border-left:4px solid var(--fail);">

@@ -1182,11 +1182,17 @@ def user_detail(user_id):
         return redirect(url_for("user_management"))
     u_perms = set((target["permissions"] or "").split(","))
     finals = db.list_final_approvers()
+    sig_path = os.path.join(SIGNATURE_DIR, f"user_{user_id}_default.png")
+    has_signature = os.path.exists(sig_path)
+    sig_version = int(os.path.getmtime(sig_path)) if has_signature else 0
+    is_stamp = os.path.exists(sig_path + ".stamp") if has_signature else False
     return render_template("user_detail.html", u=target, u_perms=u_perms,
                            perm_groups=PERM_GROUPS, perm_labels=PERM_LABELS,
                            current_user_id=g.user["id"],
                            final_approvers=finals,
-                           max_final_approvers=db.MAX_FINAL_APPROVERS)
+                           max_final_approvers=db.MAX_FINAL_APPROVERS,
+                           has_signature=has_signature, sig_version=sig_version,
+                           is_stamp=is_stamp)
 
 
 @app.route("/logs")
@@ -4170,8 +4176,11 @@ def approve(inspection_id):
                 flash("서명을 입력해줘.")
                 return _back(on_error=True)
             signature_path, sig_save_error = _save_signature(inspection_id, signature_data)
-            # 직접 그린 서명은 사인 취급 (기본 크기)
-            stamp_type = "sign"
+            # 등록된 도장을 그대로 불러와서 제출한 경우 그 타입을 유지한다(2026-09-23) —
+            # 별도 신호가 없으면(순수 신규 드로잉) 사인으로 취급(기존 동작과 동일).
+            stamp_type = (request.form.get("signature_stamp_type_draw") or "sign").strip()
+            if stamp_type not in ("stamp", "sign"):
+                stamp_type = "sign"
 
         if sig_save_error:
             flash(f"서명 저장 실패: {sig_save_error}")
@@ -4253,6 +4262,14 @@ def signature_default_save():
             f.write(png_bytes)
     except Exception as e:
         return {"error": f"저장 실패: {e}"}, 500
+    # 손으로 그린 서명은 항상 사인 — 이전에 관리자가 도장으로 등록해뒀어도
+    # 본인이 그림으로 덮어쓰면 도장 표시는 지운다("나중에 저장한 쪽이 이긴다")
+    sidecar = path + ".stamp"
+    try:
+        if os.path.exists(sidecar):
+            os.remove(sidecar)
+    except Exception:
+        pass
     return {"ok": True, "url": f"/static/signatures/user_{user_id}_default.png"}
 
 
@@ -4262,9 +4279,60 @@ def signature_default_check():
     """현재 사용자의 기본 서명 존재 여부 반환."""
     user_id = g.user["id"]
     path = os.path.join(SIGNATURE_DIR, f"user_{user_id}_default.png")
-    if os.path.exists(path):
-        return {"exists": True, "url": f"/static/signatures/user_{user_id}_default.png"}
-    return {"exists": False}
+    exists = os.path.exists(path)
+    if exists:
+        is_stamp = os.path.exists(path + ".stamp")
+        return {"exists": True, "url": f"/static/signatures/user_{user_id}_default.png", "is_stamp": is_stamp}
+    return {"exists": False, "is_stamp": False}
+
+
+@app.route("/users/<int:user_id>/signature", methods=["POST"])
+@perm_required("users")
+def user_signature_upload(user_id):
+    """관리자(계정 관리 권한)가 대상 사용자의 기본 서명(도장) PNG를 미리 등록해준다.
+    저장 위치는 signature_default_save()가 본인 것을 저장할 때와 완전히 같은
+    파일명 규칙(user_{user_id}_default.png)을 그대로 쓴다 — 별도 저장소를 만들지
+    않는다. 나중에 저장한 쪽이 그대로 덮어쓴다."""
+    target = db.get_user(user_id)
+    if target is None:
+        flash("존재하지 않는 계정이야.")
+        return redirect(url_for("user_management"))
+    file = request.files.get("signature_file")
+    if file is None or not file.filename:
+        flash("업로드할 서명(도장) PNG 파일을 선택해줘.")
+        return redirect(url_for("user_detail", user_id=user_id))
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext != ".png":
+        flash("PNG 파일만 업로드할 수 있어.")
+        return redirect(url_for("user_detail", user_id=user_id))
+    stamp_type = (request.form.get("signature_stamp_type") or "").strip()
+    if stamp_type not in ("stamp", "sign"):
+        flash("업로드한 이미지가 '도장'인지 '사인'인지 골라줘.")
+        return redirect(url_for("user_detail", user_id=user_id))
+    os.makedirs(SIGNATURE_DIR, exist_ok=True)
+    path = os.path.join(SIGNATURE_DIR, f"user_{user_id}_default.png")
+    try:
+        file.save(path)
+    except Exception as e:
+        flash(f"저장 실패: {e}")
+        return redirect(url_for("user_detail", user_id=user_id))
+    # 도장/사인 종류를 사이드카 파일로 저장 — approve()의 동일 패턴 재사용(8-1절)
+    sidecar = path + ".stamp"
+    try:
+        if os.path.exists(sidecar):
+            os.remove(sidecar)
+    except Exception:
+        pass
+    if stamp_type == "stamp":
+        try:
+            with open(sidecar, "w", encoding="utf-8") as f:
+                f.write("stamp")
+        except Exception:
+            pass
+    record_change("서명(도장) 등록", "user", target["username"],
+                  f"등록자: {g.user['display_name'] or g.user['username']}")
+    flash(f"'{target['username']}' 계정의 서명(도장)이 등록됐어.")
+    return redirect(url_for("user_detail", user_id=user_id))
 
 
 # ---------- 일괄 합격 승인 ----------
@@ -4357,6 +4425,7 @@ _ADMIN_DELETE_RETURNS = {
     "outbound_round_list": "outbound_round_list",
     "outbound_scan_list": "outbound_scan_list",
     "outbound_history": "outbound_history",
+    "outbound_approval_history": "outbound_approval_history",
 }
 
 def _resolve_return_to(default="history"):
@@ -8748,13 +8817,10 @@ def outbound_scan_new():
     return redirect(url_for("outbound_round_new"))
 
 
-@app.route("/outbound/scan/<int:batch_id>", methods=["GET"])
-@perm_required("outbound")
-def outbound_scan_edit(batch_id):
-    batch = db.get_outbound_batch(batch_id)
-    if batch is None:
-        flash("존재하지 않는 출고 배치야.")
-        return redirect(url_for("outbound_history"))
+def _outbound_batch_view_context(batch):
+    """출고 스캔 화면(outbound_scan_edit)과 출고 승인 화면(outbound_approval_detail)이
+    공유하는 배치 조회 계산. 복사하지 말 것(8-1절)."""
+    batch_id = batch["id"]
     items = db.list_outbound_items(batch_id)
     planned = db.list_planned_items(batch_id)
     planned_serials = {p["serial_no"] for p in planned}
@@ -8763,8 +8829,6 @@ def outbound_scan_edit(batch_id):
     is_admin_user = (g.user["username"] or "").strip().lower() == "admin"
     can_revoke_confirm = bool(batch["confirmed_at"]) and (
         is_admin_user or (batch["confirmed_by"] or "") == actor)
-    for it in items:
-        it["can_edit"] = _outbound_item_edit_allowed(it, batch, actor)
     # planned_serials/items가 이미 로드돼 있으므로 outbound_batch_has_unplanned_items()로
     # 다시 조회하지 않고 같은 로직을 메모리에서 계산한다(불필요한 DB 왕복 방지).
     has_unplanned = bool(planned_serials) and any(it["serial_no"] not in planned_serials for it in items)
@@ -8772,16 +8836,60 @@ def outbound_scan_edit(batch_id):
     # progress["rows"](outbound_plan_progress)에서 계산 — 별도 쿼리 추가 안 함.
     has_missing_planned = any(r["status"] == "pending" for r in progress["rows"])
     can_confirm, confirm_block_reason = _can_make_final_decision(g.user, "출고 확인")
-    return render_template("outbound_scan.html", batch=batch, items=items,
-                           planned_serials=planned_serials, has_unplanned=has_unplanned,
-                           has_missing_planned=has_missing_planned,
-                           can_confirm=can_confirm, confirm_block_reason=confirm_block_reason or "",
-                           plan_rows=progress["rows"], plan_summary=progress["summary"],
-                           body_photo_enabled=db.outbound_body_photo_enabled(),
-                           can_revoke_confirm=can_revoke_confirm,
-                           check_fields=[(f, db.OUTBOUND_CHECK_LABELS[f], db.OUTBOUND_CHECK_SHORT_LABELS[f],
-                                          db.OUTBOUND_CHECK_CRITERIA[f])
-                                         for f in db.OUTBOUND_CHECK_FIELDS])
+    signature_filename = os.path.basename(batch["confirm_signature"]) if batch["confirm_signature"] else None
+    return dict(
+        items=items, planned_serials=planned_serials,
+        has_unplanned=has_unplanned, has_missing_planned=has_missing_planned,
+        can_confirm=can_confirm, confirm_block_reason=confirm_block_reason or "",
+        plan_rows=progress["rows"], plan_summary=progress["summary"],
+        body_photo_enabled=db.outbound_body_photo_enabled(),
+        can_revoke_confirm=can_revoke_confirm, signature_filename=signature_filename,
+        check_fields=[(f, db.OUTBOUND_CHECK_LABELS[f], db.OUTBOUND_CHECK_SHORT_LABELS[f],
+                       db.OUTBOUND_CHECK_CRITERIA[f]) for f in db.OUTBOUND_CHECK_FIELDS],
+    )
+
+
+@app.route("/outbound/scan/<int:batch_id>", methods=["GET"])
+@perm_required("outbound")
+def outbound_scan_edit(batch_id):
+    batch = db.get_outbound_batch(batch_id)
+    if batch is None:
+        flash("존재하지 않는 출고 배치야.")
+        return redirect(url_for("outbound_history"))
+    ctx = _outbound_batch_view_context(batch)
+    actor = g.user["display_name"] or g.user["username"]
+    for it in ctx["items"]:
+        it["can_edit"] = _outbound_item_edit_allowed(it, batch, actor)
+    return render_template("outbound_scan.html", batch=batch, **ctx)
+
+
+@app.route("/outbound/approval")
+@perm_required("outbound")
+def outbound_approval_pending():
+    q = request.args.get("q", "").strip()
+    batches = db.list_outbound_batches(query=q or None)
+    pending = [b for b in batches if not b["confirmed_at"]]
+    return render_template("outbound_approval_pending.html", batches=pending, q=q)
+
+
+@app.route("/outbound/approval/history")
+@perm_required("outbound")
+def outbound_approval_history():
+    q = request.args.get("q", "").strip()
+    batches = db.list_outbound_batches(query=q or None)
+    confirmed = [b for b in batches if b["confirmed_at"]]
+    return render_template("outbound_approval_history.html", batches=confirmed, q=q)
+
+
+@app.route("/outbound/approval/<int:batch_id>")
+@perm_required("outbound")
+def outbound_approval_detail(batch_id):
+    batch = db.get_outbound_batch(batch_id)
+    if batch is None:
+        flash("존재하지 않는 출고 배치야.")
+        return redirect(url_for("outbound_approval_pending"))
+    ctx = _outbound_batch_view_context(batch)
+    return render_template("outbound_approval_detail.html", batch=batch, **ctx)
 
 
 @app.route("/outbound/batch/<int:batch_id>/update", methods=["POST"])
@@ -9079,6 +9187,15 @@ def outbound_item_photo_add(item_id):
     return jsonify({"ok": True, "photos": photos})
 
 
+def _outbound_confirm_redirect(batch_id):
+    """출고 확인/회수 처리 뒤 돌아갈 화면. 두 진입점(출고 스캔/출고 승인)이 같은 라우트를
+    공유하므로, 폼의 return_to 값으로 원래 있던 화면으로 되돌려준다 — 기본은 기존 동작
+    그대로 출고 스캔 화면."""
+    if request.form.get("return_to") == "approval":
+        return redirect(url_for("outbound_approval_detail", batch_id=batch_id))
+    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+
+
 @app.route("/outbound/batch/<int:batch_id>/confirm", methods=["POST"])
 @perm_required("outbound")
 def outbound_batch_confirm(batch_id):
@@ -9093,20 +9210,20 @@ def outbound_batch_confirm(batch_id):
     allowed, why = _can_make_final_decision(g.user, "출고 확인")
     if not allowed:
         flash(why)
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
 
     # 2026-09-16 사용자 확정: 차수 계획에 없는 항목이 남아있으면 출고 확인 자체를 막는다
     # (출고 스캔/출고 이력 두 화면이 이 라우트 하나를 공유하므로 여기 한 곳만 게이트하면
     # 양쪽 다 자동으로 막힌다 — CLAUDE.md 8-1절 원칙).
     if db.outbound_batch_has_unplanned_items(batch_id):
         flash("차수 계획에 없는 항목이 남아있어 출고 확인을 할 수 없어. '계획외' 표시된 항목을 먼저 정리해줘.")
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
 
     # 2026-09-21 사용자 확정: 반대 방향(계획에는 있는데 아직 스캔 안 된 항목)도 확인을 막는다.
     if db.outbound_batch_has_unscanned_planned_items(batch_id):
         flash("차수 계획에 등록된 S/N 중 아직 스캔되지 않은 항목이 있어 출고 확인을 할 수 없어. "
               "'계획 대비 진행상황'에서 남은 항목을 먼저 스캔해줘.")
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
 
     # 2026-09-21 사용자 확정: 최종결정권자 서명 필수. static/signature_pad.js 공용 패드를
     # 재사용하고, 파일명은 다른 문서 유형과 안 겹치게 "outbound{batch_id}" 접두어를 쓴다
@@ -9114,17 +9231,17 @@ def outbound_batch_confirm(batch_id):
     signature_data = request.form.get("signature_data", "").strip()
     if not signature_data:
         flash("서명을 먼저 해줘.")
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
     signature_path, sig_err = _save_signature(f"outbound{batch_id}", signature_data)
     if sig_err:
         flash(f"서명 저장 실패: {sig_err}")
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
 
     confirmed_by = g.user["display_name"] or g.user["username"]
     db.confirm_outbound_batch(batch_id, confirmed_by, signature_path=signature_path)
     record_change("출고 확인", "outbound_batch", batch_id, f"{batch['customer'] or ''} — 확인자 {confirmed_by}")
     flash("출고 확인 처리됐어.")
-    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+    return _outbound_confirm_redirect(batch_id)
 
 
 @app.route("/outbound/batch/<int:batch_id>/revoke-confirm", methods=["POST"])
@@ -9138,16 +9255,16 @@ def outbound_batch_confirm_revoke(batch_id):
         return redirect(url_for("outbound_history"))
     if not batch["confirmed_at"]:
         flash("아직 확인되지 않은 배치야.")
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
     actor = g.user["display_name"] or g.user["username"]
     is_admin_user = (g.user["username"] or "").strip().lower() == "admin"
     if not is_admin_user and (batch["confirmed_by"] or "") != actor:
         flash("이 확인은 확인자 본인 또는 관리자만 회수할 수 있어.")
-        return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+        return _outbound_confirm_redirect(batch_id)
     db.revoke_outbound_batch_confirm(batch_id)
     record_change("출고 확인 회수", "outbound_batch", batch_id, f"회수자: {actor}")
     flash("출고 확인이 회수됐어. 다시 수정할 수 있어.")
-    return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
+    return _outbound_confirm_redirect(batch_id)
 
 
 @app.route("/outbound/history")

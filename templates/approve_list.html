@@ -265,6 +265,16 @@ canvas#batchSigPad {
 
     {# 직접 서명 영역 #}
     <div id="batchDrawArea">
+      <div id="batchRegSigBox" style="display:none; text-align:center; margin-bottom:10px;">
+        <img id="batchRegSigImg" style="max-width:220px; max-height:90px; display:block; margin:0 auto;
+             border:1px solid var(--border); border-radius:8px; background:#fff; padding:6px;">
+        <div style="font-size:12px; color:var(--muted, #6b7280); margin-top:5px;">등록된 서명(도장)</div>
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
+      <div id="batchNoRegSigBox" style="display:none; font-size:12.5px; color:var(--muted, #6b7280); margin-bottom:8px;">
+        등록된 서명(도장) 없음 — 계정관리에서 등록하기
+        <hr style="margin:10px 0; border:none; border-top:1px solid var(--border);">
+      </div>
       <canvas id="batchSigPad" width="340" height="120"
               style="border:1.5px solid #DDE0E6; border-radius:8px; background:#fff;
                      touch-action:none; display:block; max-width:100%;"></canvas>
@@ -275,10 +285,6 @@ canvas#batchSigPad {
                 style="padding:6px 14px; font-size:13px; margin-top:0;">💾 서명 저장</button>
         <button type="button" onclick="loadBatchDefaultSig()" id="batchLoadSigBtn" class="btn secondary"
                 style="padding:6px 14px; font-size:13px; margin-top:0; display:none;">📂 저장된 서명 불러오기</button>
-      </div>
-      <div id="batchSavedSigPreview" style="display:none; margin-top:8px; padding:8px; background:#F9F9F8;
-           border:1px solid #DDE0E6; border-radius:6px; font-size:12.5px; color:#6b7280;">
-        저장된 서명: <img id="batchSavedSigImg" style="height:36px; vertical-align:middle; margin-left:6px;">
       </div>
     </div>
 
@@ -310,6 +316,7 @@ canvas#batchSigPad {
 </div>
 {% endif %}
 
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
 <script>
 /* ── 체크박스 / 카운터 ── */
 function updateBatchCount() {
@@ -341,84 +348,44 @@ function closeBatchModal() {
   document.getElementById('batchModal').classList.remove('open');
 }
 
-/* ── 서명 패드 ── */
-(function(){
-  var canvas = document.getElementById('batchSigPad');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#24344F';
-  var drawing = false;
-  window._batchHasSigned = false;
-  window._batchSigCtx = ctx;
-  window._batchSigCanvas = canvas;
-
-  function pos(e) {
-    var r = canvas.getBoundingClientRect();
-    var p = e.touches ? e.touches[0] : e;
-    return { x: (p.clientX - r.left) * (canvas.width / r.width),
-             y: (p.clientY - r.top)  * (canvas.height / r.height) };
-  }
-  canvas.addEventListener('mousedown', function(e){ drawing=true; window._batchHasSigned=true; var p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); });
-  canvas.addEventListener('mousemove', function(e){ if(!drawing)return; var p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); });
-  window.addEventListener('mouseup', function(){ drawing=false; });
-  canvas.addEventListener('touchstart', function(e){ drawing=true; window._batchHasSigned=true; var p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); }, {passive:false});
-  canvas.addEventListener('touchmove',  function(e){ if(!drawing)return; var p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); }, {passive:false});
-  canvas.addEventListener('touchend',   function(){ drawing=false; });
-
-  window.clearBatchSig = function() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    window._batchHasSigned = false;
-  };
-
-  /* 저장된 서명 확인 */
-  fetch('/signature/default/check').then(function(r){ return r.json(); }).then(function(d){
+/* ── 서명 패드 — 구현은 static/signature_pad.js 공용 ── */
+(function () {
+  var pad = SignaturePad.attach('batchSigPad');
+  if (!pad) return;
+  window._batchSigPad = pad;
+  window.clearBatchSig = function () { pad.clear(); };
+  fetch('/signature/default/check').then(function (r) { return r.json(); }).then(function (d) {
     if (d.exists) {
       document.getElementById('batchLoadSigBtn').style.display = 'inline-flex';
-      var prev = document.getElementById('batchSavedSigPreview');
-      var img  = document.getElementById('batchSavedSigImg');
-      img.src = d.url + '?t=' + Date.now();
-      prev.style.display = 'block';
-      window._batchSavedSigUrl = d.url;
+      document.getElementById('batchRegSigImg').src = d.url + '?t=' + Date.now();
+      document.getElementById('batchRegSigBox').style.display = 'block';
+    } else {
+      document.getElementById('batchNoRegSigBox').style.display = 'block';
     }
-  }).catch(function(){});
+  }).catch(function () {});
+  window.saveBatchDefaultSig = function () {
+    if (pad.isEmpty()) { alert('먼저 서명해줘.'); return; }
+    var fd = new FormData();
+    fd.append('signature_data', pad.toDataURL());
+    fetch('/signature/default/save', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) {
+          alert('서명이 저장됐어. 다음 승인 시 불러올 수 있어.');
+          document.getElementById('batchLoadSigBtn').style.display = 'inline-flex';
+          document.getElementById('batchRegSigImg').src = d.url + '?t=' + Date.now();
+          document.getElementById('batchRegSigBox').style.display = 'block';
+        } else { alert('저장 실패: ' + (d.error || '')); }
+      }).catch(function () { alert('서버 오류.'); });
+  };
+  window.loadBatchDefaultSig = function () {
+    pad.loadDefault(function (ok) { if (!ok) alert('저장된 서명이 없어.'); });
+  };
 })();
 
 function setBatchSigMethod(method) {
   document.getElementById('batchDrawArea').style.display   = method === 'draw'   ? 'block' : 'none';
   document.getElementById('batchUploadArea').style.display = method === 'upload' ? 'block' : 'none';
-}
-
-function saveBatchDefaultSig() {
-  if (!window._batchHasSigned) { alert('먼저 서명해줘.'); return; }
-  var data = window._batchSigCanvas.toDataURL('image/png');
-  var fd = new FormData();
-  fd.append('signature_data', data);
-  fetch('/signature/default/save', { method:'POST', body:fd })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (d.ok) {
-        alert('서명이 저장됐어. 다음 승인 시 불러올 수 있어.');
-        document.getElementById('batchLoadSigBtn').style.display = 'inline-flex';
-        var img = document.getElementById('batchSavedSigImg');
-        img.src = d.url + '?t=' + Date.now();
-        document.getElementById('batchSavedSigPreview').style.display = 'block';
-        window._batchSavedSigUrl = d.url;
-      } else { alert('저장 실패: ' + (d.error || '')); }
-    }).catch(function(){ alert('서버 오류.'); });
-}
-
-function loadBatchDefaultSig() {
-  if (!window._batchSavedSigUrl) { alert('저장된 서명이 없어.'); return; }
-  var img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = function(){
-    var c = window._batchSigCanvas;
-    var ctx = window._batchSigCtx;
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.drawImage(img, 0, 0, c.width, c.height);
-    window._batchHasSigned = true;
-  };
-  img.src = window._batchSavedSigUrl + '?t=' + Date.now();
 }
 
 /* ── 일괄 제출 ── */
@@ -427,8 +394,8 @@ function submitBatchApprove() {
 
   var sigData = '';
   if (method === 'draw') {
-    if (!window._batchHasSigned) { alert('서명을 먼저 해줘.'); return; }
-    sigData = window._batchSigCanvas.toDataURL('image/png');
+    if (!window._batchSigPad || window._batchSigPad.isEmpty()) { alert('서명을 먼저 해줘.'); return; }
+    sigData = window._batchSigPad.toDataURL();
   } else {
     var fi = document.getElementById('batchSigFileInput');
     if (!fi || !fi.files || fi.files.length === 0) {
