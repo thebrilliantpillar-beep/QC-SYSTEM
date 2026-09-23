@@ -8,8 +8,14 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-23 (승인 메뉴 출고 승인대기 숫자 배지, 커밋 973b6e3, origin·deploy 양쪽 push
+  예정)**: "수입검사 승인대기"에만 있던 빨간 숫자 배지를 "출고 승인대기"에도 추가.
+  `database.py`에 `count_outbound_pending_batches()`(가벼운 COUNT 전용) 신설, 승인
+  버튼 상단 dot 배지는 두 카운트 합산으로 변경. 격리 DB+헤드리스 크롬 스크린샷으로 실제
+  렌더링 확인.
+
 - **2026-09-23 (출고 승인 사진 UX + 목록 진행상황 + 품질확인 4종 확장, 커밋 f41856b,
-  origin·deploy 양쪽 push 예정)**: 배포된 출고 승인 화면을 사용자가 직접 보고 준 피드백
+  origin·deploy 양쪽 push 완료)**: 배포된 출고 승인 화면을 사용자가 직접 보고 준 피드백
   3건을 순서대로 planner→developer→quality-watcher로 처리. ①`outbound_approval_detail.html`
   사진 그리드를 가변폭 grid에서 고정 70x70px flex로 바꿔 정렬 통일, 사진 클릭 시 확대
   모달(`obPhotoZoomModal`) 추가. ②출고 스캔/승인대기/승인이력 3개 목록에 "검사 진행"
