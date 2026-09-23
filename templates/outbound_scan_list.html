@@ -40,7 +40,7 @@
 
 <div class="card">
   <table>
-    <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
+    <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>검사 진행</th><th></th></tr></thead>
     <tbody>
       {% for b in active_batches %}
       <tr data-admin-id="{{ b.id }}">
@@ -48,7 +48,7 @@
         <td>{{ b.customer or '-' }}</td>
         <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
         <td>{{ b.handler or '-' }}</td>
-        <td>{{ b.item_count }}</td>
+        <td>{{ b | outbound_progress }}</td>
         <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}" class="btn secondary" style="margin-top:0;">스캔 시작/이어하기</a></td>
       </tr>
       {% else %}
@@ -62,7 +62,7 @@
   <summary>완료된 항목 ({{ completed_batches|length }}건)<span class="arrow">▶</span></summary>
   <div class="body">
     <table>
-      <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th>확인</th><th></th></tr></thead>
+      <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>검사 진행</th><th>확인</th><th></th></tr></thead>
       <tbody>
         {% for b in completed_batches %}
         <tr data-admin-id="{{ b.id }}">
@@ -70,7 +70,7 @@
           <td>{{ b.customer or '-' }}</td>
           <td>{{ b.ship_date | date_korean if b.ship_date else '-' }}</td>
           <td>{{ b.handler or '-' }}</td>
-          <td>{{ b.item_count }}</td>
+          <td>{{ b | outbound_progress }}</td>
           <td>{{ b.confirmed_by }} / {{ b.confirmed_at | datetime_korean }}</td>
           <td><a href="{{ url_for('outbound_scan_edit', batch_id=b.id) }}" class="btn secondary" style="margin-top:0;">보기</a></td>
         </tr>

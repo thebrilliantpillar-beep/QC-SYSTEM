@@ -2,19 +2,19 @@
 {% block title %}출고 승인 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
-  .ob-photo-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); gap:8px; margin-top:8px; max-width:180px; }
-  .ob-photo-grid img { width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+  .ob-photo-grid { display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px; margin-top:8px; max-width:180px; }
+  .ob-photo-grid img { width:70px; height:70px; flex:0 0 auto; object-fit:cover; border-radius:8px; border:1px solid var(--border); cursor:zoom-in; }
   .plan-summary { display:flex; gap:16px; flex-wrap:wrap; font-size:13.5px; }
   .plan-summary b { font-size:16px; }
   .plan-badge { display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; font-weight:700; margin-left:6px; }
   .plan-badge.ok { background:#d1fae5; color:#065f46; }
   .plan-badge.extra { background:#fef3c7; color:#92400e; }
-  .ob-check-list { display:flex; flex-direction:column; gap:8px; min-width:240px; }
+  .ob-check-list { display:flex; flex-direction:column; gap:8px; min-width:280px; }
   .ob-check-row { display:flex; flex-direction:column; gap:3px; padding-bottom:8px; border-bottom:1px solid var(--border); }
   .ob-check-row:last-child { border-bottom:none; padding-bottom:0; }
   .ob-check-label { font-size:12px; font-weight:700; color:var(--text); }
   .ob-check-criteria { font-size:11px; font-weight:400; color:var(--muted, #6b7280); margin-top:-1px; }
-  .ob-check-btns { display:flex; gap:6px; }
+  .ob-check-btns { display:flex; gap:6px; flex-wrap:wrap; }
   .ob-check-btn { border:1px solid var(--border); background:#fff; flex:1; min-width:0; font-size:11.5px; font-weight:600; padding:4px 8px; border-radius:6px; opacity:.3; }
   .ob-check-btn.active { opacity:1; box-shadow:inset 0 0 0 1.5px currentColor; }
   .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); margin-top:16px; overflow:hidden; }
@@ -113,7 +113,11 @@
                 <span class="ob-check-label">{{ label }}</span>
                 <span class="ob-check-criteria">{{ criteria }}</span>
                 <div class="ob-check-btns">
-                {% set btn_opts = [('PASS','합격'), ('FAIL','불합격'), ('해당없음','해당없음') if field == 'check_cable' else ('SPECIAL','특채')] %}
+                {% if field == 'check_cable' %}
+                {% set btn_opts = [('PASS','합격'), ('FAIL','불합격'), ('해당없음','해당없음')] %}
+                {% else %}
+                {% set btn_opts = [('PASS','합격'), ('FAIL','불합격'), ('SPECIAL','특채'), ('해당없음','해당없음')] %}
+                {% endif %}
                 {% for v, txt in btn_opts %}
                 <button type="button" disabled class="ob-check-btn {{ 'badge pass' if v=='PASS' else ('badge fail' if v=='FAIL' else ('badge na' if v=='해당없음' else 'badge special')) }}{{ ' active' if it[field] == v else '' }}">{{ txt }}</button>
                 {% endfor %}
@@ -123,9 +127,9 @@
             </div>
           </div>
         </td>
-        <td><div class="ob-photo-grid">{% for p in it.photos if (p.kind or 'indicator') == 'indicator' %}<img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">{% else %}<span class="muted" style="font-size:12px;">없음</span>{% endfor %}</div></td>
+        <td><div class="ob-photo-grid">{% for p in it.photos if (p.kind or 'indicator') == 'indicator' %}<img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진" onclick="obZoomPhoto(this.src)">{% else %}<span class="muted" style="font-size:12px;">없음</span>{% endfor %}</div></td>
         {% if body_photo_enabled %}
-        <td><div class="ob-photo-grid">{% for p in it.photos if p.kind == 'body' %}<img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진">{% else %}<span class="muted" style="font-size:12px;">없음</span>{% endfor %}</div></td>
+        <td><div class="ob-photo-grid">{% for p in it.photos if p.kind == 'body' %}<img src="{{ url_for('outbound_photo_file', filename=p.file_path) }}" alt="사진" onclick="obZoomPhoto(this.src)">{% else %}<span class="muted" style="font-size:12px;">없음</span>{% endfor %}</div></td>
         {% endif %}
       </tr>
       {% else %}
@@ -164,11 +168,23 @@
   </div>
 </details>
 
+<div id="obPhotoZoomModal" onclick="obCloseZoom()" style="display:none; position:fixed; inset:0; z-index:9500;
+     background:rgba(0,0,0,.75); align-items:center; justify-content:center; cursor:zoom-out;">
+  <img id="obPhotoZoomImg" alt="사진 확대" style="max-width:92vw; max-height:92vh; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.5);">
+</div>
+
 <script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
 <script>
   window.toggleObChecks = function (itemId) {
     var el = document.getElementById('ob-checks-' + itemId);
     if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+  };
+  window.obZoomPhoto = function (src) {
+    document.getElementById('obPhotoZoomImg').src = src;
+    document.getElementById('obPhotoZoomModal').style.display = 'flex';
+  };
+  window.obCloseZoom = function () {
+    document.getElementById('obPhotoZoomModal').style.display = 'none';
   };
   CollapsibleSections.init('details.sec[data-sec]', 'outbound-approval-sec-');
 </script>

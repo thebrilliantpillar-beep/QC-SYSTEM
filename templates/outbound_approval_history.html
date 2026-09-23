@@ -12,7 +12,7 @@
 <div style="margin:0 0 12px;"><a href="{{ url_for('outbound_batches_export') }}?{{ request.query_string.decode('utf-8') }}" class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a></div>
 <div class="card">
   <table>
-    <thead><tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>항목수</th><th>확인자</th><th>확인일시</th></tr></thead>
+    <thead><tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>검사 진행</th><th>확인자</th><th>확인일시</th></tr></thead>
     <tbody>
       {% for b in batches %}
       <tr>
@@ -22,7 +22,7 @@
         <td>{{ b.handler or '-' }}</td>
         <td>{{ b.created_by or '-' }}</td>
         <td>{{ b.inspectors or '-' }}</td>
-        <td>{{ b.item_count }}</td>
+        <td>{{ b | outbound_progress }}</td>
         <td>{{ b.confirmed_by or '-' }}</td>
         <td>{{ b.confirmed_at | datetime_korean if b.confirmed_at else '-' }}</td>
       </tr>

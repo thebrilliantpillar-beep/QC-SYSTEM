@@ -121,10 +121,27 @@ def format_datetime_korean(value):
     return out
 
 
+def format_outbound_progress(b):
+    """출고 배치 목록(db.list_outbound_batches())의 진행 상황을 "확인됨 / 전체" 문자열로
+    만든다. 계획(outbound_planned_items)이 있으면 계획 대비, 없으면(자유등록 배치) 스캔된
+    항목 자체를 전체로 본다. '확인됨'의 정의는 database.outbound_plan_progress()의 confirmed
+    판정과 반드시 일치시킨다(8-1절). 출고 스캔/출고 승인대기/출고 승인이력 3개 화면이 이
+    필터 하나를 공유한다."""
+    planned = b["planned_count"] or 0
+    if planned:
+        total, done, suffix = planned, (b["confirmed_count"] or 0), ""
+    else:
+        total, done, suffix = (b["item_count"] or 0), (b["item_confirmed_count"] or 0), " (계획없음)"
+    if total == 0:
+        return f"0건{suffix}"
+    return f"{done} / {total}{suffix}"
+
+
 # Jinja2 필터 등록
 app.jinja_env.filters['aql_display'] = format_aql_display
 app.jinja_env.filters['date_korean'] = format_date_korean
 app.jinja_env.filters['datetime_korean'] = format_datetime_korean
+app.jinja_env.filters['outbound_progress'] = format_outbound_progress
 _secret_key = os.environ.get("SECRET_KEY", "").strip()
 if not _secret_key:
     print(

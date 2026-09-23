@@ -33,14 +33,16 @@ OUTBOUND_CHECK_LABELS = {
     "check_indicator": "INDICATOR 상태 확인",
 }
 # 2026-09-20: check_cable은 "해당없음" 포함 4종, 나머지는 3종.
+# 2026-09-23: check_cable 제외 8종도 "해당없음"까지 4종(PASS/FAIL/SPECIAL/해당없음)으로 확장.
 # "해당없음"은 FAIL/SPECIAL이 아니어서 자동판정에서 PASS와 동일하게 취급됨.
 OUTBOUND_RESULT_VALUES = ("PASS", "FAIL", "SPECIAL", "해당없음")
 # 필드별로 실제 허용되는 값(위 OUTBOUND_RESULT_VALUES는 "존재하는 값 전체"일 뿐,
-# 필드마다 어떤 값이 유효한지는 이걸로 걸러야 한다 — check_cable만 "해당없음"을 받고
-# SPECIAL은 못 받는다, 나머지는 반대. 2026-09-20 quality-watcher가 이 검증 누락을
-# HIGH로 지적: 이게 없으면 API를 직접 호출해 check_tie="해당없음" 같은 값을 넣을 수 있었다.
+# 필드마다 어떤 값이 유효한지는 이걸로 걸러야 한다 — check_cable만 3종(PASS/FAIL/해당없음,
+# SPECIAL 불가), 나머지 8종은 4종(PASS/FAIL/SPECIAL/해당없음 전부 가능). 2026-09-20
+# quality-watcher가 이 검증 누락을 HIGH로 지적: 이게 없으면 API를 직접 호출해
+# check_tie="해당없음" 같은 값을 넣을 수 있었다.
 OUTBOUND_FIELD_ALLOWED_VALUES = {
-    f: ("PASS", "FAIL", "해당없음") if f == "check_cable" else ("PASS", "FAIL", "SPECIAL")
+    f: ("PASS", "FAIL", "해당없음") if f == "check_cable" else ("PASS", "FAIL", "SPECIAL", "해당없음")
     for f in OUTBOUND_CHECK_FIELDS
 }
 # 2026-09-16: "새 항목 스캔·입력" 카드 안 좁은 폭에 넣을 축약 라벨. 정식 명칭은
@@ -4143,6 +4145,7 @@ def get_outbound_batch(batch_id):
 
 def list_outbound_batches(query=None, limit=200):
     conn = get_conn()
+    body_required = 1 if outbound_body_photo_enabled() else 0
     sql = """
         SELECT b.*, COUNT(i.id) AS item_count,
                (SELECT COUNT(*) FROM outbound_planned_items p WHERE p.batch_id = b.id) AS planned_count,
@@ -4156,6 +4159,53 @@ def list_outbound_batches(query=None, limit=200):
                    AND NOT EXISTS (SELECT 1 FROM outbound_items i3
                                     WHERE i3.batch_id = p3.batch_id AND i3.serial_no = p3.serial_no)
                ) AS missing_count,
+               -- 2026-09-23 신규: 계획 대비 "확인됨(confirmed)" 개수. 정의는
+               -- outbound_plan_progress()의 confirmed 판정과 반드시 일치시킨다
+               -- (8-1절 원칙 — 새 정의 금지).
+               (SELECT COUNT(*) FROM outbound_planned_items p4
+                 WHERE p4.batch_id = b.id
+                   AND EXISTS (
+                       SELECT 1 FROM outbound_items i4c
+                        WHERE i4c.batch_id = p4.batch_id AND i4c.serial_no = p4.serial_no
+                          AND i4c.check_tie IS NOT NULL AND i4c.check_qr IS NOT NULL
+                          AND i4c.check_wrap IS NOT NULL AND i4c.check_rst IS NOT NULL
+                          AND i4c.check_sticker IS NOT NULL AND i4c.check_paint IS NOT NULL
+                          AND i4c.check_access IS NOT NULL AND i4c.check_cable IS NOT NULL
+                          AND i4c.check_indicator IS NOT NULL
+                   )
+                   AND EXISTS (
+                       SELECT 1 FROM outbound_items i4p
+                        JOIN outbound_item_photos ph4i ON ph4i.item_id = i4p.id
+                        WHERE i4p.batch_id = p4.batch_id AND i4p.serial_no = p4.serial_no
+                          AND ph4i.kind = 'indicator'
+                   )
+                   AND (
+                       ? = 0
+                       OR EXISTS (
+                           SELECT 1 FROM outbound_items i4b
+                            JOIN outbound_item_photos ph4b ON ph4b.item_id = i4b.id
+                            WHERE i4b.batch_id = p4.batch_id AND i4b.serial_no = p4.serial_no
+                              AND ph4b.kind = 'body'
+                       )
+                   )
+               ) AS confirmed_count,
+               -- 2026-09-23 신규: 계획이 없는 자유등록 배치용 — 항목(row) 자신이
+               -- confirmed 조건을 만족하는지 카운트.
+               (SELECT COUNT(*) FROM outbound_items i6
+                 WHERE i6.batch_id = b.id
+                   AND i6.check_tie IS NOT NULL AND i6.check_qr IS NOT NULL
+                   AND i6.check_wrap IS NOT NULL AND i6.check_rst IS NOT NULL
+                   AND i6.check_sticker IS NOT NULL AND i6.check_paint IS NOT NULL
+                   AND i6.check_access IS NOT NULL AND i6.check_cable IS NOT NULL
+                   AND i6.check_indicator IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM outbound_item_photos ph6
+                                WHERE ph6.item_id = i6.id AND ph6.kind = 'indicator')
+                   AND (
+                       ? = 0
+                       OR EXISTS (SELECT 1 FROM outbound_item_photos ph6b
+                                   WHERE ph6b.item_id = i6.id AND ph6b.kind = 'body')
+                   )
+               ) AS item_confirmed_count,
                (SELECT GROUP_CONCAT(DISTINCT i4.inspected_by) FROM outbound_items i4
                  WHERE i4.batch_id = b.id AND i4.inspected_by IS NOT NULL AND i4.inspected_by != ''
                ) AS inspectors
@@ -4163,7 +4213,7 @@ def list_outbound_batches(query=None, limit=200):
           LEFT JOIN outbound_items i ON i.batch_id = b.id
          WHERE 1=1
     """
-    params = []
+    params = [body_required, body_required]
     if query:
         sql += " AND (b.customer LIKE ? OR b.handler LIKE ?)"
         params += [f"%{query}%", f"%{query}%"]
