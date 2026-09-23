@@ -8,8 +8,24 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-23 (출고 승인 사진 UX + 목록 진행상황 + 품질확인 4종 확장, 커밋 f41856b,
+  origin·deploy 양쪽 push 예정)**: 배포된 출고 승인 화면을 사용자가 직접 보고 준 피드백
+  3건을 순서대로 planner→developer→quality-watcher로 처리. ①`outbound_approval_detail.html`
+  사진 그리드를 가변폭 grid에서 고정 70x70px flex로 바꿔 정렬 통일, 사진 클릭 시 확대
+  모달(`obPhotoZoomModal`) 추가. ②출고 스캔/승인대기/승인이력 3개 목록에 "검사 진행"
+  (확인됨/전체) 컬럼 추가 — `list_outbound_batches()` SQL에 `confirmed_count`/
+  `item_confirmed_count` 서브쿼리 2개 추가, 계획 없는 자유등록 배치는 "(계획없음)" 폴백,
+  "확인됨"의 정의는 기존 `outbound_plan_progress()`의 confirmed 판정과 실측으로 일치
+  확인. ③출고 품질확인 9개 항목 중 케이블타이(155V)를 제외한 8개를 합격/불합격/특채/
+  해당없음 4종으로 확장(`OUTBOUND_FIELD_ALLOWED_VALUES`), `outbound_scan.html` 3곳+
+  `outbound_approval_detail.html` 1곳 버튼 UI 동기화, 엑셀 출력(`build_outbound_excel`)은
+  값 기반 로직이라 수정 불필요 확인. 헤드리스 크롬 스크린샷으로 8버튼 레이아웃·목록 표시
+  실제 렌더링까지 확인. **TASK #14에서 workflow-dispatch 기록은 했지만 실제 Agent 호출을
+  빠뜨리는 새 유형의 실수가 있었음** — 사용자가 "백그라운드 작업 목록엔 없는데?"라고
+  짚어서 발견, 즉시 스폰하고 메모리에 재발방지 기록.
+
 - **2026-09-23 (출고 승인 화면 개편 + 등록 서명 도장/사인 확장, 커밋 7e32ea5, origin·deploy
-  양쪽 push 예정)**: 출고 이력 화면이 출고 스캔 화면과 똑같아 관리자가 혼동한다는 지적으로
+  양쪽 push 완료)**: 출고 이력 화면이 출고 스캔 화면과 똑같아 관리자가 혼동한다는 지적으로
   출고 승인대기/이력을 전용 화면(`outbound_approval_pending/history/detail.html`)으로
   분리 — 승인 상세 화면은 스캔 입력 UI를 절대 포함하지 않고 검사 결과 리뷰+서명만 처리
   (사용자가 명시적으로 정정한 요구사항, quality-watcher가 grep으로 스캔 UI 부재를
