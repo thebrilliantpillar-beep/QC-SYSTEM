@@ -8,6 +8,17 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-24 (성적서/NCR/개선요청서 xlsx 디스크 미보관, 커밋 fd41b59, origin·deploy
+  양쪽 push 완료)**: Render 청구서를 보다가 디스크 사용량이 왜 이런지 사용자가 물어서
+  확인하던 중, Render Shell(`find`/`du`)로 실제 서버 디스크를 직접 뒤져서 "성적서 발행"
+  폴더 1.6GB 중 xlsx 파일 1,120개가 1.4GB(87.5%)를 차지하는 걸 발견 — xlsx는 PDF 변환용
+  중간 산출물일 뿐 DB(`set_report_files()`)도 저장 안 하고 다운로드 라우트도 없어서
+  순수 낭비였다. `report_builder._to_pdf()`가 PDF 변환 성공 직후 xlsx를 바로 지우도록
+  수정(4종 출력 전부가 이 함수 하나를 공유). 기존 1,120개는 Shell에서 `find ... -delete`로
+  즉시 삭제해 1.4GB 회수. CLAUDE.md 6절도 이 정책으로 갱신. **로컬 PC는 코딩 전용이라
+  실제 프로덕션 디스크 상태는 Render Shell로 직접 확인해야 한다는 걸 재확인한 사례** —
+  로컬 dev DB(56건)로는 실사용 규모를 전혀 대변 못 함.
+
 - **2026-09-23 (출고 승인이력 배치별 엑셀 링크 복원, 커밋 34bbf47, origin·deploy 양쪽 push
   예정)**: 출고 승인 화면 개편(TASK 10) 때 `outbound_history.html`의 배치별 엑셀 다운로드
   링크가 신규 `outbound_approval_history.html`로 안 옮겨진 회귀를 사용자가 발견해서
