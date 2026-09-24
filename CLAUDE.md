@@ -217,8 +217,17 @@ G1 / H,  J1 / K,  M1 / N,  P1 / Q,  S1 / T,  V1 / W,  Y1 / Z,  AB1 / AC   (3칸 
 성적서 발행/
   2026-08-21/                                              ← 오늘 날짜(생성일) 폴더 하나만
     260821_ACE_600005P086_둥근머리 볼트(M416L,STS304).pdf   ← YYMMDD_업체명_자재번호_제품명
-    260821_ACE_600005P086_둥근머리 볼트(M416L,STS304).xlsx
 ```
+
+**2026-09-24부터 xlsx는 디스크에 안 남는다.** PDF 변환용 중간 산출물일 뿐 DB에도 저장 안
+되고(`database.set_report_files()`가 xlsx_path 인자를 아예 무시) 다운로드 라우트도 없어서,
+성적서·조립품·NCR 통보서·개선요청서 4종 xlsx가 아무 쓸모 없이 계속 쌓이고 있었다
+(발견 당시 실제로 1,120개·1.4GB, "성적서 발행" 폴더 용량의 87.5%). `report_builder._to_pdf()`가
+LibreOffice 변환 성공 직후 `os.remove(xlsx_path)`로 바로 지운다(변환 실패 시엔 재시도/디버깅용으로
+남겨둠) — 이 함수 하나가 4종 출력 전부의 공통 지점이라 여기만 고치면 됨(8-1절 원칙과 동일).
+**`template_form.xlsx`/`ncr_template.xlsx`/`improvement_request_template.xlsx` 같은 원본
+템플릿은 이 삭제 대상이 아니다** — 삭제되는 건 매번 `shutil.copy`로 만든 출력 복사본뿐, 원본은
+`/app`(앱 코드 폴더)에 있고 `/var/data`(성적서 발행 폴더가 있는 영구 디스크)와 별개다.
 
 - `report_builder.report_output_dir()` — 인자 없이 오늘 날짜 폴더만 만듦
 - `report_builder.build_report_filename(supplier, material_no, product_name)` — 파일명 생성.

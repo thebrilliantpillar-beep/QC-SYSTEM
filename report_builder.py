@@ -729,6 +729,12 @@ def _to_pdf(xlsx_path, out_dir):
 
     pdf_path = os.path.splitext(xlsx_path)[0] + ".pdf"
     if os.path.exists(pdf_path):
+        # PDF만 있으면 되고 xlsx는 안 쓴다(디스크에 안 쌓이게 변환 성공 시 바로 삭제).
+        # 실패 시엔 재시도/디버깅용으로 xlsx를 남겨둔다.
+        try:
+            os.remove(xlsx_path)
+        except OSError:
+            pass
         return pdf_path, None
 
     stderr_msg = (proc.stderr or b"").decode("utf-8", errors="ignore").strip()
