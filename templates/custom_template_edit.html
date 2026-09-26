@@ -194,6 +194,7 @@
   const PREVIEW_URL = {{ url_for('custom_template_preview', template_id=tmpl['id']) | tojson }};
   const ASSIGN_URL = {{ url_for('custom_template_assign', template_id=tmpl['id']) | tojson }};
   const PING_URL = {{ url_for('session_ping') | tojson }};
+  const CSRF_TOKEN = {{ csrf_token() | tojson }};
   const SAVED_LAYOUT = JSON.parse({{ (tmpl['layout_json'] or '[]') | tojson }});
   let selected = null, dirty = false;
 
@@ -639,7 +640,7 @@
     let res;
     try {
       res = await fetch(SAVE_URL, {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload),
+        method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': CSRF_TOKEN}, body: JSON.stringify(payload),
       });
     } catch (e) {
       toast('저장 실패: 서버에 연결 못 했어(네트워크 확인). 작업 내용은 그대로 남아 있어.');
@@ -682,7 +683,7 @@
     // 최근 5분 안에 활동이 있었을 때만 세션을 연장한다(자리 비우면 자동 로그아웃 유지)
     if (Date.now() - _lastActivity > 5*60*1000) return;
     try {
-      const r = await fetch(PING_URL, {method:'POST'});
+      const r = await fetch(PING_URL, {method:'POST', headers:{'X-CSRFToken': CSRF_TOKEN}});
       if (r.status === 401) showSessionExpired(); else hideSessionExpired();
     } catch (e) { /* 네트워크 일시 오류는 무시 */ }
   }

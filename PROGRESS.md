@@ -8,6 +8,161 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-26 (하우징 성적서 프로젝트 1~4단계 구현 완료 + 전역 CSRF 누락버그 11개화면 수정,
+  커밋 전/uncommitted)**: 2026-09-25 설계확정 이후 실제 구현 착수, **전 4단계 완료**.
+  .collab TASK #44/#45/#46/#47/#48(독립2차검증)/#49.
+
+  **4단계(TASK#49, 마지막 단계)**: `report_builder.build_housing_report()` 신규 — 기존
+  템플릿파일 복사 방식 대신 openpyxl로 워크북을 처음부터 구성(하우징 양식은 항목수/열이
+  전압분류마다 달라 고정템플릿이 안 맞음). 기존 헬퍼(`_insert_logo`/`format_aql`/
+  `is_out_of_range`/`_to_pdf`/`report_output_dir`/`build_report_filename`/`_dedupe_path`)
+  전부 재사용, 색상은 8자리(25절), fit-to-page(7-5절)/wrap_text(7-6절) 준수, 갑지(1~35)/
+  을지_1(36~70)/을지_2(71~) 35개단위 분할. PD/충격 심화검사 팝업(예비인가/측정/발생/소멸
+  전압+VI상태+chamber단계)+저장(`housing_deep_inspections`, 1단계에서 스키마만 만들어뒀던
+  걸 이번에 처음 채움)+"🔬심화검사N건" 배지, `housing_history.html`에 심화검사/성적서 컬럼
+  추가(N+1방지 EXISTS 배치조회).
+
+  developer가 **실제 LibreOffice PDF변환+pymupdf 이미지화로 렌더링하다가 진짜 버그 3개
+  발견·즉시수정**(코드리뷰만으론 못 잡았을 것들, 11절 원칙 재확인): ①로고가 제목텍스트에
+  겹침→상단 3행을 로고전용으로 비움 ②정보필드를 좁게 병합했더니 LibreOffice에서 옆칸
+  텍스트와 번져보임→필드당 1행+전체폭 병합으로 변경 ③실제DB의 긴 spec_display(최대
+  35자)로 렌더링하니 고정헤더높이 부족해 텍스트 잘림→`_estimate_wrapped_lines()`(기존
+  AQL칸 계산헬퍼 재사용)로 헤더행 높이 동적계산. quality-watcher가 이 3개 수정이
+  실제 코드에 반영됐는지 재확인, PASS.
+
+  **하우징 프로젝트 최종 상태**: 1차치수검사/2차기능검사/3차절연내력시험 3단계 입력+칸단위
+  안전저장, 하우징전용 메뉴3화면(검사입력/승인/검사이력), 정식PDF성적서 출력, PD/충격
+  심화검사까지 — 사용자가 2026-09-24~26 grilling으로 확정한 설계 전부 구현 완료 후 커밋.
+
+  **M항목(X-선 검사) 해결됨**: 사용자 확인 — "일단 더미 데이터로 만들고 필요할 때 활성화
+  하자"(X-선 검사 장비/공정이 아직 준비 안 됐다는 뜻). `_housing_columns_by_stage()`가
+  `stage_group`이 1/2/3이 아니면 그 항목을 조용히 건너뛰는 기존 필터링을 그대로 활용해서,
+  새 "활성/비활성" 플래그 없이 `stage_group=NULL`로만 비활성화(3개 소재 전부, 로컬DB 반영
+  확인). 나중에 활성화하려면 `migrate_housing_stage_groups.py`의 `DISABLE_ITEMS`에서 'M'을
+  빼고(또는 `STAGE_MAP`에 `'M': 2` 추가) 재실행하면 끝 — 코드 변경 불필요.
+
+  **남은 것(급하지 않음)**: 27KV/38KV 자재로는 PDF 렌더링 실측을 아직 안 함(15KV로만
+  확인, 코드경로는 컬럼수에 안 종속적이라 저위험 판단이지만 실측 권장).
+
+  **3단계(TASK#47)**: 하우징 전용 최상위메뉴("🏠 하우징") 신설 — 검사입력목록(`/housing/inspect`)
+  /승인목록+상세(`/housing/approve`, `/housing/approve/<id>`)/검사이력검색(`/housing/history`,
+  엑셀출력포함) 3화면. 승인상세는 `full_inspect_housing.html`에 `readonly`/`show_approve_actions`
+  모드를 추가해서 1/2/3차 통합표+기존 승인액션을 재사용(그릴링 확정사항: 탭은 입력전용,
+  조회/승인은 통합표). 승인액션(비고+서명+승인/특채/반려/불합격)은 `approve_form.html`에서
+  `_approve_decision_block.html`로 추출한 공용 partial로 비하우징 승인화면과 공유 — 판정
+  로직·게이트·서명은 기존 그대로, 화면만 하우징에서도 재사용. 전압분류(15/27/38KV)는
+  `material_name` 정규식 추출(하드코딩 안 함, 자재 늘어도 자동분류). 새 권한 안 만듦(기존
+  inspect_input/approve/inspect_history 재사용).
+
+  **quality-watcher 세션/주간 사용량 한도로 2회 연속 실행 실패**(각각 "session limit"/
+  "weekly limit", 오늘 19시 KST 리셋) — 메인세션(claude)이 같은 체크리스트로 직접 코드
+  검증 수행(대체 검증, .collab에 명시). partial include 위치, readonly모드가 기존 탭UI
+  경로를 안 건드리는지, return_to 분기가 기존 from_approve 로직 앞에 안전하게 early-return
+  되는지, 5개 라우트 권한, 전압분류 regex의 None안전성, developer가 보고한 _final_decision_
+  block_reason 게이트 차단사유(2026-09-10 기존로직, 신규결함 아님) 전부 코드로 직접 재확인—
+  전부 정상.
+
+  **확인 필요(아직 미해결)**: 2단계에서 M항목(X-선 검사)을 차수분류 애매해서 개발자판단으로
+  2차(기능검사)에 임시배정함 — 사용자에게 물어봤으나 아직 답변 없음. 다음에 다시 물어볼 것,
+  틀렸으면 `migrate_housing_stage_groups.py`의 STAGE_MAP만 고치면 됨(데이터 재실행 멱등).
+
+  **다음 단계(4단계 예정)**: report_builder.py 하우징 리포트엔진(build_housing_report,
+  갑지/을지 35개단위 분할 PDF출력) + PD/충격 심화검사 팝업+저장(housing_deep_inspections
+  테이블은 1단계에서 이미 생성됨, 화면/라우트만 남음). 사용자가 "커밋은 마지막에 한번에"
+  라고 해서 아직 미커밋 — `.collab status`로 TASK#44~47 확인 후 이어갈 것.
+
+  **1단계(TASK#44)**: DB스키마(full_inspections 차수별 비고3개+시작완료시각, 신규테이블
+  full_inspection_editors/housing_deep_inspections) + 고저항값 CT/ROD SIDE 2항목분리
+  보정(migrate_housing_split_resistance.py, 로컬DB반영확인) + `full_inspect_save` 칸단위
+  upsert+병합 재작성(레이스컨디션 근본수정). developer가 자체검토중 트랜잭션 결함을
+  스스로 발견·BEGIN IMMEDIATE로 수정, quality-watcher가 코드로 재검증(PASS).
+
+  **2단계(TASK#45)**: specs.stage_group 컬럼+마이그레이션(1차=치수4개/2차=나머지/3차=
+  충격PD내전압, item_name기반 분류 — M항목(X-선검사)는 개발자판단으로 2차 임시분류,
+  **사용자 확인 필요**), `_housing_columns_by_stage()` 헬퍼, 1단계에서 깨졌던
+  `full_inspect_form.html` 자동저장 긴급수정(cells계약 전환), `full_inspect_housing.html`
+  전면개편(1차/2차/3차 탭UI, S/N 3섹션입력, spec_quick_add.html 패턴재사용한 드래그
+  다중선택+생산년월/고정접미사 일괄적용). 헤드리스크롬 실렌더링+멀티스레드+E2E 검증
+  전부 통과.
+
+  **부수 발견(TASK#46, 하우징과 무관)**: 2단계 작업 중 developer가 `full_inspect` 자동저장
+  fetch()에 CSRF헤더가 없어 2026-09-20 전역CSRF도입(`cd8491a`) 이후 매번 400
+  실패하던 버그를 발견·수정. 메인세션이 같은 패턴을 앱 전체에서 재검색해 **11개 화면**
+  (inspect_form/approve_form/approve_list/custom_template_edit/inspect_select/intake/
+  outbound_scan/output_batch_progress/spec_detail/supplier_detail/_defect_type_modal/
+  _serial_paste_grid)에서 동일 버그 확인·전부 수정. **특히 outbound_scan.html은 CSRF
+  도입 이후에도 6번 더 수정됐는데(최근 9/23까지) 계속 방치돼 있었음 — 사진업로드/S,N등록도
+  포함.** Flask test client로 토큰있으면200/없으면400 재현검증 완료. **부수 발견**: base.html에
+  이미 전역 자동CSRF주입 장치(`window.addCsrfToken`, 폼submit 이벤트/프로그램적 submit()
+  가로채기)가 있어서 실제 `<form>`제출 기반 코드는 원래 안전했을 가능성 있음(spec_detail/
+  supplier_detail의 hidden input 추가는 안전하지만 중복이었을 수 있음) — fetch()로 직접
+  만든 요청만 이 장치를 못 타서 확실히 깨져 있었음. quality-watcher PASS.
+
+  **다음 세션 시작 시**: `.collab status`로 TASK#44/45/46 확인. 아직 미커밋 상태 —
+  사용자가 "한번에 커밋"이라고 해서 계속 이어가는 중. 다음 단계는 report_builder.py
+  하우징 리포트엔진(build_housing_report, 갑지/을지 분할)/하우징 최상위메뉴 3탭(검사입력/
+  승인/출고승인이력)/하우징 검사이력 검색페이지/PD·충격 심화검사 팝업. M항목 차수분류는
+  사용자 확인 필요 항목으로 남아있음(migrate_housing_stage_groups.py의 STAGE_MAP만
+  고치면 됨, 데이터 재실행 멱등).
+
+
+- **2026-09-25 (하우징 성적서 프로젝트 — 설계 확정, 코드 작업 착수 전, 커밋 안 함)**:
+  리클로저 핵심자재 "하우징"(15/27/38KV) 전용 수입검사 성적서 특별화 프로젝트 설계를
+  planner(.collab TASK #43, COMPLETED) + 이후 긴 대화(grilling 스킬)로 확정함. **아직
+  코드 한 줄도 안 짬 — 사용자가 명시적으로 "자고 일어나서 하자"고 함, 다음 세션에
+  developer 스폰부터 시작.**
+
+  planner가 조사 중 **CLAUDE.md에 전혀 기록 안 된 기존 인프라**를 발견함:
+  `full_inspect_housing.html`/`migrate_housing.py`/`full_inspections`·`full_inspection_units`
+  테이블/`custom_report.py` — 이미 하우징 3개 자재에 마이그레이션까지 실행돼 있었는데
+  아무도 안 써봤음(사용자 확인: "써본적 없음, 처음 봄"). 그래서 안전하게 자유롭게
+  재설계하기로 함.
+
+  **명칭 확정(2026-09-25)**: STAGE1/2/3은 임시명이었고 최종적으로 **1차 치수검사 /
+  2차 기능검사 / 3차 절연내력시험**으로 명명함. 이후 스펙·코드·화면 문구 전부 이 이름
+  사용할 것(STAGE라는 코드성 표현 대신).
+
+  **최종 확정 설계**:
+  - 1차 치수검사(치수, AQL샘플) / 2차 기능검사(외관·CT극성·CT저항·VD쇼트·고저항·동작·
+    주회로저항, 전수) / 3차 절연내력시험(충격파내전압·부분방전PD·내전압, 전수) 3단계 분류
+  - 고저항값(CT/ROD)은 **2개 독립항목으로 분리**(기존 migrate_housing.py가 이미
+    numeric_pair로 합친 걸 되돌려야 함 — 착수 시 잊지 말 것)
+  - 제품번호(S/N) 3섹션: 접두어(X/E)+**생산년월**(검사날짜 아님, 직접선택) / 5자리
+    일련번호 / 고정접미사(드물게 바뀔 수 있음) — 생산년월·고정접미사는 `spec_quick_add.html`의
+    드래그다중선택+일괄적용 패턴을 재사용해서 여러 순번에 한번에 적용하는 기능 필요
+  - **자동저장을 "화면 전체 스냅샷 delete+reinsert"에서 "바뀐 칸 단위 upsert+병합"으로
+    전면 교체** — 하우징뿐 아니라 기존 전수검사 전체(비하우징 자재 포함, `full_inspect_save`
+    라우트 공용)에 적용. 이유: 2차 기능검사를 두 사람이 동시에 다른 열(N:T vs U)을 각자 기기에서
+    입력하는 워크플로우가 실제로 빈번한데, 지금 `save_full_inspection_units()`(코드주석에
+    "기존 전부 삭제 후 재삽입"이라고 명시)는 delete+reinsert라 한쪽이 저장하면 다른쪽이
+    막 저장한 값을 지워버리는 실제 레이스컨디션 버그가 있음(코드로 직접 확인함). 순번행이
+    DB에 미리 안 생기므로(첫 저장 때 생김) 새 저장함수는 upsert여야 함. `result`(합격/불합격)도
+    매번 "DB에 있던 값+방금 온 칸"을 합쳐서 재계산해야 함.
+  - 칸을 저장할 때마다 그 사용자를 "이 성적서를 건드린 사람 집합"에 자동 추가 →
+    성적서 "검사자"란에 전원 자동 노출(별도 테이블 필요, 기존 `inspection_progress`는
+    일회성 프레즌스 추적이라 재사용 불가 — 새로 확인함)
+  - 차수별 사이클시간: 스톱워치 없이 **그 차수(1차/2차/3차) 첫 칸 저장시각~마지막
+    필요칸 채워진 시각**을 자동 계산(버튼 없음)
+  - 1차/2차/3차 탭 구분은 **입력화면 전용**(작업분담 UX), 승인/조회/출력은 항상 3개
+    차수 **통합 표**(원본 종이양식과 동일 형태)
+  - 하우징 전용 최상위 메뉴 신설, 3탭 전부 **완전히 독립된 화면**(기존화면 필터링 아님):
+    검사입력(입고건리스트→통합표+1/2/3차 탭 입력)/승인(입고건리스트,15·27·38kV분류→통합표+기존
+    승인로직 그대로 재사용)/출고승인이력(지금은 placeholder만)
+  - 심화검사(PD/충격 불량시): "⚠심화검사추가" 버튼만, 스킵기록 불필요, PD/충격 같은
+    4개 전압필드(예비인가/측정/발생/소멸) 공용
+  - 통합표 상세화면 자체에 순번+항목 체크박스로 구간 엑셀출력 기능 (하우징검사이력
+    목록의 검색결과 출력과는 별개 기능, 둘 다 필요)
+  - 정식 PDF 성적서만 갑지/을지 35개단위로 분할(웹 화면은 분할 안 함)
+  - DB: `inspections`/`inspection_items` 무변경, `full_inspections`/`full_inspection_units`에
+    컬럼만 추가(차수별 비고 3개, 차수별 시작·완료시각), 신규테이블은 심화검사용
+    `housing_deep_inspections` + 검사자집합용 테이블 1개. 자재식별은 `materials.category`
+    재사용(이미 3개 자재 전부 '하우징'으로 설정 완료 확인함, 추가 마이그레이션 불필요).
+  - 신규 권한 불필요(기존 20종으로 충분)
+
+  **다음 세션 시작 시**: `.collab status`로 TASK #43 확인 후, 이 항목 전체를 developer
+  스폰 프롬프트에 포함해서 착수. workflow-start/dispatch부터 실시간으로 지킬 것(13-1/13-2절
+  사고 재발 방지).
+
 - **2026-09-24 (.collab 아카이브 사후 보강: 프로젝트 초기~09-21 TASK 25건, 커밋 487276c,
   origin push만/deploy 생략)**: 사용자가 "QMS 시작부터 아카이브 운영 이전까지 모든 작업"을
   .collab에 기록해달라고 요청. 359개 커밋 전부(커밋단위)가 아니라 CLAUDE.md 절 단위로

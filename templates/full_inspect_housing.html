@@ -9,27 +9,24 @@
 .fi-tbl td { border: 1px solid #DDE0E6; padding: 2px 3px; }
 .fi-tbl .no-cell { text-align: center; color: #4b5563; width: 34px;
                    font-size: 12px; background: #F9F9F8; font-weight: 600; }
-.fi-tbl input[type=text] {
+.fi-tbl .sel-cell { text-align: center; width: 26px; background: #F9F9F8; }
+.fi-tbl input[type=text], .fi-tbl input[type=month], .fi-tbl select {
   width: 100%; min-width: 52px; border: none; background: transparent;
   font-size: 13px; padding: 4px 4px; box-sizing: border-box; font-family: inherit;
   text-align: center;
 }
-.fi-tbl input[type=text]:focus {
+.fi-tbl input[type=text]:focus, .fi-tbl input[type=month]:focus, .fi-tbl select:focus {
   background: #fffbeb; outline: 2px solid #f59e0b; border-radius: 2px;
 }
-.serial-3 { display: flex; align-items: stretch; gap: 2px; min-width: 220px; }
+.serial-3 { display: flex; align-items: stretch; gap: 2px; min-width: 230px; }
 .serial-3 .sp {
-  flex: 0 0 auto; padding: 4px 6px; background: #ECEEF2; color: #6b7280;
+  flex: 0 0 auto; padding: 0; background: transparent; color: #24344F;
   font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center;
   min-width: 54px; justify-content: center;
 }
-.serial-3 .sp.editable {
-  background: transparent; color: #24344F; padding: 0;
-}
-.serial-3 .sp.editable input {
-  min-width: 54px; text-align: center; font-size: 13px;
-}
-.serial-3 .middle input { min-width: 68px; font-weight: 600; }
+.serial-3 .sp select, .serial-3 .sp input { min-width: 54px; text-align: center; font-size: 12.5px; }
+.serial-3 .mid input { min-width: 62px; font-weight: 600; }
+.serial-3 .suf input { min-width: 70px; }
 .pair-cell { display: flex; gap: 1px; }
 .pair-cell input { min-width: 44px; }
 .pair-cell .sep { color: #9ca3af; padding: 4px 1px; font-size: 11px; }
@@ -41,15 +38,6 @@
 .fi-bar label { font-size: 13px; color: #2B3140; }
 .fi-bar input[type=date] { font-size: 13px; border: 1px solid #DDE0E6;
                             border-radius: 5px; padding: 4px 8px; }
-.serial-config { background: #eff6ff; border: 1px solid #bfdbfe;
-                 border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
-.serial-config h4 { margin: 0 0 6px 0; font-size: 13px; color: #24344F; }
-.serial-config .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.serial-config input {
-  font-size: 13px; border: 1px solid #cbd5e1; border-radius: 5px;
-  padding: 5px 8px; min-width: 90px;
-}
-.serial-config .hint { font-size: 11px; color: #6b7280; margin-top: 4px; }
 #save-state { font-size: 12px; color: #6b7280; margin-left: auto; }
 .btn-complete { background: #2F4670; color: #fff; border: none; border-radius: 6px;
                 padding: 8px 20px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
@@ -58,7 +46,7 @@
             padding: 8px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .btn-save:hover { background: #047857; }
 .btn-apply { background: #3D5A8A; color: #fff; border: none; border-radius: 5px;
-             padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+             padding: 7px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .btn-apply:hover { background: #2F4670; }
 .badge-done { display:inline-block; background: #16a34a; color: #fff;
               border-radius: 10px; padding: 2px 12px; font-size: 12px; font-weight: 700; }
@@ -69,14 +57,39 @@
 #summary-bar { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 #summary-bar .ok { color: #16a34a; }
 #summary-bar .ng { color: #dc2626; }
+
+/* 1차/2차/3차 탭 */
+.stage-tabs { display: flex; gap: 6px; margin-bottom: 0; }
+.stage-tab-btn { background: #ECEEF2; color: #2B3140; border: 1px solid #DDE0E6;
+                 border-bottom: none; border-radius: 8px 8px 0 0; padding: 9px 16px;
+                 font-size: 13px; font-weight: 600; cursor: pointer; }
+.stage-tab-btn.active { background: #2F4670; color: #fff; border-color: #2F4670; }
+.stage-tab-btn .stage-sub { display: block; font-size: 11px; font-weight: 400; opacity: .85; margin-top: 2px; }
+.fi-wrap[data-active-stage="1"] .stage-col:not(.stage-1) { display: none; }
+.fi-wrap[data-active-stage="2"] .stage-col:not(.stage-2) { display: none; }
+.fi-wrap[data-active-stage="3"] .stage-col:not(.stage-3) { display: none; }
+.locked-cell { background: #F1F2F4; }
+.locked-cell input { color: #b0b4bb; }
+
+/* 일괄적용 팝업 */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 300;
+                  align-items: center; justify-content: center; padding: 16px; }
+.modal-overlay.open { display: flex; }
+.modal-box { background: #fff; border-radius: 14px; padding: 20px; max-width: 420px; width: 100%; }
+.modal-box h3 { margin-top: 0; font-size: 16px; }
+.modal-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; color: #2B3140; }
+.modal-field select, .modal-field input {
+  font-size: 13px; border: 1px solid #cbd5e1; border-radius: 5px; padding: 6px 8px;
+}
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 </style>
 
 <div style="max-width:1400px;margin:0 auto;padding:10px 8px;">
 
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-    <a href="{{ url_for('inspection_detail', inspection_id=header.id) }}"
-       style="font-size:13px;color:#3D5A8A;text-decoration:none;">← 성적서로</a>
-    <h2 style="margin:0;font-size:18px;">하우징 전수검사 기록지</h2>
+    <a href="{{ back_url or url_for('inspection_detail', inspection_id=header.id) }}"
+       style="font-size:13px;color:#3D5A8A;text-decoration:none;">← {{ '하우징 승인 목록' if show_approve_actions else '성적서로' }}</a>
+    <h2 style="margin:0;font-size:18px;">하우징 전수검사 {{ '승인' if show_approve_actions else '기록지' }}</h2>
     <span class="badge-housing">HOUSING</span>
     <span style="font-size:13px;color:#6b7280;">
       {{ header.material_no }} · {{ header.material_name }}
@@ -87,6 +100,18 @@
       <span class="badge-open">입력 중</span>
     {% endif %}
   </div>
+
+  {% if show_approve_actions %}
+  <div class="card" style="padding:14px 18px;margin-bottom:10px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px 14px;font-size:13.5px;">
+      <div><div style="color:#9ca3af;font-size:11px;font-weight:700;">업체</div><div style="font-weight:700;">{{ header.supplier or '-' }}</div></div>
+      <div><div style="color:#9ca3af;font-size:11px;font-weight:700;">로트번호</div><div style="font-weight:700;white-space:pre-line;">{{ header.po_number or '-' }}</div></div>
+      <div><div style="color:#9ca3af;font-size:11px;font-weight:700;">입고일</div><div style="font-weight:700;">{{ (header.receive_date | date_korean) or '-' }}</div></div>
+      <div><div style="color:#9ca3af;font-size:11px;font-weight:700;">전압분류</div><div style="font-weight:700;">{{ voltage or '-' }}</div></div>
+      <div><div style="color:#9ca3af;font-size:11px;font-weight:700;">입고수량</div><div style="font-weight:700;">{{ qty }}개</div></div>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="fi-bar">
     <label>검사날짜
@@ -105,27 +130,17 @@
     <span id="save-state">—</span>
   </div>
 
-  <div class="serial-config">
-    <h4>제품번호(S/N) 공통 입력</h4>
-    <div class="row">
-      <span style="font-size:12px;color:#2B3140;">첫 부분 (배치)</span>
-      <input type="text" id="sn-prefix" placeholder="예: E2607" maxlength="20">
-      <span style="font-size:12px;color:#2B3140;">끝 부분 (모델)</span>
-      <input type="text" id="sn-suffix" placeholder="예: M2-100-1" maxlength="30">
-      <button type="button" class="btn-apply" onclick="applySerialToAll()">
-        📋 전체 행에 적용
-      </button>
-    </div>
-    <div class="hint">
-      첫 부분·끝 부분을 채우고 <b>적용</b>을 누르면 아래 표 각 행의 첫/끝 칸이 채워져.
-      <b>가운데 번호</b>는 유닛마다 다르니 각 행에서 직접 입력해줘. 필요하면 개별 행에서 첫/끝 칸도 수정 가능.
-    </div>
-  </div>
-
   {% if config.note %}
   <div style="font-size:12px;background:#f0f4ff;border-radius:5px;
               padding:5px 12px;margin-bottom:8px;color:#2B3140;">
     📋 시험 조건: {{ config.note }}
+  </div>
+  {% endif %}
+
+  {% if not readonly %}
+  <div class="toolbar" style="margin-bottom:10px;">
+    <button type="button" class="btn-apply" onclick="openSnBatchModal()">📅 선택 행에 생산년월/접미사 일괄적용</button>
+    <span style="font-size:11.5px;color:#6b7280;">행 앞 체크박스를 드래그하면 여러 행을 한번에 선택할 수 있어.</span>
   </div>
   {% endif %}
 
@@ -137,14 +152,48 @@
   </div>
 
   {% if columns %}
-  <div class="fi-wrap">
+  {% if not readonly %}
+  <div class="stage-tabs">
+    <button type="button" class="stage-tab-btn active" data-stage="1" onclick="switchStage(1)">
+      1차 치수검사<span class="stage-sub">샘플 {{ stage1_sample_qty }}개</span>
+    </button>
+    <button type="button" class="stage-tab-btn" data-stage="2" onclick="switchStage(2)">
+      2차 기능검사<span class="stage-sub">전수 {{ qty }}개</span>
+    </button>
+    <button type="button" class="stage-tab-btn" data-stage="3" onclick="switchStage(3)">
+      3차 절연내력시험<span class="stage-sub">전수 {{ qty }}개</span>
+    </button>
+  </div>
+  {% else %}
+  <p class="muted" style="font-size:12.5px;margin:0 0 6px;">📋 1차 치수검사 / 2차 기능검사 / 3차 절연내력시험 통합표 (읽기전용)</p>
+  {% endif %}
+
+  <div class="fi-wrap" id="fiWrap" {% if not readonly %}data-active-stage="1"{% endif %}>
   <table class="fi-tbl" id="fi-table">
     <thead>
       <tr>
+        <th class="sel-cell"><input type="checkbox" id="selectAllRows" title="전체 선택" {% if readonly %}disabled{% endif %}
+               onclick="document.querySelectorAll('.unit-select').forEach(c=>c.checked=this.checked)"></th>
         <th style="width:34px;">번호</th>
-        <th style="min-width:230px;">제품번호 (배치 / 번호 / 모델)</th>
-        {% for col in columns %}
-        <th style="min-width:{{ 110 if col.type == 'num_pair' else 80 }}px;">
+        <th style="min-width:230px;">제품번호 (접두어·생산년월 / 일련번호 / 접미사)</th>
+        {% for col in stage_cols.stage1_cols %}
+        <th class="stage-col stage-1" style="min-width:{{ 110 if col.type == 'num_pair' else 80 }}px;">
+          {{ col.header }}
+          {% if col.type == 'num' %}
+            {% if col.lo is not none and col.hi is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.lo }}~{{ col.hi }}</div>
+            {% elif col.lo is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.lo }} 이상</div>
+            {% elif col.hi is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.hi }} 이하</div>
+            {% endif %}
+          {% elif col.type == 'pf' %}
+            <div style="font-size:10px;font-weight:400;opacity:.8;">○/×</div>
+          {% endif %}
+        </th>
+        {% endfor %}
+        {% for col in stage_cols.stage2_cols %}
+        <th class="stage-col stage-2" style="min-width:{{ 110 if col.type == 'num_pair' else 80 }}px;">
           {{ col.header }}
           {% if col.type == 'num' %}
             {% if col.lo is not none and col.hi is not none %}
@@ -166,45 +215,87 @@
           {% endif %}
         </th>
         {% endfor %}
+        {% for col in stage_cols.stage3_cols %}
+        <th class="stage-col stage-3" style="min-width:{{ 110 if col.type == 'num_pair' else 80 }}px;">
+          {{ col.header }}
+          {% if col.type == 'num' %}
+            {% if col.lo is not none and col.hi is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.lo }}~{{ col.hi }}</div>
+            {% elif col.lo is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.lo }} 이상</div>
+            {% elif col.hi is not none %}
+              <div style="font-size:10px;font-weight:400;opacity:.8;">{{ col.hi }} 이하</div>
+            {% endif %}
+          {% elif col.type == 'pf' %}
+            <div style="font-size:10px;font-weight:400;opacity:.8;">○/×</div>
+          {% endif %}
+        </th>
+        {% endfor %}
         <th style="min-width:80px;">계측기</th>
         <th style="min-width:50px;">판정</th>
         <th style="min-width:80px;">비고</th>
+        <th style="min-width:120px;">심화검사<div style="font-size:10px;font-weight:400;opacity:.8;">(3차 NG 시)</div></th>
       </tr>
     </thead>
     <tbody>
     {% for row in rows %}
     {% set vals = row['values'] if row['values'] else {} %}
     {% set sn_parts = (row.serial_no or '').split() %}
-    {% set sn_pre = sn_parts[0] if sn_parts|length >= 1 else '' %}
-    {% set sn_mid = sn_parts[1] if sn_parts|length >= 2 else '' %}
-    {% set sn_suf = sn_parts[2:]|join(' ') if sn_parts|length >= 3 else '' %}
-    <tr data-unit="{{ row.unit_no }}" data-row="{{ loop.index0 }}">
+    {% set sn_sec1 = sn_parts[0] if sn_parts|length >= 1 else '' %}
+    {% set sn_sec2 = sn_parts[1] if sn_parts|length >= 2 else '' %}
+    {% set sn_sec3 = sn_parts[2:]|join(' ') if sn_parts|length >= 3 else '' %}
+    {% set sec1_split = sn_sec1.split('-', 1) %}
+    {% set sec1_prefix = sec1_split[0] if sec1_split|length >= 1 else '' %}
+    {% set sec1_ym = sec1_split[1] if sec1_split|length >= 2 else '' %}
+    {% set sec1_ym_value = ('20' ~ sec1_ym[0:2] ~ '-' ~ sec1_ym[2:4]) if (sec1_ym|length == 4) else '' %}
+    {% set locked = row.unit_no > stage1_sample_qty %}
+    {% set row_idx = loop.index0 %}
+    <tr data-unit="{{ row.unit_no }}" data-row="{{ row_idx }}">
+      <td class="sel-cell"><input type="checkbox" class="unit-select" data-unit="{{ row.unit_no }}" {% if readonly %}disabled{% endif %}></td>
       <td class="no-cell">{{ row.unit_no }}</td>
       <td>
         <div class="serial-3">
-          <span class="sp editable">
-            <input type="text" class="cell-input sn-part"
-                   data-unit="{{ row.unit_no }}" data-part="pre"
-                   data-row="{{ loop.index0 }}" data-col="0"
-                   value="{{ sn_pre }}" placeholder="배치">
+          <span class="sp">
+            <select class="sn-prefix" data-unit="{{ row.unit_no }}" {% if readonly %}disabled{% endif %}>
+              <option value="">-</option>
+              <option value="X" {% if sec1_prefix == 'X' %}selected{% endif %}>X</option>
+              <option value="E" {% if sec1_prefix == 'E' %}selected{% endif %}>E</option>
+            </select>
           </span>
-          <span class="sp editable middle">
-            <input type="text" class="cell-input sn-part sn-mid"
-                   data-unit="{{ row.unit_no }}" data-part="mid"
-                   data-row="{{ loop.index0 }}" data-col="1"
-                   value="{{ sn_mid }}" placeholder="번호">
+          <span class="sp">
+            <input type="month" class="sn-ym" data-unit="{{ row.unit_no }}" value="{{ sec1_ym_value }}" {% if readonly %}disabled{% endif %}>
           </span>
-          <span class="sp editable">
-            <input type="text" class="cell-input sn-part"
-                   data-unit="{{ row.unit_no }}" data-part="suf"
-                   data-row="{{ loop.index0 }}" data-col="2"
-                   value="{{ sn_suf }}" placeholder="모델">
+          <span class="sp mid">
+            <input type="text" class="cell-input sn-mid"
+                   data-unit="{{ row.unit_no }}"
+                   data-row="{{ row_idx }}" data-col="0"
+                   maxlength="5" placeholder="5자리"
+                   value="{{ sn_sec2 }}" {% if readonly %}disabled{% endif %}>
+          </span>
+          <span class="sp suf">
+            <input type="text" class="cell-input sn-suf"
+                   data-unit="{{ row.unit_no }}"
+                   data-row="{{ row_idx }}" data-col="1"
+                   value="{{ sn_sec3 }}" placeholder="접미사" {% if readonly %}disabled{% endif %}>
           </span>
         </div>
       </td>
-      {% for col in columns %}
-      {% set colidx = 4 + loop.index0 %}
-      <td>
+      {% for col in stage_cols.stage1_cols %}
+      <td class="stage-col stage-1{{ ' locked-cell' if locked else '' }}">
+        <input type="text" class="cell-input c-val"
+               data-unit="{{ row.unit_no }}"
+               data-key="{{ col.key }}"
+               data-type="{{ col.type }}"
+               data-lo="{{ col.lo if col.lo is not none else '' }}"
+               data-hi="{{ col.hi if col.hi is not none else '' }}"
+               data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+               value="{{ vals.get(col.key, '') }}"
+               placeholder="{{ '○/×' if col.type == 'pf' else '' }}"
+               {% if locked or readonly %}disabled{% endif %}>
+      </td>
+      {% endfor %}
+      {% for col in stage_cols.stage2_cols %}
+      <td class="stage-col stage-2">
         {% if col.type == 'num_pair' %}
           {% set pair_val = (vals.get(col.key, '') or '').split('/') %}
           {% set ct_val = pair_val[0] if pair_val|length >= 1 else '' %}
@@ -215,16 +306,16 @@
                    data-side="ct" data-type="num_pair"
                    data-lo="{{ col.lo if col.lo is not none else '' }}"
                    data-hi="{{ col.hi if col.hi is not none else '' }}"
-                   data-row="{{ loop.index0 }}" data-col="{{ colidx }}"
-                   value="{{ ct_val }}" placeholder="CT">
+                   data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                   value="{{ ct_val }}" placeholder="CT" {% if readonly %}disabled{% endif %}>
             <span class="sep">/</span>
             <input type="text" class="cell-input c-pair"
                    data-unit="{{ row.unit_no }}" data-key="{{ col.key }}"
                    data-side="rod" data-type="num_pair"
                    data-lo="{{ col.lo if col.lo is not none else '' }}"
                    data-hi="{{ col.hi if col.hi is not none else '' }}"
-                   data-row="{{ loop.index0 }}" data-col="{{ colidx }}"
-                   value="{{ rod_val }}" placeholder="ROD">
+                   data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                   value="{{ rod_val }}" placeholder="ROD" {% if readonly %}disabled{% endif %}>
           </div>
         {% else %}
           <input type="text" class="cell-input c-val"
@@ -233,28 +324,52 @@
                  data-type="{{ col.type }}"
                  data-lo="{{ col.lo if col.lo is not none else '' }}"
                  data-hi="{{ col.hi if col.hi is not none else '' }}"
-                 data-row="{{ loop.index0 }}" data-col="{{ colidx }}"
+                 data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
                  value="{{ vals.get(col.key, '') }}"
-                 placeholder="{{ '○/×' if col.type == 'pf' else '' }}">
+                 placeholder="{{ '○/×' if col.type == 'pf' else '' }}" {% if readonly %}disabled{% endif %}>
         {% endif %}
+      </td>
+      {% endfor %}
+      {% for col in stage_cols.stage3_cols %}
+      <td class="stage-col stage-3">
+        <input type="text" class="cell-input c-val"
+               data-unit="{{ row.unit_no }}"
+               data-key="{{ col.key }}"
+               data-type="{{ col.type }}"
+               data-stage="3"
+               data-lo="{{ col.lo if col.lo is not none else '' }}"
+               data-hi="{{ col.hi if col.hi is not none else '' }}"
+               data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+               value="{{ vals.get(col.key, '') }}"
+               placeholder="{{ '○/×' if col.type == 'pf' else '' }}" {% if readonly %}disabled{% endif %}>
       </td>
       {% endfor %}
       <td>
         <input type="text" class="cell-input c-gauge"
                data-unit="{{ row.unit_no }}"
-               data-row="{{ loop.index0 }}" data-col="{{ 4 + columns|length }}"
+               data-row="{{ row_idx }}" data-col="{{ 2 + stage_cols.total_cols }}"
                value="{{ row.gauge_name or '' }}"
-               placeholder="계측기(선택)">
+               placeholder="계측기(선택)" {% if readonly %}disabled{% endif %}>
       </td>
       {% set res = row.result or '' %}
-      {% set lastcol = 3 + columns|length %}
       <td class="{{ 'res-ok' if res == 'OK' else ('res-ng' if res == 'NG' else 'res-nil') }}"
           id="res-{{ row.unit_no }}">{{ res or '—' }}</td>
       <td>
         <input type="text" class="cell-input c-remark"
                data-unit="{{ row.unit_no }}"
-               data-row="{{ loop.index0 }}" data-col="{{ lastcol }}"
-               value="{{ row.remark or '' }}">
+               data-row="{{ row_idx }}" data-col="{{ 3 + stage_cols.total_cols }}"
+               value="{{ row.remark or '' }}" {% if readonly %}disabled{% endif %}>
+      </td>
+      <td style="white-space:normal;">
+        <span id="deep-badge-{{ row.unit_no }}" class="badge-housing"
+              style="background:#5b21b6;{{ '' if deep_counts.get(row.unit_no) else 'display:none;' }}">
+          🔬 심화검사 {{ deep_counts.get(row.unit_no, 0) }}건
+        </span>
+        {% if not readonly %}
+        <button type="button" id="deep-add-{{ row.unit_no }}" class="btn-apply"
+                style="padding:3px 8px; font-size:11px; display:none;"
+                onclick="openDeepModal({{ row.unit_no }})">⚠ 심화검사 추가</button>
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -262,6 +377,7 @@
   </table>
   </div>
 
+  {% if not readonly %}
   <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
     <button class="btn-save" onclick="manualSave()">💾 저장</button>
     {% if fi.status != 'complete' %}
@@ -276,6 +392,13 @@
       ↑↓←→ 화살표로 셀 이동 · Enter=아래 · Tab=오른쪽
     </span>
   </div>
+  {% endif %}
+
+  {% if show_approve_actions %}
+  <div style="margin-top:24px;">
+    {% include "_approve_decision_block.html" %}
+  </div>
+  {% endif %}
 
   {% else %}
   <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;
@@ -288,15 +411,107 @@
 
 </div>
 
+{# ===== 생산년월/접미사 일괄적용 팝업 (spec_quick_add.html의 드래그다중선택+팝업적용 패턴 재사용) ===== #}
+<div class="modal-overlay" id="snBatchModal">
+  <div class="modal-box">
+    <h3>선택한 행에 일괄 적용</h3>
+    <p class="hint" style="margin:0 0 12px;">채운 항목만 선택된 행에 적용돼. 비워두면 그 항목은 그대로 둬.</p>
+    <div class="modal-field">
+      <span>접두어</span>
+      <select id="batchPrefix">
+        <option value="">(변경 안 함)</option>
+        <option value="X">X</option>
+        <option value="E">E</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <span>생산년월</span>
+      <input type="month" id="batchYm">
+    </div>
+    <div class="modal-field">
+      <span>고정접미사</span>
+      <input type="text" id="batchSuffix" placeholder="예: M2-100-1">
+    </div>
+    <div class="toolbar" style="justify-content:flex-end;">
+      <button type="button" class="btn secondary" onclick="closeSnBatchModal()">취소</button>
+      <button type="button" class="btn-apply" onclick="applySnBatch()">선택 행에 적용</button>
+    </div>
+  </div>
+</div>
+
+{# ===== 심화검사(PD/충격) 추가 팝업 — 3차(절연내력시험) NG 유닛 전용 ===== #}
+{% if not readonly %}
+<div class="modal-overlay" id="deepModal">
+  <div class="modal-box">
+    <h3>심화검사 추가 — <span id="deepModalUnit"></span>번</h3>
+    <p class="hint" style="margin:0 0 12px;">3차(절연내력시험) 항목이 NG인 유닛의 PD/충격 심화검사 결과를 기록해.</p>
+    <div class="modal-field">
+      <span>시험종류</span>
+      <div>
+        <label style="font-weight:400;"><input type="radio" name="deepTestType" value="PD" checked> PD</label>
+        <label style="font-weight:400;margin-left:14px;"><input type="radio" name="deepTestType" value="충격"> 충격</label>
+      </div>
+    </div>
+    <div class="modal-field">
+      <span>VI 상태</span>
+      <div>
+        <label style="font-weight:400;"><input type="radio" name="deepViState" value="open" checked> open</label>
+        <label style="font-weight:400;margin-left:14px;"><input type="radio" name="deepViState" value="close"> close</label>
+      </div>
+    </div>
+    <div class="modal-field">
+      <span>Chamber 단계</span>
+      <select id="deepChamberStage">
+        <option value="이전">이전</option>
+        <option value="이후">이후</option>
+        <option value="해당없음">해당없음</option>
+      </select>
+    </div>
+    <div class="modal-field"><span>예비인가전압 (U_pre-stress)</span><input type="text" id="deepUPre"></div>
+    <div class="modal-field"><span>측정전압 (U_pd)</span><input type="text" id="deepUPd"></div>
+    <div class="modal-field"><span>발생전압 (U_i)</span><input type="text" id="deepUI"></div>
+    <div class="modal-field"><span>소멸전압 (U_e)</span><input type="text" id="deepUE"></div>
+    <div class="modal-field">
+      <span>판정결과</span>
+      <div>
+        <label style="font-weight:400;"><input type="radio" name="deepResult" value="OK" checked> OK</label>
+        <label style="font-weight:400;margin-left:14px;"><input type="radio" name="deepResult" value="NG"> NG</label>
+      </div>
+    </div>
+    <div class="modal-field"><span>비고</span><input type="text" id="deepRemark"></div>
+    <div class="toolbar" style="justify-content:flex-end;">
+      <button type="button" class="btn secondary" onclick="closeDeepModal()">취소</button>
+      <button type="button" class="btn-apply" onclick="submitDeepInspect()">저장</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
+const INSPECTION_ID = {{ header.id }};
 const SAVE_URL = {{ url_for('full_inspect_save', inspection_id=header.id) | tojson }};
 const COMP_URL = {{ url_for('full_inspect_complete', inspection_id=header.id) | tojson }};
+/* 2026-09-26: fetch()에 CSRF 토큰 헤더가 빠져 있으면 서버가 항상 400(csrf_failed)로
+   막는다 — 실제로 확인한 기존 버그(cd8491a CSRF 도입 이후 자동저장 fetch가 전부
+   이 문제였을 가능성), 이 화면 자동저장 회귀 수정과 함께 고침. */
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+function ymShort(monthVal) {
+  const parts = (monthVal || '').split('-');
+  if (parts.length !== 2) return '';
+  return parts[0].slice(2) + parts[1];
+}
 
 function serialFor(unit) {
-  const pre = document.querySelector(`.sn-part[data-unit="${unit}"][data-part="pre"]`)?.value.trim() || '';
-  const mid = document.querySelector(`.sn-part[data-unit="${unit}"][data-part="mid"]`)?.value.trim() || '';
-  const suf = document.querySelector(`.sn-part[data-unit="${unit}"][data-part="suf"]`)?.value.trim() || '';
-  return [pre, mid, suf].filter(x => x).join(' ');
+  const prefix = document.querySelector(`.sn-prefix[data-unit="${unit}"]`)?.value || '';
+  const ymS = ymShort(document.querySelector(`.sn-ym[data-unit="${unit}"]`)?.value || '');
+  let sec1 = '';
+  if (prefix && ymS) sec1 = prefix + '-' + ymS;
+  else if (prefix) sec1 = prefix;
+  else if (ymS) sec1 = ymS;
+  const mid = document.querySelector(`.sn-mid[data-unit="${unit}"]`)?.value.trim() || '';
+  const suf = document.querySelector(`.sn-suf[data-unit="${unit}"]`)?.value.trim() || '';
+  return [sec1, mid, suf].filter(x => x).join(' ');
 }
 
 function pairFor(unit, key) {
@@ -304,37 +519,6 @@ function pairFor(unit, key) {
   const rod = document.querySelector(`.c-pair[data-unit="${unit}"][data-key="${key}"][data-side="rod"]`)?.value.trim() || '';
   if (!ct && !rod) return '';
   return ct + '/' + rod;
-}
-
-function collectRows() {
-  const map = {};
-  document.querySelectorAll('#fi-table tbody tr').forEach(tr => {
-    const u = +tr.dataset.unit;
-    map[u] = {unit_no: u, serial_no: serialFor(u), values: {}, remark: '', gauge_name: ''};
-  });
-  document.querySelectorAll('.c-gauge').forEach(inp => {
-    const u = +inp.dataset.unit;
-    if (map[u]) map[u].gauge_name = inp.value;
-  });
-  document.querySelectorAll('.c-remark').forEach(inp => {
-    const u = +inp.dataset.unit;
-    if (map[u]) map[u].remark = inp.value;
-  });
-  document.querySelectorAll('.c-val').forEach(inp => {
-    const u = +inp.dataset.unit;
-    if (map[u]) map[u].values[inp.dataset.key] = inp.value;
-  });
-  /* num_pair는 한 셀에 두 input — 유닛+키별로 한 번만 합쳐 저장 */
-  const seenPair = new Set();
-  document.querySelectorAll('.c-pair').forEach(inp => {
-    const u = +inp.dataset.unit;
-    const k = inp.dataset.key;
-    const tag = u + '|' + k;
-    if (seenPair.has(tag)) return;
-    seenPair.add(tag);
-    if (map[u]) map[u].values[k] = pairFor(u, k);
-  });
-  return Object.values(map).sort((a, b) => a.unit_no - b.unit_no);
 }
 
 function calcResult(unit) {
@@ -378,6 +562,35 @@ function updateRowResult(unit) {
   cell.textContent = res || '—';
   cell.className = res === 'OK' ? 'res-ok' : res === 'NG' ? 'res-ng' : 'res-nil';
   updateSummary();
+  updateDeepButton(unit);
+}
+
+/* 3차(절연내력시험) 항목(충격파내전압/부분방전PD/내전압)만 따로 NG 여부 판단 —
+   "⚠ 심화검사 추가" 버튼을 그 유닛에만 보여주는 조건(2026-09-26 4단계 신규). */
+function calcStage3Ng(unit) {
+  const inputs = document.querySelectorAll(`.c-val[data-unit="${unit}"][data-stage="3"]`);
+  for (const inp of inputs) {
+    const v = inp.value.trim();
+    if (!v) continue;
+    const t = inp.dataset.type;
+    if (t === 'pf') {
+      if (['ng', 'x', '×', '△', '불합격', 'fail'].includes(v.toLowerCase())) return true;
+    } else if (t === 'num') {
+      const n = parseFloat(v.replace(/,/g, ''));
+      if (!isNaN(n)) {
+        const lo = inp.dataset.lo, hi = inp.dataset.hi;
+        if (lo !== '' && n < parseFloat(lo)) return true;
+        if (hi !== '' && n > parseFloat(hi)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function updateDeepButton(unit) {
+  const btn = document.getElementById('deep-add-' + unit);
+  if (!btn) return;
+  btn.style.display = calcStage3Ng(unit) ? 'inline-block' : 'none';
 }
 
 function updateSummary() {
@@ -390,7 +603,10 @@ function updateSummary() {
   document.getElementById('ng-cnt').textContent = ng;
 }
 
-let _dirty = false, _timer = null;
+/* 2026-09-26: 서버가 {"cells":[{unit_no,key,value},...]} 계약으로 바뀌어서
+   "바뀐 칸만" 모아뒀다가 배치로 보낸다(전체 units 스냅샷 delete+reinsert 시절의
+   동시편집 레이스컨디션 버그를 다시 부르지 않기 위함 — PROGRESS.md 2026-09-25/26 참고). */
+let dirtyCells = {}, _timer = null;
 
 function setState(msg) {
   ['save-state', 'save-state2'].forEach(id => {
@@ -399,22 +615,27 @@ function setState(msg) {
   });
 }
 
+function markDirty(unit, key, value) {
+  dirtyCells[unit + '|' + key] = {unit_no: unit, key: key, value: value};
+  scheduleSave();
+}
+
+function cellsSnapshot() {
+  return Object.keys(dirtyCells).map(k => dirtyCells[k]);
+}
+
 async function doSave() {
-  const rows = collectRows();
-  const units = rows.map(r => {
-    const flat = {unit_no: r.unit_no, serial_no: r.serial_no, remark: r.remark, gauge_name: r.gauge_name};
-    Object.assign(flat, r.values);
-    return flat;
-  });
+  const keys = Object.keys(dirtyCells);
+  const cells = keys.map(k => dirtyCells[k]);
   const payload = {
     inspect_date: document.getElementById('inspect-date')?.value || '',
-    units: units,
+    cells: cells,
   };
   setState('저장 중…');
   try {
     const resp = await fetch(SAVE_URL, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
       body: JSON.stringify(payload),
     });
     const ct = resp.headers.get('content-type') || '';
@@ -424,7 +645,7 @@ async function doSave() {
     }
     const j = await resp.json();
     if (j.ok) {
-      _dirty = false;
+      keys.forEach(k => delete dirtyCells[k]);
       setState('✓ 저장됨  합격 ' + j.ok_cnt + '개 / 불합격 ' + j.ng_cnt + '개');
       return true;
     }
@@ -437,7 +658,6 @@ async function doSave() {
 }
 
 function scheduleSave() {
-  _dirty = true;
   clearTimeout(_timer);
   _timer = setTimeout(doSave, 800);
 }
@@ -459,24 +679,123 @@ async function doComplete() {
   form.submit();
 }
 
-/* 배치·모델 접두/접미 일괄 적용 */
-function applySerialToAll() {
-  const pre = document.getElementById('sn-prefix').value.trim();
-  const suf = document.getElementById('sn-suffix').value.trim();
-  document.querySelectorAll('.sn-part[data-part="pre"]').forEach(inp => {
-    if (pre) inp.value = pre;
-  });
-  document.querySelectorAll('.sn-part[data-part="suf"]').forEach(inp => {
-    if (suf) inp.value = suf;
-  });
-  scheduleSave();
+/* 심화검사(PD/충격) 추가 팝업 — 3차 NG 유닛에만 버튼이 뜬다(updateDeepButton) */
+let deepUnit = null;
+function openDeepModal(unit) {
+  deepUnit = unit;
+  document.getElementById('deepModalUnit').textContent = unit;
+  document.getElementById('deepUPre').value = '';
+  document.getElementById('deepUPd').value = '';
+  document.getElementById('deepUI').value = '';
+  document.getElementById('deepUE').value = '';
+  document.getElementById('deepRemark').value = '';
+  document.querySelector('input[name="deepTestType"][value="PD"]').checked = true;
+  document.querySelector('input[name="deepViState"][value="open"]').checked = true;
+  document.getElementById('deepChamberStage').value = '이전';
+  document.querySelector('input[name="deepResult"][value="OK"]').checked = true;
+  document.getElementById('deepModal').classList.add('open');
 }
+function closeDeepModal() {
+  document.getElementById('deepModal').classList.remove('open');
+  deepUnit = null;
+}
+async function submitDeepInspect() {
+  if (!deepUnit) return;
+  // 서버가 full_inspection_units.id를 찾으려면 이 유닛이 먼저 저장돼 있어야 함
+  const saved = await doSave();
+  if (!saved) { alert('먼저 측정값 저장에 실패했어. 잠시 후 다시 시도해줘.'); return; }
+  const payload = {
+    test_type: document.querySelector('input[name="deepTestType"]:checked').value,
+    vi_state: document.querySelector('input[name="deepViState"]:checked').value,
+    chamber_stage: document.getElementById('deepChamberStage').value,
+    u_pre: document.getElementById('deepUPre').value,
+    u_pd: document.getElementById('deepUPd').value,
+    u_i: document.getElementById('deepUI').value,
+    u_e: document.getElementById('deepUE').value,
+    result: document.querySelector('input[name="deepResult"]:checked').value,
+    remark: document.getElementById('deepRemark').value,
+  };
+  try {
+    const resp = await fetch(`/inspection/${INSPECTION_ID}/full-inspect/unit/${deepUnit}/deep-inspect`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+      body: JSON.stringify(payload),
+    });
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('json')) { alert('세션이 만료됐어. 새 탭에서 다시 로그인해줘.'); return; }
+    const j = await resp.json();
+    if (!j.ok) { alert('저장 실패: ' + (j.error || '알 수 없음')); return; }
+    const badge = document.getElementById('deep-badge-' + deepUnit);
+    if (badge) {
+      badge.textContent = '🔬 심화검사 ' + j.count + '건';
+      badge.style.display = 'inline-block';
+    }
+    closeDeepModal();
+  } catch (e) {
+    alert('서버 오류가 발생했어.');
+  }
+}
+
+/* 1차/2차/3차 탭 전환 — 순수 JS(페이지 이동 없음), 순번/제품번호 열은 항상 보임 */
+function switchStage(stage) {
+  document.getElementById('fiWrap').dataset.activeStage = String(stage);
+  document.querySelectorAll('.stage-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.stage) === stage);
+  });
+}
+
+/* 생산년월/접미사 일괄적용 팝업 */
+function openSnBatchModal() {
+  document.getElementById('batchPrefix').value = '';
+  document.getElementById('batchYm').value = '';
+  document.getElementById('batchSuffix').value = '';
+  document.getElementById('snBatchModal').classList.add('open');
+}
+function closeSnBatchModal() {
+  document.getElementById('snBatchModal').classList.remove('open');
+}
+function applySnBatch() {
+  const selected = Array.from(document.querySelectorAll('.unit-select:checked')).map(cb => +cb.dataset.unit);
+  if (selected.length === 0) { alert('먼저 적용할 행을 선택해줘(체크박스 드래그로 여러 개 선택 가능).'); return; }
+  const prefix = document.getElementById('batchPrefix').value;
+  const ym = document.getElementById('batchYm').value;
+  const suffix = document.getElementById('batchSuffix').value.trim();
+  if (!prefix && !ym && !suffix) { alert('적용할 값을 하나 이상 입력해줘.'); return; }
+  selected.forEach(u => {
+    if (prefix) {
+      const el = document.querySelector(`.sn-prefix[data-unit="${u}"]`);
+      if (el) el.value = prefix;
+    }
+    if (ym) {
+      const el = document.querySelector(`.sn-ym[data-unit="${u}"]`);
+      if (el) el.value = ym;
+    }
+    if (suffix) {
+      const el = document.querySelector(`.sn-suf[data-unit="${u}"]`);
+      if (el) el.value = suffix;
+    }
+    markDirty(u, 'serial_no', serialFor(u));
+  });
+  closeSnBatchModal();
+}
+
+/* 행 선택 체크박스 드래그 다중선택 (spec_quick_add.html의 renderPrevMaterialList와 동일 패턴) */
+(function setupDragSelect() {
+  let dragging = false, dragValue = null;
+  document.querySelectorAll('.unit-select').forEach(cb => {
+    cb.addEventListener('mousedown', () => { dragging = true; dragValue = !cb.checked; cb.checked = dragValue; });
+    cb.addEventListener('mouseenter', () => { if (dragging) cb.checked = dragValue; });
+    cb.addEventListener('touchstart', () => { dragging = true; dragValue = !cb.checked; cb.checked = dragValue; });
+  });
+  document.addEventListener('mouseup', () => { dragging = false; });
+  document.addEventListener('touchend', () => { dragging = false; });
+})();
 
 /* 이벤트 */
 document.querySelectorAll('.c-val, .c-pair').forEach(inp => {
   inp.addEventListener('input', () => {
     updateRowResult(+inp.dataset.unit);
-    scheduleSave();
+    markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
   });
   if (inp.dataset.type === 'pf') {
     inp.addEventListener('change', () => {
@@ -485,12 +804,19 @@ document.querySelectorAll('.c-val, .c-pair').forEach(inp => {
       const v = inp.value.trim();
       if (map[v] !== undefined) inp.value = map[v];
       updateRowResult(+inp.dataset.unit);
-      scheduleSave();
+      markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
     });
   }
 });
-document.querySelectorAll('.sn-part, .c-remark').forEach(inp => {
-  inp.addEventListener('input', scheduleSave);
+document.querySelectorAll('.sn-prefix, .sn-ym, .sn-mid, .sn-suf').forEach(inp => {
+  const ev = (inp.tagName === 'SELECT' || inp.type === 'month') ? 'change' : 'input';
+  inp.addEventListener(ev, () => markDirty(+inp.dataset.unit, 'serial_no', serialFor(+inp.dataset.unit)));
+});
+document.querySelectorAll('.c-gauge').forEach(inp => {
+  inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'gauge_name', inp.value));
+});
+document.querySelectorAll('.c-remark').forEach(inp => {
+  inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'remark', inp.value));
 });
 const dateInp = document.getElementById('inspect-date');
 if (dateInp) dateInp.addEventListener('change', scheduleSave);
@@ -527,9 +853,7 @@ document.querySelectorAll('.cell-input').forEach(inp => {
     } else if (e.key === 'ArrowUp') {
       handled = focusCell(r - 1, c, side);
     } else if (e.key === 'ArrowLeft') {
-      // 커서가 맨 앞일 때만 왼쪽 셀로
       if (inp.selectionStart === 0 && inp.selectionEnd === 0) {
-        // pair 내부에서 rod→ct 우선
         if (side === 'rod') {
           const ct = document.querySelector(
             `.c-pair[data-row="${r}"][data-col="${c}"][data-side="ct"]`);
@@ -549,7 +873,6 @@ document.querySelectorAll('.cell-input').forEach(inp => {
         }
       }
     } else if (e.key === 'Tab' && !e.shiftKey) {
-      // 기본 Tab이 pair 내부를 잘 처리하지만, ct → rod → 다음 셀 흐름이라 그대로 둠
       return;
     }
     if (handled) e.preventDefault();
@@ -563,16 +886,11 @@ document.querySelectorAll('#fi-table tbody tr').forEach(tr => {
 
 /* 페이지 이탈 시 마지막 상태 강제 저장 */
 window.addEventListener('beforeunload', () => {
-  if (!_dirty) return;
-  const rows = collectRows();
-  const units = rows.map(r => {
-    const flat = {unit_no: r.unit_no, serial_no: r.serial_no, remark: r.remark};
-    Object.assign(flat, r.values);
-    return flat;
-  });
+  const cells = cellsSnapshot();
+  if (cells.length === 0) return;
   const payload = JSON.stringify({
     inspect_date: document.getElementById('inspect-date')?.value || '',
-    units: units,
+    cells: cells,
   });
   try {
     const data = new FormData();

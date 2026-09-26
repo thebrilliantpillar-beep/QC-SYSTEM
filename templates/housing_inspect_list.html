@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}하우징 검사입력{% endblock %}
+{% block content %}
+<style>
+  .h-table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px;
+             box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13px; overflow:hidden; }
+  .h-table th { background:#ECEEF2; color:#4b5563; padding:9px 8px; text-align:center;
+                border-bottom:1px solid #DDE0E6; }
+  .h-table td { border-bottom:1px solid #f0f0f0; padding:9px 8px; text-align:center; vertical-align:middle; }
+  .h-table tr:last-child td { border-bottom:none; }
+  .h-table tr.clickable:hover td { background:#f0f5ff; cursor:pointer; }
+  .h-group-row td { background:#F9F9F8; color:#2B3140; font-weight:700; text-align:left;
+                     padding:7px 10px; border-bottom:1px solid #DDE0E6; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+  <div>
+    <h2 style="margin:0;">🏠 하우징 검사입력</h2>
+    <p class="muted" style="margin:4px 0 0;">전수검사가 아직 끝나지 않은 하우징 성적서 목록이야. 행을 클릭하면 검사입력 화면으로 이동해.</p>
+  </div>
+</div>
+
+<div class="card" style="padding:14px 18px; margin-bottom:12px;">
+  <form method="get" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+    <div>
+      <label style="display:block; font-size:12px; color:#6b7280; margin-bottom:3px;">전압분류</label>
+      <select name="voltage" onchange="this.form.submit()" style="padding:7px 8px; font-size:13px;">
+        <option value="">전체</option>
+        {% for v in voltages %}
+        <option value="{{ v }}" {% if voltage_filter == v %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+</div>
+
+<div style="margin-bottom:8px; color:#4b5563; font-size:13px;"><b>{{ rows|length }}건</b> 조회됨</div>
+
+{% if not rows %}
+<div class="card"><p class="muted" style="margin:0;">조건에 맞는 하우징 검사대기 건이 없어.</p></div>
+{% else %}
+<div style="overflow-x:auto;">
+<table class="h-table">
+  <thead>
+    <tr>
+      <th>전압분류</th>
+      <th>입고일</th>
+      <th>자재명</th>
+      <th>로트번호</th>
+      <th>업체</th>
+      <th>입고수량</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% set ns = namespace(prev=None) %}
+    {% for r in rows %}
+    {% if r.voltage != ns.prev %}
+    <tr class="h-group-row"><td colspan="6">{{ r.voltage }}</td></tr>
+    {% set ns.prev = r.voltage %}
+    {% endif %}
+    <tr class="clickable" onclick="location.href='{{ url_for('full_inspect_form', inspection_id=r.id) }}'">
+      <td><span class="badge muted">{{ r.voltage }}</span></td>
+      <td>{{ r.receive_date_label }}</td>
+      <td style="text-align:left;">{{ r.material_name }}</td>
+      <td style="white-space:pre-line;">{{ r.po_number }}</td>
+      <td>{{ r.supplier }}</td>
+      <td>{{ '{:,}'.format(r.quantity) if r.quantity else '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

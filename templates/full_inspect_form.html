@@ -188,27 +188,10 @@
 <script>
 const SAVE_URL = {{ url_for('full_inspect_save', inspection_id=header.id) | tojson }};
 const COMP_URL = {{ url_for('full_inspect_complete', inspection_id=header.id) | tojson }};
-
-function collectRows() {
-  const map = {};
-  document.querySelectorAll('#fi-table tbody tr').forEach(tr => {
-    const u = +tr.dataset.unit;
-    map[u] = {unit_no: u, serial_no: '', values: {}, remark: ''};
-  });
-  document.querySelectorAll('.c-serial').forEach(inp => {
-    const u = +inp.dataset.unit;
-    if (map[u]) map[u].serial_no = inp.value;
-  });
-  document.querySelectorAll('.c-remark').forEach(inp => {
-    const u = +inp.dataset.unit;
-    if (map[u]) map[u].remark = inp.value;
-  });
-  document.querySelectorAll('.c-val').forEach(inp => {
-    const u = +inp.dataset.unit;
-    if (map[u]) map[u].values[inp.dataset.key] = inp.value;
-  });
-  return Object.values(map).sort((a, b) => a.unit_no - b.unit_no);
-}
+/* 2026-09-26: fetch()에 CSRF 토큰 헤더가 빠져 있으면 서버가 항상 400(csrf_failed)로
+   막는다 — 실제로 확인한 기존 버그(cd8491a CSRF 도입 이후 자동저장 fetch가 전부
+   이 문제였을 가능성), 이 화면 자동저장 회귀 수정과 함께 고침. */
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
 function calcResult(unit) {
   const inputs = document.querySelectorAll(`.c-val[data-unit="${unit}"]`);
@@ -252,7 +235,11 @@ function updateSummary() {
   document.getElementById('ng-cnt').textContent = ng;
 }
 
-let _dirty = false, _timer = null;
+/* 2026-09-26: 서버가 {"cells":[{unit_no,key,value},...]} 계약으로 바뀌어서
+   "바뀐 칸만" 모아뒀다가 배치로 보낸다 — 전체 units 스냅샷을 매번 통째로 보내면
+   서버의 delete+reinsert 시절 레이스컨디션 버그를 다시 부를 수 있다(PROGRESS.md
+   2026-09-25/26 항목 참고). key는 spec item_name 또는 'serial_no'/'remark'. */
+let dirtyCells = {}, _timer = null;
 
 function setState(msg) {
   ['save-state', 'save-state2'].forEach(id => {
@@ -261,23 +248,23 @@ function setState(msg) {
   });
 }
 
+function markDirty(unit, key, value) {
+  dirtyCells[unit + '|' + key] = {unit_no: unit, key: key, value: value};
+  scheduleSave();
+}
+
 async function doSave() {
-  const rows = collectRows();
-  /* 서버 save 라우트는 values를 flat하게 col_keys로 꺼냄 */
-  const units = rows.map(r => {
-    const flat = {unit_no: r.unit_no, serial_no: r.serial_no, remark: r.remark};
-    Object.assign(flat, r.values);
-    return flat;
-  });
+  const keys = Object.keys(dirtyCells);
+  const cells = keys.map(k => dirtyCells[k]);
   const payload = {
     inspect_date: document.getElementById('inspect-date')?.value || '',
-    units: units,
+    cells: cells,
   };
   setState('저장 중…');
   try {
     const resp = await fetch(SAVE_URL, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
       body: JSON.stringify(payload),
     });
     const ct = resp.headers.get('content-type') || '';
@@ -287,7 +274,7 @@ async function doSave() {
     }
     const j = await resp.json();
     if (j.ok) {
-      _dirty = false;
+      keys.forEach(k => delete dirtyCells[k]);
       setState('✓ 저장됨  합격 ' + j.ok_cnt + '개 / 불합격 ' + j.ng_cnt + '개');
       return true;
     }
@@ -300,7 +287,6 @@ async function doSave() {
 }
 
 function scheduleSave() {
-  _dirty = true;
   clearTimeout(_timer);
   _timer = setTimeout(doSave, 1000);
 }
@@ -326,7 +312,7 @@ async function doComplete() {
 document.querySelectorAll('.c-val').forEach(inp => {
   inp.addEventListener('input', () => {
     updateRowResult(+inp.dataset.unit);
-    scheduleSave();
+    markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
   });
   if (inp.dataset.type === 'pf') {
     inp.addEventListener('change', () => {
@@ -335,12 +321,15 @@ document.querySelectorAll('.c-val').forEach(inp => {
       const v = inp.value.trim();
       if (map[v] !== undefined) inp.value = map[v];
       updateRowResult(+inp.dataset.unit);
-      scheduleSave();
+      markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
     });
   }
 });
-document.querySelectorAll('.c-serial,.c-remark').forEach(inp => {
-  inp.addEventListener('input', scheduleSave);
+document.querySelectorAll('.c-serial').forEach(inp => {
+  inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'serial_no', inp.value));
+});
+document.querySelectorAll('.c-remark').forEach(inp => {
+  inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'remark', inp.value));
 });
 const dateInp = document.getElementById('inspect-date');
 if (dateInp) dateInp.addEventListener('change', scheduleSave);

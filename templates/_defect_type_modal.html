@@ -45,6 +45,7 @@
   var ADD_URL    = "{{ url_for('defect_types_add') }}";
   var RENAME_URL = "{{ url_for('defect_types_rename') }}";
   var DELETE_URL = "{{ url_for('defect_types_delete') }}";
+  var CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
   var select   = document.getElementById('defectTypeSelect');
   var overlay  = document.getElementById('dtmOverlay');
   var listBox  = document.getElementById('dtmList');
@@ -136,7 +137,7 @@
     fetch(ADD_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'name=' + encodeURIComponent(name),
+      body: 'name=' + encodeURIComponent(name) + '&csrf_token=' + encodeURIComponent(CSRF_TOKEN),
     }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
       .then(function(res){
         if (!res.ok || !res.d.ok) { showMsg((res.d && res.d.error) || '추가하지 못했어.', false); return; }
@@ -155,7 +156,7 @@
     fetch(RENAME_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'old_name=' + encodeURIComponent(oldName) + '&new_name=' + encodeURIComponent(newName),
+      body: 'old_name=' + encodeURIComponent(oldName) + '&new_name=' + encodeURIComponent(newName) + '&csrf_token=' + encodeURIComponent(CSRF_TOKEN),
     }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
       .then(function(res){
         if (!res.ok || !res.d.ok) { showMsg((res.d && res.d.error) || '변경하지 못했어.', false); return; }
@@ -171,7 +172,7 @@
     fetch(DELETE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'name=' + encodeURIComponent(name),
+      body: 'name=' + encodeURIComponent(name) + '&csrf_token=' + encodeURIComponent(CSRF_TOKEN),
     }).then(function(r){ return r.json(); })
       .then(function(d){
         if (!d.ok) { showMsg((d && d.error) || '삭제하지 못했어.', false); return; }

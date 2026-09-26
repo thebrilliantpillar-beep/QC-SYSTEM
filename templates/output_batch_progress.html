@@ -132,6 +132,7 @@
       fd.append('incl_drawing',  '{{ "1" if incl_drawing else "0" }}');
       fd.append('incl_standard', '{{ "1" if incl_standard else "0" }}');
       fd.append('incl_report',   '{{ "1" if incl_report else "0" }}');
+      fd.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
       var resp = await fetch('{{ url_for("output_generate_single") }}', { method: 'POST', body: fd });
       var data = await resp.json();
       results.push(data);

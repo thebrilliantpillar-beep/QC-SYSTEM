@@ -3636,6 +3636,8 @@ def inspection_remark(inspection_id):
     return_to = request.form.get("return_to", "")
     if return_to == "approve":
         return redirect(url_for("approve_view", inspection_id=inspection_id))
+    if return_to == "housing_approve":
+        return redirect(url_for("housing_approve_detail", inspection_id=inspection_id))
     return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
 
@@ -4153,8 +4155,16 @@ def approve(inspection_id):
     approver = g.user["display_name"] or g.user["username"]
     reject_reason = request.form.get("reject_reason", "").strip()
     from_approve = request.form.get("from_approve") == "1"
+    return_to = request.form.get("return_to", "")
 
     def _back(on_error=False):
+        # 하우징 승인상세(_approve_decision_block.html)는 성공/실패 모두 하우징 승인
+        # 화면으로 돌아간다 — 일반 승인(approve_form.html)은 이 hidden 필드가 없어서
+        # 아래 from_approve 분기(기존 동작) 그대로 유지된다(2026-09-26 신설).
+        if return_to == "housing_approve":
+            if on_error:
+                return redirect(url_for("housing_approve_detail", inspection_id=inspection_id))
+            return redirect(url_for("housing_approve_list"))
         if from_approve and on_error:
             return redirect(url_for("approve_view", inspection_id=inspection_id))
         if from_approve:
@@ -4664,17 +4674,14 @@ def approve_revoke(inspection_id):
     return redirect(url_for("approve_list"))
 
 
-@app.route("/approve/<int:inspection_id>")
-@perm_required("approve")
-def approve_view(inspection_id):
-    """항목·측정값·검사방법이 모두 보이는 승인 전용 화면."""
+def _approve_decision_context(inspection_id):
+    """승인 화면이 공유하는 계산 — 항목별 문제/미측정/합격 분류, 측정시간, AQL 그룹,
+    계측기 경고. approve_view()(일반 승인)와 housing_approve_detail()(하우징 승인)이
+    함께 쓴다(2026-09-26 신설, CLAUDE.md 8-1절 — 중복 대신 공용 헬퍼로).
+    header가 없으면 None을 돌려준다(호출부가 존재 확인 후 부르는 걸 전제하지만 방어)."""
     header, items = db.get_inspection(inspection_id)
     if header is None:
-        flash("존재하지 않는 성적서야.")
-        return redirect(url_for("approve_list"))
-    if header["status"] != "pending":
-        flash("이미 처리된 성적서야.")
-        return redirect(url_for("approve_list"))
+        return None
 
     per_cycle_sec = header["actual_time_sec"] or 0
     per_cycle_label = format_duration(per_cycle_sec)
@@ -4739,23 +4746,37 @@ def approve_view(inspection_id):
     pass_items     = [it for it in all_items
                        if it["result"] not in NOT_READY_RESULTS and effective_result(it) != "불합격"]
 
-    problem_count = len(problem_items)
-    pending_count = len(pending_items)
-    pass_count    = len(pass_items)
-    return render_template("approve_form.html",
-                           header=header,
-                           problem_items=problem_items,
-                           pending_items=pending_items,
-                           pass_items=pass_items,
-                           all_items=all_items,
-                           problem_count=problem_count,
-                           pending_count=pending_count,
-                           pass_count=pass_count,
-                           per_cycle_label=per_cycle_label,
-                           total_time_label=total_time_label,
-                           aql_groups=aql_groups_a,
-                           specs_map=specs_map_a,
-                           gauge_alerts=gauge_alerts)
+    return {
+        "header": header,
+        "problem_items": problem_items,
+        "pending_items": pending_items,
+        "pass_items": pass_items,
+        "all_items": all_items,
+        "problem_count": len(problem_items),
+        "pending_count": len(pending_items),
+        "pass_count": len(pass_items),
+        "per_cycle_label": per_cycle_label,
+        "total_time_label": total_time_label,
+        "aql_groups": aql_groups_a,
+        "specs_map": specs_map_a,
+        "gauge_alerts": gauge_alerts,
+    }
+
+
+@app.route("/approve/<int:inspection_id>")
+@perm_required("approve")
+def approve_view(inspection_id):
+    """항목·측정값·검사방법이 모두 보이는 승인 전용 화면."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("approve_list"))
+    if header["status"] != "pending":
+        flash("이미 처리된 성적서야.")
+        return redirect(url_for("approve_list"))
+
+    ctx = _approve_decision_context(inspection_id)
+    return render_template("approve_form.html", **ctx)
 
 
 # ---------- 검사 이력 ----------
@@ -5146,6 +5167,74 @@ def _fi_columns_from_specs(material_no):
     return cols
 
 
+def _housing_columns_by_stage(material_no):
+    """하우징 전용 — specs.stage_group(1/2/3차)로 전수검사 컬럼을 차수별로 나눈다.
+    비하우징 자재(stage_group 전부 NULL)는 세 리스트 다 비어서 돌아온다 —
+    이 함수는 full_inspect_housing.html 경로에서만 호출한다(_fi_columns_from_specs()
+    자체는 건드리지 않음, 그건 비하우징 자재가 그대로 쓴다)."""
+    specs = db.get_specs_by_material(material_no)
+    buckets = {1: [], 2: [], 3: []}
+    for sp in specs:
+        stage = sp["stage_group"]
+        if stage not in buckets:
+            continue
+        jtype = sp["judge_type"] if sp["judge_type"] else "ok_ng"
+        if jtype == "numeric":
+            t = "num"
+        elif jtype == "numeric_pair":
+            t = "num_pair"
+        else:
+            t = "pf"
+        buckets[stage].append({
+            "key": sp["item_name"],
+            "header": sp["spec_display"] or sp["item_name"],
+            "type": t,
+            "lo": sp["lower_limit"] if t in ("num", "num_pair") else None,
+            "hi": sp["upper_limit"] if t in ("num", "num_pair") else None,
+        })
+    # D패드(화살표 셀이동) 그리드용 col_idx를 1차->2차->3차 순서로 이어서 매긴다
+    # (S/N 5자리 칸=0, 고정접미사 칸=1부터 시작 — 화면 렌더링 쪽에서 이 뒤에 이어붙임).
+    idx = 2
+    for stage in (1, 2, 3):
+        for col in buckets[stage]:
+            col["col_idx"] = idx
+            idx += 1
+    return {"stage1_cols": buckets[1], "stage2_cols": buckets[2], "stage3_cols": buckets[3],
+            "total_cols": idx - 2}
+
+
+def _load_full_inspect_context(header):
+    """전수검사 화면(검사입력용 full_inspect_form / 하우징 승인상세)이 공유하는
+    데이터 준비. header는 db.get_inspection()이 돌려준 row. 전수검사 설정이 없으면
+    None (2026-09-26, 하우징 승인상세 신설과 함께 full_inspect_form()에서 추출 —
+    CLAUDE.md 8-1절)."""
+    config = db.get_full_inspect_config(header["material_no"])
+    if not config:
+        return None
+    columns = _fi_columns_from_specs(header["material_no"])
+    fi = db.get_or_create_full_inspection(header["id"])
+    units = db.list_full_inspection_units(header["id"])
+    qty = int(header["quantity"] or 0)
+    unit_map = {u["unit_no"]: u for u in units}
+    rows = []
+    for i in range(1, qty + 1):
+        rows.append(unit_map.get(i, {
+            "unit_no": i, "serial_no": "", "values": {}, "result": "", "remark": "", "gauge_name": ""}))
+    is_housing = config.get("template") == "housing"
+    stage_cols = _housing_columns_by_stage(header["material_no"]) if is_housing else None
+    # 1차(치수) 탭은 AQL 1.5 샘플수량만큼만 입력 가능 — 저장 로직(full_inspect_save)의
+    # 차수 완료판정과 반드시 같은 계산이어야 한다(sample_size(1.5, ...) 하나만 씀).
+    stage1_sample_qty = sample_size(1.5, qty) or qty if is_housing else None
+    # 심화검사(PD/충격) 저장 건수 — 유닛마다 배지로 보여줌(4단계 신규, 1회 쿼리로 전부 계산)
+    deep_counts = db.count_housing_deep_inspections_by_unit(fi["id"]) if is_housing else {}
+    return {
+        "header": dict(header), "fi": fi, "rows": rows, "columns": columns,
+        "config": config, "qty": qty, "stage_cols": stage_cols,
+        "stage1_sample_qty": stage1_sample_qty, "is_housing": is_housing,
+        "deep_counts": deep_counts,
+    }
+
+
 @app.route("/inspection/<int:inspection_id>/full-inspect", methods=["GET"])
 @perm_required("inspect_input")
 def full_inspect_form(inspection_id):
@@ -5153,30 +5242,62 @@ def full_inspect_form(inspection_id):
     if header is None:
         flash("존재하지 않는 성적서야.")
         return redirect(url_for("home"))
-    config = db.get_full_inspect_config(header["material_no"])
-    if not config:
+    ctx = _load_full_inspect_context(header)
+    if ctx is None:
         flash("이 자재는 전수검사 설정이 없어. 자재 상세에서 먼저 활성화해줘.")
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
-    columns = _fi_columns_from_specs(header["material_no"])
-    fi = db.get_or_create_full_inspection(inspection_id)
-    units = db.list_full_inspection_units(inspection_id)
-    qty = int(header["quantity"] or 0)
-    unit_map = {u["unit_no"]: u for u in units}
-    rows = []
-    for i in range(1, qty + 1):
-        rows.append(unit_map.get(i, {
-            "unit_no": i, "serial_no": "", "values": {}, "result": "", "remark": "", "gauge_name": ""}))
-    tmpl = "full_inspect_housing.html" if config.get("template") == "housing" \
-        else "full_inspect_form.html"
-    return render_template(tmpl,
-                           header=dict(header), fi=fi, rows=rows,
-                           columns=columns, config=config, qty=qty)
+    tmpl = "full_inspect_housing.html" if ctx["is_housing"] else "full_inspect_form.html"
+    return render_template(tmpl, **ctx)
+
+
+def _fi_auto_result(unit_vals, columns):
+    """병합된 유닛 전체 values(dict)를 기준으로 합격/불합격 재계산.
+    (특정 칸 하나만 보고 판정하면 안 됨 — 2026-09-26 칸단위 upsert 전환의 핵심 원칙)"""
+    has_any = any(str(v).strip() for v in unit_vals.values())
+    if not has_any:
+        return ""
+    for col in columns:
+        key = col["key"]
+        val = str(unit_vals.get(key, "")).strip()
+        if not val:
+            continue
+        if col["type"] == "pf":
+            if val.upper() in ("NG", "X", "×", "△", "불합격", "FAIL"):
+                return "NG"
+        elif col["type"] == "num":
+            try:
+                v = float(val.replace(",", ""))
+                if col.get("lo") is not None and v < float(col["lo"]):
+                    return "NG"
+                if col.get("hi") is not None and v > float(col["hi"]):
+                    return "NG"
+            except (ValueError, TypeError):
+                pass
+        elif col["type"] == "num_pair":
+            # "ct/rod" 또는 "ct/rod,..." — 두 채널 모두 범위 안이어야 OK
+            for part in val.replace(",", "/").split("/"):
+                p = part.strip()
+                if not p:
+                    continue
+                try:
+                    v = float(p)
+                    if col.get("lo") is not None and v < float(col["lo"]):
+                        return "NG"
+                    if col.get("hi") is not None and v > float(col["hi"]):
+                        return "NG"
+                except (ValueError, TypeError):
+                    pass
+    return "OK"
 
 
 @app.route("/inspection/<int:inspection_id>/full-inspect/save", methods=["POST"])
 @perm_required("inspect_input")
 def full_inspect_save(inspection_id):
-    """자동저장 + 수동저장 공용. JSON으로 units 배열을 받는다."""
+    """자동저장 + 수동저장 공용. JSON으로 {"cells": [{"unit_no":1,"key":"N","value":"12.3"}, ...]}
+    를 받는다 — "바뀐 칸만" 보내면 서버가 기존 값과 병합(upsert)한다. 2026-09-26 이전엔
+    화면 전체 units 배열을 delete+reinsert로 통째로 바꿔치기해서, 두 사람이 같은 성적서의
+    다른 열을 동시에 입력하면 한쪽이 저장한 값을 다른쪽 저장이 지워버리는 실제
+    레이스컨디션 버그가 있었다(CLAUDE.md/PROGRESS.md 2026-09-25 항목 참고)."""
     from flask import jsonify
     if g.user is None:
         return jsonify({"ok": False, "expired": True}), 401
@@ -5188,7 +5309,7 @@ def full_inspect_save(inspection_id):
         return jsonify({"ok": False, "error": "전수검사 설정 없음"}), 400
 
     columns = _fi_columns_from_specs(header["material_no"])
-    col_keys = [c["key"] for c in columns]
+    col_keys = {c["key"] for c in columns}
 
     # beforeunload sendBeacon은 FormData의 payload로 전송한다. 일반 자동저장은 JSON이다.
     beacon_payload = request.form.get("payload") if request.form else None
@@ -5201,62 +5322,84 @@ def full_inspect_save(inspection_id):
     else:
         payload = request.get_json(silent=True) or {}
     inspect_date = payload.get("inspect_date", "")
-    units_raw = payload.get("units", [])
+    cells = payload.get("cells", [])
+    if not isinstance(cells, list):
+        return jsonify({"ok": False, "error": "bad_json"}), 400
+    cells = [c for c in cells if isinstance(c, dict)]
 
-    def _auto_result(unit_vals):
-        has_any = any(str(v).strip() for v in unit_vals.values())
-        if not has_any:
-            return ""
-        for col in columns:
-            key = col["key"]
-            val = str(unit_vals.get(key, "")).strip()
-            if not val:
-                continue
-            if col["type"] == "pf":
-                if val.upper() in ("NG", "X", "×", "△", "불합격", "FAIL"):
-                    return "NG"
-            elif col["type"] == "num":
-                try:
-                    v = float(val.replace(",", ""))
-                    if col.get("lo") is not None and v < float(col["lo"]):
-                        return "NG"
-                    if col.get("hi") is not None and v > float(col["hi"]):
-                        return "NG"
-                except (ValueError, TypeError):
-                    pass
-            elif col["type"] == "num_pair":
-                # "ct/rod" 또는 "ct/rod,..." — 두 채널 모두 범위 안이어야 OK
-                for part in val.replace(",", "/").split("/"):
-                    p = part.strip()
-                    if not p:
-                        continue
-                    try:
-                        v = float(p)
-                        if col.get("lo") is not None and v < float(col["lo"]):
-                            return "NG"
-                        if col.get("hi") is not None and v > float(col["hi"]):
-                            return "NG"
-                    except (ValueError, TypeError):
-                        pass
-        return "OK"
+    fi = db.get_or_create_full_inspection(inspection_id)
+    if inspect_date:
+        db.update_full_inspection(inspection_id, inspect_date=inspect_date)
 
-    units_to_save = []
-    for u in units_raw:
-        vals = {k: str(u.get(k, "")).strip() for k in col_keys}
-        result = _auto_result(vals)
-        units_to_save.append({
-            "unit_no": int(u.get("unit_no", 0)),
-            "serial_no": str(u.get("serial_no", "")).strip(),
-            "values": vals,
-            "result": result,
-            "remark": str(u.get("remark", "")).strip(),
-        })
+    saved_units = db.upsert_full_inspection_cells(
+        inspection_id, cells,
+        compute_result=lambda vals: _fi_auto_result(vals, columns))
 
-    db.get_or_create_full_inspection(inspection_id)
-    db.update_full_inspection(inspection_id, inspect_date=inspect_date or None)
-    db.save_full_inspection_units(inspection_id, units_to_save)
-    ok_cnt = sum(1 for u in units_to_save if u["result"] == "OK")
-    ng_cnt = sum(1 for u in units_to_save if u["result"] == "NG")
+    editor_name = g.user["display_name"] or g.user["username"]
+    db.record_full_inspection_editor(fi["id"], g.user["id"], editor_name)
+
+    # 차수(1차/2차/3차) 시작·완료 시각 자동 기록.
+    is_housing = config.get("template") == "housing"
+    if is_housing:
+        # 하우징 — 저장된 칸이 실제로 몇 차 소속인지 specs.stage_group으로 판단.
+        # 1차(치수)는 AQL 샘플 수량만 채우면 되고, 2차/3차는 전수(quantity 전체)가 기준이다.
+        stage_cols = _housing_columns_by_stage(header["material_no"])
+        stage_key_map = {}
+        for stage_no in (1, 2, 3):
+            for c in stage_cols[f"stage{stage_no}_cols"]:
+                stage_key_map[c["key"]] = stage_no
+        touched_stages = {stage_key_map[c.get("key")] for c in cells if c.get("key") in stage_key_map}
+        if touched_stages:
+            qty = int(header["quantity"] or 0)
+            all_units = db.list_full_inspection_units(inspection_id)
+            stage_updates = {}
+            for stage_no in touched_stages:
+                started_key = f"stage{stage_no}_started_at"
+                completed_key = f"stage{stage_no}_completed_at"
+                if not fi.get(started_key):
+                    stage_updates[started_key] = _dt.now().isoformat(timespec="seconds")
+                if fi.get(completed_key):
+                    continue
+                keys_for_stage = {c["key"] for c in stage_cols[f"stage{stage_no}_cols"]}
+                if not keys_for_stage:
+                    continue
+                if stage_no == 1:
+                    required_qty = sample_size(1.5, qty) or qty
+                else:
+                    required_qty = qty
+                required_units = [u for u in all_units if u["unit_no"] <= required_qty]
+                if required_qty > 0 and len(required_units) >= required_qty:
+                    complete = all(
+                        all(str(u["values"].get(k, "")).strip() for k in keys_for_stage)
+                        for u in required_units
+                    )
+                    if complete:
+                        stage_updates[completed_key] = _dt.now().isoformat(timespec="seconds")
+            if stage_updates:
+                db.update_full_inspection_stage_times(inspection_id, **stage_updates)
+    else:
+        # 비하우징 자재 — spec에 컬럼별 차수 구분이 없으므로 기존 그대로 "전부 2차"로 취급
+        # (이 분기는 2026-09-26 이전부터의 동작을 그대로 유지, 회귀 방지).
+        touched_col = any(c.get("key") in col_keys for c in cells)
+        if touched_col:
+            stage_updates = {}
+            if not fi.get("stage2_started_at"):
+                stage_updates["stage2_started_at"] = _dt.now().isoformat(timespec="seconds")
+            if not fi.get("stage2_completed_at") and col_keys:
+                qty = int(header["quantity"] or 0)
+                all_units = db.list_full_inspection_units(inspection_id)
+                if qty > 0 and len(all_units) >= qty:
+                    complete = all(
+                        all(str(u["values"].get(k, "")).strip() for k in col_keys)
+                        for u in all_units
+                    )
+                    if complete:
+                        stage_updates["stage2_completed_at"] = _dt.now().isoformat(timespec="seconds")
+            if stage_updates:
+                db.update_full_inspection_stage_times(inspection_id, **stage_updates)
+
+    ok_cnt = sum(1 for u in saved_units if u["result"] == "OK")
+    ng_cnt = sum(1 for u in saved_units if u["result"] == "NG")
     return jsonify({"ok": True, "ok_cnt": ok_cnt, "ng_cnt": ng_cnt})
 
 
@@ -5312,6 +5455,312 @@ def full_inspect_pdf(inspection_id):
     fname = f"전수검사_{hd.get('material_no','')}_{hd.get('intake_date','')}.pdf"
     return send_file(tmp.name, as_attachment=False,
                      download_name=fname, mimetype="application/pdf")
+
+
+# ---------- 하우징 전용 화면 (2026-09-26 3단계, PROGRESS.md 2026-09-25/26 참고) ----------
+# 하우징 자재 판별은 db.get_full_inspect_config(material_no)['template']=='housing' 하나로
+# 통일한다(app.py 다른 곳에서 이미 쓰는 방식, 5-0/8-1절 원칙 — 새 판별 헬퍼 안 만듦).
+
+_HOUSING_VOLTAGE_RE = re.compile(r'^\s*(\d+)\s*KV', re.I)
+
+
+def _housing_voltage(material_name):
+    """자재명 앞의 'NNKV' 패턴에서 전압분류를 뽑는다 — 하드코딩 금지, 자재가 늘어도
+    이름 패턴만 맞으면 자동 분류된다."""
+    m = _HOUSING_VOLTAGE_RE.match(material_name or "")
+    return f"{m.group(1)}KV" if m else "기타"
+
+
+def _housing_all_voltages():
+    return sorted({_housing_voltage(name) for name in db.list_housing_materials().values()})
+
+
+@app.route("/housing/inspect")
+@perm_required("inspect_input")
+def housing_inspect_list():
+    """하우징 검사입력 목록 — 승인 대기 전(pending)이면서 전수검사가 아직 완료 안 된 건만."""
+    housing_map = db.list_housing_materials()
+    voltage_filter = request.args.get("voltage", "")
+    rows = []
+    if housing_map:
+        for r in db.list_inspections(status="pending"):
+            if r["material_no"] not in housing_map:
+                continue
+            fi = db.get_full_inspection(r["id"])
+            fi_status = fi["status"] if fi else "open"
+            if fi_status == "complete":
+                continue
+            v = _housing_voltage(r["material_name"])
+            if voltage_filter and v != voltage_filter:
+                continue
+            rows.append({
+                "id": r["id"], "material_no": r["material_no"], "material_name": r["material_name"] or "",
+                "voltage": v, "supplier": r["supplier"] or "", "po_number": r["po_number"] or "",
+                "receive_date": r["receive_date"] or "",
+                "receive_date_label": format_date_korean(r["receive_date"]) if r["receive_date"] else "",
+                "quantity": r["quantity"] or 0, "fi_status": fi_status,
+            })
+    rows.sort(key=lambda x: (x["voltage"], x["receive_date"]), reverse=False)
+    return render_template("housing_inspect_list.html", rows=rows,
+                           voltage_filter=voltage_filter, voltages=_housing_all_voltages())
+
+
+@app.route("/housing/approve")
+@perm_required("approve")
+def housing_approve_list():
+    """하우징 승인 목록 — 승인 대기(pending) 중인 하우징 성적서 전체."""
+    housing_map = db.list_housing_materials()
+    voltage_filter = request.args.get("voltage", "")
+    rows = []
+    if housing_map:
+        for r in db.list_inspections(status="pending"):
+            if r["material_no"] not in housing_map:
+                continue
+            v = _housing_voltage(r["material_name"])
+            if voltage_filter and v != voltage_filter:
+                continue
+            fi = db.get_full_inspection(r["id"])
+            editors = db.list_full_inspection_editor_names(r["id"])
+            rows.append({
+                "id": r["id"], "material_no": r["material_no"], "material_name": r["material_name"] or "",
+                "voltage": v, "supplier": r["supplier"] or "", "po_number": r["po_number"] or "",
+                "receive_date_label": format_date_korean(r["receive_date"]) if r["receive_date"] else "",
+                "quantity": r["quantity"] or 0,
+                "inspectors": ", ".join(editors) if editors else (r["inspector"] or ""),
+                "fi_status": fi["status"] if fi else "open",
+            })
+    rows.sort(key=lambda x: (x["voltage"], x["material_no"]))
+    return render_template("housing_approve_list.html", rows=rows,
+                           voltage_filter=voltage_filter, voltages=_housing_all_voltages())
+
+
+@app.route("/housing/approve/<int:inspection_id>")
+@perm_required("approve")
+def housing_approve_detail(inspection_id):
+    """하우징 승인 상세 — 1차/2차/3차 통합표(읽기전용) + 기존 승인 액션(서명·최종결정게이트).
+    full_inspect_housing.html을 readonly=True로 그대로 재사용한다(표 렌더링 로직 복붙 금지)."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("housing_approve_list"))
+    if header["status"] != "pending":
+        flash("이미 처리된 성적서야.")
+        return redirect(url_for("housing_approve_list"))
+    ctx = _load_full_inspect_context(header)
+    if ctx is None or not ctx["is_housing"]:
+        flash("하우징 전수검사 설정이 없는 자재야.")
+        return redirect(url_for("housing_approve_list"))
+    dctx = _approve_decision_context(inspection_id) or {"problem_count": 0, "pending_count": 0}
+    return render_template("full_inspect_housing.html", **ctx,
+                           readonly=True, show_approve_actions=True,
+                           back_url=url_for("housing_approve_list"),
+                           voltage=_housing_voltage(header["material_name"]),
+                           problem_count=dctx["problem_count"], pending_count=dctx["pending_count"])
+
+
+_HOUSING_DEEP_TEST_TYPES = ("PD", "충격")
+_HOUSING_DEEP_VI_STATES = ("open", "close")
+_HOUSING_DEEP_CHAMBER_STAGES = ("이전", "이후", "해당없음")
+
+
+@app.route("/inspection/<int:inspection_id>/full-inspect/unit/<int:unit_no>/deep-inspect", methods=["POST"])
+@perm_required("inspect_input")
+def housing_deep_inspect_save(inspection_id, unit_no):
+    """3차(절연내력시험) NG 유닛의 PD/충격 심화검사 1건 저장. 팝업 폼에서 fetch로 호출
+    (full_inspect_housing.html) — 유닛 행이 아직 한 번도 저장 안 됐으면(full_inspection_units
+    에 행이 없으면) 400으로 막는다(클라이언트가 먼저 doSave()로 저장을 보장하긴 하지만,
+    서버도 같은 전제를 다시 확인해야 함)."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        return jsonify({"ok": False, "error": "성적서 없음"}), 404
+    unit_id = db.get_full_inspection_unit_id(inspection_id, unit_no)
+    if unit_id is None:
+        return jsonify({"ok": False, "error": "먼저 측정값을 저장한 뒤 다시 시도해줘."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    test_type = (payload.get("test_type") or "").strip()
+    if test_type not in _HOUSING_DEEP_TEST_TYPES:
+        return jsonify({"ok": False, "error": "시험종류(PD/충격)를 선택해줘."}), 400
+    vi_state = (payload.get("vi_state") or "").strip()
+    if vi_state not in _HOUSING_DEEP_VI_STATES:
+        return jsonify({"ok": False, "error": "VI 상태(open/close)를 선택해줘."}), 400
+    chamber_stage = (payload.get("chamber_stage") or "").strip()
+    if chamber_stage not in _HOUSING_DEEP_CHAMBER_STAGES:
+        return jsonify({"ok": False, "error": "Chamber 단계를 선택해줘."}), 400
+    result = (payload.get("result") or "").strip()
+    if result not in ("OK", "NG"):
+        return jsonify({"ok": False, "error": "판정결과(OK/NG)를 선택해줘."}), 400
+    remark = str(payload.get("remark") or "").strip()
+    readings = {
+        "u_pre": str(payload.get("u_pre", "") or "").strip(),
+        "u_pd": str(payload.get("u_pd", "") or "").strip(),
+        "u_i": str(payload.get("u_i", "") or "").strip(),
+        "u_e": str(payload.get("u_e", "") or "").strip(),
+    }
+    created_by = g.user["display_name"] or g.user["username"]
+    db.add_housing_deep_inspection(unit_id, test_type, vi_state, chamber_stage,
+                                   readings, result, remark, created_by)
+
+    fi = db.get_or_create_full_inspection(inspection_id)
+    counts = db.count_housing_deep_inspections_by_unit(fi["id"])
+    return jsonify({"ok": True, "count": counts.get(unit_no, 0)})
+
+
+def _housing_stage_duration_label(fi, stage_no):
+    """차수(1/2/3차) 시작~완료 시각 사이 경과시간을 'N시간 N분 N초' 형식으로.
+    둘 중 하나라도 없으면(아직 진행 중) '-'."""
+    started = (fi or {}).get(f"stage{stage_no}_started_at")
+    completed = (fi or {}).get(f"stage{stage_no}_completed_at")
+    if not started or not completed:
+        return "-"
+    try:
+        delta = _dt.fromisoformat(completed) - _dt.fromisoformat(started)
+        return format_duration(delta.total_seconds())
+    except (ValueError, TypeError):
+        return "-"
+
+
+@app.route("/inspection/<int:inspection_id>/full-inspect/report-pdf")
+@perm_required("output")
+def housing_report_pdf(inspection_id):
+    """하우징 정식 PDF 성적서 출력 — 갑지/을지 35유닛 단위 분할(report_builder.build_housing_report).
+    기존 출력 메뉴(🖨️ 출력)와의 통합은 이번 스코프 밖 — 하우징 검사이력 화면에서 개별 버튼으로만 트리거."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("home"))
+    config = db.get_full_inspect_config(header["material_no"])
+    if not config or config.get("template") != "housing":
+        flash("하우징 전수검사 자재가 아니야.")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    stage_cols = _housing_columns_by_stage(header["material_no"])
+    columns = []
+    for stage_no in (1, 2, 3):
+        for c in stage_cols[f"stage{stage_no}_cols"]:
+            columns.append({**c, "stage": stage_no})
+
+    units = db.list_full_inspection_units(inspection_id)
+    editors = db.list_full_inspection_editor_names(inspection_id)
+    fi = db.get_full_inspection(inspection_id) or {}
+    stage_times = {f"stage{n}": _housing_stage_duration_label(fi, n) for n in (1, 2, 3)}
+
+    hd = dict(header)
+    rb_header = {
+        "vendor": hd.get("supplier"),
+        "po_no": hd.get("po_number"),
+        "inspect_date": hd.get("inspect_date"),
+        "quantity": hd.get("quantity"),
+    }
+    try:
+        xlsx_path, pdf_path, pdf_error = report_builder.build_housing_report(
+            hd["material_no"], hd.get("material_name") or "",
+            _housing_voltage(hd.get("material_name")),
+            rb_header, columns, units, stage_times, editors,
+            overall=hd.get("overall_result"), approval_type=hd.get("approval_type"),
+            approver=hd.get("approver"), signature_path=hd.get("signature_path"),
+        )
+    except Exception:
+        import traceback
+        flash(f"성적서 생성 중 오류:\n{traceback.format_exc(limit=3)}")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+
+    if pdf_error or not pdf_path:
+        flash(f"PDF 생성 실패: {pdf_error or '알 수 없는 오류'}")
+        return redirect(url_for("inspection_detail", inspection_id=inspection_id))
+    record_change("하우징 성적서 출력", "inspection", inspection_id, header["material_no"])
+    return send_file(pdf_path, as_attachment=True,
+                     download_name=os.path.basename(pdf_path), mimetype="application/pdf")
+
+
+def _housing_history_rows():
+    """하우징 검사이력 화면·엑셀 내보내기가 공유하는 필터·조회 로직(8-1절 원칙)."""
+    housing_map = db.list_housing_materials()
+    all_rows = [r for r in db.list_inspections() if r["material_no"] in housing_map]
+
+    start_s  = (request.args.get("start") or "").strip()
+    end_s    = (request.args.get("end") or "").strip()
+    serial_q = (request.args.get("serial") or "").strip()
+    suppliers = _multi_arg("supplier")
+    po_nums   = _multi_arg("po_number")
+
+    start_d = _parse_any_date(start_s) if start_s else None
+    end_d   = _parse_any_date(end_s) if end_s else None
+
+    all_suppliers = sorted({r["supplier"] for r in all_rows if r["supplier"]})
+    all_pos = sorted({r["po_number"] for r in all_rows if r["po_number"]}, reverse=True)
+
+    rows = []
+    for r in all_rows:
+        d = _parse_any_date(r["receive_date"])
+        if start_d and (not d or d < start_d): continue
+        if end_d   and (not d or d > end_d):   continue
+        if suppliers and (r["supplier"] or "") not in suppliers: continue
+        if po_nums   and (r["po_number"] or "") not in po_nums:  continue
+
+        units = db.list_full_inspection_units(r["id"])
+        serials = [u["serial_no"] for u in units if u["serial_no"]]
+        if serial_q and not any(serial_q.lower() in s.lower() for s in serials):
+            continue
+        serial_summary = ", ".join(serials[:3])
+        if len(serials) > 3:
+            serial_summary += f" 외 {len(serials) - 3}건"
+        label, cls = status_display(r)
+
+        rows.append({
+            "id": r["id"],
+            "status": r["status"],
+            "receive_date": r["receive_date"] or "",
+            "receive_date_label": format_date_korean(r["receive_date"]) if r["receive_date"] else "",
+            "serial_summary": serial_summary or "-",
+            "po_number": r["po_number"] or "",
+            "quantity": r["quantity"] or 0,
+            "supplier": r["supplier"] or "",
+            "voltage": _housing_voltage(r["material_name"]),
+            "material_name": r["material_name"] or "",
+            "material_no": r["material_no"] or "",
+            "status_label": label, "status_cls": cls,
+        })
+
+    # 심화검사 존재 여부 — 성적서마다 따로 쿼리하지 않게 한 번에 계산(CLAUDE.md 24절 패턴)
+    deep_ids = db.list_inspection_ids_with_deep_inspections([r["id"] for r in rows])
+    for r in rows:
+        r["has_deep"] = r["id"] in deep_ids
+
+    rows.sort(key=lambda x: (x["receive_date"], x["id"]), reverse=True)
+    filt = {
+        "start": start_s, "end": end_s, "serial": serial_q,
+        "suppliers": suppliers, "po_nums": po_nums,
+        "all_suppliers": all_suppliers, "all_pos": all_pos,
+    }
+    return rows, filt
+
+
+@app.route("/housing/history")
+@perm_required("inspect_history")
+def housing_history():
+    rows, filt = _housing_history_rows()
+    pager = _paginate(rows)
+    return render_template("housing_history.html", rows=pager["items"], filt=filt, pager=pager)
+
+
+@app.route("/housing/history/export.xlsx")
+@perm_required("inspect_history")
+def housing_history_export():
+    rows, _ = _housing_history_rows()
+    columns = [
+        ("입고일", "receive_date_label", 14),
+        ("제품번호", "serial_summary", 40),
+        ("로트번호", "po_number", 14),
+        ("입고수량", lambda r: f"{r['quantity']}개" if r["quantity"] else "", 10),
+        ("납품업체", "supplier", 14),
+        ("전압분류", "voltage", 10),
+        ("자재명", "material_name", 26),
+        ("상태", "status_label", 12),
+        ("심화검사", lambda r: "있음" if r["has_deep"] else "", 10),
+    ]
+    buf = report_builder.build_list_excel("하우징검사이력", columns, rows, title="하우징 검사이력 리스트")
+    return _send_list_excel(buf, "하우징검사이력")
 
 
 # ---------- 성적서 출력 (승인된 것 중 선택/전체) ----------

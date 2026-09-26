@@ -81,7 +81,7 @@
     serials.forEach((s, i) => { if (s) { nonEmptyIdx.push(i); nonEmptySerials.push(s); } });
     if (!nonEmptySerials.length) return;
     fetch('/outbound/classify-bulk', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content },
       body: JSON.stringify({ serials: nonEmptySerials })
     }).then(r => r.json()).then(data => {
       nonEmptyIdx.forEach((rowIdx, i) => {

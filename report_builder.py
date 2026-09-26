@@ -7,11 +7,12 @@ import os, re, shutil, subprocess, sys, tempfile, time
 from datetime import date
 import database as db
 import openpyxl
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, TwoCellAnchor, AnchorMarker
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import cm_to_EMU
+from openpyxl.utils import get_column_letter
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 
@@ -741,6 +742,280 @@ def _to_pdf(xlsx_path, out_dir):
     stdout_msg = (proc.stdout or b"").decode("utf-8", errors="ignore").strip()
     detail = stderr_msg or stdout_msg or f"returncode={proc.returncode}"
     return None, f"PDF 변환 실패: {detail}"
+
+
+# ---------- 하우징(15/27/38KV) 전용 정식 성적서 (2026-09-26 4단계) ----------
+# 기존 build_report()/build_group_report()는 1행=검사항목/열=측정값 구조라 template_form.xlsx를
+# 복사해서 채우는 방식인데, 하우징 성적서는 1행=제품유닛(순번)/열=검사항목으로 완전히
+# 뒤집혀 있고 항목 개수·전압분류마다 열 개수도 달라서(PROGRESS.md 2026-09-25/26 설계 확정)
+# 고정 템플릿 파일이 안 맞는다 — openpyxl로 워크북을 처음부터 구성한다.
+
+HOUSING_UNITS_PER_SHEET = 35  # 순번 35개마다 시트 분할: 1~35=갑지, 36~70=을지_1, ...
+_HOUSING_STAGE_LABELS = {1: "1차 치수검사", 2: "2차 기능검사", 3: "3차 절연내력시험"}
+_HOUSING_ITEM_COL_START = 3   # A=순번, B=제품번호(S/N), C부터 검사항목
+
+
+def _housing_col_defs(columns):
+    """columns(1차→2차→3차 순서로 이미 정렬된 리스트)를 시트에 실제로 그릴 물리 열
+    정의로 펼친다. num_pair(고저항 CT/ROD처럼 값 2개가 한 항목인 경우)는 물리 열 2개로
+    나뉜다. 반환 원소: {..원본 col 그대로.., "side": None/"ct"/"rod", "sub_label": None/"CT"/"ROD"}"""
+    physical = []
+    for c in columns:
+        if c.get("type") == "num_pair":
+            physical.append({**c, "side": "ct", "sub_label": "CT"})
+            physical.append({**c, "side": "rod", "sub_label": "ROD"})
+        else:
+            physical.append({**c, "side": None, "sub_label": None})
+    return physical
+
+
+def _housing_header_text(col):
+    """열 헤더 셀에 들어갈 텍스트 — 항목명 + (CT/ROD 구분) + 규격범위(단측/양측 모두 안전)."""
+    label = col.get("header") or col.get("key") or ""
+    if col.get("sub_label"):
+        label += f"\n({col['sub_label']})"
+    lo, hi = col.get("lo"), col.get("hi")
+    if col.get("type") in ("num", "num_pair"):
+        if lo is not None and hi is not None:
+            label += f"\n{lo}~{hi}"
+        elif lo is not None:
+            label += f"\n{lo} 이상"
+        elif hi is not None:
+            label += f"\n{hi} 이하"
+    elif col.get("type") == "pf":
+        label += "\n(○/×)"
+    return label
+
+
+def _housing_cell_value(col, unit_values):
+    """유닛의 values dict에서 이 물리 열이 표시할 (값, 규격이탈여부)를 뽑는다.
+    num_pair는 'ct/rod' 문자열에서 side에 맞는 쪽만 뽑는다."""
+    raw = (unit_values or {}).get(col["key"], "")
+    if col.get("side"):
+        parts = (raw or "").split("/")
+        idx = 0 if col["side"] == "ct" else 1
+        val = parts[idx].strip() if len(parts) > idx else ""
+    else:
+        val = (raw or "").strip()
+    if not val:
+        return None, False
+    if col.get("type") in ("num", "num_pair"):
+        try:
+            v = float(val.replace(",", ""))
+            return v, is_out_of_range(v, col.get("lo"), col.get("hi"))
+        except (TypeError, ValueError):
+            return val, False
+    return val, False
+
+
+def _fill_housing_sheet(ws, material_no, product_name, voltage, header, phys_cols, units,
+                        stage_times, editors, overall, approval_type,
+                        is_first_sheet, approver=None, signature_path=None):
+    """시트 하나(갑지 또는 을지_N)를 채운다. 을지는 상단 정보블록(업체/자재번호/소요시간 등)을
+    생략하고 표만 반복한다(정확히 원본과 안 맞아도 되나 일관되게, 4단계 설계 지시 참고)."""
+    verdict_col = _HOUSING_ITEM_COL_START + len(phys_cols)
+
+    # 로고(높이 1.1cm)가 약 3행(기본 행높이 15pt) 폭을 차지하므로, 1~3행은 텍스트 없이
+    # 로고 전용으로 비워두고 제목·정보는 4행부터 시작한다 — 안 그러면 로고 이미지가
+    # 제목 텍스트 위에 그대로 겹쳐 보인다(2026-09-26 실렌더링에서 실제로 겹침 확인).
+    _insert_logo(ws, height_cm=STD_LOGO_HEIGHT_CM)  # 좁은 열이 많은 표라 기준서용 축소 로고 재사용
+
+    title_font = Font(name="맑은 고딕", size=14, bold=True)
+    ws["A4"] = "샤든 그룹 입고 자재 검사 성적서" + ("" if is_first_sheet else " (계속)")
+    ws["A4"].font = title_font
+    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=min(4, max(verdict_col, 4)))
+
+    info_font = Font(name="맑은 고딕", size=10)
+
+    def _info(row, label, value):
+        """label：value를 그 행 전체(1~6열)에 병합한 셀 하나에 적는다. 필드 2~3개를 한 행에
+        나눠 넣어봤더니(좁은 병합 폭끼리 인접) LibreOffice PDF 변환 시 겹침 방지(overflow
+        억제)가 제대로 안 먹고 글자가 옆 칸으로 번져 보였다(2026-09-26 실렌더링에서 확인) —
+        안전하게 필드 하나당 행 하나, 넓게 병합해서 쓴다."""
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        cell = ws.cell(row=row, column=1,
+                       value=f"{label} ：{value if value not in (None, '') else '-'}")
+        cell.font = info_font
+
+    if is_first_sheet:
+        _info(5, "검사 날짜", header.get("inspect_date"))
+        _info(6, "전압분류", voltage)
+        _info(7, "품명 및 규격", product_name)
+        _info(8, "자재번호", material_no)
+        _info(9, "로트 번호", header.get("po_no"))
+        _info(10, "납품 업체", header.get("vendor"))
+        _info(11, "입고 수량", f"{header.get('quantity') or 0}개" if header.get("quantity") else None)
+        _info(12, "검사자", ", ".join(editors) if editors else None)
+        st = stage_times or {}
+        _info(13, "1차(치수) 소요시간", st.get("stage1"))
+        _info(14, "2차(기능) 소요시간", st.get("stage2"))
+        _info(15, "3차(절연) 소요시간", st.get("stage3"))
+        table_top = 17
+    else:
+        table_top = 6
+
+    # ── 표 헤더 (1행: 1차/2차/3차 그룹 라벨 병합, 2행: 항목명+규격범위) ──
+    group_row, header_row = table_top, table_top + 1
+    ws.merge_cells(start_row=group_row, start_column=1, end_row=header_row, end_column=1)
+    ws.cell(row=group_row, column=1, value="순번")
+    ws.merge_cells(start_row=group_row, start_column=2, end_row=header_row, end_column=2)
+    ws.cell(row=group_row, column=2, value="제품번호(S/N)")
+    ws.merge_cells(start_row=group_row, start_column=verdict_col, end_row=header_row, end_column=verdict_col)
+    ws.cell(row=group_row, column=verdict_col, value="판정")
+
+    c_idx = _HOUSING_ITEM_COL_START
+    while c_idx <= verdict_col - 1:
+        stage = phys_cols[c_idx - _HOUSING_ITEM_COL_START].get("stage")
+        span_start = c_idx
+        while (c_idx < verdict_col - 1 and
+               phys_cols[c_idx + 1 - _HOUSING_ITEM_COL_START].get("stage") == stage):
+            c_idx += 1
+        if span_start == c_idx:
+            ws.cell(row=group_row, column=span_start, value=_HOUSING_STAGE_LABELS.get(stage, ""))
+        else:
+            ws.merge_cells(start_row=group_row, start_column=span_start, end_row=group_row, end_column=c_idx)
+            ws.cell(row=group_row, column=span_start, value=_HOUSING_STAGE_LABELS.get(stage, ""))
+        c_idx += 1
+
+    # 실제 하우징 규격 문구(spec_display)는 "110kV/1.2X50㎲/각3회파두장±3%(0.84~1.56)..."
+    # 처럼 매우 길 수 있다(2026-09-26 실제 DB 값으로 렌더링해보고 확인) — 고정 행높이로는
+    # 위아래 헤더가 겹쳐 보이므로, 가장 긴 헤더 텍스트에 맞춰 행 높이를 동적으로 늘린다
+    # (_estimate_wrapped_lines는 build_report()의 AQL 칸 행높이 계산과 같은 헬퍼 재사용).
+    header_font_size = 9
+    max_lines = 1
+    for i, col in enumerate(phys_cols):
+        text = _housing_header_text(col)
+        ws.cell(row=header_row, column=_HOUSING_ITEM_COL_START + i, value=text)
+        max_lines = max(max_lines, _estimate_wrapped_lines(text, chars_per_line=9))
+    header_row_height = max(40, max_lines * (header_font_size + 5) + 10)
+
+    header_font = Font(name="맑은 고딕", size=header_font_size, bold=True, color="FFFFFFFF")
+    header_fill = PatternFill(fill_type="solid", start_color="FF2B3140", end_color="FF2B3140")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for r in (group_row, header_row):
+        for c in range(1, verdict_col + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+    ws.row_dimensions[group_row].height = 20
+    ws.row_dimensions[header_row].height = header_row_height
+
+    ws.column_dimensions[get_column_letter(1)].width = 6
+    ws.column_dimensions[get_column_letter(2)].width = 20
+    for c in range(_HOUSING_ITEM_COL_START, verdict_col + 1):
+        ws.column_dimensions[get_column_letter(c)].width = 13
+
+    # ── 데이터 행 (순번=유닛 1행) ──
+    body_align = Alignment(horizontal="center", vertical="center")
+    row = header_row + 1
+    for u in units:
+        ws.cell(row=row, column=1, value=u["unit_no"]).alignment = body_align
+        ws.cell(row=row, column=2, value=u.get("serial_no") or "").alignment = body_align
+        vals = u.get("values") or {}
+        for i, col in enumerate(phys_cols):
+            val, out_of_spec = _housing_cell_value(col, vals)
+            cell = ws.cell(row=row, column=_HOUSING_ITEM_COL_START + i, value=val)
+            cell.alignment = body_align
+            cell.font = Font(name="맑은 고딕", size=10,
+                             color="FFFF0000" if out_of_spec else "FF000000")
+        res = u.get("result") or ""
+        rcell = ws.cell(row=row, column=verdict_col, value=res or "-")
+        rcell.alignment = body_align
+        rcell.font = Font(name="맑은 고딕", bold=(res == "NG"),
+                          color="FFFF0000" if res == "NG" else ("FF0000FF" if res == "OK" else "FF6B7280"))
+        row += 1
+
+    # ── 검사 결과 스탬프(합격/불합격/특채) — build_report()의 mark 로직·색상규칙과 동일 ──
+    # (CLAUDE.md 25절: 6자리 색상은 실제 엑셀에서 "복구된 레코드" 경고를 낸다 — 8자리(알파 FF)로만 지정)
+    if approval_type == "special":
+        mark = "□ 합격      □ 불합격      ■ 특채"
+        mark_color = "FFFF8C00"
+    else:
+        is_pass = overall in ("합격", "검토필요")
+        mark = "■ 합격      □ 불합격      □ 특채" if is_pass else "□ 합격      ■ 불합격      □ 특채"
+        mark_color = "FF0000FF" if is_pass else "FFFF0000"
+    stamp_row = row + 1
+    ws.cell(row=stamp_row, column=1, value=f"검사 결과：   {mark}")
+    ws.cell(row=stamp_row, column=1).font = Font(name="맑은 고딕", bold=True, color=mark_color)
+
+    if approver is not None:
+        approver_cell = ws.cell(row=stamp_row + 1, column=1, value=f"검토：{approver or ''}")
+        approver_cell.font = info_font
+    if signature_path and os.path.exists(signature_path):
+        try:
+            img = XLImage(signature_path)
+            is_stamp = os.path.exists(signature_path + ".stamp")
+            if is_stamp:
+                stamp_px = round(2.5 * CM_TO_PX)
+                img.width = img.height = stamp_px
+            else:
+                img.width = SIGNATURE_WIDTH_PX
+                img.height = SIGNATURE_HEIGHT_PX
+            ws.add_image(img, f"C{stamp_row + 1}")
+        except Exception:
+            pass  # 서명 삽입 실패는 성적서 발행 자체를 막지 않음(다른 build_*와 동일한 관용)
+
+    # 넓은 표 강제 1페이지(가로) — CLAUDE.md 7-5절: 안 넣으면 오른쪽 열이 PDF에서 통째로 잘림
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+
+def build_housing_report(material_no, product_name, voltage, header, columns, units,
+                          stage_times, editors, overall=None, approval_type=None,
+                          approver=None, signature_path=None):
+    """
+    하우징(15/27/38KV) 전용 정식 PDF 성적서. 1행=검사항목(build_report)이 아니라
+    1행=유닛(제품 1개)·열=검사항목인 완전히 다른 레이아웃이라 template_form.xlsx를 복사하는
+    대신 openpyxl로 워크북을 처음부터 구성한다. 순번 35개마다 새 시트로 분할한다
+    (1~35=갑지, 36~70=을지_1, 71~105=을지_2, ...).
+
+    header: {"vendor":..,"po_no":..,"inspect_date":..,"quantity":..}
+    columns: [{"key":..,"header":..,"type":"num"/"num_pair"/"pf","lo":..,"hi":..,"stage":1/2/3}, ...]
+             — 1차→2차→3차 순서로 이미 정렬된 리스트(app.py가 _housing_columns_by_stage로 준비)
+    units: [{"unit_no":1,"serial_no":"...","values":{key:val},"result":"OK"/"NG"/""}, ...]
+    stage_times: {"stage1":"1시간 2분", "stage2":.., "stage3":..} — 차수별 소요시간 라벨(없으면 "-")
+    editors: ["이름1","이름2",...] — 성적서 '검사자'란에 콤마로 나열
+    overall/approval_type: 검사 결과 스탬프(합격/불합격/특채) 표시용 — inspections.overall_result/
+                           approval_type 그대로 넘기면 됨
+    approver/signature_path: 승인자 이름·서명 이미지 경로(있으면 마지막 시트에 삽입)
+    반환: (xlsx_path, pdf_path 또는 None, pdf_error 또는 None)
+    """
+    phys_cols = _housing_col_defs(columns)
+
+    out_dir = report_output_dir()
+    base_name = build_report_filename(header.get("vendor"), material_no, product_name,
+                                      inspect_date=header.get("inspect_date"))
+    xlsx_path = os.path.join(out_dir, f"{base_name}.xlsx")
+    xlsx_path = _dedupe_path(xlsx_path)
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    chunks = []
+    if units:
+        for i in range(0, len(units), HOUSING_UNITS_PER_SHEET):
+            chunks.append(units[i:i + HOUSING_UNITS_PER_SHEET])
+    else:
+        chunks = [[]]
+
+    for i, chunk in enumerate(chunks):
+        title = "갑지" if i == 0 else f"을지_{i}"
+        ws = wb.create_sheet(title=title[:31])
+        is_last = (i == len(chunks) - 1)
+        _fill_housing_sheet(
+            ws, material_no, product_name, voltage, header, phys_cols, chunk,
+            stage_times, editors, overall, approval_type,
+            is_first_sheet=(i == 0),
+            approver=(approver if is_last else None),
+            signature_path=(signature_path if is_last else None),
+        )
+
+    wb.save(xlsx_path)
+    pdf_path, pdf_error = _to_pdf(xlsx_path, out_dir)
+    return xlsx_path, pdf_path, pdf_error
 
 
 def merge_report_with_drawing(report_pdf, drawing_pdf, output_path,

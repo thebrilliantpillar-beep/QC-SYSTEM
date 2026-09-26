@@ -308,14 +308,14 @@
 <div id="specRowForms">
 {% for s in specs %}
 <form id="spec-row-{{ s['id'] }}" method="POST"
-      action="{{ url_for('spec_item_update', material_no=material_no, spec_id=s['id']) }}"></form>
+      action="{{ url_for('spec_item_update', material_no=material_no, spec_id=s['id']) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 <form id="spec-del-{{ s['id'] }}" method="POST"
-      action="{{ url_for('spec_item_delete', material_no=material_no, spec_id=s['id']) }}"></form>
+      action="{{ url_for('spec_item_delete', material_no=material_no, spec_id=s['id']) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 {% endfor %}
 </div>
 
 <form id="bulkDeleteForm" method="POST" action="{{ url_for('spec_item_delete_bulk', material_no=material_no) }}"
-      onsubmit="return confirm('선택한 항목을 모두 삭제할까?');"></form>
+      onsubmit="return confirm('선택한 항목을 모두 삭제할까?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 
 <div id="specActionBar" style="display:{{ 'flex' if specs else 'none' }}; gap:8px; align-items:center; margin:0 0 10px;">
   <button type="button" id="saveAllBtn" onclick="saveAllSpecs()"
@@ -444,6 +444,7 @@
   <h3 style="margin-top:0;">새 항목 추가</h3>
   <form id="addItemForm" onsubmit="return submitAddItem(event)"
         data-action="{{ url_for('spec_item_add', material_no=material_no) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-row-top">
       <div class="form-field" style="min-width:80px;"><label>순서</label><input type="number" name="item_order"></div>
       <div class="form-field" style="min-width:80px;"><label>항목기호</label><input type="text" name="item_name" placeholder="예: H"></div>
@@ -565,7 +566,7 @@ const MATERIAL_NO = {{ material_no | tojson }};
       const res = await fetch("{{ url_for('material_category_add') }}", {
         method: 'POST',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        body: new URLSearchParams({ name: name }),
+        body: new URLSearchParams({ name: name, csrf_token: document.querySelector('meta[name="csrf-token"]').content }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || '등록 중 문제가 생겼어. 다시 시도해줘.');

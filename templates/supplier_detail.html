@@ -50,9 +50,9 @@
 <div id="contactRowForms">
 {% for c in contacts %}
 <form id="contact-row-{{ c['id'] }}" method="POST"
-      action="{{ url_for('supplier_contact_update', name=supplier['name'], contact_id=c['id']) }}"></form>
+      action="{{ url_for('supplier_contact_update', name=supplier['name'], contact_id=c['id']) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 <form id="contact-del-{{ c['id'] }}" method="POST"
-      action="{{ url_for('supplier_contact_delete', name=supplier['name'], contact_id=c['id']) }}"></form>
+      action="{{ url_for('supplier_contact_delete', name=supplier['name'], contact_id=c['id']) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 {% endfor %}
 </div>
 
@@ -109,6 +109,7 @@
   <h3 style="margin-top:0;">➕ 담당자 추가</h3>
   <form id="addContactForm" onsubmit="return submitAddContact(event)"
         data-action="{{ url_for('supplier_contact_add', name=supplier['name']) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <div style="flex:1; min-width:100px;">
         <label>역할</label>

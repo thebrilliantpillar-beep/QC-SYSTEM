@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}하우징 검사이력{% endblock %}
+{% block content %}
+
+<style>
+  .filter-card { background:#fff; border-radius:12px; padding:16px 18px; margin-bottom:14px;
+                 box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .filter-card label { display:block; font-size:12.5px; font-weight:600; color:#4b5563; margin:0 0 5px; }
+  .f-row { display:flex; gap:12px; flex-wrap:wrap; }
+  .f-row > div { flex:1; min-width:150px; }
+
+  .chip-box { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; min-height:4px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#eef2ff; color:#3730a3;
+          border:1px solid #c7d2fe; border-radius:999px; padding:4px 6px 4px 12px;
+          font-size:12.5px; font-weight:700; }
+  .chip button { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px;
+                 line-height:1; padding:0 4px; margin:0; border-radius:50%; }
+  .chip-empty { color:#9ca3af; font-size:12px; padding:3px 0; }
+
+  .h-table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px;
+             box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:13px; overflow:hidden; }
+  .h-table th { background:#ECEEF2; color:#4b5563; padding:9px 8px; text-align:center;
+                border-bottom:1px solid #DDE0E6; }
+  .h-table td { border-bottom:1px solid #f0f0f0; padding:9px 8px; text-align:center; vertical-align:middle; }
+  .h-table tr:last-child td { border-bottom:none; }
+  .h-table tr.clickable:hover td { background:#f0f5ff; cursor:pointer; }
+</style>
+
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+  <div>
+    <h2 style="margin:0;">🏠 하우징 검사이력</h2>
+    <p class="muted" style="margin:4px 0 0;">하우징(15/27/38KV) 전수검사 이력 전체를 조회해. 조건을 걸어서 엑셀로 뽑을 수 있어.</p>
+  </div>
+  <a class="btn secondary"
+     href="{{ url_for('housing_history_export') }}?{{ request.query_string.decode('utf-8') }}">📊 현재 조건 엑셀 다운로드</a>
+</div>
+
+<div class="filter-card">
+  <form id="filterForm" method="get" action="{{ url_for('housing_history') }}">
+    <div class="f-row">
+      <div style="max-width:170px;"><label>입고일 시작</label>
+        <input type="date" name="start" value="{{ filt.start }}"></div>
+      <div style="max-width:170px;"><label>입고일 종료</label>
+        <input type="date" name="end" value="{{ filt.end }}"></div>
+      <div style="max-width:200px;"><label>제품번호(S/N)</label>
+        <input type="text" name="serial" value="{{ filt.serial }}" placeholder="시리얼번호 일부 입력"></div>
+    </div>
+
+    <div style="margin-top:13px;">
+      <label>납품업체 <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span></label>
+      <div style="display:flex; gap:7px; flex-wrap:wrap;">
+        <input list="supList" id="supPick" placeholder="업체명 검색 후 선택" style="flex:1; min-width:180px;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('supplier','supPick');}">
+        <datalist id="supList">{% for s in filt.all_suppliers %}<option value="{{ s }}">{% endfor %}</datalist>
+        <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                onclick="addChip('supplier','supPick')">추가</button>
+      </div>
+      <div class="chip-box" id="chips-supplier"></div>
+    </div>
+
+    <div style="margin-top:13px;">
+      <label>로트번호 <span class="muted" style="font-weight:400;">(여러 개 선택 가능)</span></label>
+      <div style="display:flex; gap:7px; flex-wrap:wrap;">
+        <input list="poList" id="poPick" placeholder="로트번호 검색 후 선택" style="flex:1; min-width:180px;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addChip('po_number','poPick');}">
+        <datalist id="poList">{% for po in filt.all_pos %}<option value="{{ po }}">{% endfor %}</datalist>
+        <button type="button" class="btn secondary" style="margin:0; padding:10px 16px;"
+                onclick="addChip('po_number','poPick')">추가</button>
+      </div>
+      <div class="chip-box" id="chips-po_number"></div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <button type="submit" style="margin:0;">조회</button>
+      <a href="{{ url_for('housing_history') }}" class="btn secondary" style="margin:0;">초기화</a>
+    </div>
+  </form>
+</div>
+
+<div style="margin-bottom:8px; color:#4b5563; font-size:13px;">
+  <b>{{ pager.total if pager else rows|length }}건</b> 조회됨
+</div>
+
+{% if not rows %}
+<div class="card"><p class="muted" style="margin:0;">조건에 맞는 하우징 검사이력이 없어.</p></div>
+{% else %}
+<div style="overflow-x:auto;">
+<table class="h-table">
+  <thead>
+    <tr>
+      <th>입고일</th>
+      <th>제품번호</th>
+      <th>로트번호</th>
+      <th>입고수량</th>
+      <th>납품업체</th>
+      <th>전압분류</th>
+      <th>상태</th>
+      <th>심화검사</th>
+      <th>성적서</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r.id) }}'">
+      <td>{{ r.receive_date_label }}</td>
+      <td style="text-align:left;">{{ r.serial_summary }}</td>
+      <td style="white-space:pre-line;">{{ r.po_number }}</td>
+      <td>{{ '{:,}'.format(r.quantity) if r.quantity else '' }}</td>
+      <td>{{ r.supplier }}</td>
+      <td><span class="badge muted">{{ r.voltage }}</span></td>
+      <td><span class="badge {{ r.status_cls }}">{{ r.status_label }}</span></td>
+      <td>{% if r.has_deep %}<span class="badge muted">🔬 있음</span>{% endif %}</td>
+      <td onclick="event.stopPropagation();">
+        {% if r.status == 'approved' and 'output' in user_perms %}
+        <a href="{{ url_for('housing_report_pdf', inspection_id=r.id) }}" class="btn secondary"
+           style="margin:0; padding:5px 10px; font-size:12px;">📄 성적서 출력</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% set p = pager %}{% include "_pager.html" %}
+{% endif %}
+
+<script>
+var CHIPS = {
+  supplier:  {{ filt.suppliers | tojson }},
+  po_number: {{ filt.po_nums   | tojson }}
+};
+var CHIP_LABEL = { supplier: '납품업체', po_number: '로트번호' };
+
+function renderChips(name) {
+  var box = document.getElementById('chips-' + name);
+  box.innerHTML = '';
+  if (!CHIPS[name].length) {
+    box.innerHTML = '<span class="chip-empty">선택 안 함 — 전체 ' + CHIP_LABEL[name] + '</span>';
+    return;
+  }
+  CHIPS[name].forEach(function (val, i) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.appendChild(document.createTextNode(val));
+    var x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '빼기';
+    x.onclick = function () { CHIPS[name].splice(i, 1); renderChips(name); };
+    chip.appendChild(x);
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = name; hidden.value = val;
+    chip.appendChild(hidden);
+    box.appendChild(chip);
+  });
+}
+function addChip(name, inputId) {
+  var el = document.getElementById(inputId);
+  var val = (el.value || '').trim();
+  if (!val) return;
+  if (CHIPS[name].indexOf(val) === -1) CHIPS[name].push(val);
+  el.value = '';
+  renderChips(name);
+}
+renderChips('supplier');
+renderChips('po_number');
+</script>
+{% endblock %}

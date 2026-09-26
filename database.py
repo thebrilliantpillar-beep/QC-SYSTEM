@@ -241,6 +241,12 @@ def init_db():
         )
     """)
 
+    existing_specs_cols = [row[1] for row in cur.execute("PRAGMA table_info(specs)").fetchall()]
+    if "stage_group" not in existing_specs_cols:
+        # 하우징 성적서 프로젝트 2단계(2026-09-26): 1차/2차/3차 분류. NULL=하우징 무관
+        # (일반 자재는 전부 NULL로 남는다), 1/2/3=하우징 항목이 속한 차수.
+        cur.execute("ALTER TABLE specs ADD COLUMN stage_group INTEGER DEFAULT NULL")
+
     # 기존 specs 테이블에만 있던 자재들을 materials 테이블로 1회 백필 (재실행 안전 — INSERT OR IGNORE)
     cur.execute("""
         INSERT OR IGNORE INTO materials (material_no, material_name)
@@ -929,6 +935,49 @@ def init_db():
         )
     """)
     # ---- 2026-09-15 확장(QR 라벨 출력 이력) 끝 ----
+
+    # ---- 2026-09-26 확장: 하우징 성적서 프로젝트 1단계 (차수별 비고·시각, 검사자 집합,
+    #      심화검사) — PROGRESS.md 2026-09-25 설계 확정분 참고 ----
+    existing_fi_hdr_cols = [row[1] for row in cur.execute("PRAGMA table_info(full_inspections)").fetchall()]
+    for col in ("stage1_remark", "stage2_remark", "stage3_remark"):
+        if col not in existing_fi_hdr_cols:
+            cur.execute(f"ALTER TABLE full_inspections ADD COLUMN {col} TEXT DEFAULT ''")
+    for col in ("stage1_started_at", "stage1_completed_at",
+                "stage2_started_at", "stage2_completed_at",
+                "stage3_started_at", "stage3_completed_at"):
+        if col not in existing_fi_hdr_cols:
+            cur.execute(f"ALTER TABLE full_inspections ADD COLUMN {col} TEXT")
+
+    # 칸을 저장할 때마다 그 사용자를 이 성적서를 건드린 사람 집합에 자동 추가(누적, 삭제 없음)
+    # — inspection_progress(일회성 프레즌스 추적, 제출 시 삭제됨)와 목적이 다르다.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS full_inspection_editors (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_inspection_id  INTEGER NOT NULL,
+            user_id             INTEGER,
+            display_name        TEXT,
+            created_at          TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(full_inspection_id, user_id)
+        )
+    """)
+
+    # 심화검사(PD/충격 불량 시 추가 시험) — 이번 단계는 테이블만 생성(채우는 화면은 다음 단계)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS housing_deep_inspections (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_inspection_unit_id  INTEGER NOT NULL,
+            test_type                TEXT NOT NULL,
+            vi_state                 TEXT,
+            chamber_stage            TEXT,
+            readings_json            TEXT DEFAULT '{}',
+            result                   TEXT,
+            remark                   TEXT DEFAULT '',
+            created_by               TEXT,
+            created_at               TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (full_inspection_unit_id) REFERENCES full_inspection_units(id)
+        )
+    """)
+    # ---- 2026-09-26 확장 끝 ----
 
     # ---- 신규 삽입 끝 ----
 
@@ -3084,6 +3133,257 @@ def save_full_inspection_units(inspection_id, units):
               u.get("result", ""), u.get("remark", ""), u.get("gauge_name", "")))
     conn.commit()
     conn.close()
+
+
+# ---- 2026-09-26 신규: 칸 단위 upsert+병합 (delete+reinsert 레이스컨디션 버그 수정) ----
+# save_full_inspection_units()는 성적서 "최초 등록" 시 1회성 벌크삽입 전용으로 계속 쓴다
+# (동시편집 위험 없음). 그 이후 자동저장/수동저장은 아래 함수로 "바뀐 칸만" 반영한다.
+
+def upsert_full_inspection_cells(inspection_id, cells, compute_result=None):
+    """cells = [{"unit_no":1,"key":"N","value":"12.3"}, ...] 를 unit_no별로 그룹핑해서
+    DB에 있는 기존 값과 "병합"한 뒤 UPSERT한다(통째로 교체하지 않음 — 2026-09-26 이전
+    delete+reinsert 방식은 두 사람이 같은 성적서의 다른 열을 동시에 입력하면 한쪽이
+    저장한 값을 다른쪽 저장이 지워버리는 실제 레이스컨디션 버그가 있었다).
+
+    key가 'serial_no'/'remark'/'gauge_name'이면 해당 컬럼에 직접 반영, 그 외 key는
+    기존 values_json(dict)에 그 key만 병합(나머지 기존 key는 그대로 유지).
+
+    compute_result(values_dict) -> "OK"/"NG"/"" 콜백을 병합된 유닛 "전체" values 기준으로
+    호출해 result를 계산한다 — 판정 로직(스펙 범위 비교 등)은 app.py의 _fi_auto_result가
+    갖고 있어 database.py는 몰라도 되게 콜백으로 분리했다(8-1절 관례: DB 계층에 업무판정
+    로직을 심지 않음).
+
+    같은 unit_no를 두 요청이 동시에 건드릴 때 "읽고(병합)-쓰는" 사이에 다른 요청이 끼어들어
+    한쪽 병합 결과가 유실되는 걸 막기 위해, 유닛별 읽기+쓰기 전체를 BEGIN IMMEDIATE
+    트랜잭션 하나로 묶는다(create_inspection()의 TOCTOU 방지 패턴과 동일, CLAUDE.md 20절 참고).
+
+    반환: [{"unit_no","serial_no","remark","gauge_name","values","result"}, ...]
+    """
+    import json as _j
+    conn = get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        fi = conn.execute("SELECT id FROM full_inspections WHERE inspection_id = ?",
+                          (inspection_id,)).fetchone()
+        if fi is None:
+            conn.execute("INSERT INTO full_inspections (inspection_id) VALUES (?)", (inspection_id,))
+            fi = conn.execute("SELECT id FROM full_inspections WHERE inspection_id = ?",
+                              (inspection_id,)).fetchone()
+        fid = fi["id"]
+
+        by_unit = {}
+        for c in cells:
+            try:
+                un = int(c.get("unit_no", 0))
+            except (TypeError, ValueError):
+                continue
+            if un <= 0:
+                continue
+            by_unit.setdefault(un, []).append(c)
+
+        saved = []
+        for unit_no, unit_cells in by_unit.items():
+            row = conn.execute("""
+                SELECT * FROM full_inspection_units
+                 WHERE full_inspection_id = ? AND unit_no = ?
+            """, (fid, unit_no)).fetchone()
+            if row:
+                serial_no = row["serial_no"] or ""
+                remark = row["remark"] or ""
+                gauge_name = row["gauge_name"] or ""
+                try:
+                    values = _j.loads(row["values_json"] or "{}")
+                except Exception:
+                    values = {}
+            else:
+                serial_no, remark, gauge_name, values = "", "", "", {}
+
+            for c in unit_cells:
+                key = c.get("key")
+                if not key or not isinstance(key, str):
+                    continue
+                val = str(c.get("value", "")).strip()
+                if key == "serial_no":
+                    serial_no = val
+                elif key == "remark":
+                    remark = val
+                elif key == "gauge_name":
+                    gauge_name = val
+                else:
+                    values[key] = val
+
+            result = compute_result(values) if compute_result else ""
+            values_json = _j.dumps(values, ensure_ascii=False)
+
+            if row:
+                conn.execute("""
+                    UPDATE full_inspection_units
+                       SET serial_no = ?, values_json = ?, result = ?, remark = ?, gauge_name = ?
+                     WHERE id = ?
+                """, (serial_no, values_json, result, remark, gauge_name, row["id"]))
+            else:
+                conn.execute("""
+                    INSERT INTO full_inspection_units
+                        (full_inspection_id, unit_no, serial_no, values_json, result, remark, gauge_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (fid, unit_no, serial_no, values_json, result, remark, gauge_name))
+
+            saved.append({"unit_no": unit_no, "serial_no": serial_no, "remark": remark,
+                          "gauge_name": gauge_name, "values": values, "result": result})
+
+        conn.commit()
+        return saved
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def record_full_inspection_editor(full_inspection_id, user_id, display_name):
+    """칸을 저장할 때마다 그 사용자를 이 성적서를 건드린 사람 집합에 추가(중복 자동 무시).
+    성적서 '검사자'란에 누적된 이름 전부를 보여주는 용도(화면 반영은 다음 단계)."""
+    conn = get_conn()
+    conn.execute("""
+        INSERT OR IGNORE INTO full_inspection_editors (full_inspection_id, user_id, display_name)
+        VALUES (?, ?, ?)
+    """, (full_inspection_id, user_id, display_name))
+    conn.commit()
+    conn.close()
+
+
+def list_full_inspection_editor_names(inspection_id):
+    """이 성적서(전수검사)를 건드린 사람 이름 목록(입력순). 하우징 승인목록 '검사자' 칸용."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT e.display_name FROM full_inspection_editors e
+        JOIN full_inspections fi ON fi.id = e.full_inspection_id
+        WHERE fi.inspection_id = ?
+        ORDER BY e.id
+    """, (inspection_id,)).fetchall()
+    conn.close()
+    return [r["display_name"] for r in rows if r["display_name"]]
+
+
+def get_full_inspection_unit_id(inspection_id, unit_no):
+    """(inspection_id, unit_no) -> full_inspection_units.id. 아직 그 유닛이 한 번도
+    저장된 적 없으면 None(심화검사 저장 전 반드시 일반 저장이 먼저 있어야 함)."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT fiu.id FROM full_inspection_units fiu
+        JOIN full_inspections fi ON fi.id = fiu.full_inspection_id
+        WHERE fi.inspection_id = ? AND fiu.unit_no = ?
+    """, (inspection_id, unit_no)).fetchone()
+    conn.close()
+    return row["id"] if row else None
+
+
+def add_housing_deep_inspection(full_inspection_unit_id, test_type, vi_state, chamber_stage,
+                                 readings, result, remark, created_by):
+    """PD/충격 심화검사 1건 기록. readings는 {"u_pre":..,"u_pd":..,"u_i":..,"u_e":..} 형태의
+    dict(PD/충격 공용 4개 전압필드, 사용자 확정 — PROGRESS.md 2026-09-25 참고) -> JSON 저장.
+    반환: 새로 생성된 행 id."""
+    import json as _j
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO housing_deep_inspections
+            (full_inspection_unit_id, test_type, vi_state, chamber_stage, readings_json, result, remark, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (full_inspection_unit_id, test_type, vi_state, chamber_stage,
+          _j.dumps(readings or {}, ensure_ascii=False), result or "", remark or "", created_by))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def count_housing_deep_inspections_by_unit(full_inspection_id):
+    """이 전수검사(성적서 1건) 안의 유닛별 심화검사 건수. {unit_no: 건수} 형태 — 화면(입력/
+    승인상세) 렌더링 시 유닛마다 별도 쿼리를 안 날리게 한 번에 계산한다(CLAUDE.md 24절
+    N+1 방지 패턴과 동일한 취지)."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT fiu.unit_no AS unit_no, COUNT(*) AS cnt
+        FROM housing_deep_inspections hdi
+        JOIN full_inspection_units fiu ON fiu.id = hdi.full_inspection_unit_id
+        WHERE fiu.full_inspection_id = ?
+        GROUP BY fiu.unit_no
+    """, (full_inspection_id,)).fetchall()
+    conn.close()
+    return {r["unit_no"]: r["cnt"] for r in rows}
+
+
+def list_inspection_ids_with_deep_inspections(inspection_ids):
+    """주어진 성적서 id 목록 중 심화검사가 하나라도 있는 것들의 id 집합. 하우징 검사이력
+    목록에 "심화검사 있음" 컬럼을 붙일 때 성적서마다 따로 쿼리하지 않으려고 한 번에 계산."""
+    ids = [i for i in (inspection_ids or []) if i]
+    if not ids:
+        return set()
+    conn = get_conn()
+    ph = ",".join("?" * len(ids))
+    rows = conn.execute(f"""
+        SELECT DISTINCT fi.inspection_id AS iid
+        FROM housing_deep_inspections hdi
+        JOIN full_inspection_units fiu ON fiu.id = hdi.full_inspection_unit_id
+        JOIN full_inspections fi ON fi.id = fiu.full_inspection_id
+        WHERE fi.inspection_id IN ({ph})
+    """, ids).fetchall()
+    conn.close()
+    return {r["iid"] for r in rows}
+
+
+def list_housing_materials():
+    """template=='housing'로 설정된 자재 전체. {material_no: material_name} 형태.
+    하우징 전용 목록 3화면(검사입력/승인/이력)이 공유하는 자재 판별 기준(get_full_inspect_config
+    의 JSON 계약을 그대로 따름, CLAUDE.md 8-1절)."""
+    import json as _j
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT material_no, material_name, full_inspect_config FROM materials "
+        "WHERE full_inspect_config IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    out = {}
+    for r in rows:
+        try:
+            cfg = _j.loads(r["full_inspect_config"])
+        except Exception:
+            continue
+        if isinstance(cfg, dict) and cfg.get("template") == "housing":
+            out[r["material_no"]] = r["material_name"]
+    return out
+
+
+_FI_STAGE_TIME_COLS = {
+    "stage1_started_at", "stage1_completed_at",
+    "stage2_started_at", "stage2_completed_at",
+    "stage3_started_at", "stage3_completed_at",
+}
+
+
+def update_full_inspection_stage_times(inspection_id, **fields):
+    """차수(1/2/3차)별 시작·완료 시각 기록. fields의 키는 _FI_STAGE_TIME_COLS 안에 있는
+    것만 반영한다(동적 컬럼명 SQL 인젝션 방지용 허용목록). '이미 값이 있으면 갱신하지
+    않는다'는 최초 완료시점만 남기는 규칙은 호출부(app.py)가 판단해서 이 함수엔 필요한
+    필드만 넘긴다."""
+    conn = get_conn()
+    fi = conn.execute("SELECT id FROM full_inspections WHERE inspection_id = ?",
+                      (inspection_id,)).fetchone()
+    if fi is None:
+        conn.close()
+        return
+    set_parts, params = [], []
+    for k, v in fields.items():
+        if k not in _FI_STAGE_TIME_COLS:
+            continue
+        set_parts.append(f"{k} = ?")
+        params.append(v)
+    if set_parts:
+        params.append(fi["id"])
+        conn.execute(f"UPDATE full_inspections SET {', '.join(set_parts)} WHERE id = ?", params)
+        conn.commit()
+    conn.close()
+# ---- 2026-09-26 신규 끝 ----
 
 
 def delete_full_inspection(inspection_id):

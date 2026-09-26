@@ -367,6 +367,7 @@ function closeBatchModal() {
     if (pad.isEmpty()) { alert('먼저 서명해줘.'); return; }
     var fd = new FormData();
     fd.append('signature_data', pad.toDataURL());
+    fd.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
     fetch('/signature/default/save', { method: 'POST', body: fd })
       .then(function (r) { return r.json(); })
       .then(function (d) {

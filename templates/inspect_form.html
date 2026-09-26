@@ -1211,6 +1211,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var DRAFT_KEY = 'draft_inspect_{{ intake.id }}';
   var SAVE_URL  = '{{ url_for("inspect_draft_save", intake_id=intake.id) }}';
   var DEL_URL   = '{{ url_for("inspect_draft_delete", intake_id=intake.id) }}';
+  // 2026-09-26: fetch()에 CSRF 토큰 헤더가 빠져 있으면 서버가 항상 400(csrf_failed)로
+  // 막는다 — 전수검사 화면(full_inspect_form.html)에서 먼저 발견된 것과 같은 버그.
+  var CSRF_TOKEN = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
   var saveTimer = null;
   var lastSent  = null;
 
@@ -1250,7 +1253,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setSaveState('저장 중…', '#9ca3af');
     fetch(SAVE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body: body
     }).then(function (r) {
       if (!r.ok) throw new Error('save failed');
@@ -1355,7 +1358,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   window.discardServerDraft = function () {
     clearDraft();
-    fetch(DEL_URL, { method: 'POST' }).catch(function () {});
+    fetch(DEL_URL, { method: 'POST', headers: { 'X-CSRFToken': CSRF_TOKEN } }).catch(function () {});
     var notice = document.getElementById('draft-notice');
     if (notice) notice.style.display = 'none';
     document.getElementById('inspectForm').reset();
