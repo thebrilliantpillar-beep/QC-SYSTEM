@@ -8,6 +8,17 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-27 (하우징 실사용 피드백 3/3 — 승인목록 하우징 제외 + 검사이력 상세페이지,
+  커밋 bd3e510)**: 3단계 실사용 피드백의 마지막 작업. `_exclude_housing()` 헬퍼 신설
+  (`db.list_housing_materials()` 재사용)로 일반 승인목록(`/approve`) 5개 탭 전부에서
+  하우징(15/27/38KV) 자재를 제외 — 하우징은 전용 승인화면(`housing_approve_list`)에서만
+  다룸. `housing_history_detail`(`/housing/history/<id>`) 신규 — 하우징 검사이력에서
+  항목 클릭 시 지금까지 일반 성적서 상세화면(유닛별 STAGE 구조를 못 보여줌)으로 가던 걸
+  교체, 상태 무관 조회+승인액션 없음(readonly, show_approve_actions=False)+승인권한
+  불필요(inspect_history 권한만). developer/quality-watcher 검증(.collab TASK #53) 통과.
+  **이걸로 2026-09-27 하루 동안 진행한 하우징 실사용 피드백 3단계(①STAGE입력화면 UI
+  9건 ②성적서PDF 원본양식 재작성+고저항중복제거 ③승인목록·이력) 전부 완료.**
+
 - **2026-09-27 (고저항 중복항목 제거 v2로 프로덕션 완료, 커밋 328ef7b)**: 1차 마이그레이션
   (`migrate_housing_remove_duplicate_rod.py`)이 로컬DB 기준(F.judge_type='numeric_pair')
   으로 짜여서 프로덕션(F도 R도 둘 다 'numeric', 즉 CT/ROD가 완전히 분리된 두 단일항목)
