@@ -4608,6 +4608,15 @@ def supplier_report_delete_selected():
 
 # ---------- 승인 목록 / 승인 전용 화면 ----------
 
+def _exclude_housing(rows):
+    """하우징(15/27/38KV) 자재 성적서를 목록에서 제외한다 — 하우징은 전용 승인화면
+    (housing_approve_list)에서만 다뤄야 하므로 일반 승인목록엔 안 나와야 한다."""
+    housing_map = db.list_housing_materials()
+    if not housing_map:
+        return rows
+    return [r for r in rows if r["material_no"] not in housing_map]
+
+
 def _approve_list_rows():
     """승인목록 화면·엑셀 내보내기가 공유하는 tab 기반 필터 로직."""
     tab = request.args.get("tab", "pending")
@@ -4626,6 +4635,8 @@ def _approve_list_rows():
     else:
         rows = db.list_inspections(status="pending")
 
+    rows = _exclude_housing(rows)
+
     if q:
         ql = q.lower()
         rows = [r for r in rows if ql in (r["material_no"] or "").lower()
@@ -4641,12 +4652,13 @@ def approve_list():
     """승인 목록 — 필터/검색 지원."""
     rows, tab, q = _approve_list_rows()
 
+    approved_rows = _exclude_housing(db.list_inspections(status="approved"))
     counts = {
-        "pending":  len(db.list_inspections(status="pending")),
-        "pass":     sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "normal"),
-        "failed":   sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "failed"),
-        "special":  sum(1 for r in db.list_inspections(status="approved") if r["approval_type"] == "special"),
-        "rejected": len(db.list_inspections(status="rejected")),
+        "pending":  len(_exclude_housing(db.list_inspections(status="pending"))),
+        "pass":     sum(1 for r in approved_rows if r["approval_type"] == "normal"),
+        "failed":   sum(1 for r in approved_rows if r["approval_type"] == "failed"),
+        "special":  sum(1 for r in approved_rows if r["approval_type"] == "special"),
+        "rejected": len(_exclude_housing(db.list_inspections(status="rejected"))),
     }
     time_labels = {r["id"]: total_time_label_for(r) for r in rows}
     final_approvers = db.list_final_approvers()
@@ -5610,6 +5622,25 @@ def housing_approve_detail(inspection_id):
                            back_url=url_for("housing_approve_list"),
                            voltage=_housing_voltage(header["material_name"]),
                            problem_count=dctx["problem_count"], pending_count=dctx["pending_count"])
+
+
+@app.route("/housing/history/<int:inspection_id>")
+@perm_required("inspect_history")
+def housing_history_detail(inspection_id):
+    """하우징 검사이력 상세보기 — 상태 무관 조회 전용(승인 액션 없음).
+    housing_approve_detail()과 달리 pending 상태 제한이 없고 승인권한도 요구하지 않는다."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        flash("존재하지 않는 성적서야.")
+        return redirect(url_for("housing_history"))
+    ctx = _load_full_inspect_context(header)
+    if ctx is None or not ctx["is_housing"]:
+        flash("하우징 전수검사 설정이 없는 자재야.")
+        return redirect(url_for("housing_history"))
+    return render_template("full_inspect_housing.html", **ctx,
+                           readonly=True, show_approve_actions=False,
+                           back_url=url_for("housing_history"),
+                           voltage=_housing_voltage(header["material_name"]))
 
 
 _HOUSING_DEEP_TEST_TYPES = ("PD", "충격")

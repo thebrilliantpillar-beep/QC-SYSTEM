@@ -101,7 +101,7 @@
   </thead>
   <tbody>
     {% for r in rows %}
-    <tr class="clickable" onclick="location.href='{{ url_for('inspection_detail', inspection_id=r.id) }}'">
+    <tr class="clickable" onclick="location.href='{{ url_for('housing_history_detail', inspection_id=r.id) }}'">
       <td>{{ r.receive_date_label }}</td>
       <td style="text-align:left;">{{ r.serial_summary }}</td>
       <td style="white-space:pre-line;">{{ r.po_number }}</td>
