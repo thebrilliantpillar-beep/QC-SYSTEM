@@ -1681,10 +1681,13 @@ def merge_intake_duplicate(existing_id, add_quantity, add_po_number):
 def add_intake_bulk(rows):
     """
     rows: list of dict (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no, is_priority)
-    붙여넣기로 여러 건을 한 번에 등록
+    붙여넣기로 여러 건을 한 번에 등록.
+    반환: 새로 생긴 intake_list.id 목록(rows와 같은 순서) — 호출부가 전수검사 자재
+    자동시작 같은 후처리를 하려면 이 id로 db.get_intake()를 다시 불러야 한다.
     """
     conn = get_conn()
     cur = conn.cursor()
+    new_ids = []
     for r in rows:
         cur.execute("""
             INSERT INTO intake_list (material_no, quantity, supplier, receive_date, po_number, product_name, assembly_no, is_priority)
@@ -1692,8 +1695,10 @@ def add_intake_bulk(rows):
         """, (r["material_no"], r.get("quantity"), r.get("supplier"),
               r.get("receive_date"), r.get("po_number"), r.get("product_name"), r.get("assembly_no"),
               1 if r.get("is_priority") else 0))
+        new_ids.append(cur.lastrowid)
     conn.commit()
     conn.close()
+    return new_ids
 
 
 def set_intake_status(intake_id, status):

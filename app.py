@@ -1574,6 +1574,48 @@ def _merge_duplicate_intake_rows(rows):
     return [merged[k] for k in order]
 
 
+def _auto_start_full_inspections(new_intake_ids):
+    """전수검사(하우징 등) 자재는 입고 등록 즉시 검사를 '시작' 상태로 만든다 —
+    안 그러면 검사대기 화면에서 옛날 방식(inspect_form.html의 인라인 전수표)을
+    한 번 거쳐야만 하우징 메뉴(/housing/inspect 등)에 뜨는 틈이 있었다
+    (2026-09-26 사용자 피드백으로 발견·확정). 값은 전부 비워서(result='미측정')
+    만들어두고, 실제 측정은 검사자가 STAGE 화면에서 나중에 한다 — 일반 자재는
+    full_inspect_config가 없어서 아무 일도 안 하고 조용히 넘어간다."""
+    for intake_id in new_intake_ids:
+        intake_row = db.get_intake(intake_id)
+        if intake_row is None:
+            continue
+        material_no = intake_row["material_no"]
+        full_inspect_config = db.get_full_inspect_config(material_no)
+        if not full_inspect_config:
+            continue
+        specs = db.get_specs_by_material(material_no)
+        if not specs:
+            continue
+        if db.active_inspection_for_intake(intake_id) is not None:
+            continue
+        material = db.get_material(material_no)
+        header = {
+            "material_no": material_no,
+            "material_name": material["material_name"] if material else (intake_row["product_name"] or ""),
+            "supplier": intake_row["supplier"],
+            "po_number": intake_row["po_number"],
+            "receive_date": intake_row["receive_date"],
+            "inspect_date": None,
+            "inspector": g.user["display_name"] or g.user["username"],
+            "quantity": intake_row["quantity"],
+        }
+        items_with_results = [{
+            "item_name": sp["item_name"], "measured_value": "", "max_value": None, "min_value": None,
+            "result": "미측정", "gauge_expiry": None, "gauge_name": None, "part_material_no": material_no,
+        } for sp in specs]
+        try:
+            db.create_inspection(header, items_with_results, "검토필요",
+                                  intake_id=intake_id, created_by_user_id=g.user["id"])
+        except ValueError:
+            pass  # 동시요청 등으로 이미 생겼으면 조용히 넘어감(멱등)
+
+
 @app.route("/intake", methods=["GET", "POST"])
 @perm_required("intake")
 def intake():
@@ -1647,7 +1689,8 @@ def intake():
                 session["intake_pending_dups"] = _json.dumps(dups, ensure_ascii=False)
                 return redirect(url_for("intake_confirm_dups"))
         if rows:
-            db.add_intake_bulk(rows)
+            new_ids = db.add_intake_bulk(rows)
+            _auto_start_full_inspections(new_ids)
             flash(f"{len(rows)}건 등록 완료")
             material_list = ", ".join(r["material_no"] for r in rows[:10])
             if len(rows) > 10:
@@ -2562,7 +2605,8 @@ def intake_confirm_dups():
                 else:
                     separate_rows.append(r)
             if separate_rows:
-                db.add_intake_bulk(separate_rows)
+                new_ids = db.add_intake_bulk(separate_rows)
+                _auto_start_full_inspections(new_ids)
             skipped_note = ""
             already_done = merged_count and (len(dup_rows) - merged_count) > 0
             if already_done:
@@ -2578,7 +2622,8 @@ def intake_confirm_dups():
         else:  # force — 전부 등록
             rows = all_rows
         if rows:
-            db.add_intake_bulk(rows)
+            new_ids = db.add_intake_bulk(rows)
+            _auto_start_full_inspections(new_ids)
             flash(f"{len(rows)}건 등록 완료" + (" (중복 포함)" if action == "force" else ""))
             material_list = ", ".join(r["material_no"] for r in rows[:10])
             if len(rows) > 10:
