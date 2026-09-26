@@ -2,14 +2,23 @@
 {% block title %}하우징 전수검사 — {{ header.material_no }}{% endblock %}
 {% block content %}
 <style>
-.fi-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.fi-tbl { border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+/* fi-wrap을 자체 스크롤 영역(가로+세로)으로 만들어 헤더/순번 열을 그 안에서
+   freeze한다(항목6) — base.html의 범용 `table{overflow:hidden}` 규칙이 걸려있어서
+   .fi-tbl에 overflow:visible을 명시적으로 덮어써야 한다(CLAUDE.md 17절 함정). */
+.fi-wrap { overflow: auto; max-height: 65vh; -webkit-overflow-scrolling: touch; position: relative; }
+.fi-tbl { border-collapse: separate; border-spacing: 0; font-size: 13px; overflow: visible; }
 .fi-tbl th { background: #2B3140; color: #fff; padding: 7px 8px;
-             border: 1px solid #2B3140; font-size: 12px; text-align: center; }
-.fi-tbl td { border: 1px solid #DDE0E6; padding: 2px 3px; }
+             border: 1px solid #2B3140; font-size: 12px; text-align: center;
+             position: sticky; top: 0; z-index: 3; white-space: normal;
+             word-break: keep-all; overflow-wrap: break-word; }
+.fi-tbl td { border: 1px solid #DDE0E6; padding: 2px 3px; white-space: nowrap; }
 .fi-tbl .no-cell { text-align: center; color: #4b5563; width: 34px;
                    font-size: 12px; background: #F9F9F8; font-weight: 600; }
 .fi-tbl .sel-cell { text-align: center; width: 26px; background: #F9F9F8; }
+/* 순번/체크박스 열(첫 두 열)은 가로 스크롤 시에도 고정(항목6) */
+.fi-tbl .sel-cell { position: sticky; left: 0; z-index: 2; }
+.fi-tbl .no-cell { position: sticky; left: 26px; z-index: 2; }
+.fi-tbl thead .sel-cell, .fi-tbl thead .no-cell { z-index: 4; }
 .fi-tbl input[type=text], .fi-tbl input[type=month], .fi-tbl select {
   width: 100%; min-width: 52px; border: none; background: transparent;
   font-size: 13px; padding: 4px 4px; box-sizing: border-box; font-family: inherit;
@@ -18,15 +27,28 @@
 .fi-tbl input[type=text]:focus, .fi-tbl input[type=month]:focus, .fi-tbl select:focus {
   background: #fffbeb; outline: 2px solid #f59e0b; border-radius: 2px;
 }
-.serial-3 { display: flex; align-items: stretch; gap: 2px; min-width: 230px; }
+.serial-3 { display: flex; align-items: stretch; gap: 2px; }
 .serial-3 .sp {
   flex: 0 0 auto; padding: 0; background: transparent; color: #24344F;
   font-size: 12px; border-radius: 3px; display: inline-flex; align-items: center;
-  min-width: 54px; justify-content: center;
+  justify-content: center;
 }
-.serial-3 .sp select, .serial-3 .sp input { min-width: 54px; text-align: center; font-size: 12.5px; }
-.serial-3 .mid input { min-width: 62px; font-weight: 600; }
-.serial-3 .suf input { min-width: 70px; }
+/* 2026-09-27: input[type=text]에 width:100%(퍼센트)만 줘서 flex:0 0 auto 조상 안에서
+   레이아웃하면, 브라우저가 flex 아이템 고유폭을 계산할 때 퍼센트를 못 써서 입력칸의
+   기본폭(20자, 약 170~190px)으로 되돌아간다 — 실측(getBoundingClientRect)으로 확인한
+   실제 원인: "5자리"/"접미사" 칸이 각각 177px/155px로 부풀어서 옆 검사값 열까지
+   침범해 겹쳐 보이던 실사고. 아래처럼 폭을 px로 직접 고정해야 한다. */
+.serial-3 .sp.prefix-fixed { min-width: 22px; font-weight: 700; }
+.serial-3 .sp.ym { position: relative; min-width: 56px; }
+.serial-3 .sp.mid input { width: 52px; min-width: 52px; font-weight: 600; }
+.serial-3 .sp.suf input { width: 72px; min-width: 72px; }
+.ym-btn { border: 1px solid #DDE0E6; background: #fff; border-radius: 4px;
+          padding: 4px 7px; font-size: 12px; cursor: pointer; color: #2B3140;
+          display: inline-flex; align-items: center; gap: 3px; font-family: inherit; }
+.ym-btn:disabled { opacity: .6; cursor: default; }
+.ym-label { display: inline-block; min-width: 30px; text-align: center; }
+.sn-ym { position: absolute; left: 0; top: 0; width: 1px; height: 1px;
+         opacity: 0; pointer-events: none; }
 .pair-cell { display: flex; gap: 1px; }
 .pair-cell input { min-width: 44px; }
 .pair-cell .sep { color: #9ca3af; padding: 4px 1px; font-size: 11px; }
@@ -68,6 +90,8 @@
 .fi-wrap[data-active-stage="1"] .stage-col:not(.stage-1) { display: none; }
 .fi-wrap[data-active-stage="2"] .stage-col:not(.stage-2) { display: none; }
 .fi-wrap[data-active-stage="3"] .stage-col:not(.stage-3) { display: none; }
+/* 3차(절연내력시험) 탭에서는 제품번호(S/N) 칸을 숨기고 순번만 보인다(항목10) */
+.fi-wrap[data-active-stage="3"] .sn-col { display: none; }
 .locked-cell { background: #F1F2F4; }
 .locked-cell input { color: #b0b4bb; }
 
@@ -174,8 +198,8 @@
       <tr>
         <th class="sel-cell"><input type="checkbox" id="selectAllRows" title="전체 선택" {% if readonly %}disabled{% endif %}
                onclick="document.querySelectorAll('.unit-select').forEach(c=>c.checked=this.checked)"></th>
-        <th style="width:34px;">번호</th>
-        <th style="min-width:230px;">제품번호 (접두어·생산년월 / 일련번호 / 접미사)</th>
+        <th class="no-cell" style="width:34px;">번호</th>
+        <th class="sn-col" style="min-width:200px;">제품번호 (접두어·생산년월 / 일련번호 / 접미사)</th>
         {% for col in stage_cols.stage1_cols %}
         <th class="stage-col stage-1" style="min-width:{{ 110 if col.type == 'num_pair' else 80 }}px;">
           {{ col.header }}
@@ -231,7 +255,6 @@
           {% endif %}
         </th>
         {% endfor %}
-        <th style="min-width:80px;">계측기</th>
         <th style="min-width:50px;">판정</th>
         <th style="min-width:80px;">비고</th>
         <th style="min-width:120px;">심화검사<div style="font-size:10px;font-weight:400;opacity:.8;">(3차 NG 시)</div></th>
@@ -245,53 +268,61 @@
     {% set sn_sec2 = sn_parts[1] if sn_parts|length >= 2 else '' %}
     {% set sn_sec3 = sn_parts[2:]|join(' ') if sn_parts|length >= 3 else '' %}
     {% set sec1_split = sn_sec1.split('-', 1) %}
-    {% set sec1_prefix = sec1_split[0] if sec1_split|length >= 1 else '' %}
     {% set sec1_ym = sec1_split[1] if sec1_split|length >= 2 else '' %}
     {% set sec1_ym_value = ('20' ~ sec1_ym[0:2] ~ '-' ~ sec1_ym[2:4]) if (sec1_ym|length == 4) else '' %}
+    {% set ym_label_init = sec1_ym if (sec1_ym|length == 4 and sec1_ym.isdigit()) else '' %}
     {% set locked = row.unit_no > stage1_sample_qty %}
     {% set row_idx = loop.index0 %}
     <tr data-unit="{{ row.unit_no }}" data-row="{{ row_idx }}">
       <td class="sel-cell"><input type="checkbox" class="unit-select" data-unit="{{ row.unit_no }}" {% if readonly %}disabled{% endif %}></td>
       <td class="no-cell">{{ row.unit_no }}</td>
-      <td>
+      <td class="sn-col">
         <div class="serial-3">
-          <span class="sp">
-            <select class="sn-prefix" data-unit="{{ row.unit_no }}" {% if readonly %}disabled{% endif %}>
-              <option value="">-</option>
-              <option value="X" {% if sec1_prefix == 'X' %}selected{% endif %}>X</option>
-              <option value="E" {% if sec1_prefix == 'E' %}selected{% endif %}>E</option>
-            </select>
-          </span>
-          <span class="sp">
-            <input type="month" class="sn-ym" data-unit="{{ row.unit_no }}" value="{{ sec1_ym_value }}" {% if readonly %}disabled{% endif %}>
+          <span class="sp prefix-fixed">{{ sn_prefix or '-' }}</span>
+          <span class="sp ym">
+            <button type="button" class="ym-btn" data-unit="{{ row.unit_no }}" {% if readonly %}disabled{% endif %}>
+              📅<span class="ym-label" id="ym-label-{{ row.unit_no }}">{{ ym_label_init or '월' }}</span>
+            </button>
+            <input type="month" class="sn-ym" tabindex="-1"
+                   data-unit="{{ row.unit_no }}" value="{{ sec1_ym_value }}" {% if readonly %}disabled{% endif %}>
           </span>
           <span class="sp mid">
-            <input type="text" class="cell-input sn-mid"
+            <input type="text" class="sn-mid" inputmode="numeric"
                    data-unit="{{ row.unit_no }}"
-                   data-row="{{ row_idx }}" data-col="0"
+                   data-sn-row="{{ row_idx }}" data-sn-col="0"
                    maxlength="5" placeholder="5자리"
                    value="{{ sn_sec2 }}" {% if readonly %}disabled{% endif %}>
           </span>
           <span class="sp suf">
-            <input type="text" class="cell-input sn-suf"
+            <input type="text" class="sn-suf"
                    data-unit="{{ row.unit_no }}"
-                   data-row="{{ row_idx }}" data-col="1"
+                   data-sn-row="{{ row_idx }}" data-sn-col="1"
                    value="{{ sn_sec3 }}" placeholder="접미사" {% if readonly %}disabled{% endif %}>
           </span>
         </div>
       </td>
       {% for col in stage_cols.stage1_cols %}
       <td class="stage-col stage-1{{ ' locked-cell' if locked else '' }}">
-        <input type="text" class="cell-input c-val"
-               data-unit="{{ row.unit_no }}"
-               data-key="{{ col.key }}"
-               data-type="{{ col.type }}"
-               data-lo="{{ col.lo if col.lo is not none else '' }}"
-               data-hi="{{ col.hi if col.hi is not none else '' }}"
-               data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
-               value="{{ vals.get(col.key, '') }}"
-               placeholder="{{ '○/×' if col.type == 'pf' else '' }}"
-               {% if locked or readonly %}disabled{% endif %}>
+        {% if col.type == 'pf' %}
+          <select class="cell-input c-val"
+                  data-unit="{{ row.unit_no }}" data-key="{{ col.key }}" data-type="pf"
+                  data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                  {% if locked or readonly %}disabled{% endif %}>
+            <option value="" {% if not vals.get(col.key) %}selected{% endif %}></option>
+            <option value="○" {% if vals.get(col.key) == '○' %}selected{% endif %}>○</option>
+            <option value="×" {% if vals.get(col.key) == '×' %}selected{% endif %}>×</option>
+          </select>
+        {% else %}
+          <input type="text" class="cell-input c-val" inputmode="decimal"
+                 data-unit="{{ row.unit_no }}"
+                 data-key="{{ col.key }}"
+                 data-type="{{ col.type }}"
+                 data-lo="{{ col.lo if col.lo is not none else '' }}"
+                 data-hi="{{ col.hi if col.hi is not none else '' }}"
+                 data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                 value="{{ vals.get(col.key, '') }}"
+                 {% if locked or readonly %}disabled{% endif %}>
+        {% endif %}
       </td>
       {% endfor %}
       {% for col in stage_cols.stage2_cols %}
@@ -301,7 +332,7 @@
           {% set ct_val = pair_val[0] if pair_val|length >= 1 else '' %}
           {% set rod_val = pair_val[1] if pair_val|length >= 2 else '' %}
           <div class="pair-cell">
-            <input type="text" class="cell-input c-pair"
+            <input type="text" class="cell-input c-pair" inputmode="decimal"
                    data-unit="{{ row.unit_no }}" data-key="{{ col.key }}"
                    data-side="ct" data-type="num_pair"
                    data-lo="{{ col.lo if col.lo is not none else '' }}"
@@ -309,7 +340,7 @@
                    data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
                    value="{{ ct_val }}" placeholder="CT" {% if readonly %}disabled{% endif %}>
             <span class="sep">/</span>
-            <input type="text" class="cell-input c-pair"
+            <input type="text" class="cell-input c-pair" inputmode="decimal"
                    data-unit="{{ row.unit_no }}" data-key="{{ col.key }}"
                    data-side="rod" data-type="num_pair"
                    data-lo="{{ col.lo if col.lo is not none else '' }}"
@@ -317,47 +348,58 @@
                    data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
                    value="{{ rod_val }}" placeholder="ROD" {% if readonly %}disabled{% endif %}>
           </div>
+        {% elif col.type == 'pf' %}
+          <select class="cell-input c-val"
+                  data-unit="{{ row.unit_no }}" data-key="{{ col.key }}" data-type="pf"
+                  data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                  {% if readonly %}disabled{% endif %}>
+            <option value="" {% if not vals.get(col.key) %}selected{% endif %}></option>
+            <option value="○" {% if vals.get(col.key) == '○' %}selected{% endif %}>○</option>
+            <option value="×" {% if vals.get(col.key) == '×' %}selected{% endif %}>×</option>
+          </select>
         {% else %}
-          <input type="text" class="cell-input c-val"
+          <input type="text" class="cell-input c-val" inputmode="decimal"
                  data-unit="{{ row.unit_no }}"
                  data-key="{{ col.key }}"
                  data-type="{{ col.type }}"
                  data-lo="{{ col.lo if col.lo is not none else '' }}"
                  data-hi="{{ col.hi if col.hi is not none else '' }}"
                  data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
-                 value="{{ vals.get(col.key, '') }}"
-                 placeholder="{{ '○/×' if col.type == 'pf' else '' }}" {% if readonly %}disabled{% endif %}>
+                 value="{{ vals.get(col.key, '') }}" {% if readonly %}disabled{% endif %}>
         {% endif %}
       </td>
       {% endfor %}
       {% for col in stage_cols.stage3_cols %}
       <td class="stage-col stage-3">
-        <input type="text" class="cell-input c-val"
-               data-unit="{{ row.unit_no }}"
-               data-key="{{ col.key }}"
-               data-type="{{ col.type }}"
-               data-stage="3"
-               data-lo="{{ col.lo if col.lo is not none else '' }}"
-               data-hi="{{ col.hi if col.hi is not none else '' }}"
-               data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
-               value="{{ vals.get(col.key, '') }}"
-               placeholder="{{ '○/×' if col.type == 'pf' else '' }}" {% if readonly %}disabled{% endif %}>
+        {% if col.type == 'pf' %}
+          <select class="cell-input c-val"
+                  data-unit="{{ row.unit_no }}" data-key="{{ col.key }}" data-type="pf" data-stage="3"
+                  data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                  {% if readonly %}disabled{% endif %}>
+            <option value="" {% if not vals.get(col.key) %}selected{% endif %}></option>
+            <option value="○" {% if vals.get(col.key) == '○' %}selected{% endif %}>○</option>
+            <option value="×" {% if vals.get(col.key) == '×' %}selected{% endif %}>×</option>
+          </select>
+        {% else %}
+          <input type="text" class="cell-input c-val" inputmode="decimal"
+                 data-unit="{{ row.unit_no }}"
+                 data-key="{{ col.key }}"
+                 data-type="{{ col.type }}"
+                 data-stage="3"
+                 data-lo="{{ col.lo if col.lo is not none else '' }}"
+                 data-hi="{{ col.hi if col.hi is not none else '' }}"
+                 data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                 value="{{ vals.get(col.key, '') }}" {% if readonly %}disabled{% endif %}>
+        {% endif %}
       </td>
       {% endfor %}
-      <td>
-        <input type="text" class="cell-input c-gauge"
-               data-unit="{{ row.unit_no }}"
-               data-row="{{ row_idx }}" data-col="{{ 2 + stage_cols.total_cols }}"
-               value="{{ row.gauge_name or '' }}"
-               placeholder="계측기(선택)" {% if readonly %}disabled{% endif %}>
-      </td>
       {% set res = row.result or '' %}
       <td class="{{ 'res-ok' if res == 'OK' else ('res-ng' if res == 'NG' else 'res-nil') }}"
           id="res-{{ row.unit_no }}">{{ res or '—' }}</td>
       <td>
         <input type="text" class="cell-input c-remark"
                data-unit="{{ row.unit_no }}"
-               data-row="{{ row_idx }}" data-col="{{ 3 + stage_cols.total_cols }}"
+               data-row="{{ row_idx }}" data-col="{{ 2 + stage_cols.total_cols }}"
                value="{{ row.remark or '' }}" {% if readonly %}disabled{% endif %}>
       </td>
       <td style="white-space:normal;">
@@ -416,14 +458,6 @@
   <div class="modal-box">
     <h3>선택한 행에 일괄 적용</h3>
     <p class="hint" style="margin:0 0 12px;">채운 항목만 선택된 행에 적용돼. 비워두면 그 항목은 그대로 둬.</p>
-    <div class="modal-field">
-      <span>접두어</span>
-      <select id="batchPrefix">
-        <option value="">(변경 안 함)</option>
-        <option value="X">X</option>
-        <option value="E">E</option>
-      </select>
-    </div>
     <div class="modal-field">
       <span>생산년월</span>
       <input type="month" id="batchYm">
@@ -495,6 +529,8 @@ const COMP_URL = {{ url_for('full_inspect_complete', inspection_id=header.id) | 
    막는다 — 실제로 확인한 기존 버그(cd8491a CSRF 도입 이후 자동저장 fetch가 전부
    이 문제였을 가능성), 이 화면 자동저장 회귀 수정과 함께 고침. */
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+/* 제품번호 접두어는 이 자재(전압분류) 하나로 고정된다 — 행마다 고를 필요가 없다(항목1). */
+const SN_PREFIX = {{ sn_prefix | tojson }};
 
 function ymShort(monthVal) {
   const parts = (monthVal || '').split('-');
@@ -503,7 +539,7 @@ function ymShort(monthVal) {
 }
 
 function serialFor(unit) {
-  const prefix = document.querySelector(`.sn-prefix[data-unit="${unit}"]`)?.value || '';
+  const prefix = SN_PREFIX;
   const ymS = ymShort(document.querySelector(`.sn-ym[data-unit="${unit}"]`)?.value || '');
   let sec1 = '';
   if (prefix && ymS) sec1 = prefix + '-' + ymS;
@@ -744,9 +780,8 @@ function switchStage(stage) {
   });
 }
 
-/* 생산년월/접미사 일괄적용 팝업 */
+/* 생산년월/접미사 일괄적용 팝업 (접두어는 자재로 고정돼 항목에서 빠짐 — 항목1) */
 function openSnBatchModal() {
-  document.getElementById('batchPrefix').value = '';
   document.getElementById('batchYm').value = '';
   document.getElementById('batchSuffix').value = '';
   document.getElementById('snBatchModal').classList.add('open');
@@ -757,18 +792,17 @@ function closeSnBatchModal() {
 function applySnBatch() {
   const selected = Array.from(document.querySelectorAll('.unit-select:checked')).map(cb => +cb.dataset.unit);
   if (selected.length === 0) { alert('먼저 적용할 행을 선택해줘(체크박스 드래그로 여러 개 선택 가능).'); return; }
-  const prefix = document.getElementById('batchPrefix').value;
   const ym = document.getElementById('batchYm').value;
   const suffix = document.getElementById('batchSuffix').value.trim();
-  if (!prefix && !ym && !suffix) { alert('적용할 값을 하나 이상 입력해줘.'); return; }
+  if (!ym && !suffix) { alert('적용할 값을 하나 이상 입력해줘.'); return; }
   selected.forEach(u => {
-    if (prefix) {
-      const el = document.querySelector(`.sn-prefix[data-unit="${u}"]`);
-      if (el) el.value = prefix;
-    }
     if (ym) {
       const el = document.querySelector(`.sn-ym[data-unit="${u}"]`);
-      if (el) el.value = ym;
+      if (el) {
+        el.value = ym;
+        const label = document.getElementById('ym-label-' + u);
+        if (label) label.textContent = ymShort(ym) || '월';
+      }
     }
     if (suffix) {
       const el = document.querySelector(`.sn-suf[data-unit="${u}"]`);
@@ -791,29 +825,44 @@ function applySnBatch() {
   document.addEventListener('touchend', () => { dragging = false; });
 })();
 
-/* 이벤트 */
+/* 숫자(소수점 포함) 외 문자는 입력 즉시 걸러낸다(항목5) — 제품번호(S/N) 서브필드는 대상 아님. */
+function sanitizeNumericInput(el) {
+  let v = el.value;
+  let cleaned = v.replace(/[^0-9.\-]/g, '');
+  cleaned = cleaned.replace(/(?!^)-/g, '');
+  const dot = cleaned.indexOf('.');
+  if (dot !== -1) cleaned = cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, '');
+  if (cleaned !== v) el.value = cleaned;
+}
+
+/* 이벤트 — O/X 항목은 select라 change로도 값이 확정돼 별도 정규화가 필요없다(항목4). */
 document.querySelectorAll('.c-val, .c-pair').forEach(inp => {
-  inp.addEventListener('input', () => {
+  const ev = inp.tagName === 'SELECT' ? 'change' : 'input';
+  inp.addEventListener(ev, () => {
+    if (inp.dataset.type === 'num' || inp.dataset.type === 'num_pair') sanitizeNumericInput(inp);
     updateRowResult(+inp.dataset.unit);
     markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
   });
-  if (inp.dataset.type === 'pf') {
-    inp.addEventListener('change', () => {
-      const map = {o:'○',O:'○','0':'○',ok:'○',OK:'○',
-                   x:'×',X:'×',ng:'×',NG:'×','불합격':'×'};
-      const v = inp.value.trim();
-      if (map[v] !== undefined) inp.value = map[v];
-      updateRowResult(+inp.dataset.unit);
-      markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
-    });
-  }
 });
-document.querySelectorAll('.sn-prefix, .sn-ym, .sn-mid, .sn-suf').forEach(inp => {
-  const ev = (inp.tagName === 'SELECT' || inp.type === 'month') ? 'change' : 'input';
-  inp.addEventListener(ev, () => markDirty(+inp.dataset.unit, 'serial_no', serialFor(+inp.dataset.unit)));
+document.querySelectorAll('.sn-mid, .sn-suf').forEach(inp => {
+  inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'serial_no', serialFor(+inp.dataset.unit)));
 });
-document.querySelectorAll('.c-gauge').forEach(inp => {
-  inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'gauge_name', inp.value));
+/* 생산년월 — 숨겨진 native month input, 달력 버튼으로 열고 선택 결과를 YYMM 라벨로 보여준다(항목2). */
+document.querySelectorAll('.sn-ym').forEach(inp => {
+  inp.addEventListener('change', () => {
+    const label = document.getElementById('ym-label-' + inp.dataset.unit);
+    if (label) label.textContent = ymShort(inp.value) || '월';
+    markDirty(+inp.dataset.unit, 'serial_no', serialFor(+inp.dataset.unit));
+  });
+});
+document.querySelectorAll('.ym-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    const inp = document.querySelector(`.sn-ym[data-unit="${btn.dataset.unit}"]`);
+    if (!inp || inp.disabled) return;
+    if (inp.showPicker) { try { inp.showPicker(); return; } catch (e) {} }
+    inp.focus();
+  });
 });
 document.querySelectorAll('.c-remark').forEach(inp => {
   inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'remark', inp.value));
@@ -821,63 +870,69 @@ document.querySelectorAll('.c-remark').forEach(inp => {
 const dateInp = document.getElementById('inspect-date');
 if (dateInp) dateInp.addEventListener('change', scheduleSave);
 
-/* D패드: 화살표로 셀 이동 (row × col 그리드) */
-const CELLS = {};   // key: `${row}|${col}` → [input, input?] (pair는 2개)
-document.querySelectorAll('.cell-input').forEach(inp => {
-  const r = inp.dataset.row, c = inp.dataset.col;
-  if (r === undefined || c === undefined) return;
-  const key = r + '|' + c;
-  (CELLS[key] = CELLS[key] || []).push(inp);
-});
-function focusCell(row, col, sideHint) {
-  const key = row + '|' + col;
-  const list = CELLS[key];
-  if (!list || !list.length) return false;
-  let target = list[0];
-  if (sideHint && list.length > 1) {
-    const found = list.find(el => el.dataset.side === sideHint);
-    if (found) target = found;
-  }
-  target.focus();
-  target.select();
-  return true;
-}
-document.querySelectorAll('.cell-input').forEach(inp => {
-  inp.addEventListener('keydown', e => {
-    const r = +inp.dataset.row, c = +inp.dataset.col;
-    if (isNaN(r) || isNaN(c)) return;
-    const side = inp.dataset.side || '';
-    let handled = false;
-    if (e.key === 'ArrowDown' || e.key === 'Enter') {
-      handled = focusCell(r + 1, c, side);
-    } else if (e.key === 'ArrowUp') {
-      handled = focusCell(r - 1, c, side);
-    } else if (e.key === 'ArrowLeft') {
-      if (inp.selectionStart === 0 && inp.selectionEnd === 0) {
-        if (side === 'rod') {
-          const ct = document.querySelector(
-            `.c-pair[data-row="${r}"][data-col="${c}"][data-side="ct"]`);
-          if (ct) { ct.focus(); ct.select(); handled = true; }
-        } else {
-          handled = focusCell(r, c - 1);
-        }
-      }
-    } else if (e.key === 'ArrowRight') {
-      if (inp.selectionStart === inp.value.length && inp.selectionEnd === inp.value.length) {
-        if (side === 'ct') {
-          const rod = document.querySelector(
-            `.c-pair[data-row="${r}"][data-col="${c}"][data-side="rod"]`);
-          if (rod) { rod.focus(); rod.select(); handled = true; }
-        } else {
-          handled = focusCell(r, c + 1);
-        }
-      }
-    } else if (e.key === 'Tab' && !e.shiftKey) {
-      return;
-    }
-    if (handled) e.preventDefault();
+/* D패드: 화살표로 셀 이동 (row × col 그리드). 측정값 그리드는 data-row/data-col,
+   제품번호(S/N) 5자리/접미사는 별도 네임스페이스 data-sn-row/data-sn-col을 써서
+   같은 좌표계를 공유하지 않는다(항목3 — 렌더링 겹침 자체는 실측 결과 입력칸 기본폭이
+   부모 flex 아이템 폭 계산에 새어나온 CSS 문제였지만, 두 그리드가 같은 속성 이름을
+   쓰는 건 실수 소지가 크니 이번 기회에 분리한다). */
+function wireDpad(inputs, rowAttr, colAttr) {
+  const CELLS = {};   // key: `${row}|${col}` → [input, input?] (pair는 2개)
+  inputs.forEach(inp => {
+    const r = inp.dataset[rowAttr], c = inp.dataset[colAttr];
+    if (r === undefined || c === undefined) return;
+    (CELLS[r + '|' + c] = CELLS[r + '|' + c] || []).push(inp);
   });
-});
+  function focusCell(row, col, sideHint) {
+    const list = CELLS[row + '|' + col];
+    if (!list || !list.length) return false;
+    let target = list[0];
+    if (sideHint && list.length > 1) {
+      const found = list.find(el => el.dataset.side === sideHint);
+      if (found) target = found;
+    }
+    target.focus();
+    if (target.select) target.select();
+    return true;
+  }
+  inputs.forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      const r = +inp.dataset[rowAttr], c = +inp.dataset[colAttr];
+      if (isNaN(r) || isNaN(c)) return;
+      const side = inp.dataset.side || '';
+      let handled = false;
+      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+        handled = focusCell(r + 1, c, side);
+      } else if (e.key === 'ArrowUp') {
+        handled = focusCell(r - 1, c, side);
+      } else if (e.key === 'ArrowLeft') {
+        if (inp.selectionStart === 0 && inp.selectionEnd === 0) {
+          if (side === 'rod') {
+            const ct = document.querySelector(
+              `.c-pair[data-row="${r}"][data-col="${c}"][data-side="ct"]`);
+            if (ct) { ct.focus(); ct.select(); handled = true; }
+          } else {
+            handled = focusCell(r, c - 1);
+          }
+        }
+      } else if (e.key === 'ArrowRight') {
+        if (inp.selectionStart === inp.value.length && inp.selectionEnd === inp.value.length) {
+          if (side === 'ct') {
+            const rod = document.querySelector(
+              `.c-pair[data-row="${r}"][data-col="${c}"][data-side="rod"]`);
+            if (rod) { rod.focus(); rod.select(); handled = true; }
+          } else {
+            handled = focusCell(r, c + 1);
+          }
+        }
+      } else if (e.key === 'Tab' && !e.shiftKey) {
+        return;
+      }
+      if (handled) e.preventDefault();
+    });
+  });
+}
+wireDpad(Array.from(document.querySelectorAll('.cell-input')), 'row', 'col');
+wireDpad(Array.from(document.querySelectorAll('.sn-mid, .sn-suf')), 'snRow', 'snCol');
 
 /* 초기 집계 */
 document.querySelectorAll('#fi-table tbody tr').forEach(tr => {

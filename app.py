@@ -5272,11 +5272,14 @@ def _load_full_inspect_context(header):
     stage1_sample_qty = sample_size(1.5, qty) or qty if is_housing else None
     # 심화검사(PD/충격) 저장 건수 — 유닛마다 배지로 보여줌(4단계 신규, 1회 쿼리로 전부 계산)
     deep_counts = db.count_housing_deep_inspections_by_unit(fi["id"]) if is_housing else {}
+    # 제품번호 접두어(X/E)는 전압분류로 고정된다(2026-09-27 실사용 피드백) — 검사자가
+    # 고를 수 없게 하고 화면엔 표시만 한다. 15KV=X, 27KV/38KV=E는 사용자가 확정한 사실.
+    sn_prefix = _HOUSING_SN_PREFIX.get(_housing_voltage(header["material_name"]), "") if is_housing else ""
     return {
         "header": dict(header), "fi": fi, "rows": rows, "columns": columns,
         "config": config, "qty": qty, "stage_cols": stage_cols,
         "stage1_sample_qty": stage1_sample_qty, "is_housing": is_housing,
-        "deep_counts": deep_counts,
+        "deep_counts": deep_counts, "sn_prefix": sn_prefix,
     }
 
 
@@ -5514,6 +5517,11 @@ def _housing_voltage(material_name):
     이름 패턴만 맞으면 자동 분류된다."""
     m = _HOUSING_VOLTAGE_RE.match(material_name or "")
     return f"{m.group(1)}KV" if m else "기타"
+
+
+# 제품번호(S/N) 접두어 — 15KV=X, 27KV/38KV=E는 사용자가 확정한 사실(2026-09-27).
+# 자재가 더 늘어나면 여기 한 줄만 추가하면 된다.
+_HOUSING_SN_PREFIX = {"15KV": "X", "27KV": "E", "38KV": "E"}
 
 
 def _housing_all_voltages():
