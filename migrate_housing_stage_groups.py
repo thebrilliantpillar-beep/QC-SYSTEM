@@ -22,6 +22,7 @@ stage_group이 1/2/3이 아니면 그 항목을 조용히 건너뛰도록 이미
 STAGE_MAP에 'M': 2(또는 맞는 차수)를 다시 추가하고 재실행하면 끝 — 코드 변경 불필요.
 """
 import sys, io, sqlite3
+import database as db
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -37,7 +38,9 @@ STAGE_MAP = {
 # 명시적으로 NULL 처리한다(STAGE_MAP에서 그냥 빼기만 하면 기존 값이 안 지워짐).
 DISABLE_ITEMS = {'M'}
 
-conn = sqlite3.connect('iqc.db')
+# db.DB_PATH = DATA_DIR(영구디스크)/iqc.db — 상대경로 'iqc.db'는 실행 위치(예: /app)의
+# 빈 파일을 봐서 "no such table" 에러가 나는 실제 있었던 사고. 항상 이 경로를 써야 한다.
+conn = sqlite3.connect(db.DB_PATH)
 conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 

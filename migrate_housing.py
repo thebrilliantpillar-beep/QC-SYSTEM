@@ -6,12 +6,15 @@
 - full_inspect_config 활성화
 """
 import sys, io, sqlite3, json
+import database as db
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 HOUSING = ['602013P015', '604013P000', '608013P011']
 
-conn = sqlite3.connect('iqc.db')
+# db.DB_PATH = DATA_DIR(영구디스크)/iqc.db — 상대경로 'iqc.db'는 실행 위치(예: /app)의
+# 빈 파일을 봐서 "no such table" 에러가 나는 실제 있었던 사고. 항상 이 경로를 써야 한다.
+conn = sqlite3.connect(db.DB_PATH)
 conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 
