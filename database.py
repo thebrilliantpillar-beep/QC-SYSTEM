@@ -153,6 +153,21 @@ def get_conn():
     return conn
 
 
+def _safe_add_column(cur, alter_sql):
+    """ALTER TABLE ADD COLUMN 실행 — "컬럼 없으면 추가" 가드(existing_cols 체크)를
+    통과했더라도, gunicorn이 워커 여러 개를 동시에 띄우면 각 워커가 독립 프로세스로
+    똑같이 init_db()를 실행해서 두 워커가 거의 동시에 같은 컬럼을 추가하려는 경합이
+    생길 수 있다(2026-09-26 실제 프로덕션 장애 — 한 워커는 성공, 다른 워커는
+    "duplicate column name"으로 실패해서 부팅 자체가 안 됨). SQLite는 ADD COLUMN에
+    IF NOT EXISTS 문법이 없어서, existing_cols 체크만으론 이 레이스를 못 막는다 —
+    실제 실행 시점에 "이미 있다"는 에러만 무시하면 두 워커 다 안전하게 통과한다."""
+    try:
+        cur.execute(alter_sql)
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+
 def init_db():
     """테이블이 없으면 생성. 있으면 그대로 둠(재실행 안전)."""
     conn = get_conn()
@@ -245,7 +260,7 @@ def init_db():
     if "stage_group" not in existing_specs_cols:
         # 하우징 성적서 프로젝트 2단계(2026-09-26): 1차/2차/3차 분류. NULL=하우징 무관
         # (일반 자재는 전부 NULL로 남는다), 1/2/3=하우징 항목이 속한 차수.
-        cur.execute("ALTER TABLE specs ADD COLUMN stage_group INTEGER DEFAULT NULL")
+        _safe_add_column(cur, "ALTER TABLE specs ADD COLUMN stage_group INTEGER DEFAULT NULL")
 
     # 기존 specs 테이블에만 있던 자재들을 materials 테이블로 1회 백필 (재실행 안전 — INSERT OR IGNORE)
     cur.execute("""
@@ -941,12 +956,12 @@ def init_db():
     existing_fi_hdr_cols = [row[1] for row in cur.execute("PRAGMA table_info(full_inspections)").fetchall()]
     for col in ("stage1_remark", "stage2_remark", "stage3_remark"):
         if col not in existing_fi_hdr_cols:
-            cur.execute(f"ALTER TABLE full_inspections ADD COLUMN {col} TEXT DEFAULT ''")
+            _safe_add_column(cur, f"ALTER TABLE full_inspections ADD COLUMN {col} TEXT DEFAULT ''")
     for col in ("stage1_started_at", "stage1_completed_at",
                 "stage2_started_at", "stage2_completed_at",
                 "stage3_started_at", "stage3_completed_at"):
         if col not in existing_fi_hdr_cols:
-            cur.execute(f"ALTER TABLE full_inspections ADD COLUMN {col} TEXT")
+            _safe_add_column(cur, f"ALTER TABLE full_inspections ADD COLUMN {col} TEXT")
 
     # 칸을 저장할 때마다 그 사용자를 이 성적서를 건드린 사람 집합에 자동 추가(누적, 삭제 없음)
     # — inspection_progress(일회성 프레즌스 추적, 제출 시 삭제됨)와 목적이 다르다.
