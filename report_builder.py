@@ -744,15 +744,22 @@ def _to_pdf(xlsx_path, out_dir):
     return None, f"PDF 변환 실패: {detail}"
 
 
-# ---------- 하우징(15/27/38KV) 전용 정식 성적서 (2026-09-26 4단계) ----------
+# ---------- 하우징(15/27/38KV) 전용 정식 성적서 (2026-09-26 4단계, 2026-09-27 원본 양식 재작성) ----------
 # 기존 build_report()/build_group_report()는 1행=검사항목/열=측정값 구조라 template_form.xlsx를
 # 복사해서 채우는 방식인데, 하우징 성적서는 1행=제품유닛(순번)/열=검사항목으로 완전히
 # 뒤집혀 있고 항목 개수·전압분류마다 열 개수도 달라서(PROGRESS.md 2026-09-25/26 설계 확정)
 # 고정 템플릿 파일이 안 맞는다 — openpyxl로 워크북을 처음부터 구성한다.
+# 2026-09-27: 실제 발행된 원본 성적서(15KV, 갑/을I/을II 3시트)를 직접 열어 구조를 확인하고
+# 그대로 재작성했다 — 정보블록 필드 종류, 항목표 3단 계층(기본검사·충격/PD·판정 → 치수·외관·
+# 기능 → 개별 항목), 제품번호 3구간 분할, 계측기/차기검교정예정일/비고 행까지 포함.
+# 모든 시트(갑/을I/을II...)가 전체 헤더(정보블록+항목표 헤더)를 동일하게 반복한다(원본 실물
+# 파일 확인 — 을지가 헤더를 생략하지 않는다).
 
 HOUSING_UNITS_PER_SHEET = 35  # 순번 35개마다 시트 분할: 1~35=갑지, 36~70=을지_1, ...
-_HOUSING_STAGE_LABELS = {1: "1차 치수검사", 2: "2차 기능검사", 3: "3차 절연내력시험"}
-_HOUSING_ITEM_COL_START = 3   # A=순번, B=제품번호(S/N), C부터 검사항목
+_HOUSING_ITEM_COL_START = 10   # 원본 양식 그대로: A=순번, B~I(8칸)=제품번호(3구간분할), J부터 검사항목
+_HOUSING_SN_SEC1 = (2, 4)   # B:D — 접두어+생산년월 (예: "X-2609")
+_HOUSING_SN_SEC2 = (5, 7)   # E:G — 5자리 일련번호
+_HOUSING_SN_SEC3 = (8, 9)   # H:I — 접미사
 
 
 def _housing_col_defs(columns):
@@ -808,110 +815,237 @@ def _housing_cell_value(col, unit_values):
     return val, False
 
 
-def _fill_housing_sheet(ws, material_no, product_name, voltage, header, phys_cols, units,
-                        stage_times, editors, overall, approval_type,
-                        is_first_sheet, approver=None, signature_path=None):
-    """시트 하나(갑지 또는 을지_N)를 채운다. 을지는 상단 정보블록(업체/자재번호/소요시간 등)을
-    생략하고 표만 반복한다(정확히 원본과 안 맞아도 되나 일관되게, 4단계 설계 지시 참고)."""
-    verdict_col = _HOUSING_ITEM_COL_START + len(phys_cols)
+def _housing_sheet_label(i):
+    """시트 인덱스(0=갑지)에 대응하는 제목 접미사: '갑'/'을 I'/'을 II'/...
+    (10개 넘어가면 로마자 대신 아라비아 숫자로 — 그런 규모는 실사용에 안 나오지만 안전망)."""
+    if i == 0:
+        return "갑"
+    roman = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+    idx = i - 1
+    suffix = roman[idx] if idx < len(roman) else str(idx + 1)
+    return f"을 {suffix}"
 
-    # 로고(높이 1.1cm)가 약 3행(기본 행높이 15pt) 폭을 차지하므로, 1~3행은 텍스트 없이
-    # 로고 전용으로 비워두고 제목·정보는 4행부터 시작한다 — 안 그러면 로고 이미지가
-    # 제목 텍스트 위에 그대로 겹쳐 보인다(2026-09-26 실렌더링에서 실제로 겹침 확인).
-    _insert_logo(ws, height_cm=STD_LOGO_HEIGHT_CM)  # 좁은 열이 많은 표라 기준서용 축소 로고 재사용
+
+def _housing_date_kr(date_str):
+    """'2026-08-23' -> '2026년 8월 23일'. 형식이 다르거나 없으면 원문(또는 '-')을 그대로."""
+    if not date_str:
+        return "-"
+    try:
+        d = date.fromisoformat(str(date_str)[:10])
+        return f"{d.year}년 {d.month}월 {d.day}일"
+    except ValueError:
+        return str(date_str)
+
+
+def _housing_write_grouped_row(ws, row, phys_cols, key_fn, col_start):
+    """phys_cols를 key_fn(i, col) 결과가 같은 연속 구간끼리 묶어 한 행에 병합 표시한다.
+    key_fn이 None을 돌려주면 그 칸은 건너뛴다(그룹 라벨 없이 비워둠)."""
+    i, n = 0, len(phys_cols)
+    while i < n:
+        key = key_fn(i, phys_cols[i])
+        if key is None:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and key_fn(j + 1, phys_cols[j + 1]) == key:
+            j += 1
+        start_c, end_c = col_start + i, col_start + j
+        if end_c > start_c:
+            ws.merge_cells(start_row=row, start_column=start_c, end_row=row, end_column=end_c)
+        ws.cell(row=row, column=start_c, value=key)
+        i = j + 1
+
+
+def _fill_housing_sheet(ws, material_no, product_name, header, phys_cols, units,
+                        per_cycle_label, total_time_label, editors, overall, approval_type,
+                        sheet_label, stage1_sample_qty=None, approver=None,
+                        signature_path=None, remarks=None):
+    """시트 하나(갑지/을지_N)를 원본 성적서 양식(2026-09-27, 실물 파일 확인) 그대로 채운다.
+    모든 시트가 전체 헤더(정보블록+항목표 헤더)를 동일하게 반복한다."""
+    verdict_col = _HOUSING_ITEM_COL_START + len(phys_cols)
+    right_width = max(verdict_col, 4)
+
+    # 로고(높이 1.1cm)가 약 3행을 차지하므로 1~3행은 로고 전용으로 비워두고 제목은 4행부터
+    # 시작한다 — 안 그러면 로고 이미지가 제목 텍스트 위에 겹쳐 보인다(2026-09-26 확인).
+    _insert_logo(ws, height_cm=STD_LOGO_HEIGHT_CM)
 
     title_font = Font(name="맑은 고딕", size=14, bold=True)
-    ws["A4"] = "샤든 그룹 입고 자재 검사 성적서" + ("" if is_first_sheet else " (계속)")
-    ws["A4"].font = title_font
-    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=min(4, max(verdict_col, 4)))
+    title_cell = ws.cell(row=4, column=1, value=f"샤든 그룹\n입고 자재 검사 성적서 ({sheet_label})")
+    title_cell.font = title_font
+    title_cell.alignment = Alignment(wrap_text=True, vertical="center")
+    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=right_width)
+    ws.row_dimensions[4].height = 30
 
     info_font = Font(name="맑은 고딕", size=10)
+    ROW_DATE, ROW_INFO1, ROW_INFO2, ROW_INFO3, ROW_INFO4 = 5, 6, 7, 8, 9
+    ROW_BANNER, ROW_GROUP, ROW_SUB, ROW_ITEM1, ROW_ITEM2, ROW_QTY = 10, 11, 12, 13, 14, 15
+    DATA_ROW0 = 16
 
-    def _info(row, label, value):
-        """label：value를 그 행 전체(1~6열)에 병합한 셀 하나에 적는다. 필드 2~3개를 한 행에
-        나눠 넣어봤더니(좁은 병합 폭끼리 인접) LibreOffice PDF 변환 시 겹침 방지(overflow
-        억제)가 제대로 안 먹고 글자가 옆 칸으로 번져 보였다(2026-09-26 실렌더링에서 확인) —
-        안전하게 필드 하나당 행 하나, 넓게 병합해서 쓴다."""
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-        cell = ws.cell(row=row, column=1,
-                       value=f"{label} ：{value if value not in (None, '') else '-'}")
+    def _left(row, col_end, text):
+        """label：value 한 줄을 그 행의 1~col_end열 병합 셀 하나에 적는다."""
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=col_end)
+        cell = ws.cell(row=row, column=1, value=text)
         cell.font = info_font
+        return cell
 
-    if is_first_sheet:
-        _info(5, "검사 날짜", header.get("inspect_date"))
-        _info(6, "전압분류", voltage)
-        _info(7, "품명 및 규격", product_name)
-        _info(8, "자재번호", material_no)
-        _info(9, "로트 번호", header.get("po_no"))
-        _info(10, "납품 업체", header.get("vendor"))
-        _info(11, "입고 수량", f"{header.get('quantity') or 0}개" if header.get("quantity") else None)
-        _info(12, "검사자", ", ".join(editors) if editors else None)
-        st = stage_times or {}
-        _info(13, "1차(치수) 소요시간", st.get("stage1"))
-        _info(14, "2차(기능) 소요시간", st.get("stage2"))
-        _info(15, "3차(절연) 소요시간", st.get("stage3"))
-        table_top = 17
-    else:
-        table_top = 6
+    _left(ROW_DATE, 12, f"검사 날짜 :  {_housing_date_kr(header.get('inspect_date'))}")
+    _left(ROW_INFO1, 12, f"품명 및 규격 : {product_name}")
+    lot_cell = _left(ROW_INFO2, 12, f"로트번호： {header.get('po_no') or '-'}")
+    # 로트번호는 발주번호가 여러 개 이어 붙어 매우 길어질 수 있다(예: "20260918-04 / 20260902-01")
+    # — wrap_text+행높이 자동증가로 옆/아래 칸과 안 겹치게 한다(2026-09-26 겹침 확인 사고 재발 방지).
+    lot_cell.alignment = Alignment(wrap_text=True, vertical="center")
+    _grow_row_for_text(ws, ROW_INFO2, lot_cell.value, base_height=18, chars_per_line=40)
+    _left(ROW_INFO3, 12, f"납품 업체 : {header.get('vendor') or '-'}")
 
-    # ── 표 헤더 (1행: 1차/2차/3차 그룹 라벨 병합, 2행: 항목명+규격범위) ──
-    group_row, header_row = table_top, table_top + 1
-    ws.merge_cells(start_row=group_row, start_column=1, end_row=header_row, end_column=1)
-    ws.cell(row=group_row, column=1, value="순번")
-    ws.merge_cells(start_row=group_row, start_column=2, end_row=header_row, end_column=2)
-    ws.cell(row=group_row, column=2, value="제품번호(S/N)")
-    ws.merge_cells(start_row=group_row, start_column=verdict_col, end_row=header_row, end_column=verdict_col)
-    ws.cell(row=group_row, column=verdict_col, value="판정")
+    ws.merge_cells(start_row=ROW_INFO4, start_column=1, end_row=ROW_INFO4, end_column=3)
+    ws.cell(row=ROW_INFO4, column=1, value="입고 날짜 : ").font = info_font
+    ws.merge_cells(start_row=ROW_INFO4, start_column=4, end_row=ROW_INFO4, end_column=8)
+    ws.cell(row=ROW_INFO4, column=4, value=_housing_date_kr(header.get("receive_date"))).font = info_font
+    ws.merge_cells(start_row=ROW_INFO4, start_column=9, end_row=ROW_INFO4, end_column=12)
+    qty = header.get("quantity")
+    ws.cell(row=ROW_INFO4, column=9, value=f"{qty}개" if qty else "-").font = info_font
 
-    c_idx = _HOUSING_ITEM_COL_START
-    while c_idx <= verdict_col - 1:
-        stage = phys_cols[c_idx - _HOUSING_ITEM_COL_START].get("stage")
-        span_start = c_idx
-        while (c_idx < verdict_col - 1 and
-               phys_cols[c_idx + 1 - _HOUSING_ITEM_COL_START].get("stage") == stage):
-            c_idx += 1
-        if span_start == c_idx:
-            ws.cell(row=group_row, column=span_start, value=_HOUSING_STAGE_LABELS.get(stage, ""))
-        else:
-            ws.merge_cells(start_row=group_row, start_column=span_start, end_row=group_row, end_column=c_idx)
-            ws.cell(row=group_row, column=span_start, value=_HOUSING_STAGE_LABELS.get(stage, ""))
-        c_idx += 1
+    # 자재번호(우측, 정보1~2행 병합) / 개당·총 측정시간
+    ws.merge_cells(start_row=ROW_INFO1, start_column=16, end_row=ROW_INFO2, end_column=right_width)
+    ws.cell(row=ROW_INFO1, column=16, value=f"자재번호 : {material_no}").font = info_font
+    ws.merge_cells(start_row=ROW_INFO3, start_column=16, end_row=ROW_INFO3, end_column=right_width)
+    ws.cell(row=ROW_INFO3, column=16, value=f"개당 측정 시간 : {per_cycle_label or '-'}").font = info_font
+    ws.merge_cells(start_row=ROW_INFO4, start_column=16, end_row=ROW_INFO4, end_column=right_width)
+    ws.cell(row=ROW_INFO4, column=16, value=f"총 측정 시간 : {total_time_label or '-'}").font = info_font
 
-    # 실제 하우징 규격 문구(spec_display)는 "110kV/1.2X50㎲/각3회파두장±3%(0.84~1.56)..."
-    # 처럼 매우 길 수 있다(2026-09-26 실제 DB 값으로 렌더링해보고 확인) — 고정 행높이로는
-    # 위아래 헤더가 겹쳐 보이므로, 가장 긴 헤더 텍스트에 맞춰 행 높이를 동적으로 늘린다
-    # (_estimate_wrapped_lines는 build_report()의 AQL 칸 행높이 계산과 같은 헬퍼 재사용).
-    header_font_size = 9
-    max_lines = 1
-    for i, col in enumerate(phys_cols):
+    # 검사방식 미니 범례 — 하우징 검사 스킴 자체가 고정값(외관/치수/기능 3종, AQL·전수 여부도
+    # 항상 동일)이라 자재별로 동적으로 계산하지 않고 하드코딩한다(사용자 확정 구조).
+    legend_font = Font(name="맑은 고딕", size=9)
+    legend_align = Alignment(horizontal="center", vertical="center")
+    for r, a, b, c in (
+        (ROW_INFO1, "검사항목", "검사방식", "검사조건"),
+        (ROW_INFO2, "외관", "AQL", "전수"),
+        (ROW_INFO3, "치수", "Check", 1.5),
+        (ROW_INFO4, "기능", "AQL", "전수"),
+    ):
+        for col, val in ((13, a), (14, b), (15, c)):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.font = legend_font
+            cell.alignment = legend_align
+
+    # ── 항목표 헤더 ──
+    def _band(row, start_c, end_c, value):
+        if end_c > start_c:
+            ws.merge_cells(start_row=row, start_column=start_c, end_row=row, end_column=end_c)
+        return ws.cell(row=row, column=start_c, value=value)
+
+    ws.merge_cells(start_row=ROW_BANNER, start_column=1, end_row=ROW_QTY, end_column=1)
+    ws.cell(row=ROW_BANNER, column=1, value="순번")
+    ws.merge_cells(start_row=ROW_BANNER, start_column=2, end_row=ROW_QTY, end_column=9)
+    ws.cell(row=ROW_BANNER, column=2, value="제품 번호")
+    _band(ROW_BANNER, _HOUSING_ITEM_COL_START, verdict_col - 1, "검사항목")
+    ws.merge_cells(start_row=ROW_BANNER, start_column=verdict_col, end_row=ROW_QTY, end_column=verdict_col)
+    ws.cell(row=ROW_BANNER, column=verdict_col, value="판정")
+
+    # 1단계 그룹(기본검사=치수+기능 / 충격·PD) → 2단계 하위그룹(치수/외관/기능)
+    _housing_write_grouped_row(
+        ws, ROW_GROUP, phys_cols,
+        lambda i, col: "기본검사" if col["stage"] in (1, 2) else "충격 / PD",
+        _HOUSING_ITEM_COL_START,
+    )
+    first_stage2_idx = next((i for i, c in enumerate(phys_cols) if c["stage"] == 2), None)
+
+    def _sub_key(i, col):
+        if col["stage"] == 1:
+            return "치수"
+        if col["stage"] == 2:
+            return "외관" if i == first_stage2_idx else "기능"
+        return None
+    _housing_write_grouped_row(ws, ROW_SUB, phys_cols, _sub_key, _HOUSING_ITEM_COL_START)
+
+    # 개별 항목 헤더 — num_pair(고저항값 CT/ROD처럼 값이 2개인 항목)는 공통 라벨을 1행
+    # 병합으로 두고 2행에 CT SIDE/ROD SIDE를 나누어 적는다(원본 R11:S11+R12/S12 구조).
+    # 나머지 항목은 2행(ROW_ITEM1:ROW_ITEM2)을 세로 병합해 긴 규격문구도 감당한다.
+    lines_normal_max, lines_pair_max = 1, 1
+    i = 0
+    while i < len(phys_cols):
+        col = phys_cols[i]
+        c = _HOUSING_ITEM_COL_START + i
+        if col.get("type") == "num_pair" and col.get("side") == "ct":
+            label = _housing_header_text({**col, "sub_label": None})
+            ws.merge_cells(start_row=ROW_ITEM1, start_column=c, end_row=ROW_ITEM1, end_column=c + 1)
+            ws.cell(row=ROW_ITEM1, column=c, value=label)
+            ws.cell(row=ROW_ITEM2, column=c, value="CT SIDE")
+            ws.cell(row=ROW_ITEM2, column=c + 1, value="ROD SIDE")
+            lines_pair_max = max(lines_pair_max, _estimate_wrapped_lines(label, chars_per_line=6))
+            i += 2
+            continue
         text = _housing_header_text(col)
-        ws.cell(row=header_row, column=_HOUSING_ITEM_COL_START + i, value=text)
-        max_lines = max(max_lines, _estimate_wrapped_lines(text, chars_per_line=9))
-    header_row_height = max(40, max_lines * (header_font_size + 5) + 10)
+        ws.merge_cells(start_row=ROW_ITEM1, start_column=c, end_row=ROW_ITEM2, end_column=c)
+        ws.cell(row=ROW_ITEM1, column=c, value=text)
+        # chars_per_line=6 — 항목 열 폭(13)에 실제 규격문구(숫자·기호·한글 혼합)가 wrap_text로
+        # 줄바꿈되는 실측 결과 기준(2026-09-27, "충격파 내전압..." 항목으로 렌더링 후 확인) —
+        # 9로 두면 과소추정돼 헤더 텍스트가 항목표 본문 행까지 넘쳐 보였다.
+        lines_normal_max = max(lines_normal_max, _estimate_wrapped_lines(text, chars_per_line=6))
+        i += 1
 
-    header_font = Font(name="맑은 고딕", size=header_font_size, bold=True, color="FFFFFFFF")
+    header_font = Font(name="맑은 고딕", size=9, bold=True, color="FFFFFFFF")
     header_fill = PatternFill(fill_type="solid", start_color="FF2B3140", end_color="FF2B3140")
     header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for r in (group_row, header_row):
+    for r in (ROW_BANNER, ROW_GROUP, ROW_SUB, ROW_ITEM1, ROW_ITEM2):
         for c in range(1, verdict_col + 1):
             cell = ws.cell(row=r, column=c)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_align
-    ws.row_dimensions[group_row].height = 20
-    ws.row_dimensions[header_row].height = header_row_height
+
+    # 실제 하우징 규격 문구(spec_display)는 매우 길 수 있어(2026-09-26 실제 DB 값으로 확인)
+    # 고정 행높이로는 잘려 보이므로 가장 긴 헤더 텍스트에 맞춰 두 항목행의 높이를 늘린다.
+    # num_pair는 1행에만 들어가므로 그 행이 최소한 pair 라벨만큼은 확보해야 한다.
+    need_total = max(40, lines_normal_max * (9 + 5) + 10)
+    need_row1_pair = max(24, lines_pair_max * (9 + 5) + 6)
+    row1_h = max(need_row1_pair, need_total - 24)
+    row2_h = max(24, need_total - row1_h)
+    ws.row_dimensions[ROW_BANNER].height = 20
+    ws.row_dimensions[ROW_GROUP].height = 20
+    ws.row_dimensions[ROW_SUB].height = 20
+    ws.row_dimensions[ROW_ITEM1].height = row1_h
+    ws.row_dimensions[ROW_ITEM2].height = row2_h
+
+    # ── 검사 수량 안내(치수=AQL 샘플수량 / 나머지=전수) ──
+    stage1_end_idx = -1
+    for i, c in enumerate(phys_cols):
+        if c["stage"] == 1:
+            stage1_end_idx = i
+    if stage1_end_idx >= 0:
+        _band(ROW_QTY, _HOUSING_ITEM_COL_START, _HOUSING_ITEM_COL_START + stage1_end_idx,
+             stage1_sample_qty if stage1_sample_qty else "-")
+    rest_start = stage1_end_idx + 1
+    if rest_start < len(phys_cols):
+        _band(ROW_QTY, _HOUSING_ITEM_COL_START + rest_start, verdict_col - 1, "검사  수량 : 전수")
+    qty_font = Font(name="맑은 고딕", size=9)
+    qty_align = Alignment(horizontal="center", vertical="center")
+    for c in range(_HOUSING_ITEM_COL_START, verdict_col + 1):
+        ws.cell(row=ROW_QTY, column=c).font = qty_font
+        ws.cell(row=ROW_QTY, column=c).alignment = qty_align
 
     ws.column_dimensions[get_column_letter(1)].width = 6
-    ws.column_dimensions[get_column_letter(2)].width = 20
+    for c in range(2, 8):
+        ws.column_dimensions[get_column_letter(c)].width = 5
+    for c in range(8, 10):
+        ws.column_dimensions[get_column_letter(c)].width = 6
     for c in range(_HOUSING_ITEM_COL_START, verdict_col + 1):
         ws.column_dimensions[get_column_letter(c)].width = 13
 
-    # ── 데이터 행 (순번=유닛 1행) ──
+    # ── 데이터 행 (순번=유닛 1행, 제품번호는 접두어+생산년월/5자리 일련번호/접미사 3구간) ──
     body_align = Alignment(horizontal="center", vertical="center")
-    row = header_row + 1
+    row = DATA_ROW0
     for u in units:
         ws.cell(row=row, column=1, value=u["unit_no"]).alignment = body_align
-        ws.cell(row=row, column=2, value=u.get("serial_no") or "").alignment = body_align
+        parts = (u.get("serial_no") or "").split()
+        sn_secs = (
+            (_HOUSING_SN_SEC1, parts[0] if len(parts) >= 1 else ""),
+            (_HOUSING_SN_SEC2, parts[1] if len(parts) >= 2 else ""),
+            (_HOUSING_SN_SEC3, " ".join(parts[2:]) if len(parts) >= 3 else ""),
+        )
+        for (s, e), val in sn_secs:
+            ws.merge_cells(start_row=row, start_column=s, end_row=row, end_column=e)
+            ws.cell(row=row, column=s, value=val).alignment = body_align
         vals = u.get("values") or {}
         for i, col in enumerate(phys_cols):
             val, out_of_spec = _housing_cell_value(col, vals)
@@ -926,6 +1060,43 @@ def _fill_housing_sheet(ws, material_no, product_name, voltage, header, phys_col
                           color="FFFF0000" if res == "NG" else ("FF0000FF" if res == "OK" else "FF6B7280"))
         row += 1
 
+    data_end = row - 1 if units else DATA_ROW0 - 1
+
+    # ── 검사 방법(계측기) / 차기 검교정 예정일 ──
+    row_method, row_gauge = data_end + 1, data_end + 2
+    label_font = Font(name="맑은 고딕", size=10, bold=True)
+    for r, label in ((row_method, "검사 방법 (계측기)"), (row_gauge, "차기 검교정 예정일")):
+        cell = _band(r, 1, _HOUSING_ITEM_COL_START - 1, label)
+        cell.font = label_font
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+    i = 0
+    while i < len(phys_cols):
+        col = phys_cols[i]
+        c = _HOUSING_ITEM_COL_START + i
+        is_pair = col.get("type") == "num_pair" and col.get("side") == "ct"
+        # 차기 검교정 예정일은 specs 테이블에 항목별 필드가 없어(2026-09-27 확인) 현재는
+        # 항상 "-"로 나간다 — col에 값이 채워지는 날이 오면 자동으로 표시되도록 폴백만 둔다.
+        method_val = col.get("inspect_method") or "-"
+        gauge_val = _format_gauge_expiry(col.get("gauge_expiry")) or "-"
+        if is_pair:
+            ws.merge_cells(start_row=row_method, start_column=c, end_row=row_method, end_column=c + 1)
+            ws.merge_cells(start_row=row_gauge, start_column=c, end_row=row_gauge, end_column=c + 1)
+        ws.cell(row=row_method, column=c, value=method_val)
+        ws.cell(row=row_gauge, column=c, value=gauge_val)
+        i += 2 if is_pair else 1
+    for r in (row_method, row_gauge):
+        for c in range(_HOUSING_ITEM_COL_START, verdict_col + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.font = Font(name="맑은 고딕", size=9)
+
+    # ── 비고 (검사자/중간관리자/부장 3색 — build_report()와 같은 헬퍼 재사용, 8-1절 원칙) ──
+    row_remark = row_gauge + 1
+    ws.merge_cells(start_row=row_remark, start_column=1, end_row=row_remark, end_column=verdict_col)
+    remark_cell = ws.cell(row=row_remark, column=1, value=_build_remark_richtext(remarks))
+    remark_cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    ws.row_dimensions[row_remark].height = 45
+
     # ── 검사 결과 스탬프(합격/불합격/특채) — build_report()의 mark 로직·색상규칙과 동일 ──
     # (CLAUDE.md 25절: 6자리 색상은 실제 엑셀에서 "복구된 레코드" 경고를 낸다 — 8자리(알파 FF)로만 지정)
     if approval_type == "special":
@@ -935,13 +1106,17 @@ def _fill_housing_sheet(ws, material_no, product_name, voltage, header, phys_col
         is_pass = overall in ("합격", "검토필요")
         mark = "■ 합격      □ 불합격      □ 특채" if is_pass else "□ 합격      ■ 불합격      □ 특채"
         mark_color = "FF0000FF" if is_pass else "FFFF0000"
-    stamp_row = row + 1
-    ws.cell(row=stamp_row, column=1, value=f"검사 결과：   {mark}")
-    ws.cell(row=stamp_row, column=1).font = Font(name="맑은 고딕", bold=True, color=mark_color)
+    row_stamp = row_remark + 1
+    ws.cell(row=row_stamp, column=1, value=f"검사 결과：   {mark}")
+    ws.cell(row=row_stamp, column=1).font = Font(name="맑은 고딕", bold=True, color=mark_color)
 
+    row_approver = row_stamp + 1
     if approver is not None:
-        approver_cell = ws.cell(row=stamp_row + 1, column=1, value=f"검토：{approver or ''}")
+        approver_cell = ws.cell(row=row_approver, column=1, value=f"검토：{approver or ''}")
         approver_cell.font = info_font
+    editor_cell = ws.cell(row=row_approver, column=_HOUSING_ITEM_COL_START,
+                          value=f"검사자 : {', '.join(editors) if editors else '-'}")
+    editor_cell.font = info_font
     if signature_path and os.path.exists(signature_path):
         try:
             img = XLImage(signature_path)
@@ -952,7 +1127,7 @@ def _fill_housing_sheet(ws, material_no, product_name, voltage, header, phys_col
             else:
                 img.width = SIGNATURE_WIDTH_PX
                 img.height = SIGNATURE_HEIGHT_PX
-            ws.add_image(img, f"C{stamp_row + 1}")
+            ws.add_image(img, f"C{row_approver}")
         except Exception:
             pass  # 서명 삽입 실패는 성적서 발행 자체를 막지 않음(다른 build_*와 동일한 관용)
 
@@ -963,24 +1138,30 @@ def _fill_housing_sheet(ws, material_no, product_name, voltage, header, phys_col
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
 
-def build_housing_report(material_no, product_name, voltage, header, columns, units,
-                          stage_times, editors, overall=None, approval_type=None,
-                          approver=None, signature_path=None):
+def build_housing_report(material_no, product_name, header, columns, units,
+                          per_cycle_label, total_time_label, editors, overall=None,
+                          approval_type=None, approver=None, signature_path=None,
+                          remarks=None, stage1_sample_qty=None):
     """
     하우징(15/27/38KV) 전용 정식 PDF 성적서. 1행=검사항목(build_report)이 아니라
     1행=유닛(제품 1개)·열=검사항목인 완전히 다른 레이아웃이라 template_form.xlsx를 복사하는
     대신 openpyxl로 워크북을 처음부터 구성한다. 순번 35개마다 새 시트로 분할한다
-    (1~35=갑지, 36~70=을지_1, 71~105=을지_2, ...).
+    (1~35=갑지, 36~70=을지_1, 71~105=을지_2, ...). 2026-09-27: 실제 원본 성적서 구조에 맞춰
+    재작성 — 모든 시트가 전체 헤더를 반복한다(is_first_sheet 분기 폐지).
 
-    header: {"vendor":..,"po_no":..,"inspect_date":..,"quantity":..}
-    columns: [{"key":..,"header":..,"type":"num"/"num_pair"/"pf","lo":..,"hi":..,"stage":1/2/3}, ...]
-             — 1차→2차→3차 순서로 이미 정렬된 리스트(app.py가 _housing_columns_by_stage로 준비)
+    header: {"vendor":..,"po_no":..,"inspect_date":..,"receive_date":..,"quantity":..}
+    columns: [{"key":..,"header":..,"type":"num"/"num_pair"/"pf","lo":..,"hi":..,"stage":1/2/3,
+              "inspect_method":..}, ...] — 1차→2차→3차 순서로 이미 정렬된 리스트
+              (app.py가 _housing_columns_by_stage로 준비)
     units: [{"unit_no":1,"serial_no":"...","values":{key:val},"result":"OK"/"NG"/""}, ...]
-    stage_times: {"stage1":"1시간 2분", "stage2":.., "stage3":..} — 차수별 소요시간 라벨(없으면 "-")
+    per_cycle_label/total_time_label: "N시간 N분 N초" 형식의 개당/총 측정시간 라벨(없으면 "-")
+                                       — 계산은 호출부(app.py) 책임, 여기는 순수 렌더러(8-1절)
     editors: ["이름1","이름2",...] — 성적서 '검사자'란에 콤마로 나열
     overall/approval_type: 검사 결과 스탬프(합격/불합격/특채) 표시용 — inspections.overall_result/
                            approval_type 그대로 넘기면 됨
-    approver/signature_path: 승인자 이름·서명 이미지 경로(있으면 마지막 시트에 삽입)
+    approver/signature_path: 승인자 이름·서명 이미지 경로(있으면 마지막 시트에만 삽입)
+    remarks: {"inspector":..,"manager":..,"approver":..} — 비고란(마지막 시트에만 채움)
+    stage1_sample_qty: 치수(1차) AQL 샘플수량 — 항목표 하단 "검사 수량" 안내에 표시
     반환: (xlsx_path, pdf_path 또는 None, pdf_error 또는 None)
     """
     phys_cols = _housing_col_defs(columns)
@@ -1006,11 +1187,12 @@ def build_housing_report(material_no, product_name, voltage, header, columns, un
         ws = wb.create_sheet(title=title[:31])
         is_last = (i == len(chunks) - 1)
         _fill_housing_sheet(
-            ws, material_no, product_name, voltage, header, phys_cols, chunk,
-            stage_times, editors, overall, approval_type,
-            is_first_sheet=(i == 0),
+            ws, material_no, product_name, header, phys_cols, chunk,
+            per_cycle_label, total_time_label, editors, overall, approval_type,
+            sheet_label=_housing_sheet_label(i), stage1_sample_qty=stage1_sample_qty,
             approver=(approver if is_last else None),
             signature_path=(signature_path if is_last else None),
+            remarks=(remarks if is_last else None),
         )
 
     wb.save(xlsx_path)

@@ -5236,6 +5236,7 @@ def _housing_columns_by_stage(material_no):
             "type": t,
             "lo": sp["lower_limit"] if t in ("num", "num_pair") else None,
             "hi": sp["upper_limit"] if t in ("num", "num_pair") else None,
+            "inspect_method": sp["inspect_method"],
         })
     # D패드(화살표 셀이동) 그리드용 col_idx를 1차->2차->3차 순서로 이어서 매긴다
     # (S/N 5자리 칸=0, 고정접미사 칸=1부터 시작 — 화면 렌더링 쪽에서 이 뒤에 이어붙임).
@@ -5659,19 +5660,6 @@ def housing_deep_inspect_save(inspection_id, unit_no):
     return jsonify({"ok": True, "count": counts.get(unit_no, 0)})
 
 
-def _housing_stage_duration_label(fi, stage_no):
-    """차수(1/2/3차) 시작~완료 시각 사이 경과시간을 'N시간 N분 N초' 형식으로.
-    둘 중 하나라도 없으면(아직 진행 중) '-'."""
-    started = (fi or {}).get(f"stage{stage_no}_started_at")
-    completed = (fi or {}).get(f"stage{stage_no}_completed_at")
-    if not started or not completed:
-        return "-"
-    try:
-        delta = _dt.fromisoformat(completed) - _dt.fromisoformat(started)
-        return format_duration(delta.total_seconds())
-    except (ValueError, TypeError):
-        return "-"
-
 
 @app.route("/inspection/<int:inspection_id>/full-inspect/report-pdf")
 @perm_required("output")
@@ -5696,22 +5684,47 @@ def housing_report_pdf(inspection_id):
     units = db.list_full_inspection_units(inspection_id)
     editors = db.list_full_inspection_editor_names(inspection_id)
     fi = db.get_full_inspection(inspection_id) or {}
-    stage_times = {f"stage{n}": _housing_stage_duration_label(fi, n) for n in (1, 2, 3)}
 
     hd = dict(header)
+    qty = int(hd.get("quantity") or 0)
+    # 아직 STAGE 입력화면에서 한 번도 저장 안 한 신규 성적서(units가 빈 경우) — 원본 양식처럼
+    # 순번만 채운 빈 행을 입고수량만큼 만들어서 표 형태는 항상 나오게 한다(0유닛 렌더링 대응).
+    if not units and qty:
+        units = [{"unit_no": i, "serial_no": "", "values": {}, "result": ""} for i in range(1, qty + 1)]
+
+    total_sec, any_stage = 0.0, False
+    for n in (1, 2, 3):
+        started = fi.get(f"stage{n}_started_at")
+        completed = fi.get(f"stage{n}_completed_at")
+        if started and completed:
+            try:
+                total_sec += max(0.0, (_dt.fromisoformat(completed) - _dt.fromisoformat(started)).total_seconds())
+                any_stage = True
+            except (ValueError, TypeError):
+                pass
+    total_time_label = format_duration(total_sec) if any_stage else "-"
+    per_cycle_label = format_duration(total_sec / qty) if any_stage and qty else "-"
+    stage1_sample_qty = sample_size(1.5, qty) or qty if qty else None
+
     rb_header = {
         "vendor": hd.get("supplier"),
         "po_no": hd.get("po_number"),
         "inspect_date": hd.get("inspect_date"),
+        "receive_date": hd.get("receive_date"),
         "quantity": hd.get("quantity"),
+    }
+    remarks = {
+        "inspector": hd.get("remark_inspector"),
+        "manager": hd.get("remark_manager"),
+        "approver": hd.get("remark_approver"),
     }
     try:
         xlsx_path, pdf_path, pdf_error = report_builder.build_housing_report(
             hd["material_no"], hd.get("material_name") or "",
-            _housing_voltage(hd.get("material_name")),
-            rb_header, columns, units, stage_times, editors,
+            rb_header, columns, units, per_cycle_label, total_time_label, editors,
             overall=hd.get("overall_result"), approval_type=hd.get("approval_type"),
             approver=hd.get("approver"), signature_path=hd.get("signature_path"),
+            remarks=remarks, stage1_sample_qty=stage1_sample_qty,
         )
     except Exception:
         import traceback
