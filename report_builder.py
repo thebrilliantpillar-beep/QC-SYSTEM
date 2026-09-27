@@ -3,6 +3,8 @@
 # 무단 복제·배포·수정을 금합니다.
 """빈 양식(template_form.xlsx)에 채워서 완성 성적서(xlsx)를 만든다.
    항목 순서(item_order)대로 9행부터 채움 — 양식이 통일돼 있으므로 자재가 몇 종이든 동일 로직."""
+import copy
+from io import BytesIO
 import os, re, shutil, subprocess, sys, tempfile, time
 from datetime import date, datetime
 import database as db
@@ -1442,6 +1444,52 @@ def _housing_set_if_anchor(ws, coordinate, value):
     return True
 
 
+def _copy_housing_template_image(source_image):
+    """원본 을지의 이미지를 같은 앵커/크기로 새 시트에 복제한다.
+
+    ``Workbook.copy_worksheet()``는 셀·병합·서식은 복사하지만 drawing 이미지는
+    복사하지 않는다. 원본 양식의 로고를 누락시키지 않기 위해 이미지와 앵커를 별도로
+    얕은 복사한다. Image 객체의 바이트 참조는 읽기 전용이므로 공유해도 안전하다.
+    """
+    # load_workbook()이 읽은 이미지는 BytesIO에 보관된다. Image._data()를 쓰면 그
+    # 스트림을 닫아 원본 을지와 그 뒤 복제본까지 저장할 수 없으므로, 원본 바이트를
+    # 비파괴적으로 읽어 새 Image 객체를 만든다.
+    source = source_image.ref
+    if hasattr(source, "getvalue"):
+        image_bytes = source.getvalue()
+    else:
+        with open(source, "rb") as image_file:
+            image_bytes = image_file.read()
+    image = XLImage(BytesIO(image_bytes))
+    image.anchor = copy.copy(source_image.anchor)
+    return image
+
+
+def _append_housing_appendix_sheet(wb, appendix_template, appendix_number):
+    """을지_1 원본을 보존한 채 후속 을지 한 장을 추가한다.
+
+    신규 을지는 이미 채워진 시트가 아닌 원본 ``을지_1``에서만 복사한다. 따라서
+    선행 페이지의 검사값/승인정보가 다음 페이지로 섞이지 않는다. openpyxl이 보존하지
+    않는 이미지는 명시적으로 복사하고, 나머지 병합·문구·서식·행열 크기·인쇄 설정은
+    ``copy_worksheet``가 가진 원본 복사본을 그대로 사용한다.
+    """
+    ws = wb.copy_worksheet(appendix_template)
+    ws.title = f"을지_{appendix_number}"
+    # copy_worksheet()는 인쇄 영역을 복사하지 않는다. 시트명이 달라져도 범위 자체는
+    # 같으므로 범위 부분만 다시 지정한다. 명시적 복사로 페이지 설정/여백/인쇄 옵션도
+    # openpyxl 버전 차이 없이 원본 을지와 동일하게 유지한다.
+    source_print_area = str(appendix_template.print_area or "")
+    if source_print_area:
+        ws.print_area = source_print_area.split("!", 1)[-1]
+    ws.page_setup = copy.copy(appendix_template.page_setup)
+    ws.page_margins = copy.copy(appendix_template.page_margins)
+    ws.print_options = copy.copy(appendix_template.print_options)
+    ws.sheet_properties = copy.copy(appendix_template.sheet_properties)
+    for source_image in appendix_template._images:
+        ws.add_image(_copy_housing_template_image(source_image))
+    return ws
+
+
 def _housing_expiry_date(value):
     """계측기 마스터의 실제 만료일만 Excel 날짜 값으로 바꾼다.
 
@@ -1562,7 +1610,8 @@ def build_housing_report(material_no, product_name, header, columns, units,
     """
     하우징(15/27/38KV) 전용 정식 성적서. 배포된 전압별 원본 xlsx를 그대로 복사한 뒤
     실제 데이터 입력 셀만 갱신한다. 따라서 원본의 항목 문구·병합·로고·인쇄 설정·을지
-    시트명은 보존된다. 1~105개(갑지+을지_1+을지_2)까지만 지원한다.
+    시트명은 보존된다. 수량은 제한하지 않으며, 105개를 넘기면 원본 ``을지_1``을
+    필요한 장수만큼 복제해 ``을지_3``, ``을지_4`` ...로 이어서 출력한다.
 
     header: {"vendor":..,"po_no":..,"inspect_date":..,"receive_date":..,"quantity":..}
     columns: [{"key":..,"header":..,"type":"num"/"num_pair"/"pf","lo":..,"hi":..,"stage":1/2/3,
@@ -1579,8 +1628,6 @@ def build_housing_report(material_no, product_name, header, columns, units,
     stage1_sample_qty: 치수(1차) AQL 샘플수량 — 항목표 하단 "검사 수량" 안내에 표시
     반환: (xlsx_path, pdf_path 또는 None, pdf_error 또는 None)
     """
-    if len(units) > HOUSING_UNITS_PER_SHEET * 3:
-        raise ValueError("하우징 성적서는 원본 양식 기준 최대 105개까지만 출력할 수 있습니다.")
     template_key = _housing_template_key(material_no, product_name)
     template_path = _HOUSING_TEMPLATE_FILES.get(template_key)
     if not template_path or not os.path.isfile(template_path):
@@ -1597,8 +1644,15 @@ def build_housing_report(material_no, product_name, header, columns, units,
 
     chunks = [units[i:i + HOUSING_UNITS_PER_SHEET]
               for i in range(0, len(units), HOUSING_UNITS_PER_SHEET)] or [[]]
-    if len(wb.worksheets) < len(chunks):
-        raise ValueError("원본 양식의 을지 시트가 부족합니다.")
+
+    # 원본에는 갑지·을지_1·을지_2 세 장이 있다. 네 번째 장부터는 값이 채워지지 않은
+    # 을지_1을 복제한다. 원본 시트보다 먼저 복제해야 뒤에서 동적 앵커를 채운 값이
+    # 후속 시트의 기본값으로 섞이지 않는다.
+    appendix_template = wb.worksheets[1] if len(wb.worksheets) > 1 else None
+    if appendix_template is None and len(chunks) > 1:
+        raise ValueError("원본 양식에 을지_1 시트가 없어 추가 수량을 출력할 수 없습니다.")
+    for sheet_number in range(len(wb.worksheets) + 1, len(chunks) + 1):
+        _append_housing_appendix_sheet(wb, appendix_template, sheet_number - 1)
     while len(wb.worksheets) > len(chunks):
         del wb[wb.worksheets[-1].title]
 
