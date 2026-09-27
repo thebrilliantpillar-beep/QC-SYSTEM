@@ -1369,6 +1369,26 @@ def _norm_method(s):
     return re.sub(r"\s+", "", (s or "")).strip().lower()
 
 
+def _gauge_expiry_by_method():
+    """/gauges와 같은 gauge_master에서 측정방식별 차기 검교정 예정일을 찾는다.
+
+    이름을 공백 무시로 비교하되, 같은 정규화 이름이 둘 이상이면 잘못된 계측기를
+    성적서에 찍지 않도록 그 항목은 비워 둔다.
+    """
+    matches, ambiguous = {}, set()
+    for gauge in db.list_gauges():
+        key = _norm_method(gauge["name"])
+        if not key:
+            continue
+        if key in matches:
+            ambiguous.add(key)
+            continue
+        matches[key] = gauge["expiry_date"]
+    for key in ambiguous:
+        matches.pop(key, None)
+    return matches
+
+
 def gauge_method_options():
     """자재 등록 화면의 '측정 방식' 드롭다운에 넣을 후보 목록.
     등록된 계측기 이름 + 시각검사(육안/외관) — 규격 등록 시 이 중에서 고르되
@@ -5230,6 +5250,7 @@ def _housing_columns_by_stage(material_no):
     이 함수는 full_inspect_housing.html 경로에서만 호출한다(_fi_columns_from_specs()
     자체는 건드리지 않음, 그건 비하우징 자재가 그대로 쓴다)."""
     specs = db.get_specs_by_material(material_no)
+    gauge_expiries = _gauge_expiry_by_method()
     buckets = {1: [], 2: [], 3: []}
     for sp in specs:
         stage = sp["stage_group"]
@@ -5249,6 +5270,7 @@ def _housing_columns_by_stage(material_no):
             "lo": sp["lower_limit"] if t in ("num", "num_pair") else None,
             "hi": sp["upper_limit"] if t in ("num", "num_pair") else None,
             "inspect_method": sp["inspect_method"],
+            "gauge_expiry": gauge_expiries.get(_norm_method(sp["inspect_method"])),
         })
     # D패드(화살표 셀이동) 그리드용 col_idx를 1차->2차->3차 순서로 이어서 매긴다
     # (S/N 5자리 칸=0, 고정접미사 칸=1부터 시작 — 화면 렌더링 쪽에서 이 뒤에 이어붙임).

@@ -4,10 +4,10 @@
 """빈 양식(template_form.xlsx)에 채워서 완성 성적서(xlsx)를 만든다.
    항목 순서(item_order)대로 9행부터 채움 — 양식이 통일돼 있으므로 자재가 몇 종이든 동일 로직."""
 import os, re, shutil, subprocess, sys, tempfile, time
-from datetime import date
+from datetime import date, datetime
 import database as db
 import openpyxl
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, TwoCellAnchor, AnchorMarker
 from openpyxl.drawing.xdr import XDRPositiveSize2D
@@ -282,15 +282,21 @@ def format_aql(aql):
     return text
 
 
-def _format_gauge_expiry(iso_date_str):
-    """'2027-01-31' -> '27.01.31' (YY.MM.DD). 형식이 다르면 원본 그대로 표시."""
-    if not iso_date_str:
+def _format_gauge_expiry(value):
+    """계측기 마스터 만료일을 성적서 표기 ``yy/mm/dd``로 안전하게 통일한다."""
+    if not value:
         return ""
-    try:
-        d = date.fromisoformat(iso_date_str)
-        return f"{d.year % 100:02d}.{d.month:02d}.{d.day:02d}"
-    except ValueError:
-        return iso_date_str
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return value.strftime("%y/%m/%d")
+    text = str(value).strip()
+    for parser in (date.fromisoformat, lambda x: datetime.fromisoformat(x).date()):
+        try:
+            return parser(text[:10]).strftime("%y/%m/%d")
+        except (TypeError, ValueError):
+            pass
+    return text
 
 
 def _build_remark_richtext(remarks):
@@ -856,12 +862,276 @@ def _housing_write_grouped_row(ws, row, phys_cols, key_fn, col_start):
         i = j + 1
 
 
+def _housing_template_columns(columns, is_27kv):
+    """원본 하우징 양식의 고정 물리열에 현재 스펙을 배치한다.
+
+    원본은 스펙을 추가할 때마다 열을 늘리는 보고서가 아니다. 15/38KV는 J:Y(충격파
+    V:W 병합), 27KV는 J:X를 쓰며, 현장 DB에 남아 있는 X-선(M) 항목은 이 성적서에
+    인쇄하지 않는다. 키는 하우징 초기 등록 때 확정된 항목기호다.
+    """
+    by_key = {str(c.get("key") or "").upper(): c for c in columns}
+    order = ("I", "J", "K", "L", "N", "D", "E", "V", "F", "H", "G", "A", "C", "B")
+    result = {}
+    for key in order:
+        if key in by_key:
+            result[key] = by_key[key]
+    # 기존 데이터에서 항목기호가 비어 있는 경우에도 1~3차 순서를 보존해 출력한다.
+    # 단, M(X-선)은 원본에 없는 필드라 어떤 경우에도 물리열을 만들지 않는다.
+    fallbacks = [c for c in columns if str(c.get("key") or "").upper() != "M"]
+    for key, col in zip((k for k in order if k not in result), fallbacks):
+        if col not in result.values():
+            result[key] = col
+    return result
+
+
+_HOUSING_CANONICAL_HEADERS = {
+    "15KV": {
+        "I": "Ø170±1.2", "J": "Ø542±2.0", "K": "Ø197 ±1.2", "L": "Ø165±0.8",
+        "N": "외관", "D": "CT극성", "E": "CT저항값\n(3.7~4.5)", "V": "VD쇼트",
+        "F": "고저항값\n(39.6~40.4) ", "H": "동작검사",
+        "G": "110kg \n가압후 \n주회로 \n저항\n(≥70μΩ)",
+        "A": "충격파내전압\n110kV/1.2X50μS/각3회\n파두장±3%(0.84~1.56)\n 파미장±20%(40~60)\n정극성+/ 부극성-",
+        "C": "부분\n방전\n시험\n9.8kv 인가(10Pc 이하)", "B": "내전압\n(50kV)",
+    },
+    "27KV": {
+        "I": "Φ190±1.2", "J": "Φ604.4±2.0", "K": "Φ176 ±1.2", "L": "Φ32±0.8",
+        "N": "외관", "D": "CT극성", "E": "CT저항값\n(3.7~4.5)", "V": "VD쇼트",
+        "F": "고저항값\n(39.6~40.4) ", "H": "동작검사",
+        "G": "110kg \n가압후 \n주회로 \n저항\n(≥80μΩ)",
+        "A": "충격파내전압\n150kV/1.2X50μS/각3회\n파두장±3%(0.84~1.56)\n 파미장±20%(40~60)\n정극성+/ 부극성-",
+        "C": "Partial\nDischarge\n\n 17.2kv 인가(10Pc 이하)", "B": "내전압\n(60kV)",
+    },
+    "38KV": {
+        "I": "Φ240±1.2", "J": "735±2.0", "K": "Φ176 ±1.2", "L": "Φ32±1.2",
+        "N": "외관", "D": "CT극성", "E": "CT저항값\n(3.7~4.5)", "V": "VD쇼트",
+        "F": "고저항값\n(39.6~40.4) ", "H": "동작검사",
+        "G": "110kg \n가압후 \n주회로 \n저항\n(≥80μΩ)",
+        "A": "충격파내전압\n170kV/1.2X50μS\n/각3회\n파두장±3%\n(0.84~1.56)\n 파미장±20%\n(40~60)\n정극성+/ 부극성-",
+        "C": "PD충격 24.2kv 인가\n(10Pc 이하)", "B": "내전압\n(70kV)",
+    },
+}
+
+
+def _housing_canonical_headers(material_no, product_name):
+    """원본 3종의 확정 항목 문구를 자재번호 우선으로 찾는다."""
+    material_key = {
+        "602013P015": "15KV",
+        "604013P000": "27KV",
+        "608013P011": "38KV",
+    }.get(str(material_no or "").strip())
+    if material_key:
+        return _HOUSING_CANONICAL_HEADERS[material_key]
+    label = str(product_name or "").upper()
+    for kv in ("15KV", "27KV", "38KV"):
+        if kv in label:
+            return _HOUSING_CANONICAL_HEADERS[kv]
+    return {}
+
+
+def _fill_housing_sheet_static(ws, material_no, product_name, header, columns, units,
+                               per_cycle_label, total_time_label, editors, overall,
+                               approval_type, sheet_label, stage1_sample_qty=None,
+                               approver=None, signature_path=None, remarks=None):
+    """사용자 제공 15/27/38KV 원본의 53행 세로 성적서 양식을 채운다."""
+    is_27kv = str(product_name or "").lstrip().upper().startswith("27KV")
+    last_col = 25 if is_27kv else 26  # Y / Z
+    verdict_col = last_col
+    template_cols = _housing_template_columns(columns, is_27kv)
+    canonical_headers = _housing_canonical_headers(material_no, product_name)
+    stage3_start = 22  # V
+    stage3_end = 24 if is_27kv else 25  # X / Y
+    shock_end = 22 if is_27kv else 23  # V / W
+    pd_col = 23 if is_27kv else 24  # W / X
+    ac_col = 24 if is_27kv else 25  # X / Y
+    positions = {
+        "I": (10, 10), "J": (11, 11), "K": (12, 12), "L": (13, 13),
+        "N": (14, 14), "D": (15, 15), "E": (16, 16), "V": (17, 17),
+        "F": (18, 19), "H": (20, 20), "G": (21, 21),
+        "A": (22, shock_end), "C": (pd_col, pd_col), "B": (ac_col, ac_col),
+    }
+    thin = Side(style="thin", color="FF000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    font = lambda size=12, bold=False, color="FF000000": Font(name="Noto Sans KR", size=size, bold=bold, color=color)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    # 원본 표 머리글의 무채색 회색 채움(파란 업무표 스타일이 아님).
+    header_fill = PatternFill("solid", fgColor="FFD9D9D9")
+
+    def merge(row1, col1, row2, col2, value=None, *, cell_font=None, align=None, fill=None):
+        if row1 != row2 or col1 != col2:
+            ws.merge_cells(start_row=row1, start_column=col1, end_row=row2, end_column=col2)
+        cell = ws.cell(row1, col1, value)
+        cell.font = cell_font or font()
+        cell.alignment = align or center
+        if fill:
+            cell.fill = fill
+        return cell
+
+    # 원본의 인쇄 크기와 행/열 치수: A4 portrait, A:Y/Z, 53행 고정.
+    widths = {1: 9, 2: 3.5, 5: 3.35546875, 8: 6.7109375, 10: 12.35546875,
+              14: 10.5, 16: 10.35546875, 17: 10, 18: 9.5, 20: 9,
+              21: 10.7109375, 22: 17.640625 if is_27kv else 9,
+              pd_col: 11.640625, ac_col: 10, verdict_col: 9}
+    for col, width in widths.items():
+        ws.column_dimensions[get_column_letter(col)].width = width
+    heights = {1: 37.5, 2: 37.5, 3: 37.5, 4: 29.25, 5: 45, 6: 29.25,
+               7: 33, 8: 17.9, 9: 17.9, 10: 17.9, 11: 141, 12: 43.5,
+               13: 27.75, 49: 63.75, 50: 26.25, 51: 45, 52: 18, 53: 33.75}
+    for row in range(14, 49):
+        heights[row] = 36.75
+    for row, height in heights.items():
+        ws.row_dimensions[row].height = height
+
+    # 제목 및 정보 블록. 원본은 좌상단 CHARDON GROUP 로고가 제목 병합셀 위에 얹힌다.
+    # 인쇄 배율 42%가 이미지에도 적용되므로, 원본과 같은 출력 폭을 위해 성적서 기본 폭을 쓴다.
+    _insert_logo(ws, width_cm=CERT_LOGO_WIDTH_CM)
+    merge(1, 1, 2, last_col, f"샤든 그룹\n입고 자재 검사 성적서 ({sheet_label})", cell_font=font(28, True), align=center)
+    merge(3, 1, 3, 21, "")
+    merge(3, 22, 3, last_col, f"검사 날짜:  {_housing_date_kr(header.get('inspect_date'))}", cell_font=font(18, True), align=center)
+    merge(4, 1, 4, 12, f"품명 및 규격 : {product_name}", cell_font=font(14, True), align=left)
+    merge(5, 1, 5, 12, f"로트번호: {header.get('po_no') or '-'}", cell_font=font(14, True), align=left)
+    merge(6, 1, 6, 12, f"납품 업체 : {header.get('vendor') or '-'}", cell_font=font(14, True), align=left)
+    merge(7, 1, 7, 3, "입고 날짜 :", cell_font=font(14, True), align=left)
+    merge(7, 4, 7, 8, _housing_date_kr(header.get('receive_date')), cell_font=font(14, True), align=center)
+    merge(7, 9, 7, 12, f"{header.get('quantity') or '-'}개", cell_font=font(14, True), align=center)
+    for row, item, method, condition in ((4, "검사항목", "검사방식", "검사조건"),
+                                          (5, "외관", "AQL", "전수"),
+                                          (6, "치수", "Check", "1.5"),
+                                          (7, "기능", "AQL", "전수")):
+        for col, value in zip((13, 14, 15), (item, method, condition)):
+            c = ws.cell(row, col, value)
+            c.font, c.alignment, c.border = font(12, row == 4), center, border
+    merge(4, 16, 5, last_col, f"자재번호 : {material_no}", cell_font=font(14, True), align=left)
+    merge(6, 16, 6, last_col, f"개당 측정 시간 : {per_cycle_label or '-'}", cell_font=font(14, True), align=left)
+    merge(7, 16, 7, last_col, f"총 측정 시간 : {total_time_label or '-'}", cell_font=font(14, True), align=left)
+
+    # 고정 3단 머리글.
+    merge(8, 1, 13, 1, "순번", cell_font=font(12, True), fill=header_fill)
+    merge(8, 2, 13, 9, "제품 번호", cell_font=font(12, True), fill=header_fill)
+    # 원본은 8행의 "검사항목"을 판정 열까지 한 번에 병합하고, 판정 자체는 9~13행에 둔다.
+    # (15/38KV J8:Z8 + Z9:Z13, 27KV J8:Y8 + Y9:Y13)
+    merge(8, 10, 8, last_col, "검사항목", cell_font=font(12, True), fill=header_fill)
+    merge(9, verdict_col, 13, verdict_col, "판정", cell_font=font(12, True), fill=header_fill)
+    merge(9, 10, 9, 21, "기본검사", cell_font=font(12, True), fill=header_fill)
+    merge(9, stage3_start, 9, stage3_end, "충격 / PD", cell_font=font(12, True), fill=header_fill)
+    merge(10, 10, 10, 13, "치수", cell_font=font(12, True), fill=header_fill)
+    ws.cell(10, 14, "외관")
+    merge(10, 15, 10, stage3_end, "기능", cell_font=font(12, True), fill=header_fill)
+
+    for key, (start, end) in positions.items():
+        col = template_cols.get(key)
+        # 원본 15/27/38KV 양식은 항목기호만이 아니라 규격·시험조건까지 머리글에
+        # 완결돼 있어야 한다. 그 외 자재만 DB의 전체 spec_display를 그대로 쓴다.
+        label = canonical_headers.get(key) or (col or {}).get("header") or ""
+        if key == "F":
+            merge(11, start, 11, end, label, fill=header_fill)
+            for subcol, text in ((start, "CT SIDE"), (end, "ROD SIDE")):
+                c = ws.cell(12, subcol, text)
+                c.font, c.alignment, c.fill = font(12), center, header_fill
+        else:
+            merge(11, start, 12, end, label, fill=header_fill)
+    qty_label = stage1_sample_qty if stage1_sample_qty not in (None, "") else "-"
+    merge(13, 10, 13, 13, f"검사 수량 : {qty_label} EA (AQL : 4)", align=center)
+    merge(13, 14, 13, stage3_end, "검사  수량 : 전수", align=center)
+
+    # 헤더와 본문 테두리. 병합된 셀의 외곽선은 좌상단에 적용해 LibreOffice에서도 인쇄된다.
+    for row in range(4, 51):
+        for col in range(1, last_col + 1):
+            cell = ws.cell(row, col)
+            cell.border = border
+            if 8 <= row <= 12:
+                cell.fill = header_fill
+                cell.alignment = center
+                if cell.font == Font():
+                    cell.font = font(12, row in (8, 9, 10))
+
+    # 본문은 항상 35행. 빈 수량도 빈 줄이 아니라 원본 양식의 순번 칸을 유지한다.
+    for index, row in enumerate(range(14, 49), start=1):
+        # chunks after 갑지는 unit_no 36~70, 71~105 ...를 그대로 받는다. 행 위치(1~35)를
+        # 전역 번호로 다시 조회하면 을지가 비거나 순번이 1부터 재시작하므로 chunk 순서로 쓴다.
+        unit = units[index - 1] if index <= len(units) else {}
+        unit_no = unit.get("unit_no") if unit else index
+        ws.cell(row, 1, unit_no).alignment = center
+        serial_parts = str(unit.get("serial_no") or "").split()
+        for start, end, value in ((2, 4, serial_parts[0] if len(serial_parts) > 0 else ""),
+                                  (5, 7, serial_parts[1] if len(serial_parts) > 1 else ""),
+                                  (8, 9, " ".join(serial_parts[2:]) if len(serial_parts) > 2 else "")):
+            merge(row, start, row, end, value, cell_font=font(11), align=center)
+        values = unit.get("values") or {}
+        for key, (start, end) in positions.items():
+            col = template_cols.get(key)
+            if not col:
+                continue
+            if key == "F":
+                raw = str(values.get(col.get("key"), "") or "")
+                pair = [part.strip() for part in raw.split("/")]
+                for dst, value in zip((start, end), (pair + [""])[:2]):
+                    ws.cell(row, dst, value).alignment = center
+            else:
+                value, out = _housing_cell_value(col, values)
+                # 15/38KV 충격파 내전압은 V:W 한 항목이다. 값 행에도 병합을
+                # 적용해 W의 빈 칸이 보이거나 별도 셀로 인식되지 않게 한다.
+                c = merge(row, start, row, end, value, cell_font=font(11, color="FFFF0000" if out else "FF000000"), align=center)
+        result = unit.get("result") or ""
+        c = ws.cell(row, verdict_col, result or "-")
+        c.alignment = center
+        c.font = font(11, result == "NG", "FFFF0000" if result == "NG" else "FF0000FF" if result == "OK" else "FF000000")
+
+    # 고정 하단 49~53행. 각 항목의 계측기/검교정 값도 본문과 동일한 고정 열을 쓴다.
+    merge(49, 1, 49, 9, "검사 방법 (계측기)", cell_font=font(12, True), fill=header_fill)
+    merge(50, 1, 50, 9, "차기 검교정 예정일", cell_font=font(12, True), fill=header_fill)
+    for key, (start, end) in positions.items():
+        col = template_cols.get(key) or {}
+        merge(49, start, 49, end, col.get("inspect_method") or "-", cell_font=font(12, True), align=center, fill=header_fill)
+        # 단일 물리열에도 yy/mm/dd가 잘리지 않도록 원본 하단 날짜 행은 축소 글꼴을 쓴다.
+        merge(50, start, 50, end, _format_gauge_expiry(col.get("gauge_expiry")) or "-", cell_font=font(8), align=center)
+    merge(49, verdict_col, 50, verdict_col, "")
+    remark_text = " / ".join(str(v).strip() for v in (remarks or {}).values() if str(v or "").strip())
+    merge(51, 1, 51, last_col, f"비고: {remark_text}", cell_font=font(16, True), align=left)
+    if approval_type == "special":
+        result_mark = "□ 합격      □ 불합격      ■ 특채"
+    elif overall in ("합격", "검토필요"):
+        result_mark = "■ 합격      □ 불합격      □ 특채"
+    else:
+        result_mark = "□ 합격      ■ 불합격      □ 특채"
+    merge(52, 1, 52, last_col, f"검사 결과 : {result_mark}", cell_font=font(16), align=left)
+    reviewer_end = 20 if is_27kv else 22
+    merge(53, 1, 53, reviewer_end, f"검토 : {approver or ''}", cell_font=font(16, True), align=left)
+    merge(53, reviewer_end + 1, 53, last_col, f"검사원 : {', '.join(editors) if editors else '-'}", cell_font=font(16, True), align=left)
+    if signature_path and os.path.exists(signature_path):
+        try:
+            image = XLImage(signature_path)
+            image.width, image.height = SIGNATURE_WIDTH_PX, SIGNATURE_HEIGHT_PX
+            ws.add_image(image, "C53")
+        except Exception:
+            pass
+
+    ws.print_area = f"A1:{get_column_letter(last_col)}53"
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.scale = 42
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.sheet_view.zoomScale = 70 if is_27kv else 80
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = ws.page_margins.right = ws.page_margins.bottom = 0
+    ws.page_margins.top = 0.5905511811023623
+
+
 def _fill_housing_sheet(ws, material_no, product_name, header, phys_cols, units,
                         per_cycle_label, total_time_label, editors, overall, approval_type,
                         sheet_label, stage1_sample_qty=None, approver=None,
                         signature_path=None, remarks=None):
-    """시트 하나(갑지/을지_N)를 원본 성적서 양식(2026-09-27, 실물 파일 확인) 그대로 채운다.
-    모든 시트가 전체 헤더(정보블록+항목표 헤더)를 동일하게 반복한다."""
+    """시트 하나를 원본 고정 양식으로 채운다.
+
+    build_housing_report()의 공개 호출 계약은 유지한다. 이전 가변 물리열 구현의 인수는
+    이미 펼쳐진 목록이므로, 정적 원본 양식 함수가 그대로 받아 필요한 항목만 배치한다.
+    """
+    _fill_housing_sheet_static(
+        ws, material_no, product_name, header, phys_cols, units,
+        per_cycle_label, total_time_label, editors, overall, approval_type,
+        sheet_label, stage1_sample_qty, approver, signature_path, remarks,
+    )
+    return
     verdict_col = _HOUSING_ITEM_COL_START + len(phys_cols)
     right_width = max(verdict_col, 4)
 
@@ -1138,16 +1408,161 @@ def _fill_housing_sheet(ws, material_no, product_name, header, phys_cols, units,
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
 
+_HOUSING_TEMPLATE_FILES = {
+    "15KV": os.path.join(BASE_DIR, "housing_templates", "15KV_하우징_원본양식.xlsx"),
+    "27KV": os.path.join(BASE_DIR, "housing_templates", "27KV_하우징_원본양식.xlsx"),
+    "38KV": os.path.join(BASE_DIR, "housing_templates", "38KV_하우징_원본양식.xlsx"),
+}
+
+
+def _housing_template_key(material_no, product_name):
+    """자재번호를 우선으로, 그 다음 품명으로 배포된 원본 양식을 선택한다."""
+    key = {
+        "602013P015": "15KV",
+        "604013P000": "27KV",
+        "608013P011": "38KV",
+    }.get(str(material_no or "").strip())
+    if key:
+        return key
+    product = str(product_name or "").upper()
+    return next((candidate for candidate in _HOUSING_TEMPLATE_FILES if candidate in product), None)
+
+
+def _housing_set_if_anchor(ws, coordinate, value):
+    """병합 범위의 시작 셀일 때만 값을 바꾼다.
+
+    원본 을지의 헤더 병합 구조는 갑지와 완전히 같지 않을 수 있으므로, 병합된
+    비시작 셀을 건드려 서식/병합을 훼손하지 않는다.
+    """
+    from openpyxl.cell.cell import MergedCell
+    cell = ws[coordinate]
+    if isinstance(cell, MergedCell):
+        return False
+    cell.value = value
+    return True
+
+
+def _housing_expiry_date(value):
+    """계측기 마스터의 실제 만료일만 Excel 날짜 값으로 바꾼다.
+
+    해석할 수 없는 값은 원본 양식의 값도, 임의 날짜도 덮어쓰지 않는다.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _fill_housing_template_sheet(ws, template_key, material_no, product_name, header,
+                                 columns, units, per_cycle_label, total_time_label,
+                                 editors, overall, approval_type, stage1_sample_qty,
+                                 approver=None, signature_path=None, remarks=None):
+    """복사된 원본 하우징 시트의 데이터 입력 셀만 갱신한다.
+
+    특히 J8~판정행, 계측기 방법행, 페이지 설정, 로고, 병합 및 모든 서식은
+    원본의 내용을 그대로 남긴다. 신규 양식을 그리는 함수가 아니다.
+    """
+    is_27kv = template_key == "27KV"
+    positions = {
+        "I": (10, 10), "J": (11, 11), "K": (12, 12), "L": (13, 13),
+        "N": (14, 14), "D": (15, 15), "E": (16, 16), "V": (17, 17),
+        "F": (18, 19), "H": (20, 20), "G": (21, 21),
+        "A": (22, 22), "C": (23 if is_27kv else 24, 23 if is_27kv else 24),
+        "B": (24 if is_27kv else 25, 24 if is_27kv else 25),
+    }
+    verdict_col = 25 if is_27kv else 26
+    template_columns = _housing_template_columns(columns, is_27kv)
+
+    # 원본 텍스트/서식 보존을 전제로 한 헤더의 데이터 전용 앵커.
+    _housing_set_if_anchor(ws, "V3", f"검사 날짜:  {_housing_date_kr(header.get('inspect_date'))}")
+    _housing_set_if_anchor(ws, "A4", f"품명 및 규격 : {product_name}")
+    _housing_set_if_anchor(ws, "A5", f"로트번호: {header.get('po_no') or '-'}")
+    _housing_set_if_anchor(ws, "A6", f"납품 업체 : {header.get('vendor') or '-'}")
+    _housing_set_if_anchor(ws, "D7", _housing_expiry_date(header.get("receive_date")) or "-")
+    _housing_set_if_anchor(ws, "I7", header.get("quantity") or "-")
+    _housing_set_if_anchor(ws, "P4", f"자재번호 : {material_no}")
+    _housing_set_if_anchor(ws, "P6", f"개당 측정 시간 : {per_cycle_label or '-'}")
+    _housing_set_if_anchor(ws, "P7", f"총 측정 시간 : {total_time_label or '-'}")
+
+    # 갑지/을지 모두 14~48행이 제품 35개용으로 미리 마련되어 있다.
+    for offset, row in enumerate(range(14, 49)):
+        unit = units[offset] if offset < len(units) else {}
+        _housing_set_if_anchor(ws, f"A{row}", unit.get("unit_no") or "")
+        serial_parts = str(unit.get("serial_no") or "").split()
+        _housing_set_if_anchor(ws, f"B{row}", serial_parts[0] if serial_parts else "")
+        _housing_set_if_anchor(ws, f"E{row}", serial_parts[1] if len(serial_parts) > 1 else "")
+        _housing_set_if_anchor(ws, f"H{row}", " ".join(serial_parts[2:]) if len(serial_parts) > 2 else "")
+        values = unit.get("values") or {}
+        for key, (start, end) in positions.items():
+            spec = template_columns.get(key)
+            if not spec:
+                continue
+            if key == "F":
+                pair = str(values.get(spec.get("key"), "") or "").split("/")
+                _housing_set_if_anchor(ws, f"{get_column_letter(start)}{row}", pair[0].strip() if pair else "")
+                _housing_set_if_anchor(ws, f"{get_column_letter(end)}{row}", pair[1].strip() if len(pair) > 1 else "")
+                continue
+            value, _out_of_range = _housing_cell_value(spec, values)
+            _housing_set_if_anchor(ws, f"{get_column_letter(start)}{row}", value if value is not None else "")
+        _housing_set_if_anchor(ws, f"{get_column_letter(verdict_col)}{row}", unit.get("result") or "")
+
+    # app.py가 /gauges 계측기 마스터에서 검사방식 이름으로 실제 만료일을 매핑해
+    # columns[*].gauge_expiry에 넣는다. 매핑된 값이 있을 때에만 해당 날짜 셀을 바꾼다.
+    for key, (start, end) in positions.items():
+        spec = template_columns.get(key)
+        expiry = _housing_expiry_date((spec or {}).get("gauge_expiry"))
+        if expiry is None:
+            continue
+        targets = (start, end) if key == "F" else (start,)
+        for col in targets:
+            coordinate = f"{get_column_letter(col)}50"
+            if _housing_set_if_anchor(ws, coordinate, expiry):
+                ws[coordinate].number_format = "yy/mm/dd"
+
+    # 하단은 검사 결과 및 실제 승인 데이터다. 원본 샘플에 남은 과거 이름/서명이
+    # 새 성적서에 섞이지 않도록 마지막 시트에만 현재 데이터로 교체한다.
+    remark_text = " / ".join(str(value).strip() for value in (remarks or {}).values()
+                             if str(value or "").strip())
+    _housing_set_if_anchor(ws, "A51", f"비고: {remark_text}")
+    if approval_type == "special":
+        result_mark = "□ 합격      □ 불합격      ■ 특채"
+    elif overall in ("합격", "검토필요"):
+        result_mark = "■ 합격      □ 불합격      □ 특채"
+    else:
+        result_mark = "□ 합격      ■ 불합격      □ 특채"
+    _housing_set_if_anchor(ws, "A52", f"검사 결과 : {result_mark}")
+    _housing_set_if_anchor(ws, "A53", f"검토 : {approver or ''}")
+    inspector_col = 21 if is_27kv else 23
+    _housing_set_if_anchor(ws, f"{get_column_letter(inspector_col)}53",
+                            f"검사원 : {', '.join(editors) if editors else '-'}")
+    if approver and signature_path and os.path.exists(signature_path):
+        try:
+            image = XLImage(signature_path)
+            if os.path.exists(signature_path + ".stamp"):
+                stamp_px = round(2.5 * CM_TO_PX)
+                image.width = image.height = stamp_px
+            else:
+                image.width, image.height = SIGNATURE_WIDTH_PX, SIGNATURE_HEIGHT_PX
+            ws.add_image(image, "C53")
+        except Exception:
+            pass
+
+
 def build_housing_report(material_no, product_name, header, columns, units,
                           per_cycle_label, total_time_label, editors, overall=None,
                           approval_type=None, approver=None, signature_path=None,
                           remarks=None, stage1_sample_qty=None):
     """
-    하우징(15/27/38KV) 전용 정식 PDF 성적서. 1행=검사항목(build_report)이 아니라
-    1행=유닛(제품 1개)·열=검사항목인 완전히 다른 레이아웃이라 template_form.xlsx를 복사하는
-    대신 openpyxl로 워크북을 처음부터 구성한다. 순번 35개마다 새 시트로 분할한다
-    (1~35=갑지, 36~70=을지_1, 71~105=을지_2, ...). 2026-09-27: 실제 원본 성적서 구조에 맞춰
-    재작성 — 모든 시트가 전체 헤더를 반복한다(is_first_sheet 분기 폐지).
+    하우징(15/27/38KV) 전용 정식 성적서. 배포된 전압별 원본 xlsx를 그대로 복사한 뒤
+    실제 데이터 입력 셀만 갱신한다. 따라서 원본의 항목 문구·병합·로고·인쇄 설정·을지
+    시트명은 보존된다. 1~105개(갑지+을지_1+을지_2)까지만 지원한다.
 
     header: {"vendor":..,"po_no":..,"inspect_date":..,"receive_date":..,"quantity":..}
     columns: [{"key":..,"header":..,"type":"num"/"num_pair"/"pf","lo":..,"hi":..,"stage":1/2/3,
@@ -1164,7 +1579,12 @@ def build_housing_report(material_no, product_name, header, columns, units,
     stage1_sample_qty: 치수(1차) AQL 샘플수량 — 항목표 하단 "검사 수량" 안내에 표시
     반환: (xlsx_path, pdf_path 또는 None, pdf_error 또는 None)
     """
-    phys_cols = _housing_col_defs(columns)
+    if len(units) > HOUSING_UNITS_PER_SHEET * 3:
+        raise ValueError("하우징 성적서는 원본 양식 기준 최대 105개까지만 출력할 수 있습니다.")
+    template_key = _housing_template_key(material_no, product_name)
+    template_path = _HOUSING_TEMPLATE_FILES.get(template_key)
+    if not template_path or not os.path.isfile(template_path):
+        raise ValueError("해당 하우징 전압의 원본 양식 파일을 찾을 수 없습니다.")
 
     out_dir = report_output_dir()
     base_name = build_report_filename(header.get("vendor"), material_no, product_name,
@@ -1172,27 +1592,23 @@ def build_housing_report(material_no, product_name, header, columns, units,
     xlsx_path = os.path.join(out_dir, f"{base_name}.xlsx")
     xlsx_path = _dedupe_path(xlsx_path)
 
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)
+    shutil.copyfile(template_path, xlsx_path)
+    wb = openpyxl.load_workbook(xlsx_path)
 
-    chunks = []
-    if units:
-        for i in range(0, len(units), HOUSING_UNITS_PER_SHEET):
-            chunks.append(units[i:i + HOUSING_UNITS_PER_SHEET])
-    else:
-        chunks = [[]]
+    chunks = [units[i:i + HOUSING_UNITS_PER_SHEET]
+              for i in range(0, len(units), HOUSING_UNITS_PER_SHEET)] or [[]]
+    if len(wb.worksheets) < len(chunks):
+        raise ValueError("원본 양식의 을지 시트가 부족합니다.")
+    while len(wb.worksheets) > len(chunks):
+        del wb[wb.worksheets[-1].title]
 
     for i, chunk in enumerate(chunks):
-        title = "갑지" if i == 0 else f"을지_{i}"
-        ws = wb.create_sheet(title=title[:31])
-        is_last = (i == len(chunks) - 1)
-        _fill_housing_sheet(
-            ws, material_no, product_name, header, phys_cols, chunk,
-            per_cycle_label, total_time_label, editors, overall, approval_type,
-            sheet_label=_housing_sheet_label(i), stage1_sample_qty=stage1_sample_qty,
-            approver=(approver if is_last else None),
-            signature_path=(signature_path if is_last else None),
-            remarks=(remarks if is_last else None),
+        _fill_housing_template_sheet(
+            wb.worksheets[i], template_key, material_no, product_name, header, columns,
+            chunk, per_cycle_label, total_time_label, editors, overall, approval_type,
+            stage1_sample_qty, approver=(approver if i == len(chunks) - 1 else None),
+            signature_path=(signature_path if i == len(chunks) - 1 else None),
+            remarks=(remarks if i == len(chunks) - 1 else None),
         )
 
     wb.save(xlsx_path)
