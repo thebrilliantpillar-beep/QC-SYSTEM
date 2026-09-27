@@ -8,6 +8,22 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-09-28 (하우징 O/X 기본값 자동저장+우측재배치, 커밋 aac4861 — 그리고 중대 기존
+  버그 발견)**: 사용자가 O/X 항목 기본값을 "○"(실제 DB 자동저장, 자동합격)로 하고
+  판정 열 바로 왼쪽까지 오른쪽으로 몰아달라고 지시. `_reorder_pf_last()`(app.py, 화면
+  전용, specs.item_order 안 건드림 — PDF 무영향)와 자동저장 JS(입력모드에서만, 기존값
+  있으면 절대 안 덮어씀) 구현, developer/quality-watcher 둘 다 검증 통과(.collab TASK
+  #62). **작업 중 developer가 발견하고 quality-watcher가 독립 재확인한 매우 심각한
+  기존 버그**: `_final_decision_block_reason()`(승인 게이트)이 legacy `inspection_items`
+  테이블(입고 시 전부 "미측정"으로 고정)을 보는데, 하우징 STAGE 데이터(`full_inspection_units`)
+  는 이 테이블을 절대 동기화하지 않는다 — **즉 하우징 성적서는 STAGE에서 완벽하게
+  입력해도 승인/특채/불합격 확정이 구조적으로 항상 막힌다.** 코드 경로 전수 추적으로
+  확인됨(우회 경로 없음). **다음(최우선)**: 이 승인 게이트 버그를 시급히 고쳐야 함 —
+  전체 하우징 프로젝트의 핵심 목적(성적서 승인 발행)이 막혀있는 상태. 참고로 이 세션
+  직전에 Codex(다른 AI actor)가 report_builder.py의 하우징 PDF 렌더링을 별도로 재작성
+  (`_fill_housing_sheet_static`)했고 계측기 차기검교정예정일도 gauge_master 연동으로
+  채워놨음 — 이번 O/X 작업과는 충돌 없이 공존.
+
 - **2026-09-27 (하우징 실사용 피드백 3/3 — 승인목록 하우징 제외 + 검사이력 상세페이지,
   커밋 bd3e510)**: 3단계 실사용 피드백의 마지막 작업. `_exclude_housing()` 헬퍼 신설
   (`db.list_housing_materials()` 재사용)로 일반 승인목록(`/approve`) 5개 탭 전부에서
