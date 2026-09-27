@@ -1645,7 +1645,12 @@ def _auto_start_full_inspections(new_intake_ids):
             "result": "미측정", "gauge_expiry": None, "gauge_name": None, "part_material_no": material_no,
         } for sp in specs]
         try:
-            db.create_inspection(header, items_with_results, "검토필요",
+            # overall_result를 "검토필요"로 채워서 만들면 STAGE에서 아직 아무 것도 측정
+            # 안 한 건까지 "검토필요"(뭔가 검토할 게 있다는 뜻) 배지가 붙어 보였다(2026-09-28
+            # 사용자 지적) — 빈 값으로 시작해서 "대기중"으로 보이게 하고, 실제로 STAGE에서
+            # 값이 저장되기 시작하면 _recompute_housing_overall_result()(app.py, TASK #63)가
+            # 그때 가서 "검토필요"/"합격"/"불합격"으로 다시 계산해 채운다.
+            db.create_inspection(header, items_with_results, "",
                                   intake_id=intake_id, created_by_user_id=g.user["id"])
         except ValueError:
             pass  # 동시요청 등으로 이미 생겼으면 조용히 넘어감(멱등)
@@ -5689,8 +5694,9 @@ def housing_inspect_list():
                 continue
             fi = db.get_full_inspection(r["id"])
             fi_status = fi["status"] if fi else "open"
-            if r["status"] == "pending" and fi_status == "complete":
-                continue
+            # 2026-09-28: "✓ 전수검사 완료"를 눌렀어도 아직 승인 전(pending)이면 계속
+            # 검사입력 목록에 남겨서 수정 가능하게 한다(이전엔 여기서 빠져서 완료 버튼을
+            # 누른 뒤 승인 전까지는 값을 못 고치는 사각지대가 있었음, 사용자 지적).
             v = _housing_voltage(r["material_name"])
             if voltage_filter and v != voltage_filter:
                 continue
@@ -5931,6 +5937,14 @@ def _housing_history_rows():
         if end_d   and (not d or d > end_d):   continue
         if suppliers and (r["supplier"] or "") not in suppliers: continue
         if po_nums   and (r["po_number"] or "") not in po_nums:  continue
+
+        # 아직 "✓ 전수검사 완료" 버튼을 안 누른(진행중인) pending 건은 이력이 아니라
+        # 검사입력 목록에서 다뤄야 한다 — 승인/반려/재검사대체 등 이미 결정이 난 건은
+        # fi 완료 여부와 무관하게 항상 이력에 남는다(2026-09-28 사용자 지적).
+        fi = db.get_full_inspection(r["id"])
+        fi_status = fi["status"] if fi else "open"
+        if r["status"] == "pending" and fi_status != "complete":
+            continue
 
         units = db.list_full_inspection_units(r["id"])
         serials = [u["serial_no"] for u in units if u["serial_no"]]
