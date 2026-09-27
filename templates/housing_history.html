@@ -89,7 +89,6 @@
   <thead>
     <tr>
       <th>입고일</th>
-      <th>제품번호</th>
       <th>로트번호</th>
       <th>입고수량</th>
       <th>납품업체</th>
@@ -103,7 +102,6 @@
     {% for r in rows %}
     <tr class="clickable" onclick="location.href='{{ url_for('housing_history_detail', inspection_id=r.id) }}'">
       <td>{{ r.receive_date_label }}</td>
-      <td style="text-align:left;">{{ r.serial_summary }}</td>
       <td style="white-space:pre-line;">{{ r.po_number }}</td>
       <td>{{ '{:,}'.format(r.quantity) if r.quantity else '' }}</td>
       <td>{{ r.supplier }}</td>

@@ -5666,16 +5666,25 @@ def _housing_all_voltages():
 @app.route("/housing/inspect")
 @perm_required("inspect_input")
 def housing_inspect_list():
-    """하우징 검사입력 목록 — 승인 대기(pending, 전수검사 미완료) 전부 + 이미 승인된 건도
-    전부(사용자 확정, 2026-09-28: '승인된 하우징 전부(실측값 있는 건 포함)' 검사입력
-    화면에서 계속 값을 고칠 수 있어야 한다고 명시 — 검사입력 화면 자체는 원래도 승인상태와
-    무관하게 항상 편집 가능하게 짜여 있었고, 이 목록의 필터링만 pending으로 좁혀놨던 게
-    갭이었다). 승인된 건은 값을 고쳐도 별도 경고·재승인 절차 없이 그대로 적용된다."""
+    """하우징 검사입력 목록 — 승인 대기(pending, 전수검사 미완료) 전부 + 특정 승인후 상태도
+    포함해서 값을 계속 고칠 수 있게 한다. 2026-09-28 사용자가 두 단계로 확정:
+    1) '승인된 하우징 전부(실측값 있는 건 포함)' 편집 가능하게(당시엔 status='approved'
+       전체를 포함시켰음)
+    2) 실제 목록을 보고 나서 범위를 좁힘 — '합격 승인 4개랑 재검사 진행됨 1개 총 5개만'.
+       즉 승인후 상태 중에서도 합격승인(approval_type='normal')과 재검사진행됨
+       (status='superseded')만 편집 허용하고, 특채(special)·불합격확정(failed)·반려
+       (rejected)는 제외한다 — 이 세 상태는 이미 공식 결정/문서(NCR 등)로 이어진
+       것이라 사후에 말없이 값이 바뀌면 안 되기 때문으로 보인다."""
     housing_map = db.list_housing_materials()
     voltage_filter = request.args.get("voltage", "")
     rows = []
     if housing_map:
-        for r in db.list_inspections(status="pending") + db.list_inspections(status="approved"):
+        editable_insp = (
+            db.list_inspections(status="pending")
+            + [r for r in db.list_inspections(status="approved") if r["approval_type"] == "normal"]
+            + db.list_inspections(status="superseded")
+        )
+        for r in editable_insp:
             if r["material_no"] not in housing_map:
                 continue
             fi = db.get_full_inspection(r["id"])
