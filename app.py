@@ -525,7 +525,13 @@ def inject_perm_labels():
     nav_counts = {}
     if hasattr(g, "user") and g.user:
         nav_counts["inspect"] = len(db.list_intake(status="대기"))
-        nav_counts["approve"] = len(db.list_inspections(status="pending"))
+        # 하우징은 전용 승인화면(housing_approve_list)에서 따로 세므로 여기서는 제외
+        # (approve_list()의 탭 배지 카운트와 반드시 같은 기준이어야 함 — _exclude_housing 재사용)
+        nav_counts["approve"] = len(_exclude_housing(db.list_inspections(status="pending")))
+        nav_counts["housing_approve"] = len([
+            r for r in db.list_inspections(status="pending")
+            if r["material_no"] in db.list_housing_materials()
+        ])
         nav_counts["output"]  = len(db.list_pending_output_inspections())
         if "outbound" in user_perms:
             nav_counts["outbound_approve"] = db.count_outbound_pending_batches()
