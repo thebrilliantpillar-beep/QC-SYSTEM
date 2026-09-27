@@ -321,7 +321,7 @@
   <div class="nav-dropdown">
     <button type="button" onclick="toggleNav(this)" style="position:relative;">
       ✅ 승인 ▾
-      {% set approve_total = nav_counts.get('approve', 0) + nav_counts.get('outbound_approve', 0) %}
+      {% set approve_total = nav_counts.get('approve', 0) + nav_counts.get('outbound_approve', 0) + nav_counts.get('housing_approve', 0) %}
       {% if approve_total > 0 %}
       <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ approve_total }}</span>
       {% endif %}
@@ -329,24 +329,21 @@
     <div class="menu">
       {% if 'approve' in perms %}<a href="{{ url_for('approve_list') }}">수입검사 승인대기 {% if nav_counts.get('approve', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['approve'] }})</span>{% endif %}</a>{% endif %}
       {% if 'inspect_history' in perms %}<a href="{{ url_for('approval_history') }}">수입검사 승인이력</a>{% endif %}
+      {% if 'approve' in perms %}<a href="{{ url_for('housing_approve_list') }}">하우징 승인대기 {% if nav_counts.get('housing_approve', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['housing_approve'] }})</span>{% endif %}</a>{% endif %}
+      {% if 'inspect_history' in perms %}<a href="{{ url_for('housing_history') }}">하우징 승인이력</a>{% endif %}
       {% if 'outbound' in perms %}<a href="{{ url_for('outbound_approval_pending') }}">출고 승인대기 {% if nav_counts.get('outbound_approve', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['outbound_approve'] }})</span>{% endif %}</a>{% endif %}
       {% if 'outbound' in perms %}<a href="{{ url_for('outbound_approval_history') }}">출고 승인이력</a>{% endif %}
     </div>
   </div>
   {% endif %}
 
-  {# 🏠 하우징 #}
-  {% if 'inspect_input' in perms or 'approve' in perms or 'inspect_history' in perms %}
+  {# 🏠 하우징 — 승인은 위 "✅ 승인" 드롭다운으로 이동(2026-09-28, 출고와 동일 패턴:
+     승인 관련 링크는 승인 드롭다운에만 두고 각 기능별 메뉴에는 안 둔다) #}
+  {% if 'inspect_input' in perms or 'inspect_history' in perms %}
   <div class="nav-dropdown">
-    <button type="button" onclick="toggleNav(this)" style="position:relative;">
-      🏠 하우징 ▾
-      {% if nav_counts.get('housing_approve', 0) > 0 %}
-      <span style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:1px 5px;line-height:1.5;">{{ nav_counts['housing_approve'] }}</span>
-      {% endif %}
-    </button>
+    <button type="button" onclick="toggleNav(this)">🏠 하우징 ▾</button>
     <div class="menu">
       {% if 'inspect_input' in perms %}<a href="{{ url_for('housing_inspect_list') }}">검사입력</a>{% endif %}
-      {% if 'approve' in perms %}<a href="{{ url_for('housing_approve_list') }}">승인 {% if nav_counts.get('housing_approve', 0) > 0 %}<span style="color:#dc2626; font-weight:800;">({{ nav_counts['housing_approve'] }})</span>{% endif %}</a>{% endif %}
       {% if 'inspect_history' in perms %}<a href="{{ url_for('housing_history') }}">검사이력</a>{% endif %}
     </div>
   </div>

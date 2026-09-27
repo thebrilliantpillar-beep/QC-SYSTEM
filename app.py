@@ -5657,29 +5657,35 @@ def _housing_all_voltages():
 @app.route("/housing/inspect")
 @perm_required("inspect_input")
 def housing_inspect_list():
-    """하우징 검사입력 목록 — 승인 대기 전(pending)이면서 전수검사가 아직 완료 안 된 건만."""
+    """하우징 검사입력 목록 — 승인 대기(pending, 전수검사 미완료) 전부 + 이미 승인된 건도
+    전부(사용자 확정, 2026-09-28: '승인된 하우징 전부(실측값 있는 건 포함)' 검사입력
+    화면에서 계속 값을 고칠 수 있어야 한다고 명시 — 검사입력 화면 자체는 원래도 승인상태와
+    무관하게 항상 편집 가능하게 짜여 있었고, 이 목록의 필터링만 pending으로 좁혀놨던 게
+    갭이었다). 승인된 건은 값을 고쳐도 별도 경고·재승인 절차 없이 그대로 적용된다."""
     housing_map = db.list_housing_materials()
     voltage_filter = request.args.get("voltage", "")
     rows = []
     if housing_map:
-        for r in db.list_inspections(status="pending"):
+        for r in db.list_inspections(status="pending") + db.list_inspections(status="approved"):
             if r["material_no"] not in housing_map:
                 continue
             fi = db.get_full_inspection(r["id"])
             fi_status = fi["status"] if fi else "open"
-            if fi_status == "complete":
+            if r["status"] == "pending" and fi_status == "complete":
                 continue
             v = _housing_voltage(r["material_name"])
             if voltage_filter and v != voltage_filter:
                 continue
+            label, cls = status_display(r)
             rows.append({
                 "id": r["id"], "material_no": r["material_no"], "material_name": r["material_name"] or "",
                 "voltage": v, "supplier": r["supplier"] or "", "po_number": r["po_number"] or "",
                 "receive_date": r["receive_date"] or "",
                 "receive_date_label": format_date_korean(r["receive_date"]) if r["receive_date"] else "",
                 "quantity": r["quantity"] or 0, "fi_status": fi_status,
+                "status": r["status"], "status_label": label, "status_cls": cls,
             })
-    rows.sort(key=lambda x: (x["voltage"], x["receive_date"]), reverse=False)
+    rows.sort(key=lambda x: (x["status"] != "pending", x["voltage"], x["receive_date"]))
     return render_template("housing_inspect_list.html", rows=rows,
                            voltage_filter=voltage_filter, voltages=_housing_all_voltages())
 

@@ -16,7 +16,8 @@
 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
   <div>
     <h2 style="margin:0;">🏠 하우징 검사입력</h2>
-    <p class="muted" style="margin:4px 0 0;">전수검사가 아직 끝나지 않은 하우징 성적서 목록이야. 행을 클릭하면 검사입력 화면으로 이동해.</p>
+    <p class="muted" style="margin:4px 0 0;">검사대기 중이거나 이미 승인된 하우징 성적서 전부야. 행을 클릭하면 검사입력 화면으로 이동해 —
+      승인된 건도 값을 고칠 수 있어(별도 재승인 절차 없이 그대로 반영됨).</p>
   </div>
 </div>
 
@@ -37,13 +38,14 @@
 <div style="margin-bottom:8px; color:#4b5563; font-size:13px;"><b>{{ rows|length }}건</b> 조회됨</div>
 
 {% if not rows %}
-<div class="card"><p class="muted" style="margin:0;">조건에 맞는 하우징 검사대기 건이 없어.</p></div>
+<div class="card"><p class="muted" style="margin:0;">조건에 맞는 하우징 성적서가 없어.</p></div>
 {% else %}
 <div style="overflow-x:auto;">
 <table class="h-table">
   <thead>
     <tr>
       <th>전압분류</th>
+      <th>상태</th>
       <th>입고일</th>
       <th>자재명</th>
       <th>로트번호</th>
@@ -52,14 +54,21 @@
     </tr>
   </thead>
   <tbody>
-    {% set ns = namespace(prev=None) %}
+    {% set ns = namespace(prev_status=None, prev_voltage=None) %}
     {% for r in rows %}
-    {% if r.voltage != ns.prev %}
-    <tr class="h-group-row"><td colspan="6">{{ r.voltage }}</td></tr>
-    {% set ns.prev = r.voltage %}
+    {% set status_heading = '검사대기' if r.status == 'pending' else '승인 완료(수정 가능)' %}
+    {% if r.status != ns.prev_status %}
+    <tr class="h-group-row"><td colspan="7">{{ status_heading }}</td></tr>
+    {% set ns.prev_status = r.status %}
+    {% set ns.prev_voltage = None %}
+    {% endif %}
+    {% if r.voltage != ns.prev_voltage %}
+    <tr class="h-group-row" style="background:#fff;"><td colspan="7" style="padding-left:22px;">{{ r.voltage }}</td></tr>
+    {% set ns.prev_voltage = r.voltage %}
     {% endif %}
     <tr class="clickable" onclick="location.href='{{ url_for('full_inspect_form', inspection_id=r.id) }}'">
       <td><span class="badge muted">{{ r.voltage }}</span></td>
+      <td><span class="badge {{ r.status_cls }}">{{ r.status_label }}</span></td>
       <td>{{ r.receive_date_label }}</td>
       <td style="text-align:left;">{{ r.material_name }}</td>
       <td style="white-space:pre-line;">{{ r.po_number }}</td>
