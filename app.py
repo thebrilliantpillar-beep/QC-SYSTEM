@@ -4120,6 +4120,46 @@ def verify_inspection_integrity(inspection_id):
     return {"checked": True, "content_ok": content_ok, "pdf_ok": pdf_ok, "message": msg}
 
 
+def _housing_decision_status(inspection_id):
+    """하우징 성적서의 실제 완료·합격 여부를, STAGE 화면이 실제로 쓰는
+    full_inspections/full_inspection_units 데이터로 직접 판정한다.
+
+    근본원인: inspection_items(legacy '1행=검사항목' 모델)는 _auto_start_full_inspections()가
+    입고 시점에 전 항목을 '미측정'으로 한 번 심어둔 placeholder일 뿐이고, 하우징의 STAGE
+    저장 경로(full_inspect_save → db.upsert_full_inspection_cells)는 이 테이블을 절대
+    건드리지 않는다. 그래서 inspection_items 기반 체크는 하우징에 대해서는 항상 '미측정'
+    상태로 고정돼 있다 — 하우징은 이 함수로 별도 판정해야 한다.
+
+    완료 판정 기준은 full_inspect_save()의 차수 완료 로직과 반드시 같아야 하므로 새로
+    계산하지 않고, 이미 그 로직이 기록해둔 stage1~3_completed_at 타임스탬프만 읽는다
+    (1차=AQL 샘플수량, 2차/3차=전수 — CLAUDE.md 8-1절, 로직 중복 금지).
+
+    반환: (complete: bool, has_ng: bool) — complete가 False면 has_ng는 무의미(False 고정).
+    """
+    fi = db.get_or_create_full_inspection(inspection_id)
+    complete = all(fi.get(f"stage{n}_completed_at") for n in (1, 2, 3))
+    if not complete:
+        return False, False
+    units = db.list_full_inspection_units(inspection_id)
+    has_ng = any(u["result"] == "NG" for u in units)
+    return True, has_ng
+
+
+def _recompute_housing_overall_result(inspection_id):
+    """하우징 성적서의 inspections.overall_result(표시용)를 STAGE 완료·판정 결과와
+    동기화한다. 승인목록/대시보드 배지가 '검토필요'에 영원히 고정되는 걸 막기 위함 —
+    게이트 자체는 _housing_decision_status()가 매번 새로 계산해서 직접 판정하므로,
+    이 값이 잠깐 뒤처져도 승인이 뚫리거나 막히지 않는다(표시 동기화일 뿐, A/B 독립).
+    _recompute_overall_result()(비하우징, inspection_items 기반)와 데이터 출처가 완전히
+    달라 분리했다 — 억지로 합치면 오히려 헷갈린다."""
+    complete, has_ng = _housing_decision_status(inspection_id)
+    new_overall = ("불합격" if has_ng else "합격") if complete else "검토필요"
+    header, _ = db.get_inspection(inspection_id)
+    if header and header["overall_result"] != new_overall:
+        db.update_inspection_overall_result(inspection_id, new_overall)
+    return new_overall
+
+
 def _final_decision_block_reason(inspection_id, action, reject_reason=None):
     """승인·특채·불합격 확정을 막아야 하는 이유가 있으면 그 문구를, 없으면 None을 돌려준다.
 
@@ -4133,37 +4173,57 @@ def _final_decision_block_reason(inspection_id, action, reject_reason=None):
         return "성적서를 찾을 수 없어."
     items = items or []
 
-    # 1) 판정 근거가 없는 항목이 있으면 어떤 결정도 내릴 수 없다.
-    #    승인뿐 아니라 불합격도 막는다 — 규격이 비어서 못 잰 걸 불합격으로 확정하면
-    #    우리 데이터 누락이 협력사 부적합 통보서로 나가버린다.
-    no_spec = [it["item_name"] for it in items if it["result"] == NO_SPEC_RESULT]
-    if no_spec:
-        return (f"규격(하한·상한)이 비어 있는 항목이 있어서 결정할 수 없어: {', '.join(no_spec)} — "
-                f"자재 규격을 먼저 채우고 재검사해줘.")
+    full_inspect_config = db.get_full_inspect_config(header["material_no"])
+    is_housing = bool(full_inspect_config) and full_inspect_config.get("template") == "housing"
 
-    # 2) 아직 측정 안 한 항목이 남아 있으면 결정 불가
-    not_measured = [it["item_name"] for it in items if it["result"] in ("미측정", "입력오류")]
-    if not_measured:
-        return f"측정값이 비어 있거나 잘못된 항목이 있어: {', '.join(not_measured)} — 검사를 먼저 마무리해줘."
+    if is_housing:
+        # 하우징은 inspection_items가 아니라 STAGE 실측 데이터로 직접 판정한다
+        # (_housing_decision_status 참고 — inspection_items 기반 1)/2) 체크를 건너뛴다).
+        complete, has_ng = _housing_decision_status(inspection_id)
+        if not complete:
+            return "1차/2차/3차 검사가 아직 다 끝나지 않았어 — 검사를 먼저 마무리해줘."
 
-    # (예전엔 여기서 "측정 이후 규격이 바뀐 항목"을 감지해서 승인 자체를 막았는데,
-    # 규격을 정정하는 일(오탈자 수정, 단위 보정 등)이 실제로는 흔히 있고 그때마다
-    # 이미 대기 중인 다른 성적서들의 결정이 통째로 막혀버리는 부작용이 커서
-    # 2026-09-01 제거했다 — 안내는 inspection_detail.html의 배너로만 하고, 최종 결정은
-    # 사람이 판단해서 내리도록 둔다. 감지 로직 자체는 inspection_detail()의
-    # stale_spec_items 계산에 남아있음.)
+        # 3) 특채는 '규격을 벗어났지만 예외적으로 쓴다'는 결정이다.
+        if action == "special" and not has_ng:
+            return "전 항목 합격인 성적서는 특채 대상이 아니야. 그냥 '합격 승인'으로 처리해줘."
 
-    # 3) 특채는 '규격을 벗어났지만 예외적으로 쓴다'는 결정이다.
-    #    전 항목 합격인 성적서를 특채로 올리는 건 성립하지 않는다(그냥 합격 승인해야 함).
-    if action == "special" and header["overall_result"] == "합격":
-        return "전 항목 합격인 성적서는 특채 대상이 아니야. 그냥 '합격 승인'으로 처리해줘."
+        # 3-1) 반대 방향 — 규격 이탈 항목이 있는데 '합격 승인'을 누르면 불량이 정상
+        #      합격으로 둔갑해서 NCR·특채 절차 없이 그냥 통과해버린다.
+        if action == "approve" and has_ng:
+            return ("규격을 벗어난 항목이 있어서 '합격 승인'으로 처리할 수 없어. "
+                    "'특채' 또는 '불합격 확정'을 선택해줘.")
+    else:
+        # 1) 판정 근거가 없는 항목이 있으면 어떤 결정도 내릴 수 없다.
+        #    승인뿐 아니라 불합격도 막는다 — 규격이 비어서 못 잰 걸 불합격으로 확정하면
+        #    우리 데이터 누락이 협력사 부적합 통보서로 나가버린다.
+        no_spec = [it["item_name"] for it in items if it["result"] == NO_SPEC_RESULT]
+        if no_spec:
+            return (f"규격(하한·상한)이 비어 있는 항목이 있어서 결정할 수 없어: {', '.join(no_spec)} — "
+                    f"자재 규격을 먼저 채우고 재검사해줘.")
 
-    # 3-1) 반대 방향도 막아야 한다 — 규격을 벗어난 항목이 실제로 있는데 '합격 승인'을
-    #      누르면 불량이 정상 합격으로 둔갑해서 NCR·특채 절차 없이 그냥 통과해버린다.
-    #      (2번 검사에서 발견 — 서버가 이 방향은 막지 않고 있었음)
-    if action == "approve" and header["overall_result"] != "합격":
-        return ("규격을 벗어난 항목이 있어서 '합격 승인'으로 처리할 수 없어. "
-                "'특채' 또는 '불합격 확정'을 선택해줘.")
+        # 2) 아직 측정 안 한 항목이 남아 있으면 결정 불가
+        not_measured = [it["item_name"] for it in items if it["result"] in ("미측정", "입력오류")]
+        if not_measured:
+            return f"측정값이 비어 있거나 잘못된 항목이 있어: {', '.join(not_measured)} — 검사를 먼저 마무리해줘."
+
+        # (예전엔 여기서 "측정 이후 규격이 바뀐 항목"을 감지해서 승인 자체를 막았는데,
+        # 규격을 정정하는 일(오탈자 수정, 단위 보정 등)이 실제로는 흔히 있고 그때마다
+        # 이미 대기 중인 다른 성적서들의 결정이 통째로 막혀버리는 부작용이 커서
+        # 2026-09-01 제거했다 — 안내는 inspection_detail.html의 배너로만 하고, 최종 결정은
+        # 사람이 판단해서 내리도록 둔다. 감지 로직 자체는 inspection_detail()의
+        # stale_spec_items 계산에 남아있음.)
+
+        # 3) 특채는 '규격을 벗어났지만 예외적으로 쓴다'는 결정이다.
+        #    전 항목 합격인 성적서를 특채로 올리는 건 성립하지 않는다(그냥 합격 승인해야 함).
+        if action == "special" and header["overall_result"] == "합격":
+            return "전 항목 합격인 성적서는 특채 대상이 아니야. 그냥 '합격 승인'으로 처리해줘."
+
+        # 3-1) 반대 방향도 막아야 한다 — 규격을 벗어난 항목이 실제로 있는데 '합격 승인'을
+        #      누르면 불량이 정상 합격으로 둔갑해서 NCR·특채 절차 없이 그냥 통과해버린다.
+        #      (2번 검사에서 발견 — 서버가 이 방향은 막지 않고 있었음)
+        if action == "approve" and header["overall_result"] != "합격":
+            return ("규격을 벗어난 항목이 있어서 '합격 승인'으로 처리할 수 없어. "
+                    "'특채' 또는 '불합격 확정'을 선택해줘.")
 
     # 4) 불합격 확정은 협력사로 나가는 결정이라 사유가 반드시 남아야 한다.
     #    (반려는 사유가 필수인데 더 중대한 불합격이 선택이던 건 앞뒤가 안 맞았다)
@@ -5481,6 +5541,10 @@ def full_inspect_save(inspection_id):
                         stage_updates[completed_key] = _dt.now().isoformat(timespec="seconds")
             if stage_updates:
                 db.update_full_inspection_stage_times(inspection_id, **stage_updates)
+        # 표시용 overall_result를 STAGE 실측 데이터와 동기화(승인 게이트와 별개, 위
+        # _recompute_housing_overall_result 참고) — 완료 여부와 무관하게 매 저장마다 호출해서,
+        # 이미 3차까지 끝난 뒤 값이 수정되는 경우(합격→불합격 등)도 놓치지 않는다.
+        _recompute_housing_overall_result(inspection_id)
     else:
         # 비하우징 자재 — spec에 컬럼별 차수 구분이 없으므로 기존 그대로 "전부 2차"로 취급
         # (이 분기는 2026-09-26 이전부터의 동작을 그대로 유지, 회귀 방지).
