@@ -54,7 +54,11 @@
 .pair-cell .sep { color: #9ca3af; padding: 4px 1px; font-size: 11px; }
 .res-ok  { text-align: center; color: #16a34a; font-weight: 700; background: #f0fdf4; }
 .res-ng  { text-align: center; color: #dc2626; font-weight: 700; background: #fef2f2; }
+.res-sp  { text-align: center; color: #ea580c; font-weight: 700; background: #ffedd5; }
 .res-nil { text-align: center; color: #9ca3af; }
+.sp-toggle-btn { display: block; margin: 2px auto 0; padding: 1px 6px; font-size: 10px;
+                 border: 1px solid #ea580c; color: #ea580c; background: #fff; border-radius: 4px;
+                 cursor: pointer; }
 .fi-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
           background: #ECEEF2; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
 .fi-bar label { font-size: 13px; color: #2B3140; }
@@ -402,8 +406,16 @@
       </td>
       {% endfor %}
       {% set res = row.result or '' %}
-      <td class="{{ 'res-ok' if res == 'OK' else ('res-ng' if res == 'NG' else 'res-nil') }}"
-          id="res-{{ row.unit_no }}">{{ res or '—' }}</td>
+      {% set is_special = row.special_marked and res == 'NG' %}
+      <td class="{{ 'res-sp' if is_special else ('res-ok' if res == 'OK' else ('res-ng' if res == 'NG' else 'res-nil')) }}"
+          id="res-{{ row.unit_no }}" data-verdict="{{ '특채' if is_special else res }}">
+        <span class="verdict-label">{{ '특채' if is_special else (res or '—') }}</span>
+        {% if not readonly %}
+        <button type="button" class="sp-toggle-btn" id="sp-btn-{{ row.unit_no }}"
+                style="{{ '' if res == 'NG' else 'display:none;' }}"
+                onclick="toggleUnitSpecial({{ row.unit_no }})">{{ '취소' if row.special_marked else '특채' }}</button>
+        {% endif %}
+      </td>
       <td>
         <input type="text" class="cell-input c-remark"
                data-unit="{{ row.unit_no }}"
@@ -529,6 +541,9 @@
 const INSPECTION_ID = {{ header.id }};
 const SAVE_URL = {{ url_for('full_inspect_save', inspection_id=header.id) | tojson }};
 const COMP_URL = {{ url_for('full_inspect_complete', inspection_id=header.id) | tojson }};
+/* 유닛 단위 특채(개별 예외처리, 2026-09-28) — NG 유닛을 검사자/최종결정권자가 개별로
+   "이 유닛만 예외로 쓴다"고 표시할 수 있다. 서버 상태를 그대로 반영해서 시작한다. */
+const SPECIAL_MARKED_UNITS = new Set({{ rows | selectattr('special_marked') | map(attribute='unit_no') | list | tojson }});
 /* 2026-09-26: fetch()에 CSRF 토큰 헤더가 빠져 있으면 서버가 항상 400(csrf_failed)로
    막는다 — 실제로 확인한 기존 버그(cd8491a CSRF 도입 이후 자동저장 fetch가 전부
    이 문제였을 가능성), 이 화면 자동저장 회귀 수정과 함께 고침. */
@@ -629,10 +644,39 @@ function updateRowResult(unit) {
   const cell = document.getElementById('res-' + unit);
   if (!cell) return;
   const res = calcResult(unit);
-  cell.textContent = res || '—';
-  cell.className = res === 'OK' ? 'res-ok' : res === 'NG' ? 'res-ng' : 'res-nil';
+  const isSpecial = res === 'NG' && SPECIAL_MARKED_UNITS.has(unit);
+  const verdict = isSpecial ? '특채' : res;
+  cell.dataset.verdict = verdict;
+  cell.className = isSpecial ? 'res-sp' : (res === 'OK' ? 'res-ok' : res === 'NG' ? 'res-ng' : 'res-nil');
+  // cell.textContent를 통째로 덮으면 안에 있는 특채토글 버튼까지 지워지므로
+  // 라벨 span만 따로 갱신한다(2026-09-28).
+  const label = cell.querySelector('.verdict-label');
+  if (label) label.textContent = verdict || '—';
+  const btn = document.getElementById('sp-btn-' + unit);
+  if (btn) {
+    btn.style.display = res === 'NG' ? 'inline-block' : 'none';
+    btn.textContent = isSpecial ? '취소' : '특채';
+  }
   updateSummary();
   updateDeepButton(unit);
+}
+
+/* 유닛 특채 토글 버튼 클릭 — 서버에 저장하고 화면을 즉시 갱신한다. */
+async function toggleUnitSpecial(unit) {
+  const wantSpecial = !SPECIAL_MARKED_UNITS.has(unit);
+  try {
+    const resp = await fetch(`/inspection/${INSPECTION_ID}/full-inspect/unit/${unit}/special`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+      body: JSON.stringify({special: wantSpecial}),
+    });
+    const j = await resp.json();
+    if (!j.ok) { alert(j.error || '처리 실패했어.'); return; }
+    if (wantSpecial) SPECIAL_MARKED_UNITS.add(unit); else SPECIAL_MARKED_UNITS.delete(unit);
+    updateRowResult(unit);
+  } catch (e) {
+    alert('서버 오류로 처리 못 했어.');
+  }
 }
 
 /* 3차(절연내력시험) 항목(충격파내전압/부분방전PD/내전압)만 따로 NG 여부 판단 —
@@ -666,8 +710,9 @@ function updateDeepButton(unit) {
 function updateSummary() {
   let ok = 0, ng = 0;
   document.querySelectorAll('[id^="res-"]').forEach(el => {
-    if (el.textContent === 'OK') ok++;
-    else if (el.textContent === 'NG') ng++;
+    const v = el.dataset.verdict;
+    if (v === 'OK') ok++;
+    else if (v === 'NG') ng++;
   });
   document.getElementById('ok-cnt').textContent = ok;
   document.getElementById('ng-cnt').textContent = ng;

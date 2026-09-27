@@ -802,6 +802,11 @@ def init_db():
     existing_fi_cols = [row[1] for row in cur.execute("PRAGMA table_info(full_inspection_units)").fetchall()]
     if "gauge_name" not in existing_fi_cols:
         cur.execute("ALTER TABLE full_inspection_units ADD COLUMN gauge_name TEXT DEFAULT ''")
+    # 유닛 단위 특채(개별 예외처리) — 2026-09-28. 자동판정이 NG인 유닛이라도 검사자·
+    # 최종결정권자가 "이 유닛만은 예외로 쓴다"고 표시할 수 있어야 한다(로트 전체 검사가
+    # 끝나기 전에 이미 개별로 확인된 유닛을 먼저 생산 투입할 수 있게 하기 위함, S/N 조회
+    # 화면과 연동). _safe_add_column 사용(CLAUDE.md 26-1절, 멀티워커 ALTER TABLE 경합 방지).
+    _safe_add_column(cur, "ALTER TABLE full_inspection_units ADD COLUMN special_marked INTEGER DEFAULT 0")
 
     # ---- 여기부터 신규 삽입 ----
     # 출고(완제품 S/N·QR·사진) 관리 — 입고검사(IQC)와 완전히 별개의 신규 하위시스템.
@@ -3298,6 +3303,22 @@ def get_full_inspection_unit_id(inspection_id, unit_no):
     """, (inspection_id, unit_no)).fetchone()
     conn.close()
     return row["id"] if row else None
+
+
+def set_full_inspection_unit_special(inspection_id, unit_no, special):
+    """유닛 단위 특채 표시를 켜고 끈다(2026-09-28). NG로 자동판정된 유닛을 검사자·
+    최종결정권자가 개별 예외처리할 때 쓴다 — 이 유닛의 result 자체는 안 건드리고
+    (다음 저장 때 _fi_auto_result가 또 덮어쓸 수 있으므로) 별도 플래그만 세운다.
+    아직 저장된 적 없는 유닛이면 아무 일도 안 하고 False를 돌려준다."""
+    unit_id = get_full_inspection_unit_id(inspection_id, unit_no)
+    if unit_id is None:
+        return False
+    conn = get_conn()
+    conn.execute("UPDATE full_inspection_units SET special_marked=? WHERE id=?",
+                 (1 if special else 0, unit_id))
+    conn.commit()
+    conn.close()
+    return True
 
 
 def add_housing_deep_inspection(full_inspection_unit_id, test_type, vi_state, chamber_stage,

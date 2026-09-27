@@ -345,6 +345,7 @@
     <div class="menu">
       {% if 'inspect_input' in perms %}<a href="{{ url_for('housing_inspect_list') }}">검사입력</a>{% endif %}
       {% if 'inspect_history' in perms %}<a href="{{ url_for('housing_history') }}">검사이력</a>{% endif %}
+      {% if 'inspect_history' in perms %}<a href="{{ url_for('housing_serial_search') }}">S/N 조회</a>{% endif %}
     </div>
   </div>
   {% endif %}

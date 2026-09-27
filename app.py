@@ -4164,13 +4164,17 @@ def _housing_decision_status(inspection_id):
     (1차=AQL 샘플수량, 2차/3차=전수 — CLAUDE.md 8-1절, 로직 중복 금지).
 
     반환: (complete: bool, has_ng: bool) — complete가 False면 has_ng는 무의미(False 고정).
-    """
+
+    2026-09-28: 유닛이 NG여도 special_marked(개별 특채 처리)가 켜져 있으면 has_ng
+    집계에서 제외한다 — 검사자/최종결정권자가 그 유닛만 예외로 쓰기로 한 것이므로,
+    나머지 유닛이 전부 정상이면 로트 전체도 '합격 승인' 대상이 될 수 있어야 한다
+    (사용자 확정 — 개별 특채 유닛은 더 이상 로트의 NG로 안 침)."""
     fi = db.get_or_create_full_inspection(inspection_id)
     complete = all(fi.get(f"stage{n}_completed_at") for n in (1, 2, 3))
     if not complete:
         return False, False
     units = db.list_full_inspection_units(inspection_id)
-    has_ng = any(u["result"] == "NG" for u in units)
+    has_ng = any(u["result"] == "NG" and not u["special_marked"] for u in units)
     return True, has_ng
 
 
@@ -5427,7 +5431,8 @@ def _load_full_inspect_context(header):
     rows = []
     for i in range(1, qty + 1):
         rows.append(unit_map.get(i, {
-            "unit_no": i, "serial_no": "", "values": {}, "result": "", "remark": "", "gauge_name": ""}))
+            "unit_no": i, "serial_no": "", "values": {}, "result": "", "remark": "", "gauge_name": "",
+            "special_marked": 0}))
     is_housing = config.get("template") == "housing"
     stage_cols = _housing_columns_by_stage(header["material_no"]) if is_housing else None
     if is_housing:
@@ -5889,6 +5894,32 @@ def housing_deep_inspect_save(inspection_id, unit_no):
     return jsonify({"ok": True, "count": counts.get(unit_no, 0)})
 
 
+@app.route("/inspection/<int:inspection_id>/full-inspect/unit/<int:unit_no>/special", methods=["POST"])
+@perm_required("inspect_input", "approve")
+def housing_unit_special_toggle(inspection_id, unit_no):
+    """유닛 단위 특채(개별 예외처리) 켜기/끄기 — 검사자 또는 최종결정권자가 자동판정
+    NG 유닛을 개별로 봐주는 기능(2026-09-28 사용자 요청). 켜면 로트 전체 합격/불합격
+    판정(_housing_decision_status)에서 이 유닛은 더 이상 NG로 안 친다. 끄기(취소)는
+    아무 때나 가능 — 다시 NG로 되돌리는 것뿐이라 별다른 전제조건이 없다."""
+    header, _ = db.get_inspection(inspection_id)
+    if header is None:
+        return jsonify({"ok": False, "error": "성적서 없음"}), 404
+    payload = request.get_json(silent=True) or {}
+    special = bool(payload.get("special"))
+    units = db.list_full_inspection_units(inspection_id)
+    unit = next((u for u in units if u["unit_no"] == unit_no), None)
+    if unit is None:
+        return jsonify({"ok": False, "error": "먼저 측정값을 저장한 뒤 다시 시도해줘."}), 400
+    if special and unit["result"] != "NG":
+        return jsonify({"ok": False, "error": "NG 판정난 유닛만 특채로 표시할 수 있어."}), 400
+    ok = db.set_full_inspection_unit_special(inspection_id, unit_no, special)
+    if not ok:
+        return jsonify({"ok": False, "error": "저장 실패"}), 400
+    who = g.user["display_name"] or g.user["username"]
+    record_change("유닛 특채 " + ("표시" if special else "취소"), "full_inspection",
+                  inspection_id, f"unit {unit_no}, {who}")
+    return jsonify({"ok": True, "special": special})
+
 
 @app.route("/inspection/<int:inspection_id>/full-inspect/report-pdf")
 @perm_required("output")
@@ -6045,6 +6076,40 @@ def housing_history():
     rows, filt = _housing_history_rows()
     pager = _paginate(rows)
     return render_template("housing_history.html", rows=pager["items"], filt=filt, pager=pager)
+
+
+@app.route("/housing/search")
+@perm_required("inspect_history")
+def housing_serial_search():
+    """S/N(제품번호) 하나로 검사 결과를 바로 조회 — 로트 전체 검사가 안 끝났어도 그
+    안의 개별 유닛이 이미 OK인지 확인할 수 있어야 한다(2026-09-28 사용자 요청: 로트
+    전체 완료 전에 이미 합격/특채 판정난 개별 유닛을 먼저 생산에 투입할 수 있어서).
+    housing_history()는 fi 완료(또는 이미 결정난) 로트만 보여주므로(§2026-09-28 수정)
+    진행중인 로트 안의 유닛은 거기서 검색이 안 된다 — 이 화면은 상태·완료여부와
+    무관하게 하우징 전체를 다 훑는다(가벼운 조회 전용, 별도 승인/문서 기능 없음)."""
+    q = (request.args.get("q") or "").strip()
+    rows = []
+    if q:
+        housing_map = db.list_housing_materials()
+        for r in db.list_inspections():
+            if r["material_no"] not in housing_map:
+                continue
+            units = db.list_full_inspection_units(r["id"])
+            for u in units:
+                if q.lower() not in (u["serial_no"] or "").lower():
+                    continue
+                label, cls = status_display(r)
+                unit_result = "특채" if (u["result"] == "NG" and u["special_marked"]) else (u["result"] or "미정")
+                rows.append({
+                    "inspection_id": r["id"], "unit_no": u["unit_no"], "serial_no": u["serial_no"],
+                    "unit_result": unit_result,
+                    "material_no": r["material_no"], "material_name": r["material_name"] or "",
+                    "voltage": _housing_voltage(r["material_name"]),
+                    "po_number": r["po_number"] or "", "supplier": r["supplier"] or "",
+                    "lot_status": r["status"], "lot_status_label": label, "lot_status_cls": cls,
+                })
+        rows.sort(key=lambda x: (x["serial_no"] or ""))
+    return render_template("housing_serial_search.html", q=q, rows=rows)
 
 
 @app.route("/housing/history/export.xlsx")
