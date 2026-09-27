@@ -3168,10 +3168,12 @@ def upsert_full_inspection_cells(inspection_id, cells, compute_result=None):
     key가 'serial_no'/'remark'/'gauge_name'이면 해당 컬럼에 직접 반영, 그 외 key는
     기존 values_json(dict)에 그 key만 병합(나머지 기존 key는 그대로 유지).
 
-    compute_result(values_dict) -> "OK"/"NG"/"" 콜백을 병합된 유닛 "전체" values 기준으로
-    호출해 result를 계산한다 — 판정 로직(스펙 범위 비교 등)은 app.py의 _fi_auto_result가
-    갖고 있어 database.py는 몰라도 되게 콜백으로 분리했다(8-1절 관례: DB 계층에 업무판정
-    로직을 심지 않음).
+    compute_result(unit_no, values_dict) -> "OK"/"NG"/"" 콜백을 병합된 유닛 "전체" values
+    기준으로 호출해 result를 계산한다 — 판정 로직(스펙 범위 비교, 차수별 필수항목 완료
+    여부 등)은 app.py의 _fi_auto_result가 갖고 있어 database.py는 몰라도 되게 콜백으로
+    분리했다(8-1절 관례: DB 계층에 업무판정 로직을 심지 않음). unit_no를 넘기는 이유는
+    하우징처럼 유닛마다 "필수 항목"이 다를 수 있어서다(1차 AQL 샘플 외 유닛은 1차 항목이
+    필요 없음, 2026-09-28).
 
     같은 unit_no를 두 요청이 동시에 건드릴 때 "읽고(병합)-쓰는" 사이에 다른 요청이 끼어들어
     한쪽 병합 결과가 유실되는 걸 막기 위해, 유닛별 읽기+쓰기 전체를 BEGIN IMMEDIATE
@@ -3232,7 +3234,7 @@ def upsert_full_inspection_cells(inspection_id, cells, compute_result=None):
                 else:
                     values[key] = val
 
-            result = compute_result(values) if compute_result else ""
+            result = compute_result(unit_no, values) if compute_result else ""
             values_json = _j.dumps(values, ensure_ascii=False)
 
             if row:

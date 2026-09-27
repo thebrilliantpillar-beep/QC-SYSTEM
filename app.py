@@ -605,6 +605,14 @@ def _approval_status_label(status, overall_result, approval_type):
     if status == "pending":
         if overall_result == "검토필요":
             return "검토필요"
+        if overall_result == "진행중":
+            return "검사 진행중"
+        if overall_result == "합격":
+            # 하우징은 STAGE가 다 끝나고 전부 정상이면 overall_result가 미리 "합격"으로
+            # 채워진다(_recompute_housing_overall_result) — 다만 아직 사람이 승인 버튼을
+            # 누르지 않은 상태(status는 여전히 pending)이므로, 실제 승인된 "합격 승인"과
+            # 헷갈리지 않게 구분된 라벨을 쓴다(2026-09-28).
+            return "합격(승인대기)"
         return "대기중"
     if status == "rejected":
         return "반려"
@@ -619,8 +627,8 @@ def _approval_status_label(status, overall_result, approval_type):
     return status or ""
 
 
-APPROVAL_STATUS_LABELS = ["대기중", "검토필요", "반려", "재검사 진행됨", "특채 승인", "불합격 확정", "합격 승인"]
-OVERALL_RESULT_OPTIONS = ["합격", "검토필요", "불합격", "규격미입력"]
+APPROVAL_STATUS_LABELS = ["대기중", "검사 진행중", "검토필요", "합격(승인대기)", "반려", "재검사 진행됨", "특채 승인", "불합격 확정", "합격 승인"]
+OVERALL_RESULT_OPTIONS = ["합격", "검토필요", "진행중", "불합격", "규격미입력"]
 SUPPLIER_CONTACT_ROLES = ["영업", "품질", "구매", "기타"]
 
 
@@ -630,7 +638,8 @@ def status_display(insp):
     승인된 건은 합격/불합격/특채 여부까지 구분해서 보여준다.
     """
     label = _approval_status_label(insp["status"], insp["overall_result"], insp["approval_type"])
-    cls_map = {"대기중": "pending", "검토필요": "review", "반려": "fail", "재검사 진행됨": "muted",
+    cls_map = {"대기중": "pending", "검사 진행중": "muted", "검토필요": "review",
+               "합격(승인대기)": "pass", "반려": "fail", "재검사 진행됨": "muted",
                "특채 승인": "special", "불합격 확정": "fail", "합격 승인": "pass"}
     return (label, cls_map.get(label, "pending"))
 
@@ -4171,9 +4180,29 @@ def _recompute_housing_overall_result(inspection_id):
     게이트 자체는 _housing_decision_status()가 매번 새로 계산해서 직접 판정하므로,
     이 값이 잠깐 뒤처져도 승인이 뚫리거나 막히지 않는다(표시 동기화일 뿐, A/B 독립).
     _recompute_overall_result()(비하우징, inspection_items 기반)와 데이터 출처가 완전히
-    달라 분리했다 — 억지로 합치면 오히려 헷갈린다."""
+    달라 분리했다 — 억지로 합치면 오히려 헷갈린다.
+
+    2026-09-28 사용자 지적으로 라벨 의미를 바로잡음 — "검토필요"는 이 코드베이스
+    전체에서 "측정은 됐는데 이상이 있어 사람이 봐야 한다"는 뜻으로 쓰인다(다른
+    자재들의 judge_numeric 계열도 전부 이 관례). 예전엔 여기서 미완료 상태 전부를
+    뭉뚱그려 "검토필요"로 찍어서, 아무 것도 안 잰 신규 건까지 "검토필요"처럼 보였고
+    (그건 1657행 근처 _auto_start_full_inspections 수정으로 이미 고침), "불합격"이라는
+    이 코드베이스에서 쓰지 않던 값을 새로 만들어 썼다. 지금은:
+      - 아무 값도 없음        -> ""(→ status_display가 "대기중")
+      - 값은 있는데 미완료    -> "진행중"(→ "검사 진행중")
+      - 완료 + 이상 있음(NG)  -> "검토필요"(→ 사람이 특채/불합격 등 결정해야 함)
+      - 완료 + 전부 정상      -> "합격"
+    """
     complete, has_ng = _housing_decision_status(inspection_id)
-    new_overall = ("불합격" if has_ng else "합격") if complete else "검토필요"
+    if complete:
+        new_overall = "검토필요" if has_ng else "합격"
+    else:
+        units = db.list_full_inspection_units(inspection_id)
+        has_any = any(
+            any(str(v).strip() for v in (u.get("values") or {}).values())
+            for u in units
+        )
+        new_overall = "진행중" if has_any else ""
     header, _ = db.get_inspection(inspection_id)
     if header and header["overall_result"] != new_overall:
         db.update_inspection_overall_result(inspection_id, new_overall)
@@ -5434,12 +5463,21 @@ def full_inspect_form(inspection_id):
     return render_template(tmpl, **ctx)
 
 
-def _fi_auto_result(unit_vals, columns):
+def _fi_auto_result(unit_vals, columns, required_keys=None):
     """병합된 유닛 전체 values(dict)를 기준으로 합격/불합격 재계산.
-    (특정 칸 하나만 보고 판정하면 안 됨 — 2026-09-26 칸단위 upsert 전환의 핵심 원칙)"""
+    (특정 칸 하나만 보고 판정하면 안 됨 — 2026-09-26 칸단위 upsert 전환의 핵심 원칙)
+
+    required_keys가 주어지면(하우징) 그 키들이 전부 채워지기 전까지는 OK/NG 둘 다 안
+    내리고 빈 문자열(미정)을 돌려준다 — 2026-09-28 사용자 지적: "1개의 S/N에 3개의
+    검사 중 모든 검사가 채워지기 전까지는 판정에 OK 혹은 NG가 들어가면 안 된다"(일부만
+    보고 NG처럼 보이는 값이 있어도 전부 안 채워졌으면 아직 판정을 안 낸다). None이면
+    (비하우징 전수검사) 기존처럼 columns 전체를 기준으로 한다."""
     has_any = any(str(v).strip() for v in unit_vals.values())
     if not has_any:
         return ""
+    needed = required_keys if required_keys is not None else {c["key"] for c in columns}
+    if not all(str(unit_vals.get(k, "")).strip() for k in needed):
+        return ""  # 아직 다 안 채워짐 — 판정 보류
     for col in columns:
         key = col["key"]
         val = str(unit_vals.get(key, "")).strip()
@@ -5515,9 +5553,26 @@ def full_inspect_save(inspection_id):
     if inspect_date:
         db.update_full_inspection(inspection_id, inspect_date=inspect_date)
 
+    # 하우징은 유닛마다 "판정에 필요한 항목"이 다르다 — 1차(치수)는 AQL 샘플수량
+    # 안에 든 유닛만 필요하고, 2차/3차는 전 유닛 필요. 이 필수항목이 전부 채워지기
+    # 전까지는 _fi_auto_result가 OK/NG를 안 내고 보류한다(2026-09-28 사용자 지적).
+    config_for_save = db.get_full_inspect_config(header["material_no"])
+    if config_for_save and config_for_save.get("template") == "housing":
+        stage_cols_for_save = _housing_columns_by_stage(header["material_no"])
+        stage1_qty_for_save = sample_size(1.5, int(header["quantity"] or 0)) or int(header["quantity"] or 0)
+        stage1_keys_for_save = {c["key"] for c in stage_cols_for_save["stage1_cols"]}
+        always_keys_for_save = ({c["key"] for c in stage_cols_for_save["stage2_cols"]}
+                                 | {c["key"] for c in stage_cols_for_save["stage3_cols"]})
+
+        def _compute_result(unit_no, vals):
+            required = always_keys_for_save | (stage1_keys_for_save if unit_no <= stage1_qty_for_save else set())
+            return _fi_auto_result(vals, columns, required_keys=required)
+    else:
+        def _compute_result(unit_no, vals):
+            return _fi_auto_result(vals, columns)
+
     saved_units = db.upsert_full_inspection_cells(
-        inspection_id, cells,
-        compute_result=lambda vals: _fi_auto_result(vals, columns))
+        inspection_id, cells, compute_result=_compute_result)
 
     editor_name = g.user["display_name"] or g.user["username"]
     db.record_full_inspection_editor(fi["id"], g.user["id"], editor_name)
