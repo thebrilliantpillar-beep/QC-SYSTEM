@@ -1524,7 +1524,14 @@ def total_time_label_for(header):
 @login_required
 def home():
     pending_inspect = db.list_intake(status="대기")
-    pending_approve = db.list_inspections(status="pending")
+    # 승인 대기는 카테고리별로 나눠서 보여준다(2026-09-28, 사용자 요청) — 수입검사/하우징은
+    # 같은 inspections 테이블이라 _exclude_housing()으로 갈라야 한다(nav_counts와 동일 기준,
+    # 8-1절 — housing_approve_list()가 쓰는 필터와도 반드시 같은 결과여야 함).
+    all_pending_insp = db.list_inspections(status="pending")
+    pending_approve = _exclude_housing(all_pending_insp)
+    housing_map = db.list_housing_materials()
+    pending_housing_approve = [r for r in all_pending_insp if r["material_no"] in housing_map]
+    pending_outbound_approve = db.count_outbound_pending_batches() if "outbound" in _user_perms(g.user) else 0
     pending_output  = db.list_pending_output_inspections()
     recent          = db.list_inspections()[:10]
     today_stats     = db.get_today_stats()
@@ -1534,6 +1541,8 @@ def home():
     return render_template("home.html",
         pending_inspect=pending_inspect,
         pending_approve=pending_approve,
+        pending_housing_approve=pending_housing_approve,
+        pending_outbound_approve=pending_outbound_approve,
         pending_output=pending_output,
         recent=recent,
         today_stats=today_stats,

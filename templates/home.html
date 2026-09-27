@@ -11,7 +11,8 @@
   margin-bottom: 16px;
 }
 @media (min-width: 600px) {
-  .dash-grid { grid-template-columns: repeat(4, 1fr); }
+  /* 카드 6개(승인 3분할 이후, 2026-09-28) — 3열이면 2행에 가지런히 꽉 찬다 */
+  .dash-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .action-card {
   background: var(--card);
@@ -143,11 +144,29 @@
   {% if 'approve' in user_perms %}
   <a href="{{ url_for('approve_list') }}" class="action-card">
     <span class="icon">✅</span>
-    <span class="label">승인 대기</span>
+    <span class="label">수입검사 승인</span>
     <span class="count {% if pending_approve %}urgent{% else %}muted{% endif %}">
       {{ pending_approve|length }}
     </span>
     {% if pending_approve %}<span class="badge-dot">!</span>{% endif %}
+  </a>
+  <a href="{{ url_for('housing_approve_list') }}" class="action-card">
+    <span class="icon">🏠</span>
+    <span class="label">하우징 승인</span>
+    <span class="count {% if pending_housing_approve %}urgent{% else %}muted{% endif %}">
+      {{ pending_housing_approve|length }}
+    </span>
+    {% if pending_housing_approve %}<span class="badge-dot">!</span>{% endif %}
+  </a>
+  {% endif %}
+  {% if 'outbound' in user_perms %}
+  <a href="{{ url_for('outbound_approval_pending') }}" class="action-card">
+    <span class="icon">🚚</span>
+    <span class="label">출고 승인</span>
+    <span class="count {% if pending_outbound_approve %}urgent{% else %}muted{% endif %}">
+      {{ pending_outbound_approve }}
+    </span>
+    {% if pending_outbound_approve %}<span class="badge-dot">!</span>{% endif %}
   </a>
   {% endif %}
 
