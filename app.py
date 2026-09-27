@@ -5283,6 +5283,25 @@ def _housing_columns_by_stage(material_no):
             "total_cols": idx - 2}
 
 
+def _reorder_pf_last(stage_cols):
+    """하우징 STAGE 입력화면 전용 — O/X(pf) 항목을 각 차수 표의 맨 오른쪽(판정 바로
+    왼쪽)으로 몰아 재배치한다. 화면 표시 순서만 바꾸는 것이고 DB(specs.item_order)는
+    전혀 건드리지 않는다 — report_builder(성적서 PDF)와 housing_report_pdf()는 이 함수를
+    거치지 않는 _housing_columns_by_stage()의 원본 순서를 그대로 쓰므로 영향이 없다.
+    재배치 후 D패드 그리드용 col_idx도 새 화면 순서 기준으로 idx=2부터 다시 매긴다."""
+    reordered = {}
+    idx = 2
+    for stage_no in (1, 2, 3):
+        cols = stage_cols[f"stage{stage_no}_cols"]
+        new_cols = [c for c in cols if c["type"] != "pf"] + [c for c in cols if c["type"] == "pf"]
+        for c in new_cols:
+            c["col_idx"] = idx
+            idx += 1
+        reordered[f"stage{stage_no}_cols"] = new_cols
+    reordered["total_cols"] = idx - 2
+    return reordered
+
+
 def _load_full_inspect_context(header):
     """전수검사 화면(검사입력용 full_inspect_form / 하우징 승인상세)이 공유하는
     데이터 준비. header는 db.get_inspection()이 돌려준 row. 전수검사 설정이 없으면
@@ -5302,6 +5321,8 @@ def _load_full_inspect_context(header):
             "unit_no": i, "serial_no": "", "values": {}, "result": "", "remark": "", "gauge_name": ""}))
     is_housing = config.get("template") == "housing"
     stage_cols = _housing_columns_by_stage(header["material_no"]) if is_housing else None
+    if is_housing:
+        stage_cols = _reorder_pf_last(stage_cols)
     # 1차(치수) 탭은 AQL 1.5 샘플수량만큼만 입력 가능 — 저장 로직(full_inspect_save)의
     # 차수 완료판정과 반드시 같은 계산이어야 한다(sample_size(1.5, ...) 하나만 씀).
     stage1_sample_qty = sample_size(1.5, qty) or qty if is_housing else None

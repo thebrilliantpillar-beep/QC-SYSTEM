@@ -304,13 +304,17 @@
       {% for col in stage_cols.stage1_cols %}
       <td class="stage-col stage-1{{ ' locked-cell' if locked else '' }}">
         {% if col.type == 'pf' %}
+          {# 입력 모드에서 저장값이 없으면 "○"을 기본선택(실제 자동저장은 하단 JS) — readonly는
+             과거 실측 데이터를 왜곡하면 안 되므로 빈칸 그대로 둔다(작업지시 항목1). #}
+          {% set pf_sel = vals.get(col.key) if vals.get(col.key) else ('○' if not readonly else '') %}
           <select class="cell-input c-val"
                   data-unit="{{ row.unit_no }}" data-key="{{ col.key }}" data-type="pf"
                   data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                  data-had-value="{{ '1' if vals.get(col.key) else '0' }}"
                   {% if locked or readonly %}disabled{% endif %}>
-            <option value="" {% if not vals.get(col.key) %}selected{% endif %}></option>
-            <option value="○" {% if vals.get(col.key) == '○' %}selected{% endif %}>○</option>
-            <option value="×" {% if vals.get(col.key) == '×' %}selected{% endif %}>×</option>
+            <option value="" {% if pf_sel == '' %}selected{% endif %}></option>
+            <option value="○" {% if pf_sel == '○' %}selected{% endif %}>○</option>
+            <option value="×" {% if pf_sel == '×' %}selected{% endif %}>×</option>
           </select>
         {% else %}
           <input type="text" class="cell-input c-val" inputmode="decimal"
@@ -349,13 +353,15 @@
                    value="{{ rod_val }}" placeholder="ROD" {% if readonly %}disabled{% endif %}>
           </div>
         {% elif col.type == 'pf' %}
+          {% set pf_sel = vals.get(col.key) if vals.get(col.key) else ('○' if not readonly else '') %}
           <select class="cell-input c-val"
                   data-unit="{{ row.unit_no }}" data-key="{{ col.key }}" data-type="pf"
                   data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                  data-had-value="{{ '1' if vals.get(col.key) else '0' }}"
                   {% if readonly %}disabled{% endif %}>
-            <option value="" {% if not vals.get(col.key) %}selected{% endif %}></option>
-            <option value="○" {% if vals.get(col.key) == '○' %}selected{% endif %}>○</option>
-            <option value="×" {% if vals.get(col.key) == '×' %}selected{% endif %}>×</option>
+            <option value="" {% if pf_sel == '' %}selected{% endif %}></option>
+            <option value="○" {% if pf_sel == '○' %}selected{% endif %}>○</option>
+            <option value="×" {% if pf_sel == '×' %}selected{% endif %}>×</option>
           </select>
         {% else %}
           <input type="text" class="cell-input c-val" inputmode="decimal"
@@ -372,13 +378,15 @@
       {% for col in stage_cols.stage3_cols %}
       <td class="stage-col stage-3">
         {% if col.type == 'pf' %}
+          {% set pf_sel = vals.get(col.key) if vals.get(col.key) else ('○' if not readonly else '') %}
           <select class="cell-input c-val"
                   data-unit="{{ row.unit_no }}" data-key="{{ col.key }}" data-type="pf" data-stage="3"
                   data-row="{{ row_idx }}" data-col="{{ col.col_idx }}"
+                  data-had-value="{{ '1' if vals.get(col.key) else '0' }}"
                   {% if readonly %}disabled{% endif %}>
-            <option value="" {% if not vals.get(col.key) %}selected{% endif %}></option>
-            <option value="○" {% if vals.get(col.key) == '○' %}selected{% endif %}>○</option>
-            <option value="×" {% if vals.get(col.key) == '×' %}selected{% endif %}>×</option>
+            <option value="" {% if pf_sel == '' %}selected{% endif %}></option>
+            <option value="○" {% if pf_sel == '○' %}selected{% endif %}>○</option>
+            <option value="×" {% if pf_sel == '×' %}selected{% endif %}>×</option>
           </select>
         {% else %}
           <input type="text" class="cell-input c-val" inputmode="decimal"
@@ -847,6 +855,18 @@ document.querySelectorAll('.c-val, .c-pair').forEach(inp => {
 document.querySelectorAll('.sn-mid, .sn-suf').forEach(inp => {
   inp.addEventListener('input', () => markDirty(+inp.dataset.unit, 'serial_no', serialFor(+inp.dataset.unit)));
 });
+{% if not readonly %}
+/* O/X 항목 기본값 "○" 실제 자동저장(작업지시 항목1) — 화면엔 이미 ○이 선택돼 있으니
+   값을 바꿀 필요는 없고, dirty로 표시해서 기존 자동저장 파이프라인(markDirty→scheduleSave)
+   에 태우기만 하면 된다. data-had-value="1"(서버에 이미 저장돼 있던 값)은 절대 건드리지
+   않는다 — 검사자가 이미 명시적으로 고른 값을 덮어쓰면 안 되기 때문. 새로고침해도 이미
+   저장된 셀은 그대로라 이 루프는 자연히 멱등이다. */
+document.querySelectorAll('select.c-val[data-type="pf"]').forEach(sel => {
+  if (sel.dataset.hadValue === '1') return;
+  updateRowResult(+sel.dataset.unit);
+  markDirty(+sel.dataset.unit, sel.dataset.key, sel.value);
+});
+{% endif %}
 /* 생산년월 — 숨겨진 native month input, 달력 버튼으로 열고 선택 결과를 YYMM 라벨로 보여준다(항목2). */
 document.querySelectorAll('.sn-ym').forEach(inp => {
   inp.addEventListener('change', () => {
