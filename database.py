@@ -2353,14 +2353,17 @@ def get_material_inspection_history(material_no):
 
 
 def get_repeat_defects(min_count=3):
-    """업체+자재 조합별 불량 건수, min_count 이상인 것만 반환."""
+    """업체+자재 조합별 불량 건수, min_count 이상인 것만 반환.
+    '진행중'(2026-09-28 신설 — 하우징 STAGE 검사가 아직 안 끝난 상태)은 불량이
+    아니라 '아직 측정 중'일 뿐이므로 제외한다(사용자가 대시보드에 실제로는 불량이
+    없는데 반복불량 경고가 뜬다고 지적해서 발견 — 이 함수가 그 값이 생기기 전에
+    짜여서 '합격/공백 아니면 전부 불량'으로 취급하고 있었다)."""
     conn = get_conn()
     rows = conn.execute("""
         SELECT supplier, material_no, material_name, COUNT(*) as cnt,
                MAX(inspect_date) as last_date
         FROM inspections
-        WHERE overall_result NOT IN ('합격', '') AND overall_result IS NOT NULL
-          AND overall_result != ''
+        WHERE overall_result NOT IN ('합격', '', '진행중') AND overall_result IS NOT NULL
         GROUP BY supplier, material_no
         HAVING COUNT(*) >= ?
         ORDER BY cnt DESC, last_date DESC
@@ -2370,15 +2373,15 @@ def get_repeat_defects(min_count=3):
 
 
 def get_defect_count_for(supplier, material_no):
-    """특정 업체+자재의 전체 불량 건수 반환."""
+    """특정 업체+자재의 전체 불량 건수 반환. get_repeat_defects()와 같은 기준
+    ('진행중' 제외, 8-1절 — 새로 정의하지 않음)."""
     if not supplier or not material_no:
         return 0
     conn = get_conn()
     count = conn.execute("""
         SELECT COUNT(*) FROM inspections
         WHERE supplier = ? AND material_no = ?
-          AND overall_result NOT IN ('합격', '') AND overall_result IS NOT NULL
-          AND overall_result != ''
+          AND overall_result NOT IN ('합격', '', '진행중') AND overall_result IS NOT NULL
     """, (supplier, material_no)).fetchone()[0]
     conn.close()
     return count
