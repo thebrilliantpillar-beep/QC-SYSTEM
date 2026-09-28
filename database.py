@@ -4487,13 +4487,23 @@ def get_outbound_batch(batch_id):
 
 
 def count_outbound_pending_batches():
-    """출고 승인대기(미확인) 배치 수 — 네비게이션 배지용 가벼운 COUNT만.
-    list_outbound_batches()의 무거운 서브쿼리 집계를 배지 표시마다 돌리지 않기 위해
-    별도로 뺐다(8-1절 — 목적이 다른 조회는 재사용보다 전용 쿼리가 맞는 경우)."""
+    """출고 승인대기 배치 수 — 미확인 배치 중 '완료된' 것만 센다(2026-09-28 사용자
+    확정: 일반 수입검사가 '검사완료 제출' 전엔 승인목록에 안 뜨는 것과 같은 원칙).
+    완료 판정은 outbound_batch_confirm()의 실제 게이트 조건과 반드시 같아야 하므로
+    새로 계산하지 않고 outbound_batch_has_unplanned_items()/
+    outbound_batch_has_unscanned_planned_items()를 그대로 재사용한다(8-1절 —
+    같은 판정 기준을 두 곳에서 따로 정의하지 않음). 항목이 0건인 빈 배치는 계획이
+    없어도 '완료'로 안 친다."""
     conn = get_conn()
-    n = conn.execute("SELECT COUNT(*) FROM outbound_batches WHERE confirmed_at IS NULL").fetchone()[0]
+    ids = [r[0] for r in conn.execute("""
+        SELECT b.id FROM outbound_batches b
+         WHERE b.confirmed_at IS NULL
+           AND EXISTS (SELECT 1 FROM outbound_items i WHERE i.batch_id = b.id)
+    """).fetchall()]
     conn.close()
-    return n
+    return sum(1 for bid in ids
+               if not outbound_batch_has_unplanned_items(bid)
+               and not outbound_batch_has_unscanned_planned_items(bid))
 
 
 def list_outbound_batches(query=None, limit=200):

@@ -528,9 +528,14 @@ def inject_perm_labels():
         # 하우징은 전용 승인화면(housing_approve_list)에서 따로 세므로 여기서는 제외
         # (approve_list()의 탭 배지 카운트와 반드시 같은 기준이어야 함 — _exclude_housing 재사용)
         nav_counts["approve"] = len(_exclude_housing(db.list_inspections(status="pending")))
+        # 2026-09-28 사용자 확정: 하우징 승인대기는 STAGE 검사가 전부 완료된 것만 센다
+        # (일반 수입검사가 '검사완료 제출' 전엔 승인목록에 안 뜨는 것과 같은 원칙).
+        # _housing_decision_status()가 유일한 완료판정 기준 — housing_approve_list()와
+        # 반드시 같은 결과여야 한다(8-1절).
+        housing_map = db.list_housing_materials()
         nav_counts["housing_approve"] = len([
             r for r in db.list_inspections(status="pending")
-            if r["material_no"] in db.list_housing_materials()
+            if r["material_no"] in housing_map and _housing_decision_status(r["id"])[0]
         ])
         nav_counts["output"]  = len(db.list_pending_output_inspections())
         if "outbound" in user_perms:
@@ -1539,7 +1544,9 @@ def home():
     all_pending_insp = db.list_inspections(status="pending")
     pending_approve = _exclude_housing(all_pending_insp)
     housing_map = db.list_housing_materials()
-    pending_housing_approve = [r for r in all_pending_insp if r["material_no"] in housing_map]
+    # nav_counts["housing_approve"]와 동일 기준(STAGE 검사 완료된 것만) — 8-1절.
+    pending_housing_approve = [r for r in all_pending_insp
+                                if r["material_no"] in housing_map and _housing_decision_status(r["id"])[0]]
     pending_outbound_approve = db.count_outbound_pending_batches() if "outbound" in _user_perms(g.user) else 0
     pending_output  = db.list_pending_output_inspections()
     recent          = db.list_inspections()[:10]
@@ -5777,13 +5784,18 @@ def housing_inspect_list():
 @app.route("/housing/approve")
 @perm_required("approve")
 def housing_approve_list():
-    """하우징 승인 목록 — 승인 대기(pending) 중인 하우징 성적서 전체."""
+    """하우징 승인 목록 — 승인 대기(pending) 중이면서 STAGE 검사가 전부 완료된
+    하우징 성적서만(2026-09-28 사용자 확정 — 일반 수입검사가 '검사완료 제출' 전엔
+    승인목록에 안 뜨는 것과 같은 원칙). nav_counts["housing_approve"]와 반드시
+    같은 기준(_housing_decision_status)을 써야 한다(8-1절)."""
     housing_map = db.list_housing_materials()
     voltage_filter = request.args.get("voltage", "")
     rows = []
     if housing_map:
         for r in db.list_inspections(status="pending"):
             if r["material_no"] not in housing_map:
+                continue
+            if not _housing_decision_status(r["id"])[0]:
                 continue
             v = _housing_voltage(r["material_name"])
             if voltage_filter and v != voltage_filter:
@@ -9699,12 +9711,29 @@ def outbound_scan_edit(batch_id):
     return render_template("outbound_scan.html", batch=batch, **ctx)
 
 
+def _outbound_batch_ready_for_approval(b):
+    """출고 배치가 '완료'돼서 승인목록에 뜰 자격이 있는지 — db.list_outbound_batches()가
+    이미 계산해둔 item_count/planned_count/unplanned_count/missing_count를 그대로 쓴다.
+    outbound_batch_confirm()의 실제 게이트(has_unplanned_items/has_unscanned_planned_items)
+    와 같은 기준이어야 하므로, '계획이 있을 때만 계획불일치를 본다'는 전제도 CLAUDE.md
+    24절의 기존 판단 패턴(b.planned_count and b.unplanned_count)을 그대로 따른다."""
+    if (b["item_count"] or 0) <= 0:
+        return False
+    if b["planned_count"]:
+        if b["unplanned_count"] or b["missing_count"]:
+            return False
+    return True
+
+
 @app.route("/outbound/approval")
 @perm_required("outbound")
 def outbound_approval_pending():
     q = request.args.get("q", "").strip()
     batches = db.list_outbound_batches(query=q or None)
-    pending = [b for b in batches if not b["confirmed_at"]]
+    # 2026-09-28 사용자 확정: 스캔이 아직 안 끝난(계획외/미스캔 남음) 배치는 승인대기
+    # 목록에 안 뜬다 — 일반 수입검사가 '검사완료 제출' 전엔 승인목록에 안 뜨는 것과 같은
+    # 원칙. count_outbound_pending_batches()(nav 배지)와 반드시 같은 결과여야 한다(8-1절).
+    pending = [b for b in batches if not b["confirmed_at"] and _outbound_batch_ready_for_approval(b)]
     return render_template("outbound_approval_pending.html", batches=pending, q=q)
 
 
