@@ -9122,24 +9122,35 @@ def dashboard_export_xlsx():
     sheet("자재별", ["자재번호", "자재명", "로트", "수량", "검사표본수", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
           report["자재별"])
 
-    # 자재별(세부) — 같은 자재의 로트를 하나로 합치지 않고 로트(성적서)별로 한 줄씩 펼친 버전.
-    # 업체/입고일/판정(합격·특채·불합격·미결을 구분)을 같이 보여줘서 팀장 백데이터·차트용으로 쓴다.
+    # 백데이터 — 같은 자재의 로트를 하나로 합치지 않고 로트(성적서)별로 한 줄씩 펼친 버전.
+    # 업체/입고일을 같이 보여주고, 판정은 합격/불합격/특채 수량 3개 열로 나눠서 쓴다.
+    # 특채는 "따지고 보면 불합격 계열"이라는 사용자 확정 — 불합격수량 열에도 그 수량이
+    # 같이 들어간다(= 특채가 불합격수량에 포함된다는 뜻, 불합격수량+특채수량을 또 더하면
+    # 안 됨 — 이미 포함돼 있어서 더하면 특채 수량이 중복 집계된다. 2026-10-03).
     detail_src = sorted(report["성적서목록"],
                         key=lambda r: (r["material_no"] or "", r["receive_date"] or "", r["inspect_date"] or ""))
     detail_rows = []
     for r in detail_src:
         samp = r["검사표본수"]
+        qty = r["quantity"] or 0
+        state = r["판정"]
         detail_rows.append({
             "자재번호": r["material_no"], "자재명": r["material_name"],
             "업체": r["supplier"], "입고일": r["receive_date"], "로트번호": r["po_number"],
-            "수량": r["quantity"], "판정": r["판정"],
+            "수량": qty,
+            "합격수량": qty if state == "합격" else 0,
+            "불합격수량": qty if state in ("불합격", "특채") else 0,
+            "특채수량": qty if state == "특채" else 0,
             "검사표본수": samp, "표본불량수": r["표본불량수"],
             "표본불량률": round(r["표본불량수"] / samp * 100, 3) if samp else None,
             "표본PPM": int(round(r["표본불량수"] / samp * 1_000_000)) if samp else None,
         })
-    sheet("자재별(세부)", ["자재번호", "자재명", "업체", "입고일", "로트번호", "수량", "판정",
-                          "검사표본수", "표본불량수", "표본불량률", "표본PPM"],
-          detail_rows)
+    ws_backdata = sheet("백데이터", ["자재번호", "자재명", "업체", "입고일", "로트번호", "수량",
+                                   "합격수량", "불합격수량", "특채수량",
+                                   "검사표본수", "표본불량수", "표본불량률", "표본PPM"],
+                        detail_rows)
+    ws_backdata.sheet_properties.tabColor = "FFFFFF00"  # 8자리 ARGB(알파 FF)로 명시 — 6자리만 주면
+    # openpyxl이 알파를 "00"(투명)으로 채워서 실제 엑셀에서 색이 깨질 수 있다(25절 참고)
 
     sheet("불량항목", ["자재번호", "자재명", "항목", "규격", "발생건수", "업체"],
           report["불량항목순위"])
