@@ -9121,6 +9121,26 @@ def dashboard_export_xlsx():
           report["업체별"])
     sheet("자재별", ["자재번호", "자재명", "로트", "수량", "검사표본수", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
           report["자재별"])
+
+    # 자재별(세부) — 같은 자재의 로트를 하나로 합치지 않고 로트(성적서)별로 한 줄씩 펼친 버전.
+    # 업체/입고일/판정(합격·특채·불합격·미결을 구분)을 같이 보여줘서 팀장 백데이터·차트용으로 쓴다.
+    detail_src = sorted(report["성적서목록"],
+                        key=lambda r: (r["material_no"] or "", r["receive_date"] or "", r["inspect_date"] or ""))
+    detail_rows = []
+    for r in detail_src:
+        samp = r["검사표본수"]
+        detail_rows.append({
+            "자재번호": r["material_no"], "자재명": r["material_name"],
+            "업체": r["supplier"], "입고일": r["receive_date"], "로트번호": r["po_number"],
+            "수량": r["quantity"], "판정": r["판정"],
+            "검사표본수": samp, "표본불량수": r["표본불량수"],
+            "표본불량률": round(r["표본불량수"] / samp * 100, 3) if samp else None,
+            "표본PPM": int(round(r["표본불량수"] / samp * 1_000_000)) if samp else None,
+        })
+    sheet("자재별(세부)", ["자재번호", "자재명", "업체", "입고일", "로트번호", "수량", "판정",
+                          "검사표본수", "표본불량수", "표본불량률", "표본PPM"],
+          detail_rows)
+
     sheet("불량항목", ["자재번호", "자재명", "항목", "규격", "발생건수", "업체"],
           report["불량항목순위"])
     sheet("성적서목록", ["id", "inspect_date", "material_no", "material_name", "supplier",

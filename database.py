@@ -5762,13 +5762,19 @@ def quality_report(start_date, end_date, period_type="monthly",
                 "불합격수량": 0, "미결수량": 0, "불합격로트": 0, "합격로트": 0,
                 "검사표본수": 0, "표본불량수": 0, "특채건수": 0}
 
+    # 로트(=성적서 1건) 단위 판정/표본통계 — 세부 내보내기(자재별 상세시트)에서도 그대로 쓴다
+    for r in rows:
+        r["판정"] = _lot_state(r["status"], r["approval_type"], r["overall_result"])
+        r["검사표본수"] = sample_count_map.get(r["id"], 0)
+        r["표본불량수"] = sum(int(m[1]) for m in _DEFECT_RE.findall(r.get("remark_inspector") or ""))
+
     def add(acc, r):
         qty = int(r["quantity"] or 0)
-        state = _lot_state(r["status"], r["approval_type"], r["overall_result"])
+        state = r["판정"]
         acc["로트"] += 1
         acc["수량"] += qty
-        acc["검사표본수"] += sample_count_map.get(r["id"], 0)
-        acc["표본불량수"] += sum(int(m[1]) for m in _DEFECT_RE.findall(r.get("remark_inspector") or ""))
+        acc["검사표본수"] += r["검사표본수"]
+        acc["표본불량수"] += r["표본불량수"]
         if state == "합격":
             acc["합격수량"] += qty
             acc["합격로트"] += 1
