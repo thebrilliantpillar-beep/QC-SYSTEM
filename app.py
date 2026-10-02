@@ -9057,7 +9057,7 @@ def dashboard_export_json():
 def dashboard_export_xlsx():
     """엑셀 내보내기 — 시트별로 요약/기간별/업체별/자재별/불량항목/성적서목록."""
     from openpyxl import Workbook
-    from openpyxl.styles import Font as XFont
+    from openpyxl.styles import Font as XFont, Border, Side
 
     p = _dashboard_params()
     report = _build_quality_report(p)
@@ -9161,6 +9161,13 @@ def dashboard_export_xlsx():
                         detail_rows)
     ws_backdata.sheet_properties.tabColor = "FFFFFF00"  # 8자리 ARGB(알파 FF)로 명시 — 6자리만 주면
     # openpyxl이 알파를 "00"(투명)으로 채워서 실제 엑셀에서 색이 깨질 수 있다(25절 참고)
+    thin = Side(style="thin")
+    cell_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for row in ws_backdata.iter_rows(min_row=1, max_row=ws_backdata.max_row,
+                                      min_col=1, max_col=ws_backdata.max_column):
+        for cell in row:
+            cell.border = cell_border
+    ws_backdata.freeze_panes = "A2"  # 틀고정 — 헤더행 고정, 아래로 스크롤해도 항상 보이게
 
     sheet("불량항목", ["자재번호", "자재명", "항목", "규격", "발생건수", "업체"],
           report["불량항목순위"])
