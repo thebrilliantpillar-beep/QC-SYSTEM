@@ -9056,6 +9056,7 @@ def dashboard_export_json():
 @perm_required("defect_history", "inspect_history")
 def dashboard_export_xlsx():
     """엑셀 내보내기 — 시트별로 요약/기간별/업체별/자재별/불량항목/성적서목록."""
+    import unicodedata
     from openpyxl import Workbook
     from openpyxl.styles import Font as XFont, Border, Side
 
@@ -9063,6 +9064,11 @@ def dashboard_export_xlsx():
     report = _build_quality_report(p)
     wb = Workbook()
     head_font = XFont(bold=True)
+
+    def _display_width(s):
+        # 한글/한자 등 "wide" 문자는 엑셀 열너비 단위(반각 기준)로 2칸을 차지한다.
+        # len()만 쓰면 한글이 섞인 값일수록 실제 필요한 폭보다 좁게 계산된다.
+        return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in s)
 
     def sheet(title, columns, rows):
         ws = wb.create_sheet(title[:31])
@@ -9072,8 +9078,9 @@ def dashboard_export_xlsx():
         for r in rows:
             ws.append([r.get(k) for k in columns])
         for idx, col in enumerate(columns, start=1):
-            width = max(len(str(col)), *(len(str(r.get(col, ""))) for r in rows)) if rows else len(str(col))
-            ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = min(40, width + 3)
+            width = (max(_display_width(str(col)), *(_display_width(str(r.get(col, ""))) for r in rows))
+                     if rows else _display_width(str(col)))
+            ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = min(60, width + 3)
         return ws
 
     ws0 = wb.active
