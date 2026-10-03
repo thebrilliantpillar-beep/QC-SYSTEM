@@ -5778,6 +5778,48 @@ def housing_voltage_group_save(material_no):
     return redirect(url_for("housing_voltage_groups"))
 
 
+@app.route("/housing/voltage-groups/new", methods=["POST"])
+@perm_required("material_edit")
+def housing_voltage_group_create():
+    """하우징 자재 신규등록 — 기존 하우징 자재 하나를 복제원본으로 골라서 materials/specs를
+    통째로 복제한다(register_housing_605013P300.py 1회성 스크립트를 화면 기능으로 일반화,
+    2026-10-03)."""
+    material_no = (request.form.get("material_no") or "").strip()
+    material_name = (request.form.get("material_name") or "").strip()
+    template_material_no = (request.form.get("template_material_no") or "").strip()
+    voltage = (request.form.get("voltage") or "").strip().upper()
+
+    if not material_no or not material_name or not template_material_no or not voltage:
+        flash("자재번호/자재명/복제할 자재/전압분류를 전부 입력해야 해.")
+        return redirect(url_for("housing_voltage_groups"))
+    if template_material_no not in db.list_housing_materials():
+        flash("복제할 자재를 하우징 목록에서 다시 선택해줘.")
+        return redirect(url_for("housing_voltage_groups"))
+
+    ok, err = db.clone_housing_material(material_no, material_name, template_material_no, voltage)
+    if not ok:
+        flash(err)
+        return redirect(url_for("housing_voltage_groups"))
+
+    # 이 자재번호로 이미 들어와 있던 '대기' 입고건을 전수검사 시작 상태로 전환한다.
+    # _auto_start_full_inspections()는 "새로 등록되는 입고건" 시점에만 자동으로 불리므로
+    # (add_intake_bulk 직후 3곳에서만 호출됨), 자재가 지금 막 하우징으로 등록되기 전에
+    # 이미 들어와 있던 '대기' 건은 이 시점에 따로 한 번 처리해줘야 한다 — 바로 오늘
+    # 605013P300 실사고가 이 경로였다(규격 없이 먼저 입고된 대기건이 있었음).
+    conn = db.get_conn()
+    pending_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM intake_list WHERE material_no=? AND status='대기'", (material_no,)
+    ).fetchall()]
+    conn.close()
+    if pending_ids:
+        _auto_start_full_inspections(pending_ids)
+
+    record_change("하우징 자재 신규등록", "material", material_no,
+                   f"{material_name} (복제원본: {template_material_no}, 전압: {voltage})")
+    flash(f"{material_no}({material_name})를 '{template_material_no}' 설정을 복제해서 등록했어.")
+    return redirect(url_for("housing_voltage_groups"))
+
+
 @app.route("/housing/inspect")
 @perm_required("inspect_input")
 def housing_inspect_list():

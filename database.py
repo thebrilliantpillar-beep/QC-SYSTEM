@@ -3078,6 +3078,84 @@ def set_housing_voltage(material_no, voltage):
     set_full_inspect_config(material_no, cfg)
 
 
+def clone_housing_material(material_no, material_name, template_material_no, voltage):
+    """하우징 자재 신규 등록 — template_material_no(기존 하우징 자재)의 materials/specs
+    설정을 그대로 복제해서 새 자재번호로 만든다. /housing/voltage-groups 화면의
+    "새 하우징 자재 등록" 폼이 쓴다(register_housing_605013P300.py 1회성 스크립트를
+    일반화한 것, 2026-10-03).
+
+    **반드시 full_inspect_config에 template='housing'을 명시적으로 강제한다** —
+    복제 원본은 list_housing_materials()에서 고른 자재라 이미 이 키를 갖고 있지만,
+    방어적으로 한 번 더 덮어쓴다(이 키가 빠지면 list_housing_materials()에 영원히
+    안 걸려서 /housing/inspect에 안 뜨는 실제 사고가 있었다 — 2026-10-03).
+
+    반환: (성공여부, 에러메시지 또는 None).
+    """
+    conn = get_conn()
+    if conn.execute("SELECT 1 FROM materials WHERE material_no=?", (material_no,)).fetchone():
+        conn.close()
+        return False, f"자재번호 '{material_no}'는 이미 등록돼 있어."
+    src_mat = conn.execute(
+        "SELECT * FROM materials WHERE material_no=?", (template_material_no,)
+    ).fetchone()
+    if src_mat is None:
+        conn.close()
+        return False, f"복제 원본 자재 '{template_material_no}'를 찾을 수 없어."
+
+    cols = [c for c in src_mat.keys() if c != "created_at"]
+    values = []
+    for c in cols:
+        if c == "material_no":
+            values.append(material_no)
+        elif c == "material_name":
+            values.append(material_name)
+        else:
+            values.append(src_mat[c])
+    placeholders = ",".join("?" * len(cols))
+    try:
+        conn.execute(
+            f"INSERT INTO materials ({','.join(cols)}) VALUES ({placeholders})", values
+        )
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False, f"자재번호 '{material_no}'는 이미 등록돼 있어."
+
+    src_specs = conn.execute(
+        "SELECT * FROM specs WHERE material_no=? ORDER BY item_order, id",
+        (template_material_no,),
+    ).fetchall()
+    try:
+        if src_specs:
+            spec_cols = [c for c in src_specs[0].keys() if c != "id"]
+            for sp in src_specs:
+                sp_values = [
+                    material_no if c == "material_no" else
+                    material_name if c == "material_name" else
+                    sp[c]
+                    for c in spec_cols
+                ]
+                sp_placeholders = ",".join("?" * len(spec_cols))
+                conn.execute(
+                    f"INSERT INTO specs ({','.join(spec_cols)}) VALUES ({sp_placeholders})",
+                    sp_values,
+                )
+        conn.commit()
+    except Exception:
+        # 규격 복제 도중 실패하면 자재(materials)만 반쪽으로 남아 template 키도 없이
+        # 떠버리는 사고(605013P300과 같은 구조)로 이어진다 — 통째로 롤백한다.
+        conn.rollback()
+        conn.close()
+        return False, "규격 복제 중 오류가 나서 등록을 취소했어. 다시 시도해줘."
+    conn.close()
+
+    cfg = get_full_inspect_config(material_no) or {}
+    cfg["template"] = "housing"
+    if voltage:
+        cfg["voltage"] = voltage
+    set_full_inspect_config(material_no, cfg)
+    return True, None
+
+
 def get_or_create_full_inspection(inspection_id):
     """전수검사 헤더 조회 또는 신규 생성. dict 반환."""
     conn = get_conn()

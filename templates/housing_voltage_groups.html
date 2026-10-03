@@ -13,6 +13,44 @@
   </p>
 </div>
 
+{% if can_edit %}
+<details class="sec" data-sec="housing-new-material" open>
+  <summary>➕ 새 하우징 자재 등록</summary>
+  <div class="card" style="margin-top:8px;">
+    <p class="hint" style="margin:0 0 10px;">
+      기존 하우징 자재 하나를 복제원본으로 골라서, 그 자재의 검사항목(규격)과 전수검사
+      설정을 그대로 복사해서 새 자재번호로 등록해. 전압급(15KV/27KV/38KV)이 다르면
+      규격 구성이 다를 수 있으니, 실제로 비슷한 전압급의 자재를 복제원본으로 고를 것.
+    </p>
+    <form method="POST" action="{{ url_for('housing_voltage_group_create') }}"
+          style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+      <div>
+        <label style="display:block; font-size:12px;">자재번호</label>
+        <input type="text" name="material_no" required style="width:140px;">
+      </div>
+      <div>
+        <label style="display:block; font-size:12px;">자재명</label>
+        <input type="text" name="material_name" required style="width:220px;">
+      </div>
+      <div>
+        <label style="display:block; font-size:12px;">복제할 기존 하우징 자재</label>
+        <select name="template_material_no" required style="width:260px;">
+          <option value="">선택</option>
+          {% for r in rows %}
+          <option value="{{ r.material_no }}">{{ r.material_no }} — {{ r.material_name }} ({{ r.voltage }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="display:block; font-size:12px;">전압분류</label>
+        <input type="text" name="voltage" list="knownVoltages" required placeholder="예: 15KV" style="width:90px;">
+      </div>
+      <button type="submit">등록</button>
+    </form>
+  </div>
+</details>
+{% endif %}
+
 <table class="table">
   <thead>
     <tr><th>자재번호</th><th>자재명</th><th>현재 전압분류</th>{% if can_edit %}<th>설정</th>{% endif %}</tr>
@@ -45,4 +83,8 @@
 <datalist id="knownVoltages">
   {% for v in known_voltages %}<option value="{{ v }}">{% endfor %}
 </datalist>
+<script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
+<script>
+  CollapsibleSections.init('details.sec[data-sec]', 'housing-voltage-sec-');
+</script>
 {% endblock %}
