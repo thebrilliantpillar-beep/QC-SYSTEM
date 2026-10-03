@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}하우징 전압분류 설정 — Chardon QMS{% endblock %}
+{% block content %}
+{% set can_edit = 'material_edit' in perms %}
+<h2>하우징 전압분류 설정</h2>
+
+<div class="card">
+  <p class="hint" style="margin:0;">
+    하우징 자재의 전압그룹(15KV/27KV/38KV)은 원래 자재명 맨 앞의 "NNKV" 표기로 자동
+    판별했는데, 그 패턴이 아닌 자재명(예: "EPOXY HOUSING(CKMR3515)")은 자동판별이
+    안 돼서 여기서 직접 지정해야 해. 한 번 지정하면 자재명이 어떻게 바뀌어도 이 값이
+    항상 우선 적용돼. "해제"하면 예전처럼 자재명 기준 자동판별로 돌아가.
+  </p>
+</div>
+
+<table class="table">
+  <thead>
+    <tr><th>자재번호</th><th>자재명</th><th>현재 전압분류</th>{% if can_edit %}<th>설정</th>{% endif %}</tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{{ r.material_no }}</td>
+      <td>{{ r.material_name }}</td>
+      <td>
+        <span class="badge muted">{{ r.voltage }}</span>
+        {% if not r.is_explicit %}<span class="hint" style="font-size:11px;">(자동판별)</span>{% endif %}
+      </td>
+      {% if can_edit %}
+      <td>
+        <form method="POST" action="{{ url_for('housing_voltage_group_save', material_no=r.material_no) }}"
+              style="display:flex; gap:6px;">
+          <input type="text" name="voltage" list="knownVoltages"
+                 value="{{ r.voltage if r.is_explicit else '' }}" placeholder="예: 15KV" style="width:90px;">
+          <button type="submit">저장</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+  {% else %}
+    <tr><td colspan="4" style="text-align:center;" class="muted">하우징으로 설정된 자재가 없어.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<datalist id="knownVoltages">
+  {% for v in known_voltages %}<option value="{{ v }}">{% endfor %}
+</datalist>
+{% endblock %}

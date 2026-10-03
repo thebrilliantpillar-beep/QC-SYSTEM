@@ -3066,6 +3066,18 @@ def set_full_inspect_config(material_no, config_dict):
     conn.close()
 
 
+def set_housing_voltage(material_no, voltage):
+    """하우징 전압분류를 full_inspect_config JSON의 'voltage' 키에 저장(기존 template/note
+    키는 보존, 병합 방식). voltage가 빈 문자열/None이면 키를 지워서 명시값을 해제한다
+    (해제되면 app.py/report_builder.py의 정규식·문자열 기반 자동판별로 되돌아간다)."""
+    cfg = get_full_inspect_config(material_no) or {}
+    if voltage:
+        cfg["voltage"] = voltage
+    else:
+        cfg.pop("voltage", None)
+    set_full_inspect_config(material_no, cfg)
+
+
 def get_or_create_full_inspection(inspection_id):
     """전수검사 헤더 조회 또는 신규 생성. dict 반환."""
     conn = get_conn()

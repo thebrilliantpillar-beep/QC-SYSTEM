@@ -1418,7 +1418,14 @@ _HOUSING_TEMPLATE_FILES = {
 
 
 def _housing_template_key(material_no, product_name):
-    """자재번호를 우선으로, 그 다음 품명으로 배포된 원본 양식을 선택한다."""
+    """materials.full_inspect_config의 명시적 'voltage' 설정을 최우선으로 쓰고,
+    없으면 자재번호 하드코딩(기존 3종 하위호환) → 품명 문자열 순으로 추론한다.
+    (2026-10-03: EPOXY HOUSING처럼 품명에 KV가 없는 하우징 자재는 명시 설정 없이는
+    여기서 None이 나와 build_housing_report()가 ValueError를 던졌음 — 실제 사고.)"""
+    config = db.get_full_inspect_config(material_no)
+    explicit = (config or {}).get("voltage")
+    if explicit:
+        return explicit
     key = {
         "602013P015": "15KV",
         "604013P000": "27KV",

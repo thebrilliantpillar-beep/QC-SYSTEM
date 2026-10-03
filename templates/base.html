@@ -421,6 +421,7 @@
       {% if 'material_edit' in perms %}<a href="{{ url_for('spec_quick_add') }}">자재 일괄등록</a>{% endif %}
       {% if 'material_view' in perms %}<a href="{{ url_for('assembly_list') }}">조립품 관리</a>{% endif %}
       {% if 'material_view' in perms %}<a href="{{ url_for('material_find') }}">자재 찾기</a>{% endif %}
+      {% if 'material_view' in perms %}<a href="{{ url_for('housing_voltage_groups') }}">하우징 전압분류 설정</a>{% endif %}
       {% if 'material_import' in perms %}<a href="{{ url_for('import_bom') }}">BOM 임포트</a>{% endif %}
       {% if 'supplier' in perms %}<a href="{{ url_for('supplier_list') }}">업체 관리</a>{% endif %}
       {% if 'supplier' in perms or 'material_edit' in perms %}<a href="{{ url_for('change_point_list') }}">4M 변경점</a>{% endif %}

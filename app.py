@@ -5451,7 +5451,7 @@ def _load_full_inspect_context(header):
     deep_counts = db.count_housing_deep_inspections_by_unit(fi["id"]) if is_housing else {}
     # 제품번호 접두어(X/E)는 전압분류로 고정된다(2026-09-27 실사용 피드백) — 검사자가
     # 고를 수 없게 하고 화면엔 표시만 한다. 15KV=X, 27KV/38KV=E는 사용자가 확정한 사실.
-    sn_prefix = _HOUSING_SN_PREFIX.get(_housing_voltage(header["material_name"]), "") if is_housing else ""
+    sn_prefix = _HOUSING_SN_PREFIX.get(_housing_voltage(header["material_no"], header["material_name"]), "") if is_housing else ""
     return {
         "header": dict(header), "fi": fi, "rows": rows, "columns": columns,
         "config": config, "qty": qty, "stage_cols": stage_cols,
@@ -5719,9 +5719,15 @@ def full_inspect_pdf(inspection_id):
 _HOUSING_VOLTAGE_RE = re.compile(r'^\s*(\d+)\s*KV', re.I)
 
 
-def _housing_voltage(material_name):
-    """자재명 앞의 'NNKV' 패턴에서 전압분류를 뽑는다 — 하드코딩 금지, 자재가 늘어도
-    이름 패턴만 맞으면 자동 분류된다."""
+def _housing_voltage(material_no, material_name):
+    """하우징 전압분류 — materials.full_inspect_config의 명시적 'voltage' 키가 최우선,
+    없으면 자재명 앞의 'NNKV' 패턴으로 추론(기존 동작, 하위호환). 둘 다 없으면 '기타'.
+    (2026-10-03: 자재명이 'NNKV'로 안 시작하는 하우징 자재(예: EPOXY HOUSING)가
+    생기면서 명시 설정이 필요해짐 — /housing/voltage-groups 화면에서 지정)."""
+    config = db.get_full_inspect_config(material_no)
+    explicit = (config or {}).get("voltage")
+    if explicit:
+        return explicit
     m = _HOUSING_VOLTAGE_RE.match(material_name or "")
     return f"{m.group(1)}KV" if m else "기타"
 
@@ -5732,7 +5738,44 @@ _HOUSING_SN_PREFIX = {"15KV": "X", "27KV": "E", "38KV": "E"}
 
 
 def _housing_all_voltages():
-    return sorted({_housing_voltage(name) for name in db.list_housing_materials().values()})
+    return sorted({_housing_voltage(mn, name) for mn, name in db.list_housing_materials().items()})
+
+
+@app.route("/housing/voltage-groups")
+@perm_required("material_view")
+def housing_voltage_groups():
+    """하우징 자재별 전압분류(15KV/27KV/38KV 등) 명시 설정 화면. 자재명이 'NNKV'로
+    시작하지 않는 하우징 자재(예: EPOXY HOUSING)는 자동판별이 안 되므로 여기서
+    직접 지정해야 한다 — 2026-10-03, 605013P300 등록 중 발견."""
+    housing_map = db.list_housing_materials()
+    rows = []
+    for material_no, material_name in sorted(housing_map.items()):
+        config = db.get_full_inspect_config(material_no) or {}
+        explicit = (config.get("voltage") or "").strip()
+        rows.append({
+            "material_no": material_no,
+            "material_name": material_name,
+            "voltage": explicit or _housing_voltage(material_no, material_name),
+            "is_explicit": bool(explicit),
+        })
+    return render_template("housing_voltage_groups.html", rows=rows,
+                           known_voltages=sorted(_HOUSING_SN_PREFIX))
+
+
+@app.route("/housing/voltage-groups/<material_no>", methods=["POST"])
+@perm_required("material_edit")
+def housing_voltage_group_save(material_no):
+    if material_no not in db.list_housing_materials():
+        flash("하우징으로 설정된 자재가 아니야.")
+        return redirect(url_for("housing_voltage_groups"))
+    voltage = (request.form.get("voltage") or "").strip().upper()
+    db.set_housing_voltage(material_no, voltage or None)
+    record_change("하우징 전압분류 설정", "material", material_no, voltage or "(해제)")
+    if voltage:
+        flash(f"{material_no}의 전압분류를 '{voltage}'로 저장했어.")
+    else:
+        flash(f"{material_no}의 전압분류 설정을 해제했어 — 자재명 기준 자동판별로 돌아가.")
+    return redirect(url_for("housing_voltage_groups"))
 
 
 @app.route("/housing/inspect")
@@ -5764,7 +5807,7 @@ def housing_inspect_list():
             # 2026-09-28: "✓ 전수검사 완료"를 눌렀어도 아직 승인 전(pending)이면 계속
             # 검사입력 목록에 남겨서 수정 가능하게 한다(이전엔 여기서 빠져서 완료 버튼을
             # 누른 뒤 승인 전까지는 값을 못 고치는 사각지대가 있었음, 사용자 지적).
-            v = _housing_voltage(r["material_name"])
+            v = _housing_voltage(r["material_no"], r["material_name"])
             if voltage_filter and v != voltage_filter:
                 continue
             label, cls = status_display(r)
@@ -5797,7 +5840,7 @@ def housing_approve_list():
                 continue
             if not _housing_decision_status(r["id"])[0]:
                 continue
-            v = _housing_voltage(r["material_name"])
+            v = _housing_voltage(r["material_no"], r["material_name"])
             if voltage_filter and v != voltage_filter:
                 continue
             fi = db.get_full_inspection(r["id"])
@@ -5835,7 +5878,7 @@ def housing_approve_detail(inspection_id):
     return render_template("full_inspect_housing.html", **ctx,
                            readonly=True, show_approve_actions=True,
                            back_url=url_for("housing_approve_list"),
-                           voltage=_housing_voltage(header["material_name"]),
+                           voltage=_housing_voltage(header["material_no"], header["material_name"]),
                            problem_count=dctx["problem_count"], pending_count=dctx["pending_count"])
 
 
@@ -5855,7 +5898,7 @@ def housing_history_detail(inspection_id):
     return render_template("full_inspect_housing.html", **ctx,
                            readonly=True, show_approve_actions=False,
                            back_url=url_for("housing_history"),
-                           voltage=_housing_voltage(header["material_name"]))
+                           voltage=_housing_voltage(header["material_no"], header["material_name"]))
 
 
 _HOUSING_DEEP_TEST_TYPES = ("PD", "충격")
@@ -6062,7 +6105,7 @@ def _housing_history_rows():
             "po_number": r["po_number"] or "",
             "quantity": r["quantity"] or 0,
             "supplier": r["supplier"] or "",
-            "voltage": _housing_voltage(r["material_name"]),
+            "voltage": _housing_voltage(r["material_no"], r["material_name"]),
             "material_name": r["material_name"] or "",
             "material_no": r["material_no"] or "",
             "status_label": label, "status_cls": cls,
@@ -6116,7 +6159,7 @@ def housing_serial_search():
                     "inspection_id": r["id"], "unit_no": u["unit_no"], "serial_no": u["serial_no"],
                     "unit_result": unit_result,
                     "material_no": r["material_no"], "material_name": r["material_name"] or "",
-                    "voltage": _housing_voltage(r["material_name"]),
+                    "voltage": _housing_voltage(r["material_no"], r["material_name"]),
                     "po_number": r["po_number"] or "", "supplier": r["supplier"] or "",
                     "lot_status": r["status"], "lot_status_label": label, "lot_status_cls": cls,
                 })
