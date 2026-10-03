@@ -8,6 +8,30 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-03 (하우징 신규 자재 등록 기능 추가, 커밋 5baa70a, TASK #68)**: 605013P300
+  사고(바로 위 TASK #67 항목) 해결 직후 사용자가 "새로 등록할 수 있게끔 만들게 해야지!
+  자재명 및 자재번호도 포함"이라고 요청 — 앞으로 비슷한 신규 하우징 자재가 생길 때마다
+  1회성 스크립트를 새로 짜지 않아도 되게 해달라는 것. `/housing/voltage-groups` 화면에
+  "새 하우징 자재 등록" 카드를 추가(별도 화면 안 만들고 기존 화면에 통합 — 이미 복제원본
+  후보 목록을 들고 있어서). 자재번호/자재명 입력 + 기존 하우징 자재 하나를 복제원본으로
+  선택 + 전압분류 지정 → `database.clone_housing_material()`이 `materials`/`specs`를
+  동적 컬럼 복사(`SELECT *` → `row.keys()`)로 통째로 복제하고 `full_inspect_config`에
+  `template="housing"`을 **강제로** 다시 설정(TASK #67 사고 재발 방지 핵심). 이미 들어와
+  있던 '대기' 입고건은 기존 `_auto_start_full_inspections()`로 바로 검사시작 전환.
+  planner→developer→quality-watcher 정식 절차(TASK #68) — quality-watcher가 specs INSERT
+  루프에 예외처리가 없어서 중간 실패 시 materials만 반쪽으로 남고 template 키 설정도
+  못 하는(TASK #67과 똑같은 구조의) 결함을 찾아냄 → try/except+rollback 추가, sqlite3
+  Connection 프록시로 강제 예외를 재현하는 테스트까지 직접 만들어서(materials/specs 둘 다
+  롤백되어 잔존 0건, 깨끗한 에러 메시지 반환 확인) 재검증 통과 후 배포.
+  **`.collab` 워크플로우 메모**: TASK #68 진행 중 planner의 `workflow-result`에 non-empty
+  `issues`(스펙 스니펫의 placeholder 줄 지적)를 실었더니 `workflow-finalize`가
+  "미해결 ISSUE가 있음"으로 막혔다 — `workflow-issue-resolution`으로 그 ISSUE를
+  RESOLVED 처리(발생시킨 문제가 developer 구현 단계에서 실제로 해소됐다는 근거 evidence
+  record 연결)한 뒤에야 finalize가 통과됐다. **issues 배열에 뭔가 적어 넣으면 ISSUE
+  레코드가 자동 생성되고, 나중에 반드시 `workflow-issue-resolution`으로 닫아줘야
+  finalize가 된다는 걸 이번에 처음 실전으로 확인함** — 다음에 또 issues에 내용을 채워
+  넣을 일이 있으면 이 절차를 빠뜨리지 말 것.
+
 - **2026-10-03 (하우징 전압분류 설정 화면 신규 + PDF출력 버그 수정, 커밋 1059781, TASK #67)**:
   사용자가 신규 하우징 자재 605013P300(EPOXY HOUSING(CKMR3515))을 입고 등록했는데
   "하우징 검사입력" 목록에 안 뜬다고 문의. 조사 결과 자재 자체·규격이 아예 미등록
