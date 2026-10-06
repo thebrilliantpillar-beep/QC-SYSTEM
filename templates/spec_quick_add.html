@@ -364,6 +364,9 @@ function togglePrevPanel() {
 }
 
 function renderPrevMaterialList() {
+  // 목록을 새로 그리면 이전 체크박스가 DOM에서 사라진다 — 드래그 상태가 사라진 체크박스를
+  // 계속 가리키지 않도록 그리기 시작할 때 초기화한다(prevDrag는 아래 파일 수준 상태).
+  prevDrag.dragging = false; prevDrag.moved = false; prevDrag.start = null;
   const listDiv = document.getElementById('prevMaterialList');
   const otherRowIds = Object.keys(materialItems)
     .map(Number)
@@ -387,15 +390,33 @@ function renderPrevMaterialList() {
   }).join('');
 
   // 드래그로 여러 체크박스 한번에 선택
-  let dragging = false, dragValue = null;
+  // 2026-10-06 수정: mousedown에서 바로 .checked를 뒤집으면 이어지는 click의 기본 토글이 다시
+  // 뒤집어서 한 칸 클릭이 안 먹혔다(full_inspect_housing.html과 같은 결함, 실제 마우스 입력으로
+  // 재현). mousedown은 시작 칸만 기록하고, 다른 칸으로 들어갔을 때만 값을 직접 적용한다.
+  // 드래그 상태(prevDrag)와 document 레벨 리스너는 파일 수준에서 한 번만 만든다 — 목록을 다시
+  // 그릴 때마다 document 리스너가 새로 쌓이던 구조를 없애기 위함. 체크박스는 매번 새로 만들어지므로
+  // 체크박스별 리스너만 여기서 붙인다.
   listDiv.querySelectorAll('.prev-check').forEach(cb => {
-    cb.addEventListener('mousedown', () => { dragging = true; dragValue = !cb.checked; cb.checked = dragValue; });
-    cb.addEventListener('mouseenter', () => { if (dragging) cb.checked = dragValue; });
-    cb.addEventListener('touchstart', () => { dragging = true; dragValue = !cb.checked; cb.checked = dragValue; });
+    cb.addEventListener('mousedown', () => {
+      prevDrag.dragging = true; prevDrag.moved = false; prevDrag.value = !cb.checked; prevDrag.start = cb;
+    });
+    cb.addEventListener('mouseenter', () => {
+      if (!prevDrag.dragging) return;
+      if (prevDrag.start !== cb) { prevDrag.moved = true; prevDrag.start.checked = prevDrag.value; }
+      cb.checked = prevDrag.value;
+    });
+    cb.addEventListener('click', (e) => { if (prevDrag.moved) { e.preventDefault(); cb.checked = prevDrag.value; } });
+    cb.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      prevDrag.dragging = true; prevDrag.value = !cb.checked; cb.checked = prevDrag.value;
+    });
   });
-  document.addEventListener('mouseup', () => { dragging = false; });
-  document.addEventListener('touchend', () => { dragging = false; });
 }
+
+const prevDrag = { dragging: false, moved: false, value: null, start: null };
+// click은 mouseup 직후 같은 틱에 발생하므로 상태 초기화는 다음 틱으로 미룬다.
+document.addEventListener('mouseup', () => { setTimeout(() => { prevDrag.dragging = false; prevDrag.moved = false; }, 0); });
+document.addEventListener('touchend', () => { prevDrag.dragging = false; });
 
 function copySelectedPrevItems() {
   const checked = document.querySelectorAll('.prev-check:checked');

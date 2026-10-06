@@ -899,19 +899,32 @@ function applySnBatch() {
    복귀돼버린다(mousedown -> true, 이어지는 네이티브 click -> false). mousedown에서
    preventDefault()로 브라우저의 기본 토글 자체를 막아야 우리가 정한 값 하나만 적용된다. */
 (function setupDragSelect() {
-  let dragging = false, dragValue = null;
+  /* 2026-10-06 재수정: 위 설명의 mousedown preventDefault는 이어지는 click의 기본 토글을 막지
+     못해서(실제 마우스 입력으로 재현 확인) 한 칸 클릭이 여전히 안 먹혔다 — 터치는 touchstart
+     preventDefault가 에뮬레이션된 마우스 이벤트·click까지 막아서 정상이었다. 이제 mousedown은
+     시작 칸만 기록하고, 다른 칸으로 들어갔을 때(=진짜 드래그)만 값을 직접 적용한다. 한 칸만
+     누르는 경우는 브라우저 기본 토글 하나에 맡긴다. 드래그가 시작 칸으로 되돌아와 끝나면
+     click이 한 번 더 토글하므로 moved 플래그로 그 click만 되돌린다. */
+  let dragging = false, dragValue = null, startCb = null, moved = false;
   document.querySelectorAll('.unit-select').forEach(cb => {
-    cb.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      dragging = true; dragValue = !cb.checked; cb.checked = dragValue;
+    cb.addEventListener('mousedown', () => {
+      dragging = true; moved = false; dragValue = !cb.checked; startCb = cb;
     });
-    cb.addEventListener('mouseenter', () => { if (dragging) cb.checked = dragValue; });
+    cb.addEventListener('mouseenter', () => {
+      if (!dragging) return;
+      if (startCb !== cb) { moved = true; startCb.checked = dragValue; }
+      cb.checked = dragValue;
+    });
+    cb.addEventListener('click', (e) => {
+      if (moved) { e.preventDefault(); cb.checked = dragValue; }
+    });
     cb.addEventListener('touchstart', (e) => {
       e.preventDefault();
       dragging = true; dragValue = !cb.checked; cb.checked = dragValue;
     });
   });
-  document.addEventListener('mouseup', () => { dragging = false; });
+  /* click은 mouseup 직후 같은 틱에 발생하므로, 상태 초기화는 다음 틱으로 미룬다. */
+  document.addEventListener('mouseup', () => { setTimeout(() => { dragging = false; moved = false; }, 0); });
   document.addEventListener('touchend', () => { dragging = false; });
 })();
 

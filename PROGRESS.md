@@ -8,6 +8,33 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-06 (체크박스 한 칸 클릭 불가 결함 수정, TASK #71·#72·#73)**: 사용자가 하우징 검사
+  화면(`/inspection/<id>/full-inspect`)의 "생산년월/접미사 일괄적용" 행 선택 체크박스가 한 칸씩
+  선택이 안 된다고 신고. 원인은 드래그 선택 코드가 `mousedown`에서 `.checked`를 뒤집은 뒤
+  이어지는 `click`의 기본 토글이 한 번 더 뒤집어 원상복귀시키는 것 — 드래그는 mouseup이 다른
+  칸에서 일어나 click이 안 생겨서 정상이라 한 칸 클릭만 깨져 있었다. 9월 28일 "수정"은
+  `mousedown` `preventDefault`를 썼지만 이게 click을 막지 못해 실제로는 안 고쳐졌고, 터치는
+  `touchstart` `preventDefault`가 에뮬레이션 마우스·click까지 막아서 정상이라 고쳐진 것처럼
+  보였다. 같은 패턴이 `spec_quick_add.html`(이전 자재 불러오기)에도 있어서 함께 수정.
+  수정: mousedown은 시작 칸만 기록, 다른 칸으로 mouseenter할 때만 값을 직접 적용, click
+  핸들러는 드래그가 있었을 때만 되돌림, 초기화는 mouseup 다음 틱으로 미룸. `spec_quick_add`는
+  목록을 다시 그릴 때마다 `document` 리스너가 쌓이던 구조(수정 전부터 있던 것)도 정리 — 드래그
+  상태 `prevDrag`와 document 리스너를 파일 수준에서 1회만 등록, 렌더 시작 시 상태 초기화.
+  **검증 방법(재사용 권장)**: 이 환경엔 playwright/selenium이 없어서 Chrome 원격 디버깅
+  (`--remote-debugging-port`)에 stdlib 소켓으로 WebSocket을 직접 열어 CDP
+  `Input.dispatchMouseEvent`/`dispatchTouchEvent`로 **실제 입력**을 보냈다 — `dispatchEvent`로
+  만든 합성 이벤트는 네이티브 click 활성화 동작을 재현하지 못해서 이 유형 결함을 못 잡는다.
+  수정 전 두 화면 한 칸 클릭 FAIL, 수정 후 한 칸 클릭·재클릭·라벨 클릭·드래그·드래그 복귀·
+  터치·5회 재렌더·'누른 채 재렌더' 전부 통과. quality-watcher 3회(결함 없음 → 리스너 누적
+  확인필요 → 사용자 지시로 정리 → stale 참조 확인필요 → 사용자 지시로 초기화 추가 → 통과).
+  **한계**: 하네스는 템플릿에서 JS 블록만 떼어 낸 간이 페이지이고 로컬에 하우징 검사 화면
+  데이터가 없어서, 실제 화면 전체에서의 확인은 배포 후 사용자가 한 칸 클릭해 봐야 한다.
+  **`.collab` 메모**: 같은 workflow run에서는 같은 역할을 `workflow-dispatch`로 두 번 부를 수
+  없다 — 재검증이 필요하면 사용자 지시를 근거로 새 workflow(TASK)를 시작해야 했다.
+  `AI_INTERPRETATION` 레코드는 `derived_from`이 기존 EVIDENCE 레코드여야 하고 `interpretation`
+  필드가 필수이며, 긴 payload는 bash 인자 한도에 걸리니 파이썬 `subprocess` 리스트 인자로
+  넘긴다.
+
 - **2026-10-03 (하우징 신규 자재 등록 기능 추가, 커밋 5baa70a, TASK #68)**: 605013P300
   사고(바로 위 TASK #67 항목) 해결 직후 사용자가 "새로 등록할 수 있게끔 만들게 해야지!
   자재명 및 자재번호도 포함"이라고 요청 — 앞으로 비슷한 신규 하우징 자재가 생길 때마다
