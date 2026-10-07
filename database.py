@@ -21,6 +21,13 @@ OUTBOUND_CHECK_FIELDS = [
     "check_sticker", "check_paint", "check_access",
     "check_cable", "check_indicator",
 ]
+# 2026-10-07 사용자 요청: 화면(새 항목 입력 카드·저장 항목 세부·출고 승인 상세)에서는 케이블 타이
+# 식별(155V)을 맨 위에 보여준다(검사자가 155V 여부부터 고르도록). OUTBOUND_CHECK_FIELDS 자체의
+# 순서는 회사 "출고 내역서" 서식의 열 순서라서 바꾸지 않는다 — 엑셀(report_builder)은 그 목록을
+# 그대로 쓰고, 화면만 이 표시 순서를 쓴다.
+OUTBOUND_CHECK_DISPLAY_ORDER = ["check_cable"] + [
+    f for f in OUTBOUND_CHECK_FIELDS if f != "check_cable"
+]
 OUTBOUND_CHECK_LABELS = {
     "check_tie": "볼트/너트 체결 상태 (가대/탱크 다리)",
     "check_qr": "QR 번호 부착 리셉터클 캡 결합",

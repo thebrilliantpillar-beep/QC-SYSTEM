@@ -448,6 +448,20 @@
     updateCurPreview();
   };
 
+  // 2026-10-07 사용자 요청: 케이블 타이 식별(155V)을 뺀 8개 항목은 기본 "합격"으로 미리 선택해 둔다.
+  // 검사자가 바꾸고 싶은 항목만 누르면 되고, 저장되는 값은 직접 누른 것과 같다(setCurCheck 그대로 사용).
+  // 케이블 타이 식별은 155V 여부에 따라 합격/불합격/해당없음이 갈려서 기본값을 두지 않는다.
+  function applyDefaultChecks() {
+    var panel = document.getElementById('curChecksPanel');
+    if (!panel) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
+    CHECK_FIELDS.forEach(function (p) {
+      if (p[0] === 'check_cable') return;
+      var btn = panel.querySelector('.qchk-row[data-field="' + p[0] + '"] .qchk-btn[data-value="PASS"]');
+      if (btn) window.setCurCheck(p[0], 'PASS', btn);
+    });
+  }
+  applyDefaultChecks();
+
   window.toggleObChecks = function (itemId) {
     var el = document.getElementById('ob-checks-' + itemId);
     if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
@@ -758,6 +772,7 @@
     curChecks = {};
     document.querySelectorAll('#curChecksPanel .qchk-btn.active').forEach(function (b) { b.classList.remove('active'); });
     updateCurPreview();
+    applyDefaultChecks();  // 초기화 후에도 기본 합격(케이블 타이 제외)을 다시 채운다
   }
   window.resetCurSerial = resetCurSerial;
 

@@ -9833,7 +9833,7 @@ def _outbound_batch_view_context(batch):
         body_photo_enabled=db.outbound_body_photo_enabled(),
         can_revoke_confirm=can_revoke_confirm, signature_filename=signature_filename,
         check_fields=[(f, db.OUTBOUND_CHECK_LABELS[f], db.OUTBOUND_CHECK_SHORT_LABELS[f],
-                       db.OUTBOUND_CHECK_CRITERIA[f]) for f in db.OUTBOUND_CHECK_FIELDS],
+                       db.OUTBOUND_CHECK_CRITERIA[f]) for f in db.OUTBOUND_CHECK_DISPLAY_ORDER],
     )
 
 
