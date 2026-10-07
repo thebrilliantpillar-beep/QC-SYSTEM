@@ -156,7 +156,7 @@
           <td>{{ r.model_label or '-' }}</td>
           <td>
             {% if r.status == 'confirmed' %}<span class="plan-badge ok">✅ 확인됨</span>
-            {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ 사진 미비</span>
+            {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ {{ '사진·품질확인 미비' if r.missing_photos and r.missing_checks else ('품질확인 미비' if r.missing_checks else '사진 미비') }}</span>
             {% else %}<span class="muted">⬜ 미스캔</span>{% endif %}
           </td>
         </tr>

@@ -107,6 +107,44 @@
       </div>
     </div>
 
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+    <div id="curIndicatorBox" style="flex:1; min-width:240px;">
+      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">인디케이터 사진 <span id="curIndicatorNote" style="display:none;">(제어함은 촬영 안 함)</span></p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          📸 카메라로 촬영
+          <input type="file" name="photos_indicator" accept="image/*" capture="environment" multiple
+                 style="display:none;" onchange="addCurPhotos('indicator')">
+        </label>
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          🖼️ 갤러리에서 선택
+          <input type="file" name="photos_indicator" accept="image/*" multiple
+                 style="display:none;" onchange="addCurPhotos('indicator')">
+        </label>
+      </div>
+      <div id="curPhotoPreviewIndicator" class="ob-photo-grid"></div>
+    </div>
+
+    {% if body_photo_enabled %}
+    <div style="flex:1; min-width:240px;">
+      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">본체 사진</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          📸 카메라로 촬영
+          <input type="file" name="photos_body" accept="image/*" capture="environment" multiple
+                 style="display:none;" onchange="addCurPhotos('body')">
+        </label>
+        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
+          🖼️ 갤러리에서 선택
+          <input type="file" name="photos_body" accept="image/*" multiple
+                 style="display:none;" onchange="addCurPhotos('body')">
+        </label>
+      </div>
+      <div id="curPhotoPreviewBody" class="ob-photo-grid"></div>
+    </div>
+    {% endif %}
+    </div>
+
     <div style="margin-top:14px;">
       <p class="muted" style="margin:0 0 6px; font-size:12.5px;">품질확인 (9개 항목)</p>
       <div class="qchk-panel" id="curChecksPanel">
@@ -138,42 +176,6 @@
         </div>
       </div>
     </div>
-
-    <div style="margin-top:10px;">
-      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">인디케이터 사진</p>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          📸 카메라로 촬영
-          <input type="file" name="photos_indicator" accept="image/*" capture="environment" multiple
-                 style="display:none;" onchange="addCurPhotos('indicator')">
-        </label>
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          🖼️ 갤러리에서 선택
-          <input type="file" name="photos_indicator" accept="image/*" multiple
-                 style="display:none;" onchange="addCurPhotos('indicator')">
-        </label>
-      </div>
-      <div id="curPhotoPreviewIndicator" class="ob-photo-grid"></div>
-    </div>
-
-    {% if body_photo_enabled %}
-    <div style="margin-top:14px;">
-      <p class="muted" style="margin:0 0 4px; font-size:12.5px;">본체 사진</p>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          📸 카메라로 촬영
-          <input type="file" name="photos_body" accept="image/*" capture="environment" multiple
-                 style="display:none;" onchange="addCurPhotos('body')">
-        </label>
-        <label class="btn secondary" style="margin-top:0; padding:10px 16px; font-size:13.5px; cursor:pointer;">
-          🖼️ 갤러리에서 선택
-          <input type="file" name="photos_body" accept="image/*" multiple
-                 style="display:none;" onchange="addCurPhotos('body')">
-        </label>
-      </div>
-      <div id="curPhotoPreviewBody" class="ob-photo-grid"></div>
-    </div>
-    {% endif %}
 
     <button type="submit" style="margin-top:14px;">리스트에 추가</button>
     <span id="addItemMsg" class="muted" style="margin-left:10px; font-size:12.5px;"></span>
@@ -384,7 +386,7 @@
           <td>{{ r.model_label or '-' }}</td>
           <td class="plan-status">
             {% if r.status == 'confirmed' %}<span class="plan-badge ok">✅ 확인됨</span>
-            {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ 사진 미비</span>
+            {% elif r.status == 'incomplete' %}<span class="plan-badge extra">⚠ {{ '사진·품질확인 미비' if r.missing_photos and r.missing_checks else ('품질확인 미비' if r.missing_checks else '사진 미비') }}</span>
             {% else %}<span class="muted">⬜ 미스캔</span>{% endif %}
           </td>
         </tr>
@@ -440,26 +442,63 @@
     });
   }
 
-  window.setCurCheck = function (field, value, btnEl) {
+  var curTouched = false;  // 검사자가 품질확인 버튼을 직접 눌렀으면 제품명이 바뀌어도 덮어쓰지 않는다
+  function selectCheck(field, value, btnEl) {
     curChecks[field] = value;
     var row = btnEl.closest('.qchk-row');
     row.querySelectorAll('.qchk-btn').forEach(function (b) { b.classList.remove('active'); });
     btnEl.classList.add('active');
     updateCurPreview();
+  }
+  window.setCurCheck = function (field, value, btnEl) {
+    curTouched = true;
+    selectCheck(field, value, btnEl);
   };
 
-  // 2026-10-07 사용자 요청: 케이블 타이 식별(155V)을 뺀 8개 항목은 기본 "합격"으로 미리 선택해 둔다.
-  // 검사자가 바꾸고 싶은 항목만 누르면 되고, 저장되는 값은 직접 누른 것과 같다(setCurCheck 그대로 사용).
-  // 케이블 타이 식별은 155V 여부에 따라 합격/불합격/해당없음이 갈려서 기본값을 두지 않는다.
+  // 2026-10-07 사용자 요청: 기본값은 제품명/모델명으로 갈린다.
+  // - 제품명에 "제어함"이 들어가면: 아래 지정값(합격 3개, 나머지 해당없음), 인디케이터 사진 비활성
+  // - 그 외(리클로저 등): 케이블 타이 식별(155V)만 빼고 전부 합격
+  // 저장되는 값은 직접 누른 것과 같다(setOutboundCheck 경로 그대로).
+  var CONTROL_BOX_DEFAULTS = {
+    check_cable: '해당없음', check_tie: '해당없음', check_qr: 'PASS', check_wrap: '해당없음',
+    check_rst: '해당없음', check_sticker: 'PASS', check_paint: 'PASS', check_access: '해당없음',
+    check_indicator: '해당없음'
+  };
+  function isControlBox() {
+    var f = document.getElementById('curProductName');
+    return !!f && f.value.indexOf('제어함') !== -1;
+  }
   function applyDefaultChecks() {
     var panel = document.getElementById('curChecksPanel');
     if (!panel) return;  // 확인 완료된 배치는 "새 항목 스캔" 카드 자체가 없음
+    var control = isControlBox();
     CHECK_FIELDS.forEach(function (p) {
-      if (p[0] === 'check_cable') return;
-      var btn = panel.querySelector('.qchk-row[data-field="' + p[0] + '"] .qchk-btn[data-value="PASS"]');
-      if (btn) window.setCurCheck(p[0], 'PASS', btn);
+      var value = control ? CONTROL_BOX_DEFAULTS[p[0]] : (p[0] === 'check_cable' ? null : 'PASS');
+      if (!value) return;
+      var btn = panel.querySelector('.qchk-row[data-field="' + p[0] + '"] .qchk-btn[data-value="' + value + '"]');
+      if (btn) selectCheck(p[0], value, btn);
     });
   }
+  function applyIndicatorPhotoMode() {
+    var box = document.getElementById('curIndicatorBox');
+    if (!box) return;
+    var off = isControlBox();
+    box.style.opacity = off ? '.4' : '';
+    document.getElementById('curIndicatorNote').style.display = off ? 'inline' : 'none';
+    box.querySelectorAll('input[type=file]').forEach(function (inp) {
+      inp.disabled = off;
+      if (off) inp.value = '';
+    });
+    box.querySelectorAll('label.btn').forEach(function (l) { l.style.pointerEvents = off ? 'none' : ''; });
+    if (off) document.getElementById('curPhotoPreviewIndicator').innerHTML = '';
+  }
+  // 제품명이 (직접 입력이든 QR 자동입력이든) 바뀔 때 호출
+  function onProductNameChanged() {
+    if (!curTouched) applyDefaultChecks();
+    applyIndicatorPhotoMode();
+  }
+  var curNameField = document.getElementById('curProductName');
+  if (curNameField) curNameField.addEventListener('input', onProductNameChanged);
   applyDefaultChecks();
 
   window.toggleObChecks = function (itemId) {
@@ -488,6 +527,8 @@
       var row = btnEl.closest('.ob-check-row');
       row.querySelectorAll('.ob-check-btn').forEach(function (b) { b.classList.remove('active'); });
       btnEl.classList.add('active');
+      if (itemStateById[itemId]) itemStateById[itemId].checks[field] = value;
+      refreshPlanRowByItem(itemId);
       updateResultBadge(itemId, data.result_auto, data.result_override);
     }).catch(function () { alert('저장 실패(네트워크 확인)'); });
   };
@@ -533,24 +574,33 @@
   }
 
   var itemPhotosById = {};
+  var itemStateById = {};  // 품질확인 선택값·제어함 여부 — 실시간 확인됨/미비 배지 계산용
   var serialByItemId = {};
   {% for it in items %}
   itemPhotosById[{{ it.id }}] = [{% for p in it.photos %}"{{ p.kind or 'indicator' }}",{% endfor %}];
   serialByItemId[{{ it.id }}] = "{{ it.serial_no }}";
+  itemStateById[{{ it.id }}] = { control: {{ 'true' if '제어함' in (it.product_name or '') else 'false' }}, checks: { {% for f, l, sh, c in check_fields %}"{{ f }}": {{ (it[f] or '')|tojson }},{% endfor %} } };
   {% endfor %}
 
-  function computeConfirmed(kinds) {
-    return kinds.indexOf('indicator') !== -1 && (!bodyPhotoEnabled || kinds.indexOf('body') !== -1);
+  // 서버 db.outbound_plan_progress와 같은 기준: 인디케이터 사진(제어함은 면제) + 본체사진(켜진 경우) + 9개 품질확인 전부 선택
+  function planMissing(itemId) {
+    var kinds = itemPhotosById[itemId] || [];
+    var st = itemStateById[itemId] || { control: false, checks: {} };
+    var photosOk = (st.control || kinds.indexOf('indicator') !== -1) && (!bodyPhotoEnabled || kinds.indexOf('body') !== -1);
+    var checksOk = CHECK_FIELDS.every(function (p) { return !!st.checks[p[0]]; });
+    return { photos: !photosOk, checks: !checksOk };
   }
 
-  function setPlanRowStatus(serial, confirmed) {
+  function setPlanRowStatus(serial, missing) {
     var row = document.querySelector('#planTable tr[data-serial="' + CSS.escape(serial) + '"]');
     if (!row) return;
     var cell = row.querySelector('.plan-status');
     var wasConfirmed = cell.querySelector('.plan-badge.ok') != null;
+    var confirmed = !missing.photos && !missing.checks;
+    var label = missing.photos && missing.checks ? '사진·품질확인 미비' : (missing.checks ? '품질확인 미비' : '사진 미비');
     cell.innerHTML = confirmed
       ? '<span class="plan-badge ok">✅ 확인됨</span>'
-      : '<span class="plan-badge extra">⚠ 사진 미비</span>';
+      : '<span class="plan-badge extra">⚠ ' + label + '</span>';
     if (confirmed && !wasConfirmed) {
       var el = document.getElementById('planMatched');
       el.textContent = parseInt(el.textContent, 10) + 1;
@@ -564,7 +614,7 @@
   function refreshPlanRowByItem(itemId) {
     var serial = serialByItemId[itemId];
     if (!serial || !plannedSerials.has(serial)) return;
-    setPlanRowStatus(serial, computeConfirmed(itemPhotosById[itemId] || []));
+    setPlanRowStatus(serial, planMissing(itemId));
   }
 
   // ---- 사진 업로드 (2026-09-15: 항목 등록과 분리된 백그라운드 업로드) ----
@@ -698,7 +748,7 @@
       if (msgs.length) { box.style.display = 'block'; box.innerHTML = msgs.join('<br>'); }
       else { box.style.display = 'none'; box.innerHTML = ''; }
       var nameField = document.getElementById('curProductName');
-      if (nameField && data.classified_label && !nameField.value.trim()) nameField.value = data.classified_label;
+      if (nameField && data.classified_label && !nameField.value.trim()) { nameField.value = data.classified_label; onProductNameChanged(); }
     }).catch(function () {});
   }
 
@@ -753,6 +803,7 @@
     document.getElementById('itemCountLabel').textContent = tbody.querySelectorAll('tr:not(.empty-row)').length;
 
     itemPhotosById[item.id] = (item.photos || []).map(function (p) { return p.kind || 'indicator'; });
+    itemStateById[item.id] = { control: (item.product_name || '').indexOf('제어함') !== -1, checks: {} };
     serialByItemId[item.id] = item.serial_no;
     refreshPlanRowByItem(item.id);
   }
@@ -770,9 +821,11 @@
     document.getElementById('addItemMsg').textContent = '';
     curInPlan = null;
     curChecks = {};
+    curTouched = false;
     document.querySelectorAll('#curChecksPanel .qchk-btn.active').forEach(function (b) { b.classList.remove('active'); });
     updateCurPreview();
-    applyDefaultChecks();  // 초기화 후에도 기본 합격(케이블 타이 제외)을 다시 채운다
+    applyDefaultChecks();  // 초기화 후에도 기본값을 다시 채운다
+    applyIndicatorPhotoMode();
   }
   window.resetCurSerial = resetCurSerial;
 

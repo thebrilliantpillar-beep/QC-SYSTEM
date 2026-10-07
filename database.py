@@ -5353,9 +5353,13 @@ def outbound_plan_progress(batch_id):
         scanned = bool(its)
         photos_ok = False
         checks_ok = False
+        model_label = classify_serial_no(p["serial_no"], rules=rules)
         if scanned:
             kinds = {ph.get("kind") or "indicator" for it in its for ph in (it.get("photos") or [])}
-            photos_ok = ("indicator" in kinds) and (not body_required or "body" in kinds)
+            # 2026-10-07: 제어함은 인디케이터 사진을 찍지 않으므로 필수 조건에서 뺀다
+            # 입력된 제품명 기준(화면 JS와 동일) — 자동분류 라벨은 보지 않는다
+            control = any("제어함" in (it.get("product_name") or "") for it in its)
+            photos_ok = (control or "indicator" in kinds) and (not body_required or "body" in kinds)
             checks_ok = any(compute_outbound_item_auto_result(it) is not None for it in its)
         if scanned and photos_ok and checks_ok:
             status = "confirmed"
@@ -5366,8 +5370,11 @@ def outbound_plan_progress(batch_id):
             status = "pending"
         rows.append({
             "serial_no": p["serial_no"],
-            "model_label": classify_serial_no(p["serial_no"], rules=rules),
+            "model_label": model_label,
             "status": status,
+            # 미비 사유 — 화면 배지 문구("사진 미비"/"품질확인 미비")용
+            "missing_photos": scanned and not photos_ok,
+            "missing_checks": scanned and not checks_ok,
         })
 
     extra = sum(1 for it in items if it["serial_no"] not in planned_serials)
