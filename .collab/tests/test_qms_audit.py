@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import sqlite3
 import shutil
@@ -21,6 +22,74 @@ class AuditCliTests(unittest.TestCase):
     def tearDown(self): self.tmp.cleanup()
     def invoke(self, *args, input_text=None):
         return subprocess.run([sys.executable, "qms_audit.py", *args], cwd=self.root, text=True, capture_output=True, input=input_text)
+
+    def insert_historical_user_confirmed(self, *, source_type="direct_user_confirmation",
+                                         knowledge_state="USER_INTENT", status="CONFIRMED"):
+        """Insert an immutable historical shape without using record(), which must reject it."""
+        self.assertEqual(self.invoke("bootstrap-protocol").returncode, 0)
+        stamp="2026-10-09T00:00:00Z"
+        payload={"source_type":source_type,"content":"historical user decision",
+                 "verification_status":"USER_CONFIRMED"}
+        item={"record_id":"rec-test-user-confirmed","record_type":"EVIDENCE",
+              "project_id":"iqc-app","created_at":stamp,"updated_at":stamp,
+              "created_by":"codex","knowledge_state":knowledge_state,"status":status,
+              "risk_level":"NONE","record_version":1,"protocol_version":"1.0.0",
+              "payload":payload}
+        canonical=lambda value: json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+        item["record_hash"]=hashlib.sha256(canonical(item).encode("utf-8")).hexdigest()
+        con=sqlite3.connect(self.root / "runtime" / "audit.sqlite3")
+        con.execute("INSERT INTO protocol_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(
+            item["record_id"],item["record_type"],item["project_id"],item["created_at"],
+            item["updated_at"],item["created_by"],item["knowledge_state"],item["status"],
+            item["risk_level"],item["record_version"],item["protocol_version"],
+            canonical(payload),item["record_hash"]))
+        con.commit(); con.close()
+        records=self.root / "records" / "2026-10.jsonl"
+        with records.open("a",encoding="utf-8",newline="\n") as f:
+            f.write(canonical(item)+"\n")
+
+    def test_historical_user_confirmed_evidence_requires_all_legacy_conditions(self):
+        self.insert_historical_user_confirmed()
+        self.assertEqual(self.invoke("verify").returncode, 0)
+
+    def test_historical_user_confirmed_rejects_non_direct_user_source(self):
+        self.insert_historical_user_confirmed(source_type="user_confirmation")
+        result=self.invoke("verify")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid Evidence verification status", result.stdout)
+
+    def test_historical_user_confirmed_rejects_wrong_knowledge_state(self):
+        self.insert_historical_user_confirmed(knowledge_state="FACT")
+        result=self.invoke("verify")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid Evidence verification status", result.stdout)
+
+    def test_historical_user_confirmed_rejects_wrong_record_status(self):
+        self.insert_historical_user_confirmed(status="ACTIVE")
+        result=self.invoke("verify")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid Evidence verification status", result.stdout)
+
+    def test_new_evidence_rejects_user_confirmed_and_accepts_canonical_statuses(self):
+        self.assertEqual(self.invoke("bootstrap-protocol").returncode, 0)
+        legacy={"source_type":"direct_user_confirmation","content":"new record",
+                "verification_status":"USER_CONFIRMED"}
+        rejected=self.invoke("record","--record-type","EVIDENCE","--actor","user",
+                             "--knowledge-state","USER_INTENT","--status","CONFIRMED",
+                             "--payload",json.dumps(legacy))
+        self.assertNotEqual(rejected.returncode, 0)
+        noncanonical={"source_type":"test","content":"new record",
+                      "verification_status":"CONFIRMED"}
+        rejected=self.invoke("record","--record-type","EVIDENCE","--actor","user",
+                             "--payload",json.dumps(noncanonical))
+        self.assertNotEqual(rejected.returncode, 0)
+        for verification in ("VERIFIED","PARTIAL","UNVERIFIED","NEEDS_VERIFICATION"):
+            payload={"source_type":"test","content":verification,
+                     "verification_status":verification}
+            accepted=self.invoke("record","--record-type","EVIDENCE","--actor","user",
+                                 "--payload",json.dumps(payload))
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(self.invoke("verify").returncode, 0)
 
     def test_append_only_chain_and_mirror_repair(self):
         self.assertEqual(self.invoke("init").returncode, 0)

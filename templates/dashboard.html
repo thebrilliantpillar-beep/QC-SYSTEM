@@ -154,12 +154,19 @@
         <input type="text" name="material" value="{{ p.material }}" placeholder="일부만 입력해도 돼">
       </div>
       <div style="max-width:170px;">
-        <label>자재 분류</label>
-        <select name="category">
+        <label>대분류</label>
+        <select name="major_category" id="dashboardMajorCategory">
           <option value="">전체</option>
-          {% for c in categories %}
-          <option value="{{ c }}" {% if p.category==c %}selected{% endif %}>{{ c }}</option>
+          <option value="__unassigned__" {% if p.major_category=='__unassigned__' %}selected{% endif %}>미지정</option>
+          {% for c in major_categories %}
+          <option value="{{ c }}" {% if p.major_category==c %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
+        </select>
+      </div>
+      <div style="max-width:170px;">
+        <label>중분류</label>
+        <select name="middle_category" id="dashboardMiddleCategory" data-selected="{{ p.middle_category }}">
+          <option value="">전체</option>
         </select>
       </div>
     </div>
@@ -470,7 +477,7 @@
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>자재번호</th><th>자재명</th><th class="num">로트</th><th class="num">입고수량</th>
+          <th>자재번호</th><th>자재명</th><th>대분류</th><th>중분류</th><th class="num">로트</th><th class="num">입고수량</th>
           <th class="num">검사표본수</th><th class="num">불합격</th><th class="num">불량률</th><th></th>
         </tr></thead>
         <tbody>
@@ -478,6 +485,8 @@
         <tr class="clickable" onclick="openMaterial('{{ r['자재번호']|e }}', '{{ (r['자재명'] or '')|e }}')">
           <td>{{ r['자재번호'] }}</td>
           <td style="white-space:normal;">{{ r['자재명'] or '-' }}</td>
+          <td>{{ r['대분류'] }}</td>
+          <td>{{ r['중분류'] }}</td>
           <td class="num">{{ r['로트'] }}</td>
           <td class="num">{{ "{:,}".format(r['수량']) }}</td>
           <td class="num" style="color:#6366f1;">
@@ -644,6 +653,32 @@
 <script src="{{ url_for('static', filename='collapsible_sections.js') }}"></script>
 <script src="{{ url_for('static', filename='kpi_countup.js') }}"></script>
 <script>
+const DASHBOARD_CLASSIFICATION_PAIRS = {{ (classification_pairs or []) | tojson }};
+(function () {
+  const major = document.getElementById('dashboardMajorCategory');
+  const middle = document.getElementById('dashboardMiddleCategory');
+  if (!major || !middle) return;
+  function refresh(wanted) {
+    wanted = wanted === undefined ? middle.value : wanted;
+    middle.innerHTML = '<option value="">전체</option>';
+    if (major.value === '__unassigned__') {
+      middle.appendChild(new Option('미지정', '__unassigned__'));
+    } else {
+      const seen = new Set();
+      DASHBOARD_CLASSIFICATION_PAIRS.filter(p => !major.value || p.major_category === major.value)
+        .forEach(p => {
+          if (!seen.has(p.middle_category)) {
+            seen.add(p.middle_category);
+            middle.appendChild(new Option(p.middle_category, p.middle_category));
+          }
+        });
+    }
+    if ([...middle.options].some(o => o.value === wanted)) middle.value = wanted;
+  }
+  major.addEventListener('change', () => refresh(''));
+  refresh(middle.dataset.selected || '');
+})();
+
 /* ══════════════════════════════════════════════
    선택 칩 (업체 / 로트번호)
 ══════════════════════════════════════════════ */

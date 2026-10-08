@@ -1,0 +1,4578 @@
+{
+  "schema_version": 1,
+  "source_file": "피드백_분류_전체자재_보완본.xlsx",
+  "source_sha256": "616010ba5c786ff175caead49a14942606a60d8a890cf8d6584d900797c71b5c",
+  "mapping_count": 914,
+  "mappings": [
+    {
+      "material_no": "15-LBI200",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "25-DIC600-SRV",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "25-LEA12",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "25-LEA18",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "35-LBI200",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "35-LE200TC07C",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "35S-LPR200",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "600000P007",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "600000P274",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "600000P275",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "600003P000",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600003P024",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600003P043",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600003P049",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600003P061",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "600003P063",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "600003P068",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600003P077",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "600003P082",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P083",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P084",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P085",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P086",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P087",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P088",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P089",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "600003P104",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "600003P109",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "600003P110",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "600003P111",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "600005P053",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P077",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P078",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P079",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P083",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "600005P084",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "600005P085",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "600005P086",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P087",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "600005P088",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "600005P101",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P117",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P155",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P163",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P180",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600005P193",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600006P103",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR1310",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR3310",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR3360",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR3527",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR3528",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR5310",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR7312",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR8837",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR8931",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P103-CKMR9360",
+      "major_category": "MA부품",
+      "middle_category": "MAGNETIC HOUSING"
+    },
+    {
+      "material_no": "600006P105",
+      "major_category": "MA부품",
+      "middle_category": "FIXED HOUSING"
+    },
+    {
+      "material_no": "600006P124",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "SUPPORT/BUSH"
+    },
+    {
+      "material_no": "600006P219",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600006P220",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600006P221",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600006P222",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P223",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P224",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P225",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P226",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P227",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P228",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P229",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P230",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P231",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P232",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P233",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P234",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P235",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P236",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P237",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P238",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P239",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P240",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P241",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P242",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P243",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P244",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P245",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P246",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P247",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P248",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P249",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P250",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P251",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P252",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P253",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P254",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P255",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P256",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P257",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P258",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P259",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P260",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P261",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P262",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P263",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P264",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P265",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P266",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P267",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P270",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600006P271",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600006P272",
+      "major_category": "케이블류",
+      "middle_category": "CLOSE PULSE 어댑터(젠더)"
+    },
+    {
+      "material_no": "600006P273",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600006P274",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "600006P275",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "600006P276",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600006P277",
+      "major_category": "케이블류",
+      "middle_category": "WIRING KIT"
+    },
+    {
+      "material_no": "600006P284",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P285",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600006P293",
+      "major_category": "케이블류",
+      "middle_category": "CLOSE PULSE 어댑터(젠더)"
+    },
+    {
+      "material_no": "600006P294",
+      "major_category": "케이블류",
+      "middle_category": "CLOSE PULSE 어댑터(젠더)"
+    },
+    {
+      "material_no": "600006P295",
+      "major_category": "케이블류",
+      "middle_category": "CLOSE PULSE 어댑터(젠더)"
+    },
+    {
+      "material_no": "600006P311",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "600006P316",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "600006P321",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "HANDLE/LEVER"
+    },
+    {
+      "material_no": "600006P327",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600006P328",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600006P332",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "600006P337",
+      "major_category": "케이블류",
+      "middle_category": "WIRING KIT"
+    },
+    {
+      "material_no": "600006P351",
+      "major_category": "상품",
+      "middle_category": "ARMORED 케이블"
+    },
+    {
+      "material_no": "600007P003",
+      "major_category": "기타 소자류",
+      "middle_category": "차단기/보호기기"
+    },
+    {
+      "material_no": "600007P004",
+      "major_category": "기타 소자류",
+      "middle_category": "차단기/보호기기"
+    },
+    {
+      "material_no": "600007P005",
+      "major_category": "기타 소자류",
+      "middle_category": "차단기/보호기기"
+    },
+    {
+      "material_no": "600007P012",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600007P023",
+      "major_category": "기타 소자류",
+      "middle_category": "차단기/보호기기"
+    },
+    {
+      "material_no": "600007P024",
+      "major_category": "기타 소자류",
+      "middle_category": "퓨즈/퓨즈홀더"
+    },
+    {
+      "material_no": "600007P025",
+      "major_category": "기타 소자류",
+      "middle_category": "퓨즈/퓨즈홀더"
+    },
+    {
+      "material_no": "600007P027",
+      "major_category": "기타 소자류",
+      "middle_category": "전원장치(SMPS/컨버터/배터리)"
+    },
+    {
+      "material_no": "600007P028",
+      "major_category": "기타 소자류",
+      "middle_category": "차단기/보호기기"
+    },
+    {
+      "material_no": "600007P029",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "600007P030",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "600007P031",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "600007P032",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "600007P033",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600007P034",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600007P035",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600007P036",
+      "major_category": "기타 소자류",
+      "middle_category": "전원장치(SMPS/컨버터/배터리)"
+    },
+    {
+      "material_no": "600007P037",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600007P038",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "600007P040",
+      "major_category": "기타 소자류",
+      "middle_category": "전원장치(SMPS/컨버터/배터리)"
+    },
+    {
+      "material_no": "600007P051",
+      "major_category": "기타 소자류",
+      "middle_category": "IC"
+    },
+    {
+      "material_no": "600007P052",
+      "major_category": "기타 소자류",
+      "middle_category": "가변저항"
+    },
+    {
+      "material_no": "600007P053",
+      "major_category": "기타 소자류",
+      "middle_category": "가변저항"
+    },
+    {
+      "material_no": "600007P056",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600007P059",
+      "major_category": "기타 소자류",
+      "middle_category": "바리스터"
+    },
+    {
+      "material_no": "600007P060",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600007P061",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600007P063",
+      "major_category": "기타 소자류",
+      "middle_category": "인덕터/트랜스"
+    },
+    {
+      "material_no": "600007P067",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600007P068",
+      "major_category": "기타 소자류",
+      "middle_category": "LED"
+    },
+    {
+      "material_no": "600007P069",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600007P070",
+      "major_category": "기타 소자류",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "600007P080",
+      "major_category": "상품",
+      "middle_category": "공구"
+    },
+    {
+      "material_no": "600007P084",
+      "major_category": "상품",
+      "middle_category": "공구"
+    },
+    {
+      "material_no": "600007P087",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600008P062",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "600010P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P004",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P005",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P006",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P007",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P008",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P009",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600010P010",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "600103P000",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600103P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600103P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600103P007",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600105P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "600106P000",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600106P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600106P002",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600106P003",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P004",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P005",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P006",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P007",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P008",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P009",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P010",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P011",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P012",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P013",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P014",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P015",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P016",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P017",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P018",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P019",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P020",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P021",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P022",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P023",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P024",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P025",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P026",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P027",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P028",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P029",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P030",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P031",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P032",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P033",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P034",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P035",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P036",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P037",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P038",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P039",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P040",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P041",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P042",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P043",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P044",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P045",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P046",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P047",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P048",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P049",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P050",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P051",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P052",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P053",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P054",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P055",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P056",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P057",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "600106P058",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "600106P059",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "600106P060",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600106P061",
+      "major_category": "케이블류",
+      "middle_category": "CLOSE PULSE 어댑터(젠더)"
+    },
+    {
+      "material_no": "600106P062",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600106P063",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P064",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600106P068",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600107P000",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "600107P001",
+      "major_category": "기타 소자류",
+      "middle_category": "전원장치(SMPS/컨버터/배터리)"
+    },
+    {
+      "material_no": "600107P002",
+      "major_category": "기타 소자류",
+      "middle_category": "가변저항"
+    },
+    {
+      "material_no": "600107P003",
+      "major_category": "기타 소자류",
+      "middle_category": "바리스터"
+    },
+    {
+      "material_no": "600107P004",
+      "major_category": "기타 소자류",
+      "middle_category": "바리스터"
+    },
+    {
+      "material_no": "600107P005",
+      "major_category": "중요소자류",
+      "middle_category": "FET"
+    },
+    {
+      "material_no": "600107P006",
+      "major_category": "기타 소자류",
+      "middle_category": "릴레이"
+    },
+    {
+      "material_no": "600107P007",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P008",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P010",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P011",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P013",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P014",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P015",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P016",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P017",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P018",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P019",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P020",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P021",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P022",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P023",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P024",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P025",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P026",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P027",
+      "major_category": "기타 소자류",
+      "middle_category": "트랜지스터/트라이악"
+    },
+    {
+      "material_no": "600107P028",
+      "major_category": "기타 소자류",
+      "middle_category": "트랜지스터/트라이악"
+    },
+    {
+      "material_no": "600107P029",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P030",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P031",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P032",
+      "major_category": "기타 소자류",
+      "middle_category": "IC"
+    },
+    {
+      "material_no": "600107P033",
+      "major_category": "기타 소자류",
+      "middle_category": "IC"
+    },
+    {
+      "material_no": "600107P034",
+      "major_category": "기타 소자류",
+      "middle_category": "IC"
+    },
+    {
+      "material_no": "600107P035",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P036",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P037",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P038",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P039",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P040",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P041",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P042",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P043",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P043, 602117P202",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P044",
+      "major_category": "기타 소자류",
+      "middle_category": "인덕터/트랜스"
+    },
+    {
+      "material_no": "600107P046",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P0461",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P047",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P0471",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P048",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P049",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P0491",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P050",
+      "major_category": "기타 소자류",
+      "middle_category": "바리스터"
+    },
+    {
+      "material_no": "600107P0501",
+      "major_category": "기타 소자류",
+      "middle_category": "바리스터"
+    },
+    {
+      "material_no": "600107P051",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P052",
+      "major_category": "기타 소자류",
+      "middle_category": "트랜지스터/트라이악"
+    },
+    {
+      "material_no": "600107P053",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P055",
+      "major_category": "기타 소자류",
+      "middle_category": "LED"
+    },
+    {
+      "material_no": "600107P056",
+      "major_category": "기타 소자류",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "600107P057",
+      "major_category": "기타 소자류",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "600107P058",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P059",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P060",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P061",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P062",
+      "major_category": "기타 소자류",
+      "middle_category": "트랜지스터/트라이악"
+    },
+    {
+      "material_no": "600107P063",
+      "major_category": "기타 소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "600107P064",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P065",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P066",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P076",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P077",
+      "major_category": "기타 소자류",
+      "middle_category": "다이오드/TVS"
+    },
+    {
+      "material_no": "600107P078",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "600107P079",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "600107P080",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "600107P082",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "600203P000",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600203P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600203P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "600203P004",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600206P000",
+      "major_category": "기구물",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "600206P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600206P002",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "600206P003",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P004",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P005",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P006",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P007",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P008",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P009",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P010",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P011",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P012",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P013",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P014",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P015",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P016",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P017",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P018",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P019",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P020",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P021",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P022",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P023",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P024",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P025",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P026",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P027",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P028",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P029",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P030",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P031",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P032",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P033",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P034",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P035",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P036",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600206P037",
+      "major_category": "기타 소자류",
+      "middle_category": "기타(세부 검토)"
+    },
+    {
+      "material_no": "600206P038",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "600207P000",
+      "major_category": "기타 소자류",
+      "middle_category": "기타(세부 검토)"
+    },
+    {
+      "material_no": "600207P001",
+      "major_category": "기타 소자류",
+      "middle_category": "기타(세부 검토)"
+    },
+    {
+      "material_no": "6010003P012",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "601003P003",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "601003P004",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "601003P011",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "601003P013",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "601004G002",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004G003",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004G005",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004G008",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004G010",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004G011",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004P001",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004P002",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004P005",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "SUPPORT/BUSH"
+    },
+    {
+      "material_no": "601004P006",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "SUPPORT/BUSH"
+    },
+    {
+      "material_no": "601004P009",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601004P014",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "601005P002",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "601005P003",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "601005P004",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "601005P006",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "601005P007",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "601005P008",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "601006P002",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "601006P003",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P004",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "601006P005",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P006",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P007",
+      "major_category": "케이블류",
+      "middle_category": "정션박스 리셉터클"
+    },
+    {
+      "material_no": "601006P008",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P009",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P014",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P015",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "601006P016",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P017",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "601006P018",
+      "major_category": "상품",
+      "middle_category": "전원 케이블"
+    },
+    {
+      "material_no": "601006P036",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P038",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P039",
+      "major_category": "케이블류",
+      "middle_category": "제어함 하네스"
+    },
+    {
+      "material_no": "601006P044",
+      "major_category": "상품",
+      "middle_category": "제어 케이블"
+    },
+    {
+      "material_no": "601006P200",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "601006P201",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "601006P202",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "601006P203",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "601006P204",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "601006P205",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "601006P206",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "601006P207",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "CLAMP/보강판"
+    },
+    {
+      "material_no": "601007P002",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "601007P003",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "601007P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "601007P005",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "601008P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "601009P001",
+      "major_category": "포장류",
+      "middle_category": "방청제(VCI)"
+    },
+    {
+      "material_no": "601010P000",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "601010P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "601010P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "601103P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "601103P004",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "601106P000",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "601106P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "601106P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "601106P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "601106P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "601107P000",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "602013P015",
+      "major_category": "하우징",
+      "middle_category": "본체 하우징(15kV)"
+    },
+    {
+      "material_no": "602039P001",
+      "major_category": "하우징부품",
+      "middle_category": "VI"
+    },
+    {
+      "material_no": "602101P117",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "602101P119",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "602101P120",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "602103P015",
+      "major_category": "하우징",
+      "middle_category": "본체 하우징(15kV)"
+    },
+    {
+      "material_no": "602103P019",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "602103P019-CKMR3310",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "602103P022",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602103P024",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "602103P026",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602103P027",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "602103P042",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "602103P045",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602103P047",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602103P050",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602104G000",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104G001",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104G002",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104G003",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104G005",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104P019",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "602104P023",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104P024",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "602104P025",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602104P028",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "602104P029",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "602104P033",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "602105P003",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "602105P005",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "602105P006",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602105P024",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P103",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "602106P103-CKMR1310",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "602106P103-CKMR3360",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "602106P103-CKMR5310",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "602106P118",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "602106P120",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P122",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602106P124",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "SUPPORT/BUSH"
+    },
+    {
+      "material_no": "602106P125",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602106P127",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P131",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P134",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P138",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "602106P140",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602106P142",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P145",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "602106P150",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "602106P151",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "602106P153",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "HANDLE/LEVER"
+    },
+    {
+      "material_no": "602106P154",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "602106P155",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "CLAMP/보강판"
+    },
+    {
+      "material_no": "602106P156",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P157",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "HANDLE/LEVER"
+    },
+    {
+      "material_no": "602106P164",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P172",
+      "major_category": "MA부품",
+      "middle_category": "FIXED HOUSING"
+    },
+    {
+      "material_no": "602106P173",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "602106P183",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "CLAMP/보강판"
+    },
+    {
+      "material_no": "602106P199",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "602106P200",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P201",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602106P216",
+      "major_category": "기타 기구물 (제어함)",
+      "middle_category": "제어함"
+    },
+    {
+      "material_no": "602106P228",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "602106P229",
+      "major_category": "기타 소자류",
+      "middle_category": "스위치/카운터"
+    },
+    {
+      "material_no": "602106P233",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "베어링"
+    },
+    {
+      "material_no": "602106P234",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P238",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "602106P246",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR1310",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR3310",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR3360",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR5310",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR8837",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR8931",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P246-CKMR9360",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "602106P247",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P247-CKMR1310",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P247-CKMR3310",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P247-CKMR3360",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P247-CKMR5310",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P247-CKMR8837",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P247-CKMR8931",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P248",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR1310",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR3310",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR3360",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR3527",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR3528",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR5310",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR8837",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P248-CKMR8931",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "602106P249",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "602106P249-CKMR1310",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "602106P249-CKMR3310",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "602106P249-CKMR3360",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "602106P249-CKMR5310",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "602106P263",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602106P264",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602106P265",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602106P266",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "602106P267",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "602106P268",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "602106P269",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "602106P271",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "602106P285",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P287",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602106P291",
+      "major_category": "상품",
+      "middle_category": "NEMA 단자"
+    },
+    {
+      "material_no": "602106P295",
+      "major_category": "조립부품류 (제어함)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602107P001",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "602107P002",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "602107P003",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "602107P004",
+      "major_category": "기타 소자류",
+      "middle_category": "히터/온도조절기"
+    },
+    {
+      "material_no": "602108P002",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "602108P003",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "602108P004",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "602109P024",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR HOUSING"
+    },
+    {
+      "material_no": "602110P007",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602110P008",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602110P009",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "602110P017",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "602110P020",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "602110P031",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602113P001",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P007",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P014",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P015",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P016",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P018",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P051",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P103",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P104",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P112",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P214",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P300",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602113P316",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P001",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P004",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P005",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P007",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "602114P008",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P010",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P012",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P013",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P015",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602114P016",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P002",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P005",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P006",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P008",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P011",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P017",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P018",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P019",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P020",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P021",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P022",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P024",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P026",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P027",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P100",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P104",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P105",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P106",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P107",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P110",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P111",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P113",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602115P115",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602117P122",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "배선/고정 부자재"
+    },
+    {
+      "material_no": "602120P048",
+      "major_category": "중요소자류",
+      "middle_category": "커패시터"
+    },
+    {
+      "material_no": "602120P071",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "SUPPORT/BUSH"
+    },
+    {
+      "material_no": "602120P072",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "602120P097",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602122P000",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "O-RING"
+    },
+    {
+      "material_no": "602122P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "O-RING"
+    },
+    {
+      "material_no": "602122P010",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602122P020",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602122P021",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602125P023",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602125P203",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602134P102",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "602134P107",
+      "major_category": "기타 소자류",
+      "middle_category": "히터/온도조절기"
+    },
+    {
+      "material_no": "602134P164",
+      "major_category": "기타 소자류",
+      "middle_category": "히터/온도조절기"
+    },
+    {
+      "material_no": "602134P277",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602203P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602203P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602203P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602206P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602206P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602206P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602206P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602206P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602206P005",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "602206P007",
+      "major_category": "케이블류",
+      "middle_category": "정션박스 리셉터클"
+    },
+    {
+      "material_no": "602303P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602306P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602306P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602306P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602306P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602403P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602403P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602403P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602404P000",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "602406P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602406P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602406P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602406P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602406P004",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "602406P005",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "HANDLE/LEVER"
+    },
+    {
+      "material_no": "602406P006",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "HANDLE/LEVER"
+    },
+    {
+      "material_no": "602406P007",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602406P008",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602406P009",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "602420P000",
+      "major_category": "기타 소자류",
+      "middle_category": "단자대/커넥터"
+    },
+    {
+      "material_no": "602503P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602503P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "602503P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602503P004",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602505P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "602506P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602506P001",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602506P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602506P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602506P004",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602506P005",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "602506P006",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602603P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602606P000",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602606P001",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602606P002",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602703P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602706P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602706P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602706P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602706P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602803P000",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "602803P001",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602803P003",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602806P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602806P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602806P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602806P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602806P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602903P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "602903P003",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602906P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "602906P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "602906P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "602906P003",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "603003P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "603006P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "603006P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "603006P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "603006P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604003P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604003P005",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "604005P000",
+      "major_category": "하우징부품",
+      "middle_category": "VI"
+    },
+    {
+      "material_no": "604006P001",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604006P002",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604006P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604006P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604006P005",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "604006P006",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604006P007",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "604006P008",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "604007P000",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "604007P002, 604107P001",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "604008P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "604013P000",
+      "major_category": "하우징",
+      "middle_category": "본체 하우징(27kV)"
+    },
+    {
+      "material_no": "604103P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604103P003",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "6041060P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "6041060P002",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "6041060P003",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "6041060P004",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604106P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604106P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604106P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604106P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604106P006",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604107P000",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "604206P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604303P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604303P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "604306P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604306P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604306P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604306P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604306P004",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "604306P005",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604403P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604406P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604406P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604406P002",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604406P003",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604503P000",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "604503P001",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604503P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "604506P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604506P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604506P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604506P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604506P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604506P005",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클(전원/제어용)"
+    },
+    {
+      "material_no": "604603P000",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "604603P004",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "604603P005",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "604603P006",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604606P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604606P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604606P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604606P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604606P004",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604703P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604703P001",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "HANDLE"
+    },
+    {
+      "material_no": "604703P003",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "604706P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604706P001",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "604806P001",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "604806P002",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "604806P003",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "605003P035",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "605003P045",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "605003P046",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "COVER"
+    },
+    {
+      "material_no": "605003P048",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "605004G001",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "605004G002",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "605004G003",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "605004G010",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "605004G011",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "605004P007",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "605004P008",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "605006P019",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "605006P022",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "605006P022-CKMR3527",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "605006P022-CKMR3528",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "605006P022-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "605006P023",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P023-CKMR3527",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P023-CKMR3528",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P023-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P023-CKMR9360",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P024",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "605006P024-CKMR3527",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "605006P024-CKMR3528",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "605006P024-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "605006P024-CKMR9360",
+      "major_category": "MA부품",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "605006P025",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P025-CKMR3527",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P025-CKMR3528",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P025-CKMR8931",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P025-CKMR9360",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P025-CKMR9365",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P026",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P026-CKMR8837",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P026-CKMR8931",
+      "major_category": "MA부품",
+      "middle_category": "가동부"
+    },
+    {
+      "material_no": "605006P027",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P027-CKMR3555",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P027-CKMR8837",
+      "major_category": "MA부품",
+      "middle_category": "COIL PART"
+    },
+    {
+      "material_no": "605006P039",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "605006P040",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "CLAMP/보강판"
+    },
+    {
+      "material_no": "605006P041",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "605006P042",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "605006P045",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "605006P046",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "605006P047",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "605006P048",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "605006P049",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "605006P050",
+      "major_category": "기타 기구물 (리클로저)",
+      "middle_category": "INDICATOR/GUIDE"
+    },
+    {
+      "material_no": "605007P000",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "605007P001",
+      "major_category": "기타 소자류",
+      "middle_category": "PCB(회로기판)"
+    },
+    {
+      "material_no": "605013P300",
+      "major_category": "하우징",
+      "middle_category": "본체 하우징(27kV)"
+    },
+    {
+      "material_no": "605016P000",
+      "major_category": "하우징부품",
+      "middle_category": "CONTACT BAND"
+    },
+    {
+      "material_no": "605028P002",
+      "major_category": "하우징부품",
+      "middle_category": "CT"
+    },
+    {
+      "material_no": "605102P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "O-RING"
+    },
+    {
+      "material_no": "605102P009",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "패킹/오일씰"
+    },
+    {
+      "material_no": "605103P004",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "605103P005",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "605103P008",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "605103P009",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "605104P002",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "베어링"
+    },
+    {
+      "material_no": "605105P002",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "605106P002",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "605106P003",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "605106P004",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "605106P005",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "605106P006",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "605203P000",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "605203P002",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "605206P000",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "608003P008",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "608003P009",
+      "major_category": "MA ASSY",
+      "middle_category": "MA ASSY"
+    },
+    {
+      "material_no": "608003P014",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "608003P015",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "608004G001",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608004G002",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608004P002",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608004P003",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608004P004",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608004P006",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608004P007",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "608006P023",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "608006P023-CKMR9360",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "608006P028",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "CLAMP/보강판"
+    },
+    {
+      "material_no": "608006P029",
+      "major_category": "MA부품",
+      "middle_category": "HOLDING PLATE"
+    },
+    {
+      "material_no": "608006P033",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "608006P038",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "608006P039",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "608006P044",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "608006P045",
+      "major_category": "케이블류",
+      "middle_category": "리셉터클 배선"
+    },
+    {
+      "material_no": "608006P046",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "608006P047",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "절연로드"
+    },
+    {
+      "material_no": "608006P048",
+      "major_category": "케이블류",
+      "middle_category": "탱크(MA/CT) 하네스"
+    },
+    {
+      "material_no": "608006P049",
+      "major_category": "기구물",
+      "middle_category": "탱크류"
+    },
+    {
+      "material_no": "608006P050",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "608006P051",
+      "major_category": "상품",
+      "middle_category": "BUS BAR"
+    },
+    {
+      "material_no": "608007P001",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "608008P001",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "스티커"
+    },
+    {
+      "material_no": "608013P011",
+      "major_category": "하우징",
+      "middle_category": "본체 하우징(38kV)"
+    },
+    {
+      "material_no": "608022P100",
+      "major_category": "하우징부품",
+      "middle_category": "CT"
+    },
+    {
+      "material_no": "608102P316",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "가동축"
+    },
+    {
+      "material_no": "60810P316",
+      "major_category": "조립부품류 (리클로저)",
+      "middle_category": "PLATE/BRACKET"
+    },
+    {
+      "material_no": "620005P027",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "625019P001",
+      "major_category": "하우징부품",
+      "middle_category": "CONTACT BAND"
+    },
+    {
+      "material_no": "629012P002",
+      "major_category": "하우징부품",
+      "middle_category": "고저항"
+    },
+    {
+      "material_no": "629012P005",
+      "major_category": "하우징부품",
+      "middle_category": "고저항"
+    },
+    {
+      "material_no": "654505P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "체결부품(볼트/너트/와셔)"
+    },
+    {
+      "material_no": "CH0018P000",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "CH0046P000",
+      "major_category": "기타 기구물",
+      "middle_category": "마운팅 브라켓/가대"
+    },
+    {
+      "material_no": "CH0046P002",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "실란트/코팅제"
+    },
+    {
+      "material_no": "CH0046P006",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "기타"
+    },
+    {
+      "material_no": "CH0048P001",
+      "major_category": "조립부품류 (소모품)",
+      "middle_category": "실란트/코팅제"
+    },
+    {
+      "material_no": "CHBON-DT",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHBONFV",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHFEF155012",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHILA06M",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHILB02M",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHILB03M",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHILB08M",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CHILB10M",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "CK052643",
+      "major_category": "포장류",
+      "middle_category": "방습제/방청제"
+    },
+    {
+      "material_no": "CK052648",
+      "major_category": "기타 소자류",
+      "middle_category": "전원장치(SMPS/컨버터/배터리)"
+    },
+    {
+      "material_no": "CT-TW001",
+      "major_category": "상품",
+      "middle_category": "공구"
+    },
+    {
+      "material_no": "PK0024P022",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P026",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P030",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P037",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P038",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P039",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P040",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P041",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P042",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P043",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P044",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P045",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P047",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P048",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P049",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P050",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P051",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P278",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P332",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P334",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P339",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P343",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "PK0024P347",
+      "major_category": "포장류",
+      "middle_category": "박스/포장재"
+    },
+    {
+      "material_no": "SCJIG-0004",
+      "major_category": "상품",
+      "middle_category": "공구"
+    },
+    {
+      "material_no": "STUD-RV-BW",
+      "major_category": "상품",
+      "middle_category": "엘보/부싱 액세서리"
+    },
+    {
+      "material_no": "미정",
+      "major_category": "기타 소자류",
+      "middle_category": "저항"
+    },
+    {
+      "material_no": "접점스프링 (CKMR1310)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR3310)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR3360)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR3527)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR3528)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR3555)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR5310)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR8837)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR8931)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "접점스프링 (CKMR9360)",
+      "major_category": "MA부품",
+      "middle_category": "스프링"
+    },
+    {
+      "material_no": "채번 예정1",
+      "major_category": "케이블류",
+      "middle_category": "커넥터 컨택트 핀"
+    }
+  ]
+}

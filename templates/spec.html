@@ -53,17 +53,24 @@
         <option value="method_empty" {% if search_by=='method_empty' %}selected{% endif %}>검사방식 미입력</option>
       </select>
     </div>
-    <div style="flex:1; min-width:130px;">
-      <label>자재 분류</label>
-      <select name="category">
+    <div style="flex:1; min-width:140px;">
+      <label>대분류</label>
+      <select name="major_category" id="specMajorCategory">
         <option value="">전체</option>
-        {% for c in (categories or []) %}
-        <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+        <option value="__unassigned__" {% if major_category=='__unassigned__' %}selected{% endif %}>미지정</option>
+        {% for c in (major_categories or []) %}
+        <option value="{{ c }}" {% if major_category==c %}selected{% endif %}>{{ c }}</option>
         {% endfor %}
       </select>
     </div>
+    <div style="flex:1; min-width:140px;">
+      <label>중분류</label>
+      <select name="middle_category" id="specMiddleCategory" data-selected="{{ middle_category }}">
+        <option value="">전체</option>
+      </select>
+    </div>
     <button type="submit" style="margin-top:0;">검색</button>
-    {% if query or search_by != 'all' or category or include or exclude %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
+    {% if query or search_by != 'all' or major_category or middle_category or include or exclude %}<a href="{{ url_for('spec_list') }}" class="btn secondary" style="margin-top:0;">초기화</a>{% endif %}
 
     <div style="width:100%; display:flex; gap:16px; flex-wrap:wrap; margin-top:2px;">
       <div style="min-width:220px;">
@@ -112,7 +119,7 @@
 <table id="spec-table">
   <tr>
     {% if can_edit %}<th style="width:26px;"><input type="checkbox" id="checkAllMaterials" onclick="document.querySelectorAll('.material-check').forEach(c=>c.checked=this.checked)"></th>{% endif %}
-    <th style="text-align:left; padding-left:14px;">자재번호</th><th>자재명</th><th>분류</th><th>도면</th>
+    <th style="text-align:left; padding-left:14px;">자재번호</th><th>자재명</th><th>대분류</th><th>중분류</th><th>도면</th>
   </tr>
   {% for m in materials %}
   <tr>
@@ -124,7 +131,10 @@
     <td class="name-cell mono" onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_no'] }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">{{ m['material_name'] or '-' }}</td>
     <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">
-      {% if m['category'] %}<span class="badge muted">{{ m['category'] }}</span>{% else %}<span class="muted">-</span>{% endif %}
+      {{ m['major_category'] or '미지정' }}
+    </td>
+    <td onclick="openRow('{{ url_for('spec_detail', material_no=m['material_no']) }}')" style="cursor:pointer">
+      {{ m['middle_category'] or '미지정' }}
     </td>
     <td onclick="event.stopPropagation()">
       {% if m['material_no'] in drawing_materials %}
@@ -136,7 +146,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="{{ 5 if can_edit else 4 }}" style="text-align:center; padding:32px 0; color:var(--muted);">{% if query or search_by=='method_empty' or category %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
+  <tr><td colspan="{{ 6 if can_edit else 5 }}" style="text-align:center; padding:32px 0; color:var(--muted);">{% if query or search_by=='method_empty' or major_category or middle_category %}검색 결과가 없어.{% else %}등록된 자재가 없어.{% if can_edit %} 위 버튼으로 추가해줘.{% endif %}{% endif %}</td></tr>
   {% endfor %}
 </table>
 </div>
@@ -144,6 +154,30 @@
 {% include "_drawing_modal.html" %}
 
 <script>
+var SPEC_CLASSIFICATION_PAIRS = {{ (classification_pairs or []) | tojson }};
+function refreshSpecMiddleCategories() {
+  const major = document.getElementById('specMajorCategory');
+  const middle = document.getElementById('specMiddleCategory');
+  if (!major || !middle) return;
+  const wanted = middle.dataset.selected || middle.value || '';
+  middle.innerHTML = '<option value="">전체</option>';
+  if (major.value === '__unassigned__') {
+    middle.appendChild(new Option('미지정', '__unassigned__'));
+  } else {
+    const seen = new Set();
+    SPEC_CLASSIFICATION_PAIRS.filter(p => !major.value || p.major_category === major.value)
+      .forEach(p => {
+        if (!seen.has(p.middle_category)) {
+          seen.add(p.middle_category);
+          middle.appendChild(new Option(p.middle_category, p.middle_category));
+        }
+      });
+  }
+  if ([...middle.options].some(o => o.value === wanted)) middle.value = wanted;
+  middle.dataset.selected = '';
+}
+document.getElementById('specMajorCategory')?.addEventListener('change', refreshSpecMiddleCategories);
+refreshSpecMiddleCategories();
 var SPEC_CHIPS = {
   include: {{ (include or []) | tojson }},
   exclude: {{ (exclude or []) | tojson }}

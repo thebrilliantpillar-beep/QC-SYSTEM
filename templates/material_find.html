@@ -51,12 +51,19 @@
         <input type="text" name="parent" value="{{ parent_no }}" placeholder="상위품목코드 일부">
       </div>
       <div style="flex:1; min-width:130px;">
-        <label>자재 분류</label>
-        <select name="category">
+        <label>대분류</label>
+        <select name="major_category" id="mfMajorCategory">
           <option value="">전체</option>
-          {% for c in (categories or []) %}
-          <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+          <option value="__unassigned__" {% if major_category=='__unassigned__' %}selected{% endif %}>미지정</option>
+          {% for c in (major_categories or []) %}
+          <option value="{{ c }}" {% if major_category==c %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
+        </select>
+      </div>
+      <div style="flex:1; min-width:130px;">
+        <label>중분류</label>
+        <select name="middle_category" id="mfMiddleCategory" data-selected="{{ middle_category }}">
+          <option value="">전체</option>
         </select>
       </div>
       <label class="lv-chk {% if unregistered_only %}on{% endif %}" style="margin-top:0;">
@@ -65,7 +72,7 @@
         미등록만
       </label>
       <button type="submit" style="margin-top:0;">검색</button>
-      {% if query or levels or models or parent_no or category or unregistered_only or include or exclude %}
+      {% if query or levels or models or parent_no or major_category or middle_category or unregistered_only or include or exclude %}
       <a href="{{ url_for('material_find') }}" class="btn secondary" style="margin-top:0;">초기화</a>
       {% endif %}
     </div>
@@ -149,11 +156,13 @@
     <th>Lv</th>
     <th>상위품목코드</th>
     <th>구분</th>
-    <th>자재분류</th>
+    <th>대분류</th>
+    <th>중분류</th>
     <th>도면</th>
   </tr>
   {% for r in rows %}
   <tr>
+    {% set class_form_id = ('quickRegister' ~ r['id']) if r['material_name'] is none else ('classification' ~ r['id']) %}
     {% if can_edit %}
     <td>
       <input type="checkbox" class="bom-link-check" form="bomBulkDeleteForm" name="link_ids" value="{{ r['id'] }}">
@@ -170,21 +179,12 @@
       {% if r['material_name'] is not none %}
       {{ r['material_name'] }}
       {% elif can_edit %}
-      <form method="POST" action="{{ url_for('materials_quick_register') }}"
-            style="display:flex; gap:4px; align-items:center;">
-        <input type="hidden" name="material_no" value="{{ r['material_no'] }}">
-        <input type="hidden" name="next" value="{{ request.full_path }}">
-        <input type="text" name="material_name" placeholder="자재명 입력" required
+      <div style="display:flex; gap:4px; align-items:center;">
+        <input type="text" name="material_name" form="quickRegister{{ r['id'] }}" placeholder="자재명 입력" required
                value="{{ r['bom_name'] or '' }}"
                style="width:150px; padding:4px 6px; font-size:12.5px;">
-        <select name="category" style="width:auto; min-width:120px; padding:4px; font-size:12.5px;">
-          <option value="">(미지정)</option>
-          {% for c in (categories or []) %}
-          <option value="{{ c }}">{{ c }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit" style="margin:0; padding:5px 10px; font-size:12.5px;">등록</button>
-      </form>
+        <button type="submit" form="quickRegister{{ r['id'] }}" style="margin:0; padding:5px 10px; font-size:12.5px;">등록</button>
+      </div>
       {% else %}
       —
       {% endif %}
@@ -219,22 +219,24 @@
     {% endif %}
     <td>{{ r['kind'] or '—' }}</td>
     <td>
-      {% if r['material_name'] is none %}
-      —
-      {% elif can_edit %}
-      <form method="POST" action="{{ url_for('spec_material_category_update', material_no=r['material_no']) }}"
-            style="margin:0;">
-        <input type="hidden" name="next" value="{{ request.full_path }}">
-        <select name="category" onchange="this.form.submit()" style="width:auto; min-width:120px; padding:4px; font-size:12.5px;">
-          <option value="" {% if not r['category'] %}selected{% endif %}>(미지정)</option>
-          {% for c in (categories or []) %}
-          <option value="{{ c }}" {% if r['category']==c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
+      {% if can_edit %}
+      <select name="major_category" form="{{ class_form_id }}" class="row-major-category"
+              data-middle-id="rowMiddle{{ r['id'] }}" style="width:auto; min-width:120px; padding:4px; font-size:12.5px;">
+        <option value="" {% if not r['major_category'] %}selected{% endif %}>(미지정)</option>
+        {% for c in (major_categories or []) %}<option value="{{ c }}" {% if r['major_category']==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+      {% else %}{{ r['major_category'] or '미지정' }}{% endif %}
+    </td>
+    <td>
+      {% if can_edit %}
+      <div style="display:flex; gap:4px; align-items:center;">
+        <select name="middle_category" form="{{ class_form_id }}" id="rowMiddle{{ r['id'] }}"
+                data-selected="{{ r['middle_category'] or '' }}" style="width:auto; min-width:120px; padding:4px; font-size:12.5px;">
+          <option value="">(미지정)</option>
         </select>
-      </form>
-      {% else %}
-      {{ r['category'] or '—' }}
-      {% endif %}
+        {% if r['material_name'] is not none %}<button type="submit" form="{{ class_form_id }}" style="margin:0; padding:4px 8px; font-size:11.5px;">저장</button>{% endif %}
+      </div>
+      {% else %}{{ r['middle_category'] or '미지정' }}{% endif %}
     </td>
     <td>
       {% if r['material_no'] in drawing_materials %}
@@ -246,7 +248,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="{{ 9 if can_edit else 8 }}" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
+  <tr><td colspan="{{ 10 if can_edit else 9 }}" style="text-align:center; padding:40px 0; color:var(--muted);">검색 결과가 없어.</td></tr>
   {% endfor %}
 </table>
 </div>
@@ -256,12 +258,53 @@
       action="{{ url_for('materials_bom_links_edit', link_id=r['id']) }}" style="display:none;">
   <input type="hidden" name="next" value="{{ request.full_path }}">
 </form>
+{% if r['material_name'] is none %}
+<form id="quickRegister{{ r['id'] }}" method="POST" action="{{ url_for('materials_quick_register') }}" style="display:none;">
+  <input type="hidden" name="material_no" value="{{ r['material_no'] }}">
+  <input type="hidden" name="next" value="{{ request.full_path }}">
+</form>
+{% else %}
+<form id="classification{{ r['id'] }}" method="POST"
+      action="{{ url_for('spec_material_classification_update', material_no=r['material_no']) }}" style="display:none;">
+  <input type="hidden" name="next" value="{{ request.full_path }}">
+</form>
+{% endif %}
 {% endfor %}
 {% endif %}
 {% include "_drawing_modal.html" %}
 {% set p = pager %}{% include "_pager.html" %}
 
 <script>
+var MF_CLASSIFICATION_PAIRS = {{ (classification_pairs or []) | tojson }};
+function fillClassificationMiddle(majorSelect, middleSelect, allLabel) {
+  if (!majorSelect || !middleSelect) return;
+  var wanted = middleSelect.dataset.selected || middleSelect.value || '';
+  middleSelect.innerHTML = '<option value="">' + allLabel + '</option>';
+  if (majorSelect.value === '__unassigned__') {
+    middleSelect.appendChild(new Option('미지정', '__unassigned__'));
+  } else {
+    var seen = new Set();
+    MF_CLASSIFICATION_PAIRS.filter(function(p) { return !majorSelect.value || p.major_category === majorSelect.value; })
+      .forEach(function(p) {
+        if (!seen.has(p.middle_category)) {
+          seen.add(p.middle_category);
+          middleSelect.appendChild(new Option(p.middle_category, p.middle_category));
+        }
+      });
+  }
+  if ([].some.call(middleSelect.options, function(o) { return o.value === wanted; })) middleSelect.value = wanted;
+  middleSelect.dataset.selected = '';
+}
+var mfMajor = document.getElementById('mfMajorCategory');
+var mfMiddle = document.getElementById('mfMiddleCategory');
+mfMajor?.addEventListener('change', function() { fillClassificationMiddle(mfMajor, mfMiddle, '전체'); });
+fillClassificationMiddle(mfMajor, mfMiddle, '전체');
+document.querySelectorAll('.row-major-category').forEach(function(major) {
+  var middle = document.getElementById(major.dataset.middleId);
+  major.addEventListener('change', function() { fillClassificationMiddle(major, middle, '(미지정)'); });
+  fillClassificationMiddle(major, middle, '(미지정)');
+});
+
 var MODEL_CHIPS = {{ models | tojson }};
 
 function renderModelChips() {

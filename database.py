@@ -2,7 +2,7 @@
 # Copyright (c) 2026 윤주호. All rights reserved.
 # 무단 복제·배포·수정을 금합니다.
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
-import re, sqlite3, os
+import hashlib, json, re, sqlite3, os
 from datetime import datetime as _dt
 
 # 검사자 비고의 표준 불량 문구 파싱 — app.py의 parse_defect_counts와 동일 패턴
@@ -218,6 +218,38 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     """)
+
+    # 0-0-1a. 자재 대분류/중분류 — 기존 materials.category는 과거 보고서 호환용으로
+    # 그대로 보존한다. materials FK를 두지 않아 미등록 자재번호의 확정 매핑도 보관한다.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS material_classification_pairs (
+            major_category TEXT NOT NULL,
+            middle_category TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (major_category, middle_category)
+        )
+    """)
+    existing_class_pair_cols = [row[1] for row in cur.execute(
+        "PRAGMA table_info(material_classification_pairs)").fetchall()]
+    if "source" not in existing_class_pair_cols:
+        _safe_add_column(cur, "ALTER TABLE material_classification_pairs "
+                         "ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS material_classification_map (
+            material_no TEXT PRIMARY KEY,
+            major_category TEXT NOT NULL,
+            middle_category TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (major_category, middle_category)
+                REFERENCES material_classification_pairs (major_category, middle_category)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_material_classification_major "
+                "ON material_classification_map(major_category)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_material_classification_middle "
+                "ON material_classification_map(middle_category)")
 
     # 0-0-2. 불량 유형 마스터 — material_categories와 동일한 관례(name PK, FK 없이
     # ncr.defect_type에 문자열로만 저장). 2026-09-08 신설.
@@ -1165,7 +1197,10 @@ def get_materials():
     """등록된 모든 자재번호 목록 (항목이 아직 없는 자재도 포함)"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM materials ORDER BY material_no"
+        """SELECT m.*, mc.major_category, mc.middle_category
+             FROM materials m
+             LEFT JOIN material_classification_map mc ON mc.material_no = m.material_no
+            ORDER BY m.material_no"""
     ).fetchall()
     conn.close()
     return rows
@@ -1173,7 +1208,10 @@ def get_materials():
 
 def get_material(material_no):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM materials WHERE material_no = ?", (material_no,)).fetchone()
+    row = conn.execute("""SELECT m.*, mc.major_category, mc.middle_category
+                            FROM materials m
+                            LEFT JOIN material_classification_map mc ON mc.material_no = m.material_no
+                           WHERE m.material_no = ?""", (material_no,)).fetchone()
     conn.close()
     return row
 
@@ -1217,38 +1255,77 @@ def update_material_standard_info(material_no, drawing_version, revision_date, e
 def rename_material(old_no, new_no, new_name):
     """
     자재번호/자재명 변경 — 지금부터만 적용(과거 입고/검사/성적서 기록은 옛 번호 그대로 둠).
-    materials·specs·material_group_items(부품으로 소속된 경우)만 새 번호로 갱신.
+    materials·specs·material_group_items(부품으로 소속된 경우)와 새 분류 매핑을 새 번호로 갱신.
     반환: (성공여부, 에러메시지)
     """
     conn = get_conn()
-    if old_no != new_no:
-        dup = conn.execute("SELECT 1 FROM materials WHERE material_no = ?", (new_no,)).fetchone()
-        if dup:
-            conn.close()
-            return False, f"자재번호 '{new_no}'는 이미 사용 중이야."
-        dup_group = conn.execute("SELECT 1 FROM material_groups WHERE group_no = ?", (new_no,)).fetchone()
-        if dup_group:
-            conn.close()
-            return False, f"'{new_no}'는 이미 조립품 그룹 번호로 쓰이고 있어."
+    try:
+        # 중복/분류 충돌 확인과 실제 번호 변경 사이에 다른 쓰기가 끼어들지 않도록 한 트랜잭션에서
+        # 처리한다. 오류가 나면 자재·규격·분류가 서로 다른 번호를 가리키지 않게 전체 롤백한다.
+        conn.execute("BEGIN IMMEDIATE")
+        old_mapping = None
+        new_mapping = None
+        if old_no != new_no:
+            dup = conn.execute("SELECT 1 FROM materials WHERE material_no = ?", (new_no,)).fetchone()
+            if dup:
+                conn.rollback()
+                return False, f"자재번호 '{new_no}'는 이미 사용 중이야."
+            dup_group = conn.execute("SELECT 1 FROM material_groups WHERE group_no = ?", (new_no,)).fetchone()
+            if dup_group:
+                conn.rollback()
+                return False, f"'{new_no}'는 이미 조립품 그룹 번호로 쓰이고 있어."
 
-    existing = conn.execute("SELECT 1 FROM materials WHERE material_no = ?", (old_no,)).fetchone()
-    if existing:
-        conn.execute("UPDATE materials SET material_no = ?, material_name = ? WHERE material_no = ?",
+            old_mapping = conn.execute("""
+                SELECT major_category, middle_category
+                  FROM material_classification_map
+                 WHERE material_no = ?
+            """, (old_no,)).fetchone()
+            new_mapping = conn.execute("""
+                SELECT major_category, middle_category
+                  FROM material_classification_map
+                 WHERE material_no = ?
+            """, (new_no,)).fetchone()
+            if (old_mapping and new_mapping and
+                    (old_mapping["major_category"], old_mapping["middle_category"]) !=
+                    (new_mapping["major_category"], new_mapping["middle_category"])):
+                conn.rollback()
+                return False, (f"자재번호 '{new_no}'에 서로 다른 대분류/중분류 매핑이 있어 "
+                               "번호를 변경할 수 없어.")
+
+        existing = conn.execute("SELECT 1 FROM materials WHERE material_no = ?", (old_no,)).fetchone()
+        if existing:
+            conn.execute("UPDATE materials SET material_no = ?, material_name = ? WHERE material_no = ?",
+                        (new_no, new_name, old_no))
+        else:
+            # old_no가 아직 자재로 등록 안 된 상태(예: 검사대기 목록에서 "규격 미등록" 링크로 바로
+            # 들어와서 자재명만 처음 입력하는 경우) — UPDATE는 매칭되는 행이 없어 조용히 아무 일도
+            # 안 하므로, 이 경우엔 새로 INSERT해야 한다.
+            today = _dt.now().strftime("%Y-%m-%d")
+            conn.execute("INSERT INTO materials (material_no, material_name, revision_date) VALUES (?, ?, ?)",
+                        (new_no, new_name, today))
+        conn.execute("UPDATE specs SET material_no = ?, material_name = ? WHERE material_no = ?",
                     (new_no, new_name, old_no))
-    else:
-        # old_no가 아직 자재로 등록 안 된 상태(예: 검사대기 목록에서 "규격 미등록" 링크로 바로
-        # 들어와서 자재명만 처음 입력하는 경우) — UPDATE는 매칭되는 행이 없어 조용히 아무 일도
-        # 안 하므로, 이 경우엔 새로 INSERT해야 한다.
-        today = _dt.now().strftime("%Y-%m-%d")
-        conn.execute("INSERT INTO materials (material_no, material_name, revision_date) VALUES (?, ?, ?)",
-                    (new_no, new_name, today))
-    conn.execute("UPDATE specs SET material_no = ?, material_name = ? WHERE material_no = ?",
-                (new_no, new_name, old_no))
-    conn.execute("UPDATE material_group_items SET material_no = ? WHERE material_no = ?",
-                (new_no, old_no))
-    conn.commit()
-    conn.close()
-    return True, None
+        conn.execute("UPDATE material_group_items SET material_no = ? WHERE material_no = ?",
+                    (new_no, old_no))
+
+        if old_no != new_no and old_mapping:
+            if new_mapping:
+                # 동일한 매핑이 새 번호에 미리 준비된 경우 PK 충돌을 피하고 낡은 키만 제거한다.
+                conn.execute("DELETE FROM material_classification_map WHERE material_no = ?", (old_no,))
+            else:
+                conn.execute("""
+                    UPDATE material_classification_map
+                       SET material_no = ?, updated_at = CURRENT_TIMESTAMP
+                     WHERE material_no = ?
+                """, (new_no, old_no))
+
+        conn.commit()
+        return True, None
+    except sqlite3.Error as exc:
+        conn.rollback()
+        return False, f"자재번호 변경 중 데이터베이스 오류가 발생했어: {exc}"
+    finally:
+        conn.close()
 
 
 def upsert_materials_bulk(rows):
@@ -1306,6 +1383,162 @@ def update_material_category(material_no, category):
     return canonical
 
 
+UNASSIGNED_CLASSIFICATION = "__unassigned__"
+
+
+def list_material_classification_pairs(major_category=None):
+    """대분류/중분류 조합 목록. 화면의 종속 드롭다운이 공통으로 사용한다."""
+    conn = get_conn()
+    params = []
+    sql = "SELECT major_category, middle_category FROM material_classification_pairs"
+    major_category = (major_category or "").strip()
+    if major_category:
+        sql += " WHERE major_category = ?"
+        params.append(major_category)
+    sql += " ORDER BY major_category, middle_category"
+    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    conn.close()
+    return rows
+
+
+def list_major_categories():
+    return list(dict.fromkeys(
+        r["major_category"] for r in list_material_classification_pairs()
+    ))
+
+
+def add_material_classification_pair(major_category, middle_category, conn=None, source="manual"):
+    """대/중분류 조합을 등록하고 공백을 제거한 정본 tuple을 반환한다."""
+    major = (major_category or "").strip()
+    middle = (middle_category or "").strip()
+    if not major or not middle:
+        raise ValueError("대분류와 중분류를 모두 입력해줘.")
+    own_conn = conn is None
+    conn = conn or get_conn()
+    try:
+        conn.execute("""INSERT OR IGNORE INTO material_classification_pairs
+                        (major_category, middle_category, source) VALUES (?, ?, ?)""",
+                     (major, middle, source or "manual"))
+        if own_conn:
+            conn.commit()
+        return major, middle
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def update_material_classification(material_no, major_category, middle_category, source="manual"):
+    """자재번호의 대/중분류 저장. 둘 다 비우면 미지정(매핑 삭제)으로 되돌린다."""
+    material_no = (material_no or "").strip()
+    major = (major_category or "").strip()
+    middle = (middle_category or "").strip()
+    if not material_no:
+        raise ValueError("자재번호가 없어 분류를 저장할 수 없어.")
+    if bool(major) != bool(middle):
+        raise ValueError("대분류와 중분류를 함께 선택해줘.")
+    conn = get_conn()
+    try:
+        if not major:
+            conn.execute("DELETE FROM material_classification_map WHERE material_no = ?", (material_no,))
+            conn.commit()
+            return None
+        add_material_classification_pair(major, middle, conn=conn)
+        conn.execute("""
+            INSERT INTO material_classification_map
+                (material_no, major_category, middle_category, source, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(material_no) DO UPDATE SET
+                major_category=excluded.major_category,
+                middle_category=excluded.middle_category,
+                source=excluded.source,
+                updated_at=datetime('now', 'localtime')
+        """, (material_no, major, middle, source or "manual"))
+        conn.commit()
+        return major, middle
+    finally:
+        conn.close()
+
+
+def ensure_material_classification_asset(asset_path=None):
+    """저장소의 확정 분류 JSON을 파일 해시 기준으로 멱등 반영한다.
+
+    필수값 공백, 같은 자재번호의 상충 분류, 메타데이터 건수 불일치는 DB 쓰기 전에
+    거부한다. 새 파일에서는 이전 asset 매핑을 현재 파일 기준으로 교체하지만, 파일 밖에서
+    담당자가 수동 추가한 매핑은 보존한다. materials의 이름과 기존 category는 건드리지 않는다.
+    """
+    if asset_path is None:
+        asset_path = os.path.join(os.path.dirname(__file__), "data", "material_classifications.json")
+    with open(asset_path, "rb") as f:
+        raw = f.read()
+    asset_hash = hashlib.sha256(raw).hexdigest()
+    payload = json.loads(raw.decode("utf-8"))
+    raw_mappings = payload.get("mappings")
+    if not isinstance(raw_mappings, list):
+        raise ValueError("자재 분류 데이터의 mappings 배열이 없어.")
+
+    normalized = {}
+    for idx, item in enumerate(raw_mappings, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"자재 분류 데이터 {idx}번째 행 형식이 올바르지 않아.")
+        material_no = str(item.get("material_no") or "").strip()
+        major = str(item.get("major_category") or "").strip()
+        middle = str(item.get("middle_category") or "").strip()
+        if not material_no or not major or not middle:
+            raise ValueError(f"자재 분류 데이터 {idx}번째 행에 필수값 공백이 있어.")
+        pair = (major, middle)
+        if material_no in normalized and normalized[material_no] != pair:
+            raise ValueError(f"자재번호 '{material_no}'의 대/중분류가 서로 충돌해.")
+        normalized[material_no] = pair
+
+    expected_count = payload.get("mapping_count")
+    if expected_count is not None and int(expected_count) != len(normalized):
+        raise ValueError("자재 분류 데이터의 mapping_count와 실제 고유 자재 수가 달라.")
+
+    conn = get_conn()
+    try:
+        # Render의 여러 gunicorn 워커가 동시에 시작해도 한 워커씩 해시를 확인·반영한다.
+        # SELECT 뒤에 쓰기 트랜잭션으로 승격하면 stale snapshot/locked 경합이 날 수 있으므로
+        # 처음부터 IMMEDIATE로 직렬화한다(데이터 914건이라 잠금 구간은 매우 짧다).
+        conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'material_classification_asset_sha256'"
+        ).fetchone()
+        if current and current["value"] == asset_hash:
+            conn.rollback()
+            return {"applied": False, "count": len(normalized), "sha256": asset_hash}
+
+        conn.execute("DELETE FROM material_classification_map WHERE source = 'asset'")
+        conn.execute("""DELETE FROM material_classification_pairs
+                         WHERE source = 'asset'
+                           AND NOT EXISTS (
+                               SELECT 1 FROM material_classification_map mc
+                                WHERE mc.major_category = material_classification_pairs.major_category
+                                  AND mc.middle_category = material_classification_pairs.middle_category
+                           )""")
+        for major, middle in sorted(set(normalized.values())):
+            add_material_classification_pair(major, middle, conn=conn, source="asset")
+        conn.executemany("""
+            INSERT INTO material_classification_map
+                (material_no, major_category, middle_category, source, updated_at)
+            VALUES (?, ?, ?, 'asset', datetime('now', 'localtime'))
+            ON CONFLICT(material_no) DO UPDATE SET
+                major_category=excluded.major_category,
+                middle_category=excluded.middle_category,
+                source='asset',
+                updated_at=datetime('now', 'localtime')
+        """, [(material_no, *normalized[material_no]) for material_no in sorted(normalized)])
+        conn.execute("""INSERT INTO app_settings(key, value) VALUES
+                      ('material_classification_asset_sha256', ?)
+                      ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (asset_hash,))
+        conn.commit()
+        return {"applied": True, "count": len(normalized), "sha256": asset_hash}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _include_exclude_clause(columns, include_words=None, exclude_words=None):
     """포함/제외 다중 단어 검색 조건 생성 — 자재 관리(search_materials)/자재 찾기
     (search_bom_materials) 공용 헬퍼(8-1절 원칙, 복붙 금지). 포함 단어 여러 개 = OR
@@ -1342,79 +1575,95 @@ def _include_exclude_clause(columns, include_words=None, exclude_words=None):
     return " AND ".join(parts), params
 
 
-def search_materials(query=None, search_by="all", category=None, include=None, exclude=None):
+def search_materials(query=None, search_by="all", category=None, include=None, exclude=None,
+                     major_category=None, middle_category=None):
     """
     query: 검색어. search_by: 'material_no' / 'material_name' / 'method' / 'spec' / 'all'
     'method'(검사방식)는 specs.inspect_method에서, 'spec'(규격 표기)는 specs.spec_display에서 매칭.
     'all'(전체)은 자재번호·자재명·규격 표기·검사방식을 모두 훑는다.
-    category: 지정하면 그 분류(정확일치)로만 추가 필터링. search_by(어디서 찾을지)와는
-    별개 축이라 AND 조건으로 얹는다.
+    category는 이전 단일분류 URL/호출 호환용이다. major_category/middle_category가 새
+    대·중분류 필터이며 둘 다 있으면 AND 정확일치한다. '__unassigned__'는 미지정이다.
     include/exclude: 포함/제외 다중 단어(자재번호·자재명만 대상, 규격표기/검사방식은
     제외 — 확정된 결정). _include_exclude_clause() 참고.
     """
     conn = get_conn()
     category = (category or "").strip() or None
     cat_sql = " AND m.category = ?" if category else ""
-    cat_params = (category,) if category else ()
+    cat_params = [category] if category else []
+    major_category = (major_category or "").strip() or None
+    middle_category = (middle_category or "").strip() or None
+    class_parts, class_params = [], []
+    if major_category == UNASSIGNED_CLASSIFICATION or middle_category == UNASSIGNED_CLASSIFICATION:
+        class_parts.append("mc.material_no IS NULL")
+    else:
+        if major_category:
+            class_parts.append("mc.major_category = ?")
+            class_params.append(major_category)
+        if middle_category:
+            class_parts.append("mc.middle_category = ?")
+            class_params.append(middle_category)
+    class_sql = "".join(f" AND {part}" for part in class_parts)
     ie_expr, ie_params = _include_exclude_clause(["m.material_no", "m.material_name"], include, exclude)
     ie_sql = f" AND {ie_expr}" if ie_expr else ""
+    select_cols = "m.material_no, m.material_name, m.category, mc.major_category, mc.middle_category"
+    class_join = " LEFT JOIN material_classification_map mc ON mc.material_no = m.material_no"
 
     if search_by == "method_empty":
         # 검사방식(inspect_method)이 비어 있는 항목을 가진 자재. 검색어와 무관하게 동작한다.
         rows = conn.execute(f"""
-            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
+            SELECT DISTINCT {select_cols} FROM materials m{class_join}
             JOIN specs s ON s.material_no = m.material_no
-            WHERE (s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''){cat_sql}{ie_sql}
+            WHERE (s.inspect_method IS NULL OR TRIM(s.inspect_method) = ''){cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (*cat_params, *ie_params)).fetchall()
+        """, (*cat_params, *class_params, *ie_params)).fetchall()
         conn.close()
         return rows
     if not query:
         rows = conn.execute(f"""
-            SELECT m.material_no, m.material_name, m.category FROM materials m
-            WHERE 1=1{cat_sql}{ie_sql}
+            SELECT {select_cols} FROM materials m{class_join}
+            WHERE 1=1{cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (*cat_params, *ie_params)).fetchall()
+        """, (*cat_params, *class_params, *ie_params)).fetchall()
         conn.close()
         return rows
 
     like = f"%{query}%"
     if search_by == "material_no":
         rows = conn.execute(f"""
-            SELECT m.material_no, m.material_name, m.category FROM materials m
-            WHERE m.material_no LIKE ?{cat_sql}{ie_sql}
+            SELECT {select_cols} FROM materials m{class_join}
+            WHERE m.material_no LIKE ?{cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params, *ie_params)).fetchall()
+        """, (like, *cat_params, *class_params, *ie_params)).fetchall()
     elif search_by == "material_name":
         rows = conn.execute(f"""
-            SELECT m.material_no, m.material_name, m.category FROM materials m
-            WHERE m.material_name LIKE ?{cat_sql}{ie_sql}
+            SELECT {select_cols} FROM materials m{class_join}
+            WHERE m.material_name LIKE ?{cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params, *ie_params)).fetchall()
+        """, (like, *cat_params, *class_params, *ie_params)).fetchall()
     elif search_by == "method":
         rows = conn.execute(f"""
-            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
+            SELECT DISTINCT {select_cols} FROM materials m{class_join}
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.inspect_method LIKE ?{cat_sql}{ie_sql}
+            WHERE s.inspect_method LIKE ?{cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params, *ie_params)).fetchall()
+        """, (like, *cat_params, *class_params, *ie_params)).fetchall()
     elif search_by == "spec":
         rows = conn.execute(f"""
-            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
+            SELECT DISTINCT {select_cols} FROM materials m{class_join}
             JOIN specs s ON s.material_no = m.material_no
-            WHERE s.spec_display LIKE ?{cat_sql}{ie_sql}
+            WHERE s.spec_display LIKE ?{cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, *cat_params, *ie_params)).fetchall()
+        """, (like, *cat_params, *class_params, *ie_params)).fetchall()
     else:
         # 전체: 자재번호·자재명·규격 표기·검사방식 어디에 있든 잡는다.
         # (규격 표기 spec_display를 빠뜨려서 규격에만 있는 검색어가 안 걸리던 버그 수정)
         rows = conn.execute(f"""
-            SELECT DISTINCT m.material_no, m.material_name, m.category FROM materials m
+            SELECT DISTINCT {select_cols} FROM materials m{class_join}
             LEFT JOIN specs s ON s.material_no = m.material_no
             WHERE (m.material_no LIKE ? OR m.material_name LIKE ?
-               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?){cat_sql}{ie_sql}
+               OR s.spec_display LIKE ? OR s.inspect_method LIKE ?){cat_sql}{class_sql}{ie_sql}
             ORDER BY m.material_no
-        """, (like, like, like, like, *cat_params, *ie_params)).fetchall()
+        """, (like, like, like, like, *cat_params, *class_params, *ie_params)).fetchall()
     conn.close()
     return rows
 
@@ -4082,7 +4331,8 @@ def list_bom_model_names():
 
 
 def search_bom_materials(query="", levels=None, models=None, parent_no="", category=None,
-                          unregistered_only=False, include=None, exclude=None):
+                          unregistered_only=False, include=None, exclude=None,
+                          major_category=None, middle_category=None):
     """material_bom_links를 materials에 LEFT JOIN해서 조회("자재 찾기" 화면 전용).
     search_materials()와는 완전히 별개 함수(책임 분리).
     include/exclude: 포함/제외 다중 단어(자재번호·자재명만 대상 — 확정된 결정).
@@ -4122,6 +4372,18 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
         where.append("m.category = ?")
         params.append(category)
 
+    major_category = (major_category or "").strip()
+    middle_category = (middle_category or "").strip()
+    if major_category == UNASSIGNED_CLASSIFICATION or middle_category == UNASSIGNED_CLASSIFICATION:
+        where.append("mc.material_no IS NULL")
+    else:
+        if major_category:
+            where.append("mc.major_category = ?")
+            params.append(major_category)
+        if middle_category:
+            where.append("mc.middle_category = ?")
+            params.append(middle_category)
+
     ie_expr, ie_params = _include_exclude_clause(["b.material_no", "m.material_name"], include, exclude)
     if ie_expr:
         where.append(ie_expr)
@@ -4130,9 +4392,11 @@ def search_bom_materials(query="", levels=None, models=None, parent_no="", categ
     sql = f"""
         SELECT b.id, b.material_no, m.material_name, b.bom_name, b.level, b.model_name,
                b.parent_material_no, b.kind, b.qty_per_parent, b.qty_per_model, b.unit, m.category,
+               mc.major_category, mc.middle_category,
                b.manually_edited
         FROM material_bom_links b
         LEFT JOIN materials m ON m.material_no = b.material_no
+        LEFT JOIN material_classification_map mc ON mc.material_no = b.material_no
         WHERE {" AND ".join(where)}
         ORDER BY b.material_no, b.model_name, b.level
     """
@@ -5720,7 +5984,8 @@ def daily_status(day=None):
 
 
 def quality_report(start_date, end_date, period_type="monthly",
-                   supplier=None, po_number=None, material=None, states=None, category=None):
+                   supplier=None, po_number=None, material=None, states=None, category=None,
+                   major_category=None, middle_category=None):
     """품질 현황 집계 — 대시보드·보고서·내보내기가 전부 이 함수 하나를 쓴다.
 
     불량률은 **수량 기준**이다(사용자 확정):
@@ -5747,7 +6012,7 @@ def quality_report(start_date, end_date, period_type="monthly",
 
     conn = get_conn()
 
-    sql = """SELECT i.*,
+    sql = """SELECT i.*, mc.major_category, mc.middle_category,
                     (SELECT COUNT(*) FROM ncr n WHERE n.inspection_id = i.id) AS ncr_count,
                     (SELECT n.id FROM ncr n WHERE n.inspection_id = i.id
                       ORDER BY n.id DESC LIMIT 1) AS ncr_id,
@@ -5755,6 +6020,7 @@ def quality_report(start_date, end_date, period_type="monthly",
                       AND n.status IN ('sent', 'confirmed')) AS ncr_sent_count
                FROM inspections i
                LEFT JOIN materials mt ON mt.material_no = i.material_no
+               LEFT JOIN material_classification_map mc ON mc.material_no = i.material_no
               WHERE 1=1"""
     params = []
     if start_date:
@@ -5770,6 +6036,15 @@ def quality_report(start_date, end_date, period_type="monthly",
         params += [f"%{material}%", f"%{material}%"]
     if category:
         sql += " AND mt.category = ?"; params.append(category)
+    major_category = (major_category or "").strip()
+    middle_category = (middle_category or "").strip()
+    if major_category == UNASSIGNED_CLASSIFICATION or middle_category == UNASSIGNED_CLASSIFICATION:
+        sql += " AND mc.material_no IS NULL"
+    else:
+        if major_category:
+            sql += " AND mc.major_category = ?"; params.append(major_category)
+        if middle_category:
+            sql += " AND mc.middle_category = ?"; params.append(middle_category)
     # 재검사로 대체된 옛 성적서는 집계에서 제외 (같은 로트가 두 번 잡히는 것 방지)
     sql += " AND i.status != 'superseded'"
     sql += " ORDER BY i.inspect_date DESC, i.id DESC"
@@ -5935,6 +6210,8 @@ def quality_report(start_date, end_date, period_type="monthly",
         mk = r["material_no"] or "(미입력)"
         acc_m = by_material.setdefault(mk, blank())
         acc_m["자재명"] = r["material_name"]
+        acc_m["대분류"] = r.get("major_category") or "미지정"
+        acc_m["중분류"] = r.get("middle_category") or "미지정"
         add(acc_m, r)
 
     finish(summary)
@@ -5965,7 +6242,10 @@ def quality_report(start_date, end_date, period_type="monthly",
     material_list = []
     for k, v in by_material.items():
         name = v.pop("자재명", None)
-        material_list.append({"자재번호": k, "자재명": name, **finish(v)})
+        major = v.pop("대분류", "미지정")
+        middle = v.pop("중분류", "미지정")
+        material_list.append({"자재번호": k, "자재명": name,
+                              "대분류": major, "중분류": middle, **finish(v)})
     material_list.sort(key=lambda x: (-x["불합격수량"], -x["수량"]))
 
     # 불량 항목 순위
@@ -6104,6 +6384,8 @@ def quality_report(start_date, end_date, period_type="monthly",
         "필터": {"업체": ", ".join(suppliers) if suppliers else "전체",
                  "로트번호": ", ".join(po_numbers) if po_numbers else "전체",
                  "자재/제품명": material or "전체",
+                 "대분류": ("미지정" if major_category == UNASSIGNED_CLASSIFICATION else major_category) or "전체",
+                 "중분류": ("미지정" if middle_category == UNASSIGNED_CLASSIFICATION else middle_category) or "전체",
                  "판정상태": ", ".join(states) if states else "전체"},
         "불량률기준": "수량기준 (불합격 확정수량 ÷ 판정 확정수량)",
         "불량률기준_NCR포함": ("수량기준 ((불합격확정수량 + NCR만있는로트 수량) ÷ "

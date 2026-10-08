@@ -5,8 +5,11 @@
 <datalist id="methodOptions">
   {% for m in (method_options or []) %}<option value="{{ m }}">{% endfor %}
 </datalist>
-<datalist id="categoryOptions">
-  {% for c in (categories or []) %}<option value="{{ c }}">{% endfor %}
+<datalist id="majorCategoryOptions">
+  {% for c in (major_categories or []) %}<option value="{{ c }}">{% endfor %}
+</datalist>
+<datalist id="middleCategoryOptions">
+  {% for p in (classification_pairs or []) %}<option value="{{ p.middle_category }}">{% endfor %}
 </datalist>
 <style>
   .quick-grid { width:100%; border-collapse:collapse; background:#fff; border-radius:10px;
@@ -75,7 +78,8 @@
         <th></th>
         <th style="min-width:160px;">자재번호</th>
         <th style="min-width:220px;">제품명</th>
-        <th style="min-width:140px;">자재분류</th>
+        <th style="min-width:140px;">대분류</th>
+        <th style="min-width:150px;">중분류</th>
         <th class="cond-cell">측정조건</th>
         <th></th>
       </tr>
@@ -149,8 +153,11 @@
 </div>
 
 <script>
-const COLS = ['material_no', 'material_name', 'category'];
-const COL_ATTRS = { category: ' list="categoryOptions"' };
+const COLS = ['material_no', 'material_name', 'major_category', 'middle_category'];
+const COL_ATTRS = {
+  major_category: ' list="majorCategoryOptions"',
+  middle_category: ' list="middleCategoryOptions"'
+};
 const grid = document.getElementById('quickGrid');
 let rowCount = 0;
 let rowSeq = 0;                 // 각 행의 고유 rowId 발급용

@@ -86,37 +86,40 @@
 {% if not is_new %}
 
 <div class="card">
-  <h3 style="margin-top:0;">자재 분류</h3>
+  <h3 style="margin-top:0;">자재 대분류 / 중분류</h3>
   {% if can_edit %}
-  <form method="POST" action="{{ url_for('spec_material_category_update', material_no=material_no) }}" id="categoryForm">
+  <form method="POST" action="{{ url_for('spec_material_classification_update', material_no=material_no) }}" id="classificationForm">
     <div class="form-row">
       <div class="form-field" style="min-width:180px;">
-        <label>분류</label>
-        <select id="categorySelect" name="category">
+        <label>대분류</label>
+        <select id="classificationMajor" name="major_category">
           <option value="">(미지정)</option>
-          {% set current_category = material['category'] if material else None %}
-          {% for c in (categories or []) %}
-          <option value="{{ c }}" {% if current_category==c %}selected{% endif %}>{{ c }}</option>
+          {% set current_major = material['major_category'] if material else None %}
+          {% for c in (major_categories or []) %}
+          <option value="{{ c }}" {% if current_major==c %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
-          {% if current_category and current_category not in (categories or []) %}
-          <option value="{{ current_category }}" selected>{{ current_category }}</option>
-          {% endif %}
-          <option value="__new__">+ 새 분류 등록...</option>
         </select>
       </div>
-      <div id="newCategoryArea" class="form-field form-subrow" style="min-width:200px;">
-        <div class="form-field">
-          <label>새 분류명</label>
-          <input type="text" id="newCategoryInput" placeholder="새 분류명">
-        </div>
-        <button type="button" id="registerCategoryBtn" style="margin-top:0;">등록</button>
-        <span id="categoryAddStatus" style="font-size:12.5px; color:#16a34a; font-weight:600; margin-left:6px;"></span>
+      <div class="form-field" style="min-width:180px;">
+        <label>중분류</label>
+        <select id="classificationMiddle" name="middle_category"
+                data-selected="{{ material['middle_category'] if material else '' }}">
+          <option value="">(미지정)</option>
+        </select>
       </div>
       <button type="submit">저장</button>
+      <button type="button" id="showNewClassificationBtn" class="secondary">+ 새 분류 조합</button>
     </div>
   </form>
+  <div id="newClassificationArea" class="form-row" style="display:none; margin-top:10px;">
+    <div class="form-field"><label>새 대분류</label><input type="text" id="newMajorInput"></div>
+    <div class="form-field"><label>새 중분류</label><input type="text" id="newMiddleInput"></div>
+    <button type="button" id="registerClassificationBtn">조합 등록</button>
+    <span id="classificationAddStatus" style="font-size:12.5px; color:#16a34a; font-weight:600;"></span>
+  </div>
   {% else %}
-  <div style="font-size:13.5px;"><span class="muted">자재 분류</span> {{ (material['category'] if material else None) or '미지정' }}</div>
+  <div style="font-size:13.5px;"><span class="muted">대분류</span> {{ (material['major_category'] if material else None) or '미지정' }}
+    &nbsp; <span class="muted">중분류</span> {{ (material['middle_category'] if material else None) or '미지정' }}</div>
   {% endif %}
 </div>
 
@@ -530,54 +533,53 @@
 <script>
 const MATERIAL_NO = {{ material_no | tojson }};
 
-// ===== 자재 분류: 드롭다운에서 "+ 새 분류 등록..." 선택 시 인라인 등록 =====
+// ===== 자재 대/중분류 종속 선택 + 새 조합 인라인 등록 =====
 (function () {
-  const categorySelect = document.getElementById('categorySelect');
-  const newCategoryArea = document.getElementById('newCategoryArea');
-  const newCategoryInput = document.getElementById('newCategoryInput');
-  const registerBtn = document.getElementById('registerCategoryBtn');
-  const status = document.getElementById('categoryAddStatus');
-  const categoryForm = document.getElementById('categoryForm');
-  if (!categorySelect) return;
+  const pairs = {{ (classification_pairs or []) | tojson }};
+  const majorSelect = document.getElementById('classificationMajor');
+  const middleSelect = document.getElementById('classificationMiddle');
+  const newArea = document.getElementById('newClassificationArea');
+  const newMajorInput = document.getElementById('newMajorInput');
+  const newMiddleInput = document.getElementById('newMiddleInput');
+  const registerBtn = document.getElementById('registerClassificationBtn');
+  const status = document.getElementById('classificationAddStatus');
+  if (!majorSelect || !middleSelect) return;
 
-  categorySelect.addEventListener('change', function () {
-    if (categorySelect.value === '__new__') {
-      newCategoryArea.style.display = 'flex';
-      newCategoryInput.focus();
-    } else {
-      newCategoryArea.style.display = 'none';
-    }
+  function refreshMiddle(wanted) {
+    wanted = wanted === undefined ? middleSelect.value : wanted;
+    middleSelect.innerHTML = '<option value="">(미지정)</option>';
+    pairs.filter(p => p.major_category === majorSelect.value)
+      .forEach(p => middleSelect.appendChild(new Option(p.middle_category, p.middle_category)));
+    if ([...middleSelect.options].some(o => o.value === wanted)) middleSelect.value = wanted;
+  }
+  majorSelect.addEventListener('change', () => refreshMiddle(''));
+  refreshMiddle(middleSelect.dataset.selected || '');
+  document.getElementById('showNewClassificationBtn')?.addEventListener('click', function () {
+    newArea.style.display = newArea.style.display === 'none' ? 'flex' : 'none';
+    if (newArea.style.display === 'flex') newMajorInput.focus();
   });
 
-  if (categoryForm) {
-    categoryForm.addEventListener('submit', function (e) {
-      if (categorySelect.value === '__new__') {
-        e.preventDefault();
-        alert('새 분류를 먼저 등록해줘.');
-      }
-    });
-  }
-
   registerBtn.addEventListener('click', async function () {
-    const name = newCategoryInput.value.trim();
-    if (!name) { alert('새 분류명을 입력해줘.'); return; }
+    const major = newMajorInput.value.trim();
+    const middle = newMiddleInput.value.trim();
+    if (!major || !middle) { alert('새 대분류와 중분류를 모두 입력해줘.'); return; }
     registerBtn.disabled = true;
     try {
-      const res = await fetch("{{ url_for('material_category_add') }}", {
+      const res = await fetch("{{ url_for('material_classification_add') }}", {
         method: 'POST',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        body: new URLSearchParams({ name: name, csrf_token: document.querySelector('meta[name="csrf-token"]').content }),
+        body: new URLSearchParams({ major_category: major, middle_category: middle,
+          csrf_token: document.querySelector('meta[name="csrf-token"]').content }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || '등록 중 문제가 생겼어. 다시 시도해줘.');
-      const opt = document.createElement('option');
-      opt.value = data.name;
-      opt.textContent = data.name;
-      const newOpt = categorySelect.querySelector('option[value="__new__"]');
-      categorySelect.insertBefore(opt, newOpt);
-      categorySelect.value = data.name;
-      newCategoryArea.style.display = 'none';
-      newCategoryInput.value = '';
+      if (![...majorSelect.options].some(o => o.value === data.major_category))
+        majorSelect.appendChild(new Option(data.major_category, data.major_category));
+      pairs.push({major_category: data.major_category, middle_category: data.middle_category});
+      majorSelect.value = data.major_category;
+      refreshMiddle(data.middle_category);
+      newArea.style.display = 'none';
+      newMajorInput.value = ''; newMiddleInput.value = '';
       status.textContent = '✓ 등록됨';
       setTimeout(() => { status.textContent = ''; }, 2000);
     } catch (err) {

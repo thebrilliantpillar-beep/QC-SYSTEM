@@ -169,6 +169,7 @@ def append_record_mirror(record):
 RECORD_TYPES={"PROJECT","RULE","AGENT","PERMISSION_PROFILE","TASK","DECISION","EVIDENCE","AI_INTERPRETATION","STATE","HANDOFF","REQUEST","REVIEW","CHANGE","ISSUE","RELATION"}
 KNOWLEDGE={"FACT","CONFIRMED_DECISION","USER_INTENT","INFERENCE","HYPOTHESIS","UNKNOWN","CONFLICT"}
 RISKS={"NONE","LOW","MEDIUM","HIGH","CRITICAL"}
+EVIDENCE_VERIFICATION_STATUSES={"VERIFIED","PARTIAL","UNVERIFIED","NEEDS_VERIFICATION"}
 RELATIONS={"based_on","supports","contradicts","supersedes","superseded_by","caused_by","result_of","verified_by","handoff_to","affects","related_to"}
 PERMISSION_ORDER={"READ":0,"ANALYZE":1,"VERIFY":2,"PROPOSE":3,"EXECUTE":4}
 OP_REGISTRY={
@@ -179,6 +180,17 @@ OP_REGISTRY={
 }
 PROJECT_ID="iqc-app"
 
+def valid_evidence_verification(payload, knowledge_state, status, *, allow_legacy=False):
+    """Validate canonical Evidence status, plus the one historical USER_CONFIRMED shape."""
+    verification=payload.get("verification_status")
+    if verification in EVIDENCE_VERIFICATION_STATUSES:
+        return True
+    return bool(
+        allow_legacy and verification=="USER_CONFIRMED"
+        and str(payload.get("source_type", "")).startswith("direct_user_")
+        and knowledge_state=="USER_INTENT" and status=="CONFIRMED"
+    )
+
 def record(con, record_type, actor, payload, *, knowledge_state="FACT", status="ACTIVE", risk_level="NONE", project_id=PROJECT_ID):
     if record_type not in RECORD_TYPES: raise ValueError(f"지원하지 않는 Record Type: {record_type}")
     if knowledge_state not in KNOWLEDGE: raise ValueError(f"지원하지 않는 knowledge_state: {knowledge_state}")
@@ -186,6 +198,10 @@ def record(con, record_type, actor, payload, *, knowledge_state="FACT", status="
     required={"PROJECT":{"name","purpose"},"AGENT":{"agent_name","role","model","model_version"},"PERMISSION_PROFILE":{"agent_id","operation","permission_level","scope"},"TASK":{"title","owner","scope"},"DECISION":{"decision","decided_by","scope"},"EVIDENCE":{"source_type","content","verification_status"},"STATE":{"scope_type","scope_ref","summary"},"REQUEST":{"request_type","from_agent","to_agent","scope"},"AI_INTERPRETATION":{"interpretation","derived_from","scope"},"REVIEW":{"review_type","reviewer","review_target","verification"},"CHANGE":{"change_type","target_record_id","reason"},"ISSUE":{"title","description","next_action"},"RELATION":{"relation_id","from_record_id","to_record_id","relation_type"}}
     missing=required.get(record_type,set())-set(payload)
     if missing: raise ValueError(f"{record_type} 필수 필드 누락: {', '.join(sorted(missing))}")
+    # USER_CONFIRMED is a verifier-only exception for already-existing historical records.
+    # New Evidence records must always use the canonical verification vocabulary.
+    if record_type=="EVIDENCE" and not valid_evidence_verification(payload,knowledge_state,status):
+        raise ValueError("EVIDENCE verification_status 값이 올바르지 않습니다.")
     payload=redact(payload); stamp=now(); rid="rec-"+uuid.uuid4().hex
     item={"record_id":rid,"record_type":record_type,"project_id":project_id,"created_at":stamp,"updated_at":stamp,"created_by":actor,"knowledge_state":knowledge_state,"status":status,"risk_level":risk_level,"record_version":1,"protocol_version":"1.0.0","payload":payload}
     item["record_hash"]=sha(item)
@@ -1412,7 +1428,9 @@ def validate_protocol_contracts(con, protocol):
         if r['record_type']=='CHANGE':
             target=r['payload'].get('target_record_id','')
             if target not in ids and not target.startswith('migration:'): problems.append('CHANGE target missing: '+r['record_id'])
-        if r['record_type']=='EVIDENCE' and r['payload'].get('verification_status') not in {'UNVERIFIED','VERIFIED','PARTIAL','NEEDS_VERIFICATION'}: problems.append('Invalid Evidence verification status: '+r['record_id'])
+        if (r['record_type']=='EVIDENCE' and not valid_evidence_verification(
+                r['payload'],r['knowledge_state'],r['status'],allow_legacy=True)):
+            problems.append('Invalid Evidence verification status: '+r['record_id'])
     for receipt in _table_rows(con,'envelope_receipts'):
         request=receipt.get('request_record_id')
         if request and request not in ids: problems.append('Invalid request receipt: '+receipt['message_id'])

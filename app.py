@@ -2020,17 +2020,22 @@ def _spec_list_materials():
     """자재관리 화면·엑셀 내보내기가 공유하는 검색 로직."""
     query = request.args.get("q", "").strip()
     search_by = request.args.get("by", "all")
-    category = request.args.get("category", "").strip()
+    major_category = request.args.get("major_category", "").strip()
+    middle_category = request.args.get("middle_category", "").strip()
     include = _multi_arg("include")
     exclude = _multi_arg("exclude")
     # 검사방식 미입력(method_empty)은 검색어가 없어도 조회한다.
-    if query or search_by == "method_empty" or category or include or exclude:
-        materials = db.search_materials(query, search_by, category=category or None,
-                                         include=include, exclude=exclude)
+    if (query or search_by == "method_empty" or major_category or middle_category or
+            include or exclude):
+        materials = db.search_materials(
+            query, search_by, major_category=major_category or None,
+            middle_category=middle_category or None,
+            include=include, exclude=exclude)
     else:
         materials = db.get_materials()
     materials = list(materials)
-    return materials, {"q": query, "by": search_by, "category": category,
+    return materials, {"q": query, "by": search_by,
+                        "major_category": major_category, "middle_category": middle_category,
                         "include": include, "exclude": exclude}
 
 
@@ -2041,8 +2046,10 @@ def spec_list():
     pager = _paginate(materials)
     drawing_materials = materials_with_drawings(m["material_no"] for m in pager["items"])
     return render_template("spec.html", materials=pager["items"], query=sf["q"], search_by=sf["by"],
-                            category=sf["category"], include=sf["include"], exclude=sf["exclude"],
-                            categories=db.list_material_categories(),
+                            major_category=sf["major_category"], middle_category=sf["middle_category"],
+                            major_categories=db.list_major_categories(),
+                            classification_pairs=db.list_material_classification_pairs(),
+                            include=sf["include"], exclude=sf["exclude"],
                             drawing_materials=drawing_materials, pager=pager)
 
 
@@ -2053,13 +2060,15 @@ def spec_export():
     drawing_materials = materials_with_drawings(m["material_no"] for m in materials)
     filt = []
     if sf["q"]: filt.append(("검색어", sf["q"]))
-    if sf["category"]: filt.append(("분류", sf["category"]))
+    if sf["major_category"]: filt.append(("대분류", "미지정" if sf["major_category"] == db.UNASSIGNED_CLASSIFICATION else sf["major_category"]))
+    if sf["middle_category"]: filt.append(("중분류", "미지정" if sf["middle_category"] == db.UNASSIGNED_CLASSIFICATION else sf["middle_category"]))
     if sf["include"]: filt.append(("포함 단어", ", ".join(sf["include"])))
     if sf["exclude"]: filt.append(("제외 단어", ", ".join(sf["exclude"])))
     columns = [
         ("자재번호", "material_no", 16),
         ("자재명", "material_name", 34),
-        ("분류", lambda r: r["category"] or "", 14),
+        ("대분류", lambda r: r["major_category"] or "미지정", 16),
+        ("중분류", lambda r: r["middle_category"] or "미지정", 18),
         ("도면등록여부", lambda r: "등록" if r["material_no"] in drawing_materials else "미등록", 12),
     ]
     buf = report_builder.build_list_excel("자재관리", columns, materials, filter_summary=filt or None)
@@ -2090,21 +2099,29 @@ def spec_quick_add():
         rows_items = []  # rows와 같은 순서로 매칭되는 항목 리스트
         for idx, cols in enumerate(grid_rows):
             cols = [(c or "").strip() for c in cols]
-            while len(cols) < 3:
+            while len(cols) < 4:
                 cols.append("")
             material_no, material_name = cols[:2]
-            category = cols[2] if len(cols) > 2 else ""
+            major_category, middle_category = cols[2:4]
             if not material_no:
                 continue
-            rows.append({"material_no": material_no, "material_name": material_name, "category": category})
+            if bool(major_category) != bool(middle_category):
+                flash(f"{material_no}: 대분류와 중분류를 함께 입력해줘.")
+                return redirect(url_for("spec_quick_add"))
+            rows.append({"material_no": material_no, "material_name": material_name,
+                         "major_category": major_category, "middle_category": middle_category})
             rows_items.append(items_per_row[idx] if idx < len(items_per_row) else [])
 
         item_count_total = 0
         if rows:
             db.upsert_materials_bulk(rows)
             for r in rows:
-                if r.get("category"):
-                    db.update_material_category(r["material_no"], r["category"])
+                if r.get("major_category") and r.get("middle_category"):
+                    current = db.get_material(r["material_no"])
+                    if ((current["major_category"], current["middle_category"]) !=
+                            (r["major_category"], r["middle_category"])):
+                        db.update_material_classification(
+                            r["material_no"], r["major_category"], r["middle_category"])
             for r, raw_items in zip(rows, rows_items):
                 parsed_items = []
                 for order, raw_it in enumerate(raw_items, start=1):
@@ -2173,7 +2190,8 @@ def spec_quick_add():
         return redirect(url_for("spec_quick_add"))
 
     return render_template("spec_quick_add.html", method_options=gauge_method_options(),
-                            categories=db.list_material_categories())
+                            major_categories=db.list_major_categories(),
+                            classification_pairs=db.list_material_classification_pairs())
 
 
 @app.route("/spec/delete_bulk", methods=["POST"])
@@ -2227,7 +2245,9 @@ def spec_new():
     return render_template("spec_detail.html", material_no="", specs=[], material_name="",
                            material=None, drawing_no=None, drawing_pdf=None, drawing_has_auto=False,
                            full_inspect_config=None, method_options=gauge_method_options(),
-                           categories=db.list_material_categories(), is_new=True, bom_links=[])
+                           major_categories=db.list_major_categories(),
+                           classification_pairs=db.list_material_classification_pairs(),
+                           is_new=True, bom_links=[])
 
 
 @app.route("/spec/<material_no>")
@@ -2251,7 +2271,8 @@ def spec_detail(material_no):
                            drawing_pdf=drawing_pdf, drawing_has_auto=drawing_has_auto,
                            full_inspect_config=full_inspect_config,
                            method_options=gauge_method_options(),
-                           categories=db.list_material_categories(),
+                           major_categories=db.list_major_categories(),
+                           classification_pairs=db.list_material_classification_pairs(),
                            bom_links=bom_links, bom_parent_exists=bom_parent_exists)
 
 
@@ -2309,6 +2330,27 @@ def material_category_add():
     return redirect(url_for("spec_list"))
 
 
+@app.route("/materials/classifications/add", methods=["POST"])
+@perm_required("material_edit")
+def material_classification_add():
+    major = request.form.get("major_category", "").strip()
+    middle = request.form.get("middle_category", "").strip()
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    try:
+        major, middle = db.add_material_classification_pair(major, middle)
+    except ValueError as e:
+        if is_ajax:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        flash(str(e))
+        return redirect(url_for("spec_list"))
+    record_change("자재 대/중분류 조합 등록", "material_classification", None,
+                  f"{major} / {middle}")
+    if is_ajax:
+        return jsonify({"ok": True, "major_category": major, "middle_category": middle})
+    flash(f"분류 조합 '{major} / {middle}'이 등록됐어.")
+    return redirect(url_for("spec_list"))
+
+
 def _find_return_to(fallback):
     """POST 폼의 next 값이 '/materials/find'(그 화면) 자신일 때만 허용하고, 그 외엔
     fallback으로 보낸다(오픈 리다이렉트 방지). 자재 찾기 화면 여러 라우트가 공유."""
@@ -2334,6 +2376,23 @@ def spec_material_category_update(material_no):
     return redirect(return_to)
 
 
+@app.route("/spec/<material_no>/classification", methods=["POST"])
+@perm_required("material_edit")
+def spec_material_classification_update(material_no):
+    major = request.form.get("major_category", "").strip()
+    middle = request.form.get("middle_category", "").strip()
+    return_to = _find_return_to(url_for("spec_detail", material_no=material_no))
+    try:
+        saved = db.update_material_classification(material_no, major, middle)
+    except ValueError as e:
+        flash(str(e))
+        return redirect(return_to)
+    detail = f"{saved[0]} / {saved[1]}" if saved else "미지정으로 해제"
+    record_change("자재 대/중분류 지정", "material", material_no, detail)
+    flash(f"대/중분류가 '{detail}'(으)로 저장됐어." if saved else "대/중분류를 미지정으로 해제했어.")
+    return redirect(return_to)
+
+
 @app.route("/materials/quick-register", methods=["POST"])
 @perm_required("material_edit")
 def materials_quick_register():
@@ -2341,14 +2400,24 @@ def materials_quick_register():
     자재번호+자재명만 받는 최소 등록 — 규격/항목은 여기서 다루지 않는다."""
     material_no = request.form.get("material_no", "").strip()
     material_name = request.form.get("material_name", "").strip()
-    category = request.form.get("category", "").strip()
+    major_category = request.form.get("major_category", "").strip()
+    middle_category = request.form.get("middle_category", "").strip()
     return_to = _find_return_to(url_for("material_find"))
     if not material_no or not material_name:
         flash("자재명을 입력해줘.")
         return redirect(return_to)
+    if bool(major_category) != bool(middle_category):
+        flash("대분류와 중분류를 함께 선택해줘.")
+        return redirect(return_to)
     db.upsert_material(material_no, material_name)
-    if category:
-        db.update_material_category(material_no, category)
+    if major_category or middle_category:
+        current = db.get_material(material_no)
+        if (current["major_category"], current["middle_category"]) != (major_category, middle_category):
+            try:
+                db.update_material_classification(material_no, major_category, middle_category)
+            except ValueError as e:
+                flash(str(e))
+                return redirect(return_to)
     record_change("자재 신규 등록(자재 찾기)", "material", material_no, material_name)
     flash(f"'{material_no}' 등록됐어.")
     return redirect(return_to)
@@ -8854,16 +8923,20 @@ def _material_find_rows():
     levels = _multi_arg("level")
     models = _multi_arg("model")
     parent_no = request.args.get("parent", "").strip()
-    category = request.args.get("category", "").strip()
+    major_category = request.args.get("major_category", "").strip()
+    middle_category = request.args.get("middle_category", "").strip()
     unregistered_only = request.args.get("unregistered") == "1"
     include = _multi_arg("include")
     exclude = _multi_arg("exclude")
     rows = list(db.search_bom_materials(query=query, levels=levels, models=models,
-                                         parent_no=parent_no, category=category,
+                                         parent_no=parent_no,
+                                         major_category=major_category,
+                                         middle_category=middle_category,
                                          unregistered_only=unregistered_only,
                                          include=include, exclude=exclude))
     sf = {"q": query, "levels": levels, "models": models, "parent_no": parent_no,
-          "category": category, "unregistered_only": unregistered_only,
+          "major_category": major_category,
+          "middle_category": middle_category, "unregistered_only": unregistered_only,
           "include": include, "exclude": exclude}
     return rows, sf
 
@@ -8879,12 +8952,14 @@ def material_find():
     return render_template("material_find.html", rows=pager["items"], pager=pager,
                            query=sf["q"], levels=sf["levels"], models=sf["models"],
                            parent_no=sf["parent_no"],
-                           category=sf["category"], unregistered_only=sf["unregistered_only"],
+                           major_category=sf["major_category"], middle_category=sf["middle_category"],
+                           unregistered_only=sf["unregistered_only"],
                            include=sf["include"], exclude=sf["exclude"],
                            unregistered_count=db.count_unregistered_bom_materials(),
                            drawing_materials=drawing_materials,
                            model_options=db.list_bom_model_names(),
-                           categories=db.list_material_categories())
+                           major_categories=db.list_major_categories(),
+                           classification_pairs=db.list_material_classification_pairs())
 
 
 @app.route("/materials/find/export.xlsx")
@@ -8897,7 +8972,8 @@ def material_find_export():
     if sf["levels"]: filt.append(("Lv", ", ".join(sf["levels"])))
     if sf["models"]: filt.append(("모델", ", ".join(sf["models"])))
     if sf["parent_no"]: filt.append(("상위품목코드", sf["parent_no"]))
-    if sf["category"]: filt.append(("자재분류", sf["category"]))
+    if sf["major_category"]: filt.append(("대분류", "미지정" if sf["major_category"] == db.UNASSIGNED_CLASSIFICATION else sf["major_category"]))
+    if sf["middle_category"]: filt.append(("중분류", "미지정" if sf["middle_category"] == db.UNASSIGNED_CLASSIFICATION else sf["middle_category"]))
     if sf["unregistered_only"]: filt.append(("필터", "미등록 자재만"))
     if sf["include"]: filt.append(("포함 단어", ", ".join(sf["include"])))
     if sf["exclude"]: filt.append(("제외 단어", ", ".join(sf["exclude"])))
@@ -8908,7 +8984,8 @@ def material_find_export():
         ("Lv", lambda r: f"Lv{r['level']}", 6),
         ("상위품목코드", "parent_material_no", 16),
         ("구분", "kind", 10),
-        ("자재분류", "category", 14),
+        ("대분류", lambda r: r["major_category"] or "미지정", 16),
+        ("중분류", lambda r: r["middle_category"] or "미지정", 18),
         ("도면등록여부", lambda r: "등록" if r["material_no"] in drawing_materials else "미등록", 12),
         ("수정됨", lambda r: "✎ 수정됨" if r["manually_edited"] else "", 10),
     ]
@@ -9080,7 +9157,8 @@ def _dashboard_params():
         "material": request.args.get("material", "").strip(),
         "states": [s for s in multi("state") if s in db.LOT_STATES],
         "row_limit": row_limit,
-        "category": request.args.get("category", "").strip(),
+        "major_category": request.args.get("major_category", "").strip(),
+        "middle_category": request.args.get("middle_category", "").strip(),
     }
 
 
@@ -9089,7 +9167,8 @@ def _build_quality_report(p):
         start_date=p["start"], end_date=p["end"], period_type=p["period_type"],
         supplier=p["suppliers"], po_number=p["po_numbers"],
         material=p["material"] or None, states=p["states"],
-        category=p["category"] or None,
+        major_category=p["major_category"] or None,
+        middle_category=p["middle_category"] or None,
     )
 
 
@@ -9097,7 +9176,8 @@ def _dashboard_query(p, **override):
     """현재 필터를 URL 쿼리 문자열로 다시 만든다(내보내기 링크·업체 드릴다운에 사용)."""
     from urllib.parse import urlencode
     data = {"period": p["period_type"], "start": p["start"], "end": p["end"],
-            "material": p["material"], "rows": p["row_limit"], "category": p["category"]}
+            "material": p["material"], "rows": p["row_limit"],
+            "major_category": p["major_category"], "middle_category": p["middle_category"]}
     data.update({k: v for k, v in override.items() if k not in ("supplier", "po_number", "state")})
     pairs = [(k, v) for k, v in data.items() if v not in ("", None)]
     for key, values in (("supplier", override.get("supplier", p["suppliers"])),
@@ -9124,7 +9204,8 @@ def quality_dashboard():
                            po_options=po_options,
                            lot_states=db.LOT_STATES,
                            row_choices=ROW_LIMIT_CHOICES,
-                           categories=db.list_material_categories(),
+                           major_categories=db.list_major_categories(),
+                           classification_pairs=db.list_material_classification_pairs(),
                            qs=_dashboard_query(p))
 
 
@@ -9231,6 +9312,8 @@ def dashboard_export_xlsx():
                  ("업체", report["필터"]["업체"]),
                  ("로트번호", report["필터"]["로트번호"]),
                  ("자재/제품명", report["필터"]["자재/제품명"]),
+                 ("대분류", report["필터"]["대분류"]),
+                 ("중분류", report["필터"]["중분류"]),
                  ("불량률기준", report["불량률기준"]),
                  ("검사 로트", s["로트"]), ("입고 수량", s["수량"]),
                  ("검사 표본수(실측)", s["검사표본수"]),
@@ -9264,7 +9347,7 @@ def dashboard_export_xlsx():
           report["기간별"])
     sheet("업체별", ["업체", "로트", "수량", "검사표본수", "합격수량", "특채수량", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
           report["업체별"])
-    sheet("자재별", ["자재번호", "자재명", "로트", "수량", "검사표본수", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
+    sheet("자재별", ["자재번호", "자재명", "대분류", "중분류", "로트", "수량", "검사표본수", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
           report["자재별"])
 
     # 백데이터 — 같은 자재의 로트를 하나로 합치지 않고 로트(성적서)별로 한 줄씩 펼친 버전.
@@ -9292,6 +9375,8 @@ def dashboard_export_xlsx():
         detail_rows.append({
             "업체": r["supplier"], "입고일": r["receive_date"], "로트번호": r["po_number"],
             "자재번호": r["material_no"], "자재명": r["material_name"],
+            "대분류": r.get("major_category") or "미지정",
+            "중분류": r.get("middle_category") or "미지정",
             "수량": qty,
             "합격수량": ok_qty,
             "불합격수량": defect_qty if state in ("불합격", "특채") else 0,
@@ -9300,7 +9385,7 @@ def dashboard_export_xlsx():
             "표본불량률": round(r["표본불량수"] / samp * 100, 3) if samp else None,
             "표본PPM": int(round(r["표본불량수"] / samp * 1_000_000)) if samp else None,
         })
-    ws_backdata = sheet("백데이터", ["업체", "입고일", "로트번호", "자재번호", "자재명", "수량",
+    ws_backdata = sheet("백데이터", ["업체", "입고일", "로트번호", "자재번호", "자재명", "대분류", "중분류", "수량",
                                    "합격수량", "불합격수량", "특채수량",
                                    "검사표본수", "표본불량수", "표본불량률", "표본PPM"],
                         detail_rows)
@@ -9316,7 +9401,7 @@ def dashboard_export_xlsx():
 
     sheet("불량항목", ["자재번호", "자재명", "항목", "규격", "발생건수", "업체"],
           report["불량항목순위"])
-    sheet("성적서목록", ["id", "inspect_date", "material_no", "material_name", "supplier",
+    sheet("성적서목록", ["id", "inspect_date", "material_no", "material_name", "major_category", "middle_category", "supplier",
                         "po_number", "quantity", "overall_result", "status", "approval_type"],
           report["성적서목록"])
 
@@ -10809,6 +10894,7 @@ def outbound_qr_export_delete_selected():
 
 
 db.init_db()
+db.ensure_material_classification_asset()
 ensure_default_admin()
 ensure_perm_migration()
 ensure_inspect_method_fill_20260825()
