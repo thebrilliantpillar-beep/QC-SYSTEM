@@ -8,7 +8,7 @@
 
 {% if is_admin %}
 <div class="card">
-  <h3 style="margin-top:0; font-size:15px;">⚙ 출고 스캔 설정 (관리자 전용)</h3>
+  <h3 style="margin-top:0; font-size:15px;">⚙ 출하검사 스캔 설정 (관리자 전용)</h3>
   <form method="POST" action="{{ url_for('outbound_toggle_body_photo') }}">
     <label style="display:flex; align-items:center; gap:8px; font-weight:normal; cursor:pointer;">
       <input type="checkbox" name="enabled" value="1"
@@ -17,7 +17,7 @@
     </label>
   </form>
   <p class="muted" style="margin:8px 0 0; font-size:12.5px;">
-    켜면 출고 스캔 화면에 "본체 사진" 업로드 항목이 추가되고, 계획 대비 진행상황의
+    켜면 출하검사 스캔 화면에 "본체 사진" 업로드 항목이 추가되고, 계획 대비 진행상황의
     "확인됨" 판정에도 본체사진 보유 여부가 함께 반영돼. 꺼도 이미 등록된 본체사진은
     지워지지 않고 엑셀 출력에도 그대로 남아.
   </p>
@@ -27,7 +27,7 @@
 <div class="card">
   <p class="muted" style="margin:0; font-size:13.5px;">
     S/N 문자열 패턴(예: CKMR7K0902USA5771H(42P))으로 제품명을 자동 판별할 때 쓰는 매핑표야.
-    여기서 값을 추가·수정·삭제하면 S/N 발급·차수 입력·출고 스캔·QR 라벨 출력에 즉시 반영돼.
+    여기서 값을 추가·수정·삭제하면 S/N 발급·차수 입력·출하검사 스캔·QR 라벨 출력에 즉시 반영돼.
     패턴 구조 자체(CKMR.../CKCB...)는 바꿀 수 없고, 코드→라벨 값만 바꿀 수 있어.
   </p>
 </div>

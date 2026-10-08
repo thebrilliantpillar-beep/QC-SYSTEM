@@ -162,7 +162,7 @@
   {% if 'outbound' in user_perms %}
   <a href="{{ url_for('outbound_approval_pending') }}" class="action-card">
     <span class="icon">🚚</span>
-    <span class="label">출고 승인</span>
+    <span class="label">출하검사 승인</span>
     <span class="count {% if pending_outbound_approve %}urgent{% else %}muted{% endif %}">
       {{ pending_outbound_approve }}
     </span>

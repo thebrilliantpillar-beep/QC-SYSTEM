@@ -4636,11 +4636,19 @@ def list_outbound_batches(query=None, limit=200):
                           AND i4c.check_access IS NOT NULL AND i4c.check_cable IS NOT NULL
                           AND i4c.check_indicator IS NOT NULL
                    )
-                   AND EXISTS (
-                       SELECT 1 FROM outbound_items i4p
-                        JOIN outbound_item_photos ph4i ON ph4i.item_id = i4p.id
-                        WHERE i4p.batch_id = p4.batch_id AND i4p.serial_no = p4.serial_no
-                          AND ph4i.kind = 'indicator'
+                   AND (
+                       -- 2026-10-08: 제어함(제품명 기준)은 인디케이터 사진 면제 — outbound_plan_progress와 동일
+                       EXISTS (
+                           SELECT 1 FROM outbound_items i4n
+                            WHERE i4n.batch_id = p4.batch_id AND i4n.serial_no = p4.serial_no
+                              AND i4n.product_name LIKE '%제어함%'
+                       )
+                       OR EXISTS (
+                           SELECT 1 FROM outbound_items i4p
+                            JOIN outbound_item_photos ph4i ON ph4i.item_id = i4p.id
+                            WHERE i4p.batch_id = p4.batch_id AND i4p.serial_no = p4.serial_no
+                              AND ph4i.kind = 'indicator'
+                       )
                    )
                    AND (
                        ? = 0
@@ -4661,8 +4669,9 @@ def list_outbound_batches(query=None, limit=200):
                    AND i6.check_sticker IS NOT NULL AND i6.check_paint IS NOT NULL
                    AND i6.check_access IS NOT NULL AND i6.check_cable IS NOT NULL
                    AND i6.check_indicator IS NOT NULL
-                   AND EXISTS (SELECT 1 FROM outbound_item_photos ph6
-                                WHERE ph6.item_id = i6.id AND ph6.kind = 'indicator')
+                   AND (i6.product_name LIKE '%제어함%'
+                        OR EXISTS (SELECT 1 FROM outbound_item_photos ph6
+                                    WHERE ph6.item_id = i6.id AND ph6.kind = 'indicator'))
                    AND (
                        ? = 0
                        OR EXISTS (SELECT 1 FROM outbound_item_photos ph6b

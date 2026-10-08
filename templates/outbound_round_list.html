@@ -4,7 +4,7 @@
 {% block content %}
 <h2>🚚 차수 목록</h2>
 
-{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_round_list', show=('outbound_delete' in user_perms)) }}
+{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출하검사 차수', return_to='outbound_round_list', show=('outbound_delete' in user_perms)) }}
 
 <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
   <p class="muted" style="margin:0; font-size:13.5px;">
@@ -30,7 +30,7 @@
 
 <div class="card">
   <table>
-    <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
+    <thead><tr><th>차수</th><th>거래처</th><th>출하검사예정일</th><th>담당자</th><th>스캔된 항목</th><th></th></tr></thead>
     <tbody>
       {% for b in batches %}
       <tr data-admin-id="{{ b.id }}">

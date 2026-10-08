@@ -7,8 +7,8 @@
 
 <div class="card">
   <p class="muted" style="margin:0; font-size:13.5px;">
-    차수(=출고 배치) 하나를 등록하고, 이번 차수에 나갈 예정인 S/N 목록을 미리 붙여넣어 계획해둘 수 있어.
-    나중에 출고 스캔 화면에서 이 계획과 실제 스캔된 항목을 대조해서 진행상황을 보여줘.
+    차수(=출하검사 배치) 하나를 등록하고, 이번 차수에 나갈 예정인 S/N 목록을 미리 붙여넣어 계획해둘 수 있어.
+    나중에 출하검사 스캔 화면에서 이 계획과 실제 스캔된 항목을 대조해서 진행상황을 보여줘.
   </p>
 </div>
 
@@ -25,7 +25,7 @@
         <input type="text" name="customer" required placeholder="예: ACE" value="{{ batch.customer if batch else '' }}">
       </div>
       <div style="flex:1; min-width:150px;">
-        <label>출고예정일</label>
+        <label>출하검사예정일</label>
         <input type="date" name="ship_date" value="{{ batch.ship_date if batch else today }}">
       </div>
       <div style="flex:1; min-width:150px;">
@@ -66,7 +66,7 @@
   {% if batch %}
   <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
     <a href="{{ url_for('outbound_qr_labels', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0;">📄 QR 라벨 엑셀 출력</a>
-    <a href="{{ url_for('outbound_scan_edit', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0;">🔍 출고 스캔 시작</a>
+    <a href="{{ url_for('outbound_scan_edit', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0;">🔍 출하검사 스캔 시작</a>
   </div>
   {% endif %}
 

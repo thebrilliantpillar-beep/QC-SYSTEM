@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}출고 승인이력 — Chardon QMS{% endblock %}
+{% block title %}출하검사 승인이력 — Chardon QMS{% endblock %}
 {% block content %}
-<h2>✅ 출고 승인이력</h2>
+<h2>✅ 출하검사 승인이력</h2>
 <div class="card">
   <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
     <div style="flex:1; min-width:170px;"><label>거래처/담당자로 찾기</label><input type="text" name="q" value="{{ q }}" placeholder="예: ACE"></div>
@@ -12,7 +12,7 @@
 <div style="margin:0 0 12px;"><a href="{{ url_for('outbound_batches_export') }}?{{ request.query_string.decode('utf-8') }}" class="btn secondary" style="margin-top:0;">📊 엑셀로 내보내기</a></div>
 <div class="card">
   <table>
-    <thead><tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>검사 진행</th><th>확인자</th><th>확인일시</th><th>엑셀</th></tr></thead>
+    <thead><tr><th>차수</th><th>거래처</th><th>출하검사일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>검사 현황</th><th>확인자</th><th>확인일시</th><th>엑셀</th></tr></thead>
     <tbody>
       {% for b in batches %}
       <tr>

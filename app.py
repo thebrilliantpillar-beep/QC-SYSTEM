@@ -137,11 +137,22 @@ def format_outbound_progress(b):
     return f"{done} / {total}{suffix}"
 
 
+def outbound_batch_done(b):
+    """출하검사 차수가 '완료'(계획 대비 전부 확인됨, 계획외 없음)인지. 목록 화면의 상태 배지용 —
+    '확인됨' 정의는 format_outbound_progress와 같은 카운트를 쓴다."""
+    planned = b["planned_count"] or 0
+    if planned:
+        return (b["confirmed_count"] or 0) >= planned and not b["unplanned_count"]
+    items = b["item_count"] or 0
+    return items > 0 and (b["item_confirmed_count"] or 0) >= items
+
+
 # Jinja2 필터 등록
 app.jinja_env.filters['aql_display'] = format_aql_display
 app.jinja_env.filters['date_korean'] = format_date_korean
 app.jinja_env.filters['datetime_korean'] = format_datetime_korean
 app.jinja_env.filters['outbound_progress'] = format_outbound_progress
+app.jinja_env.filters['outbound_done'] = outbound_batch_done
 _secret_key = os.environ.get("SECRET_KEY", "").strip()
 if not _secret_key:
     print(
@@ -220,9 +231,9 @@ PERM_GROUPS = [
         ("approve",        "승인·반려·특채·불합격 확정"),
         ("approve_revoke", "결정 회수"),
     ]),
-    ("출고", [
-        ("outbound",        "출고(S/N 발급/스캔/이력) 관리"),
-        ("outbound_delete", "출고 기록 일괄삭제 ('출고' 권한과 함께 부여할 것)"),
+    ("출하검사", [
+        ("outbound",        "출하검사(S/N 발급/스캔/이력) 관리"),
+        ("outbound_delete", "출하검사 기록 일괄삭제 ('출하검사' 권한과 함께 부여할 것)"),
     ]),
     ("출력", [
         ("output", "성적서 출력"),
@@ -581,7 +592,7 @@ def _outbound_batch_lock_response(batch, redirect_endpoint, **redirect_kwargs):
     하나로 처리한다(기존 라우트들이 이미 이 이원 응답 패턴을 쓰고 있어서 맞춘 것)."""
     if not batch or not batch["confirmed_at"]:
         return None
-    msg = "확인 완료된 출고 건이야. 수정하려면 먼저 '확인 회수'를 해야 해."
+    msg = "확인 완료된 출하검사 건이야. 수정하려면 먼저 '확인 회수'를 해야 해."
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": False, "error": msg}), 409
     flash(msg)
@@ -9823,7 +9834,7 @@ def _outbound_batch_view_context(batch):
     # 2026-09-21: 반대 방향(계획에는 있는데 아직 스캔 안 된 항목)도 이미 로드된
     # progress["rows"](outbound_plan_progress)에서 계산 — 별도 쿼리 추가 안 함.
     has_missing_planned = any(r["status"] == "pending" for r in progress["rows"])
-    can_confirm, confirm_block_reason = _can_make_final_decision(g.user, "출고 확인")
+    can_confirm, confirm_block_reason = _can_make_final_decision(g.user, "출하검사 확인")
     signature_filename = os.path.basename(batch["confirm_signature"]) if batch["confirm_signature"] else None
     return dict(
         items=items, planned_serials=planned_serials,
@@ -9842,7 +9853,7 @@ def _outbound_batch_view_context(batch):
 def outbound_scan_edit(batch_id):
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        flash("존재하지 않는 출고 배치야.")
+        flash("존재하지 않는 출하검사 배치야.")
         return redirect(url_for("outbound_history"))
     ctx = _outbound_batch_view_context(batch)
     actor = g.user["display_name"] or g.user["username"]
@@ -9891,7 +9902,7 @@ def outbound_approval_history():
 def outbound_approval_detail(batch_id):
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        flash("존재하지 않는 출고 배치야.")
+        flash("존재하지 않는 출하검사 배치야.")
         return redirect(url_for("outbound_approval_pending"))
     ctx = _outbound_batch_view_context(batch)
     return render_template("outbound_approval_detail.html", batch=batch, **ctx)
@@ -9902,7 +9913,7 @@ def outbound_approval_detail(batch_id):
 def outbound_batch_update(batch_id):
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        flash("존재하지 않는 출고 배치야.")
+        flash("존재하지 않는 출하검사 배치야.")
         return redirect(url_for("outbound_history"))
     locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=batch_id)
     if locked:
@@ -9916,7 +9927,7 @@ def outbound_batch_update(batch_id):
         return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
     db.update_outbound_batch(batch_id, customer, ship_date, handler, round_no)
     record_change("출고 배치 정보 수정", "outbound_batch", batch_id, f"{round_no} / {customer}")
-    flash("출고 정보가 저장됐어.")
+    flash("출하검사 정보가 저장됐어.")
     return redirect(url_for("outbound_scan_edit", batch_id=batch_id))
 
 
@@ -9929,7 +9940,7 @@ def outbound_item_add(batch_id):
     받지 않는다(항상 None)."""
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        return jsonify({"ok": False, "error": "존재하지 않는 출고 배치야."}), 404
+        return jsonify({"ok": False, "error": "존재하지 않는 출하검사 배치야."}), 404
     locked = _outbound_batch_lock_response(batch, "outbound_scan_edit", batch_id=batch_id)
     if locked:
         return locked
@@ -10206,13 +10217,13 @@ def _outbound_confirm_redirect(batch_id):
 def outbound_batch_confirm(batch_id):
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        flash("존재하지 않는 출고 배치야.")
+        flash("존재하지 않는 출하검사 배치야.")
         return redirect(url_for("outbound_history"))
 
     # 2026-09-21 사용자 확정: 출고 확인도 승인/특채/불합격 확정·업체성적표 승인처럼
     # 최종결정권자만 할 수 있는 최종 결정으로 바뀌었다. @perm_required("outbound")는
     # 이 화면 자체 접근 권한이고, 실제 "확인" 액션은 이 게이트를 추가로 통과해야 한다.
-    allowed, why = _can_make_final_decision(g.user, "출고 확인")
+    allowed, why = _can_make_final_decision(g.user, "출하검사 확인")
     if not allowed:
         flash(why)
         return _outbound_confirm_redirect(batch_id)
@@ -10221,12 +10232,12 @@ def outbound_batch_confirm(batch_id):
     # (출고 스캔/출고 이력 두 화면이 이 라우트 하나를 공유하므로 여기 한 곳만 게이트하면
     # 양쪽 다 자동으로 막힌다 — CLAUDE.md 8-1절 원칙).
     if db.outbound_batch_has_unplanned_items(batch_id):
-        flash("차수 계획에 없는 항목이 남아있어 출고 확인을 할 수 없어. '계획외' 표시된 항목을 먼저 정리해줘.")
+        flash("차수 계획에 없는 항목이 남아있어 출하검사 확인을 할 수 없어. '계획외' 표시된 항목을 먼저 정리해줘.")
         return _outbound_confirm_redirect(batch_id)
 
     # 2026-09-21 사용자 확정: 반대 방향(계획에는 있는데 아직 스캔 안 된 항목)도 확인을 막는다.
     if db.outbound_batch_has_unscanned_planned_items(batch_id):
-        flash("차수 계획에 등록된 S/N 중 아직 스캔되지 않은 항목이 있어 출고 확인을 할 수 없어. "
+        flash("차수 계획에 등록된 S/N 중 아직 스캔되지 않은 항목이 있어 출하검사 확인을 할 수 없어. "
               "'계획 대비 진행상황'에서 남은 항목을 먼저 스캔해줘.")
         return _outbound_confirm_redirect(batch_id)
 
@@ -10245,7 +10256,7 @@ def outbound_batch_confirm(batch_id):
     confirmed_by = g.user["display_name"] or g.user["username"]
     db.confirm_outbound_batch(batch_id, confirmed_by, signature_path=signature_path)
     record_change("출고 확인", "outbound_batch", batch_id, f"{batch['customer'] or ''} — 확인자 {confirmed_by}")
-    flash("출고 확인 처리됐어.")
+    flash("출하검사 확인 처리됐어.")
     return _outbound_confirm_redirect(batch_id)
 
 
@@ -10256,7 +10267,7 @@ def outbound_batch_confirm_revoke(batch_id):
     게이트한다(승인 회수 approve_revoke와 다른 방식, 사용자 요청사항)."""
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        flash("존재하지 않는 출고 배치야.")
+        flash("존재하지 않는 출하검사 배치야.")
         return redirect(url_for("outbound_history"))
     if not batch["confirmed_at"]:
         flash("아직 확인되지 않은 배치야.")
@@ -10268,7 +10279,7 @@ def outbound_batch_confirm_revoke(batch_id):
         return _outbound_confirm_redirect(batch_id)
     db.revoke_outbound_batch_confirm(batch_id)
     record_change("출고 확인 회수", "outbound_batch", batch_id, f"회수자: {actor}")
-    flash("출고 확인이 회수됐어. 다시 수정할 수 있어.")
+    flash("출하검사 확인이 회수됐어. 다시 수정할 수 있어.")
     return _outbound_confirm_redirect(batch_id)
 
 
@@ -10301,15 +10312,15 @@ def outbound_batches_export():
     columns = [
         ("차수", "round_no", 14),
         ("거래처", "customer", 18),
-        ("출고(예정)일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
+        ("출하검사(예정)일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
         ("담당자", "handler", 12),
         ("차수 등록자", "created_by", 14),
         ("검사자", "inspectors", 20),
         ("항목수", "item_count", 10),
         ("확인상태", _confirm_status, 20),
     ]
-    buf = report_builder.build_list_excel("출고차수목록", columns, batches, filter_summary=filt)
-    return _send_list_excel(buf, "출고차수목록")
+    buf = report_builder.build_list_excel("출하검사차수목록", columns, batches, filter_summary=filt)
+    return _send_list_excel(buf, "출하검사차수목록")
 
 
 @app.route("/outbound/batch/<int:batch_id>/excel")
@@ -10317,11 +10328,11 @@ def outbound_batches_export():
 def outbound_batch_excel(batch_id):
     batch = db.get_outbound_batch(batch_id)
     if batch is None:
-        flash("존재하지 않는 출고 배치야.")
+        flash("존재하지 않는 출하검사 배치야.")
         return redirect(url_for("outbound_history"))
     items = db.list_outbound_items(batch_id)
     buf = report_builder.build_outbound_excel(dict(batch), items, OUTBOUND_PHOTO_DIR)
-    raw_name = f"출고_{(batch['ship_date'] or '')[:10].replace('-', '')}_{batch['customer'] or ''}.xlsx"
+    raw_name = f"출하검사_{(batch['ship_date'] or '')[:10].replace('-', '')}_{batch['customer'] or ''}.xlsx"
     safe = re.sub(r'[\\/:*?"<>|]', '', raw_name)
     return send_file(buf, as_attachment=True, download_name=safe,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -10372,7 +10383,7 @@ def outbound_qr_history_export():
     columns = [
         ("차수", "round_no", 14),
         ("거래처", "customer", 18),
-        ("출고예정일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
+        ("출하검사예정일", lambda r: format_date_korean(r["ship_date"]) if r["ship_date"] else "", 14),
         ("생성일시", lambda r: format_datetime_korean(r["generated_at"]) if r["generated_at"] else "", 20),
         ("생성자", "generated_by", 12),
         ("건수", "item_count", 10),

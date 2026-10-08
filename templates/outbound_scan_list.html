@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_admin_delete.html" import admin_delete_bar with context %}
-{% block title %}출고 스캔 — 차수 선택 — Chardon QMS{% endblock %}
+{% block title %}출하검사 스캔 — 차수 선택 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
   .sec { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06);
@@ -13,9 +13,9 @@
   .sec[open] .arrow { transform:rotate(90deg); }
   .sec .body { border-top:1px solid var(--border); padding:16px; }
 </style>
-<h2>🚚 출고 스캔 — 차수 선택</h2>
+<h2>🚚 출하검사 스캔 — 차수 선택</h2>
 
-{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_scan_list', show=('outbound_delete' in user_perms)) }}
+{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출하검사 차수', return_to='outbound_scan_list', show=('outbound_delete' in user_perms)) }}
 
 <div class="card">
   <p class="muted" style="margin:0; font-size:13.5px;">
@@ -40,7 +40,7 @@
 
 <div class="card">
   <table>
-    <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>검사 진행</th><th></th></tr></thead>
+    <thead><tr><th>차수</th><th>거래처</th><th>출하검사예정일</th><th>담당자</th><th>검사 현황</th><th></th></tr></thead>
     <tbody>
       {% for b in active_batches %}
       <tr data-admin-id="{{ b.id }}">
@@ -62,7 +62,7 @@
   <summary>완료된 항목 ({{ completed_batches|length }}건)<span class="arrow">▶</span></summary>
   <div class="body">
     <table>
-      <thead><tr><th>차수</th><th>거래처</th><th>출고예정일</th><th>담당자</th><th>검사 진행</th><th>확인</th><th></th></tr></thead>
+      <thead><tr><th>차수</th><th>거래처</th><th>출하검사예정일</th><th>담당자</th><th>검사 현황</th><th>확인</th><th></th></tr></thead>
       <tbody>
         {% for b in completed_batches %}
         <tr data-admin-id="{{ b.id }}">

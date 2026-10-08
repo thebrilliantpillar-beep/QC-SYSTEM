@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "_admin_delete.html" import admin_delete_bar with context %}
-{% block title %}출고 이력 — Chardon QMS{% endblock %}
+{% block title %}출하검사 이력 — Chardon QMS{% endblock %}
 {% block content %}
-<h2>🚚 출고 이력</h2>
+<h2>🚚 출하검사 이력</h2>
 
-{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출고 차수', return_to='outbound_history', show=('outbound_delete' in user_perms)) }}
+{{ admin_delete_bar(url_for('outbound_batch_delete_selected'), 'batch_ids', '출하검사 차수', return_to='outbound_history', show=('outbound_delete' in user_perms)) }}
 
 <div class="card">
   <form method="GET" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
@@ -27,7 +27,7 @@
 <div class="card">
   <table>
     <thead>
-      <tr><th>차수</th><th>거래처</th><th>출고일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>항목수</th><th>엑셀</th><th>확인</th></tr>
+      <tr><th>차수</th><th>거래처</th><th>출하검사일</th><th>담당자</th><th>차수 등록자</th><th>검사자</th><th>항목수</th><th>엑셀</th><th>확인</th></tr>
     </thead>
     <tbody>
       {% for b in batches %}
@@ -53,7 +53,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="9" style="text-align:center; color:var(--muted);">출고 이력이 없어.</td></tr>
+      <tr><td colspan="9" style="text-align:center; color:var(--muted);">출하검사 이력이 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>

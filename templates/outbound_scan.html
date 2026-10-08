@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}출고 스캔 — Chardon QMS{% endblock %}
+{% block title %}출하검사 스캔 — Chardon QMS{% endblock %}
 {% block content %}
 <style>
   .ob-photo-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(90px, 1fr));
@@ -76,7 +76,7 @@
   .qchk-preview .qchk-btns > span.special.active { opacity:1; border-style:solid; border-color:#ea580c; color:#ea580c; background:#ffedd5; }
 </style>
 
-<h2>🚚 출고 스캔 <span class="muted" style="font-size:14px; font-weight:400;">— {{ batch.round_no or ('#' ~ batch.id) }}</span></h2>
+<h2>🚚 출하검사 스캔 <span class="muted" style="font-size:14px; font-weight:400;">— {{ batch.round_no or ('#' ~ batch.id) }}</span></h2>
 
 {% if not batch.confirmed_at %}
 <div class="card">
@@ -326,19 +326,19 @@
 </div>
 
 <div class="card">
-  <h3 style="margin-top:0; font-size:15px;">출고 정보</h3>
+  <h3 style="margin-top:0; font-size:15px;">출하검사 정보</h3>
   <p class="muted" style="margin:0 0 10px; font-size:13px;">차수 등록자: <b style="color:var(--text);">{{ batch.created_by or '-' }}</b></p>
   {% if batch.confirmed_at %}
   <div style="display:flex; gap:12px; flex-wrap:wrap;">
     <div style="flex:1; min-width:100px;"><label>차수</label><p style="margin:4px 0 0;">{{ batch.round_no or '-' }}</p></div>
     <div style="flex:1; min-width:170px;"><label>거래처</label><p style="margin:4px 0 0;">{{ batch.customer or '-' }}</p></div>
-    <div style="flex:1; min-width:150px;"><label>출고(예정)일</label><p style="margin:4px 0 0;">{{ batch.ship_date or '-' }}</p></div>
+    <div style="flex:1; min-width:150px;"><label>출하검사(예정)일</label><p style="margin:4px 0 0;">{{ batch.ship_date or '-' }}</p></div>
     <div style="flex:1; min-width:150px;"><label>담당자</label><p style="margin:4px 0 0;">{{ batch.handler or '-' }}</p></div>
   </div>
-  <p style="margin:10px 0 0; color:var(--pass); font-size:13px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출고 확인함</p>
+  <p style="margin:10px 0 0; color:var(--pass); font-size:13px;">✅ {{ batch.confirmed_by }}이(가) {{ batch.confirmed_at | datetime_korean }}에 출하검사 확인함</p>
   {% if can_revoke_confirm %}
   <form method="POST" action="{{ url_for('outbound_batch_confirm_revoke', batch_id=batch.id) }}" style="margin-top:10px;"
-        onsubmit="return confirm('출고 확인을 회수하고 다시 수정 가능하게 할까?');">
+        onsubmit="return confirm('출하검사 확인을 회수하고 다시 수정 가능하게 할까?');">
     <button type="submit" class="btn secondary" style="margin-top:0; color:var(--fail);">↺ 확인 회수</button>
   </form>
   {% endif %}
@@ -354,7 +354,7 @@
       <input type="text" name="customer" required value="{{ batch.customer or '' }}">
     </div>
     <div style="flex:1; min-width:150px;">
-      <label>출고(예정)일</label>
+      <label>출하검사(예정)일</label>
       <input type="date" name="ship_date" value="{{ batch.ship_date or '' }}">
     </div>
     <div style="flex:1; min-width:150px;">
@@ -365,7 +365,7 @@
   </form>
   <p style="margin-top:10px; font-size:13px;">
     검사 결과 확인이 끝났으면
-    <a href="{{ url_for('outbound_approval_detail', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0; display:inline-block;">✅ 출고 승인 화면에서 확인하기 →</a>
+    <a href="{{ url_for('outbound_approval_detail', batch_id=batch.id) }}" class="btn secondary" style="margin-top:0; display:inline-block;">✅ 출하검사 승인 화면에서 확인하기 →</a>
   </p>
   {% endif %}
 </div>
@@ -742,8 +742,8 @@
       curInPlan = data.in_plan;
       var msgs = [];
       if (!data.registered) msgs.push('⚠ 발급 이력에 없는 S/N이야. 그래도 계속 진행할 수 있어.');
-      if (data.used_in_other_batch) msgs.push('⚠ 이미 다른 출고(' + (data.used_in_other_batch_customer || '') + ')에 쓰인 S/N이야.');
-      if (scannedSerials.has(serial)) msgs.push('⚠ 이 출고 건에 이미 추가된 S/N이야.');
+      if (data.used_in_other_batch) msgs.push('⚠ 이미 다른 출하검사(' + (data.used_in_other_batch_customer || '') + ')에 쓰인 S/N이야.');
+      if (scannedSerials.has(serial)) msgs.push('⚠ 이 출하검사 건에 이미 추가된 S/N이야.');
       if (plannedSerials.size && !data.in_plan) msgs.push('⛔ 차수 계획에 없는 항목이야 — 추가할 수 없어.');
       if (msgs.length) { box.style.display = 'block'; box.innerHTML = msgs.join('<br>'); }
       else { box.style.display = 'none'; box.innerHTML = ''; }
