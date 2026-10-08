@@ -722,6 +722,7 @@ function updateSummary() {
    "바뀐 칸만" 모아뒀다가 배치로 보낸다(전체 units 스냅샷 delete+reinsert 시절의
    동시편집 레이스컨디션 버그를 다시 부르지 않기 위함 — PROGRESS.md 2026-09-25/26 참고). */
 let dirtyCells = {}, _timer = null;
+let _savePromise = null, _savePending = false;
 
 function setState(msg) {
   ['save-state', 'save-state2'].forEach(id => {
@@ -739,9 +740,12 @@ function cellsSnapshot() {
   return Object.keys(dirtyCells).map(k => dirtyCells[k]);
 }
 
-async function doSave() {
+async function saveOneBatch() {
   const keys = Object.keys(dirtyCells);
-  const cells = keys.map(k => dirtyCells[k]);
+  // 전송 도중 같은 칸을 다시 입력하면 markDirty가 새 객체로 교체한다. 응답 시점에
+  // 스냅샷과 같은 객체만 지워야 늦게 도착한 응답이 더 최신 입력을 버리지 않는다.
+  const sentCells = Object.fromEntries(keys.map(k => [k, dirtyCells[k]]));
+  const cells = keys.map(k => sentCells[k]);
   const payload = {
     inspect_date: document.getElementById('inspect-date')?.value || '',
     cells: cells,
@@ -760,8 +764,14 @@ async function doSave() {
     }
     const j = await resp.json();
     if (j.ok) {
-      keys.forEach(k => delete dirtyCells[k]);
-      setState('✓ 저장됨  합격 ' + j.ok_cnt + '개 / 불합격 ' + j.ng_cnt + '개');
+      keys.forEach(k => {
+        if (dirtyCells[k] === sentCells[k]) delete dirtyCells[k];
+      });
+      if (Object.keys(dirtyCells).length) {
+        setState('최신 입력 저장 중…');
+      } else {
+        setState('✓ 저장됨  합격 ' + j.ok_cnt + '개 / 불합격 ' + j.ng_cnt + '개');
+      }
       return true;
     }
     setState('⚠ 저장 실패: ' + (j.error || '알 수 없음'));
@@ -770,6 +780,24 @@ async function doSave() {
     setState('⚠ 서버 오류');
     return false;
   }
+}
+
+async function drainSaves() {
+  while (_savePending || Object.keys(dirtyCells).length) {
+    _savePending = false;
+    if (!await saveOneBatch()) return false;
+  }
+  return true;
+}
+
+function doSave() {
+  // 자동저장·수동저장·완료처리가 같은 Promise를 공유한다. 진행 중 입력은 dirtyCells에
+  // 남고 drainSaves가 다음 배치로 직렬 저장하므로 요청 순서가 뒤집히지 않는다.
+  _savePending = true;
+  if (!_savePromise) {
+    _savePromise = drainSaves().finally(() => { _savePromise = null; });
+  }
+  return _savePromise;
 }
 
 function scheduleSave() {
@@ -784,6 +812,7 @@ function manualSave() {
 
 async function doComplete() {
   if (!confirm('전수검사를 완료 처리할까요?\n완료하면 출력 시 성적서 뒤에 자동으로 붙어 나가요.')) return;
+  clearTimeout(_timer);
   const saved = await doSave();
   if (!saved) { alert('저장에 실패했어. 저장 먼저 해줘.'); return; }
   const form = document.createElement('form');
@@ -944,7 +973,10 @@ document.querySelectorAll('.c-val, .c-pair').forEach(inp => {
   inp.addEventListener(ev, () => {
     if (inp.dataset.type === 'num' || inp.dataset.type === 'num_pair') sanitizeNumericInput(inp);
     updateRowResult(+inp.dataset.unit);
-    markDirty(+inp.dataset.unit, inp.dataset.key, inp.value);
+    const value = inp.dataset.type === 'num_pair'
+      ? pairFor(+inp.dataset.unit, inp.dataset.key)
+      : inp.value;
+    markDirty(+inp.dataset.unit, inp.dataset.key, value);
   });
 });
 document.querySelectorAll('.sn-mid, .sn-suf').forEach(inp => {

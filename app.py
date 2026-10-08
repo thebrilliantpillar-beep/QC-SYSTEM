@@ -5381,6 +5381,9 @@ def _housing_columns_by_stage(material_no):
     이 함수는 full_inspect_housing.html 경로에서만 호출한다(_fi_columns_from_specs()
     자체는 건드리지 않음, 그건 비하우징 자재가 그대로 쓴다)."""
     specs = db.get_specs_by_material(material_no)
+    material = db.get_material(material_no)
+    material_name = material["material_name"] if material is not None else ""
+    voltage = _housing_voltage(material_no, material_name)
     gauge_expiries = _gauge_expiry_by_method()
     buckets = {1: [], 2: [], 3: []}
     for sp in specs:
@@ -5394,12 +5397,22 @@ def _housing_columns_by_stage(material_no):
             t = "num_pair"
         else:
             t = "pf"
+        header = sp["spec_display"] or sp["item_name"]
+        lo = sp["lower_limit"] if t in ("num", "num_pair") else None
+        hi = sp["upper_limit"] if t in ("num", "num_pair") else None
+        # 하우징 고저항 CT/ROD는 전압군별 확정 규격을 화면·저장 판정·성적서가
+        # 공통으로 쓰게 한다. 아직 분류하지 않은 전압은 기존 specs 값을 보존한다.
+        if t == "num_pair" and "고저항" in header:
+            if voltage == "15KV":
+                header, lo, hi = "고저항 (40Ω) ±1%", 39.6, 40.4
+            elif voltage in ("27KV", "38KV"):
+                header, lo, hi = "고저항 (100Ω) ±1%", 99, 101
         buckets[stage].append({
             "key": sp["item_name"],
-            "header": sp["spec_display"] or sp["item_name"],
+            "header": header,
             "type": t,
-            "lo": sp["lower_limit"] if t in ("num", "num_pair") else None,
-            "hi": sp["upper_limit"] if t in ("num", "num_pair") else None,
+            "lo": lo,
+            "hi": hi,
             "inspect_method": sp["inspect_method"],
             "gauge_expiry": gauge_expiries.get(_norm_method(sp["inspect_method"])),
         })
@@ -5486,6 +5499,28 @@ def full_inspect_form(inspection_id):
     return render_template(tmpl, **ctx)
 
 
+def _fi_value_complete(value, column=None):
+    """필수 입력값 완성 여부. numeric_pair는 모든 묶음의 양쪽 채널이 필요하다."""
+    import math
+
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    if not column or column.get("type") != "num_pair":
+        return True
+    for chunk in raw.split(","):
+        parts = chunk.split("/")
+        if len(parts) != 2 or not all(part.strip() for part in parts):
+            return False
+        try:
+            numbers = [float(part.strip()) for part in parts]
+        except (TypeError, ValueError):
+            return False
+        if not all(math.isfinite(number) for number in numbers):
+            return False
+    return True
+
+
 def _fi_auto_result(unit_vals, columns, required_keys=None):
     """병합된 유닛 전체 values(dict)를 기준으로 합격/불합격 재계산.
     (특정 칸 하나만 보고 판정하면 안 됨 — 2026-09-26 칸단위 upsert 전환의 핵심 원칙)
@@ -5499,7 +5534,8 @@ def _fi_auto_result(unit_vals, columns, required_keys=None):
     if not has_any:
         return ""
     needed = required_keys if required_keys is not None else {c["key"] for c in columns}
-    if not all(str(unit_vals.get(k, "")).strip() for k in needed):
+    columns_by_key = {c["key"]: c for c in columns}
+    if not all(_fi_value_complete(unit_vals.get(k, ""), columns_by_key.get(k)) for k in needed):
         return ""  # 아직 다 안 채워짐 — 판정 보류
     for col in columns:
         key = col["key"]
@@ -5582,6 +5618,8 @@ def full_inspect_save(inspection_id):
     config_for_save = db.get_full_inspect_config(header["material_no"])
     if config_for_save and config_for_save.get("template") == "housing":
         stage_cols_for_save = _housing_columns_by_stage(header["material_no"])
+        housing_columns_for_save = sum(
+            (stage_cols_for_save[f"stage{n}_cols"] for n in (1, 2, 3)), [])
         stage1_qty_for_save = sample_size(1.5, int(header["quantity"] or 0)) or int(header["quantity"] or 0)
         stage1_keys_for_save = {c["key"] for c in stage_cols_for_save["stage1_cols"]}
         always_keys_for_save = ({c["key"] for c in stage_cols_for_save["stage2_cols"]}
@@ -5589,7 +5627,7 @@ def full_inspect_save(inspection_id):
 
         def _compute_result(unit_no, vals):
             required = always_keys_for_save | (stage1_keys_for_save if unit_no <= stage1_qty_for_save else set())
-            return _fi_auto_result(vals, columns, required_keys=required)
+            return _fi_auto_result(vals, housing_columns_for_save, required_keys=required)
     else:
         def _compute_result(unit_no, vals):
             return _fi_auto_result(vals, columns)
@@ -5631,8 +5669,12 @@ def full_inspect_save(inspection_id):
                     required_qty = qty
                 required_units = [u for u in all_units if u["unit_no"] <= required_qty]
                 if required_qty > 0 and len(required_units) >= required_qty:
+                    columns_for_stage = {
+                        c["key"]: c for c in stage_cols[f"stage{stage_no}_cols"]
+                    }
                     complete = all(
-                        all(str(u["values"].get(k, "")).strip() for k in keys_for_stage)
+                        all(_fi_value_complete(u["values"].get(k, ""), columns_for_stage.get(k))
+                            for k in keys_for_stage)
                         for u in required_units
                     )
                     if complete:
