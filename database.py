@@ -3982,6 +3982,10 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
+def traceability_enabled():
+    """제품검사 이력추적 기능 스위치 — 기본 OFF, 켜기 전까지 신규 기능이 동작하지 않게 하는 용도."""
+    return get_setting("traceability_enabled", "0") == "1"
+
 
 def update_inspection_status(inspection_id, status, approver=None, reject_reason=None,
                              approval_type=None, approved_at=None):
