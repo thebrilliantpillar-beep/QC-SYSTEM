@@ -6202,8 +6202,10 @@ def quality_status_export_rows(start_date, end_date, supplier=None, po_number=No
         else:
             sample_source = general_source
 
-        major = row.get("major_category") or UNASSIGNED_CLASSIFICATION
-        middle = row.get("middle_category") or UNASSIGNED_CLASSIFICATION
+        # ``UNASSIGNED_CLASSIFICATION`` is a filter sentinel and must never leak
+        # into user-facing exports.
+        major = row.get("major_category") or "미지정"
+        middle = row.get("middle_category") or "미지정"
         aql_snapshot = exterior.get("aql_snapshot") if exterior else None
         if major in ("하우징", "기구물") or middle in ("고저항", "VI"):
             inspection_method = "전수 검사"

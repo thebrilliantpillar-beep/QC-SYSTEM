@@ -187,6 +187,31 @@ class QualityStatusExportTest(unittest.TestCase):
         self.assertEqual((rows["CHECK"]["inspection_method"], rows["CHECK"]["sample_qty"]),
                          ("체크 검사", 6))
 
+    def test_unassigned_classification_uses_user_facing_label(self):
+        self._inspection("UNASSIGNED", supplier="미지정업체", sample=5)
+        conn = db.get_conn()
+        conn.execute("DELETE FROM material_classification_map WHERE material_no = 'UNASSIGNED'")
+        conn.commit()
+        conn.close()
+
+        rows = db.quality_status_export_rows("2026-09-01", "2026-09-30")
+        row = next(item for item in rows if item["material_no"] == "UNASSIGNED")
+        self.assertEqual((row["major_category"], row["middle_category"]), ("미지정", "미지정"))
+        filtered = db.quality_status_export_rows(
+            "2026-09-01", "2026-09-30",
+            major_category=db.UNASSIGNED_CLASSIFICATION)
+        self.assertEqual([item["material_no"] for item in filtered], ["UNASSIGNED"])
+
+        buf = report_builder.build_quality_status_excel(
+            rows, "2026-09-01", "2026-09-30", "전체 조건")
+        wb = openpyxl.load_workbook(buf, data_only=True)
+        detail = wb["품목상세"]
+        exported = [detail.cell(r, c).value
+                    for r in range(5, detail.max_row + 1)
+                    for c in (3, 4)]
+        self.assertIn("미지정", exported)
+        self.assertNotIn(db.UNASSIGNED_CLASSIFICATION, exported)
+
     def test_filter_export_workbook_totals_and_five_sheet_contract(self):
         self._inspection("A", supplier="선택업체", qty=10, sample=5)
         self._inspection("A2", supplier="선택업체", middle="볼트", qty=15, sample=7)
