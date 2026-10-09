@@ -1284,6 +1284,8 @@ def sample_size(aql, quantity):
         return None
 
     aql_str = str(aql).strip()
+    if aql_str == "체크검사":
+        return min(quantity, 5)
     if aql_str == "전수":
         return quantity
     if aql_str.startswith("퍼센트"):
@@ -1340,6 +1342,8 @@ def aql_ac_allowance(aql, sample_qty):
     작아서 sample_size()가 입고수량 그대로 돌려준 경우 등) 기존처럼 Ac=0(무결점)으로 안전하게
     처리한다.
     """
+    if str(aql or "").strip() == "체크검사":
+        return 0
     try:
         aql_num = float(aql)
         if aql_num == int(aql_num):
@@ -1370,7 +1374,33 @@ def format_duration(total_sec):
 EXTRA_SAMPLE_SEC = 10  # 기준 AQL 초과 샘플 1개당 추가 시간(고정값, 단위: 초)
 
 
-def build_specs_with_sample(specs, quantity):
+def _is_check_inspection_material(material_no, cache=None):
+    """사용자가 확정한 대·중분류 기반 체크검사 대상인지 정확히 판정한다."""
+    key = (material_no or "").strip()
+    if cache is not None and key in cache:
+        return cache[key]
+    classification = db.get_material_classification(key)
+    major = classification["major_category"] if classification else None
+    middle = classification["middle_category"] if classification else None
+    matched = (
+        major in ("기타 소자류", "조립부품류 (소모품)")
+        or (major == "상품" and middle == "엘보/부싱 액세서리")
+    )
+    if cache is not None:
+        cache[key] = matched
+    return matched
+
+
+def _snapshot_fields(spec):
+    """검사 항목 저장 시 함께 굳힐 AQL 정책 필드."""
+    return {
+        "aql_snapshot": spec.get("aql"),
+        "sample_qty_snapshot": spec.get("sample_qty"),
+        "ac_allowance_snapshot": spec.get("ac_allowance"),
+    }
+
+
+def build_specs_with_sample(specs, quantity, snapshot_items=None):
     """규격 목록에 화면·계산용 파생값을 붙여서 돌려준다.
 
     - sample_qty   : 항목의 AQL과 입고수량으로 계산한 샘플수량
@@ -1382,15 +1412,57 @@ def build_specs_with_sample(specs, quantity):
     (예전엔 같은 리스트 컴프리헨션이 8군데에 복사돼 있어서 한 곳만 고치면 나머지가 어긋났다)
     """
     out = []
+    policy_cache = {}
+    snapshot_map = {}
+    for item in snapshot_items or []:
+        part_no = item["part_material_no"] if "part_material_no" in item.keys() else None
+        snapshot_map[(part_no, item["item_name"])] = item
     for s in specs:
         d = dict(s)
-        d["sample_qty"] = sample_size(d.get("aql"), quantity)
-        d["ac_allowance"] = aql_ac_allowance(d.get("aql"), d["sample_qty"]) if d.get("aql") is not None else None
+        snap = (snapshot_map.get((d.get("material_no"), d.get("item_name")))
+                or snapshot_map.get((None, d.get("item_name"))))
+        if snap is not None and "aql_snapshot_set" in snap.keys() and snap["aql_snapshot_set"]:
+            d["aql"] = snap["aql"]
+            d["sample_qty"] = snap["sample_qty"]
+            d["ac_allowance"] = snap["ac_allowance"]
+            d["fixed_aql"] = str(snap["aql"] or "").strip() == "체크검사"
+        elif _is_check_inspection_material(d.get("material_no"), policy_cache):
+            d["aql"] = "체크검사"
+            d["sample_qty"] = sample_size("체크검사", quantity)
+            d["ac_allowance"] = 0
+            d["fixed_aql"] = True
+        else:
+            d["sample_qty"] = sample_size(d.get("aql"), quantity)
+            d["ac_allowance"] = (aql_ac_allowance(d.get("aql"), d["sample_qty"])
+                                 if d.get("aql") is not None else None)
+            d["fixed_aql"] = False
         d["no_limit"] = (d.get("judge_type") in ("numeric", "numeric_pair")
                          and d.get("lower_limit") is None
                          and d.get("upper_limit") is None)
         out.append(d)
     return out
+
+
+def _inspection_aql_metrics(items, quantity):
+    """저장된 검사 항목에서 시간·통계 계산용 AQL 정보를 복원한다.
+
+    aql_snapshot_set=1이면 NULL을 포함한 스냅샷 값을 그대로 신뢰한다. 도입 전 구형 행만
+    현재 조인된 AQL로 계산해 호환하고, 신규 분류 정책을 과거 검사에 소급하지 않는다.
+    """
+    metrics = []
+    for item in items or []:
+        keys = item.keys()
+        aql = item["aql"] if "aql" in keys else None
+        if "aql_snapshot_set" in keys and item["aql_snapshot_set"]:
+            sample_qty = item["sample_qty"]
+            ac_allowance = item["ac_allowance"]
+        else:
+            sample_qty = sample_size(aql, quantity) if aql is not None else None
+            ac_allowance = (aql_ac_allowance(aql, sample_qty)
+                            if aql is not None else None)
+        metrics.append({"aql": aql, "sample_qty": sample_qty,
+                        "ac_allowance": ac_allowance})
+    return metrics
 
 
 def _norm_method(s):
@@ -1486,7 +1558,7 @@ def _unique_aql_sample_qty(specs_with_sample):
         if aql is None or qty is None:
             continue
         aql_str = str(aql).strip()
-        if aql_str == "전수" or aql_str.startswith("퍼센트"):
+        if aql_str == "전수" or aql_str.startswith("퍼센트") or aql_str == "체크검사":
             key = aql_str
         else:
             try:
@@ -1538,11 +1610,27 @@ def total_time_label_for(header):
     per_cycle_sec = header["actual_time_sec"] or 0
     if not per_cycle_sec:
         return "-"
+    _stored_header, stored_items = db.get_inspection(header["id"])
     specs, _, _ = _get_specs_for_material(header["material_no"])
     if not specs:
         return "-"
-    specs_with_sample = build_specs_with_sample(specs, header["quantity"])
+    specs_with_sample = build_specs_with_sample(specs, header["quantity"], snapshot_items=stored_items)
     return format_duration(compute_total_time_sec(specs_with_sample, per_cycle_sec))
+
+
+def ensure_inspection_aql_snapshot_migration():
+    """기존 검사 항목의 당시 AQL을 현재 규격 기준으로 최초 1회 고정한다.
+
+    새 분류 정책은 의도적으로 적용하지 않는다. 이관 전 완료된 성적서는 새 정책 때문에
+    재출력 내용이 바뀌면 안 되기 때문이다. NULL AQL도 set 플래그와 함께 고정한다.
+    """
+    updates = []
+    for row in db.list_unset_inspection_aql_snapshots():
+        aql = row["spec_aql"]
+        qty = sample_size(aql, row["quantity"]) if aql is not None else None
+        ac = aql_ac_allowance(aql, qty) if aql is not None else None
+        updates.append((row["id"], aql, qty, ac))
+    return db.set_inspection_aql_snapshots(updates)
 
 
 @app.route("/")
@@ -3043,6 +3131,7 @@ def inspect_auto_batch():
                 "gauge_expiry": gauge_info["expiry"] if gauge_info else None,
                 "gauge_name": gauge_info["name"] if gauge_info else None,
                 "part_material_no": spec["material_no"],
+                **_snapshot_fields(spec),
             })
 
         overall_result = "합격" if overall_ok else "검토필요"
@@ -3173,7 +3262,7 @@ def inspect_form(intake_id):
                 serial = request.form.get(f"unit_{u}_serial", "").strip()
                 remark = request.form.get(f"unit_{u}_remark", "").strip()
                 vals = {}
-                for spec in specs:
+                for spec in specs_with_sample:
                     v = request.form.get(f"unit_{u}_{spec['id']}", "").strip()
                     vals[spec["item_name"]] = v
                 units_data.append({"unit_no": u, "serial_no": serial,
@@ -3184,7 +3273,7 @@ def inspect_form(intake_id):
             def _unit_result(unit_vals):
                 """유닛 단위 판정: 모든 항목 값 통과면 OK, 하나라도 이탈이면 NG."""
                 has_any = False
-                for sp in specs:
+                for sp in specs_with_sample:
                     v = unit_vals.get(sp["item_name"], "").strip()
                     if not v:
                         continue
@@ -3201,7 +3290,7 @@ def inspect_form(intake_id):
                         if v.upper() in _bad_pf: return "NG"
                 return "OK" if has_any else ""
 
-            for spec in specs:
+            for spec in specs_with_sample:
                 cell_vals = [u["values"].get(spec["item_name"], "").strip() for u in units_data]
                 non_empty = [v for v in cell_vals if v]
 
@@ -3250,6 +3339,7 @@ def inspect_form(intake_id):
                     "max_value": max_v, "min_value": min_v, "result": result,
                     "gauge_expiry": gauge_expiry, "gauge_name": gauge_name,
                     "part_material_no": spec["material_no"],
+                    **_snapshot_fields(spec),
                 })
 
             fi_units_to_save = [{
@@ -3290,6 +3380,7 @@ def inspect_form(intake_id):
                     "max_value": max_v, "min_value": min_v, "result": result,
                     "gauge_expiry": gauge_expiry, "gauge_name": gauge_name,
                     "part_material_no": spec["material_no"],
+                    **_snapshot_fields(spec),
                 })
 
         overall_result = "합격" if overall_ok else "검토필요"
@@ -3617,7 +3708,7 @@ def inspection_detail(inspection_id):
     total_time_label = "-"
     specs, _, _ = _get_specs_for_material(header["material_no"])
     if specs and per_cycle_sec:
-        specs_with_sample = build_specs_with_sample(specs, header["quantity"])
+        specs_with_sample = build_specs_with_sample(specs, header["quantity"], snapshot_items=items)
         total_time_label = format_duration(compute_total_time_sec(specs_with_sample, per_cycle_sec))
 
     # 계측기 유효기간이 한 달(30일) 이내로 남았거나 이미 지난 항목들을 항목별로 나열
@@ -3640,7 +3731,7 @@ def inspection_detail(inspection_id):
             })
 
     # AQL·샘플수량·Ac 매핑 (specs → item_name 기준)
-    specs_all = build_specs_with_sample(specs, header["quantity"]) if specs else []
+    specs_all = build_specs_with_sample(specs, header["quantity"], snapshot_items=items) if specs else []
     specs_map = {s["item_name"]: s for s in specs_all}
 
     # 항목이 불합격이어도 샘플 중 실제로 규격을 벗어난 값만 강조하기 위한 개별 값 플래그
@@ -3848,7 +3939,7 @@ def edit_inspection(inspection_id):
     intake_row = db.get_intake(header["intake_id"]) if header["intake_id"] else None
     material_no = header["material_no"]
     specs, is_group, group_name = _get_specs_for_material(material_no)
-    specs_with_sample = build_specs_with_sample(specs, header["quantity"])
+    specs_with_sample = build_specs_with_sample(specs, header["quantity"], snapshot_items=items)
 
     # 기존 측정값 prefill — 그룹 검사는 item_name만으로는 부품 간 중복될 수 있어 spec.id(전역 고유)로 맞춤
     prefill = {
@@ -3907,7 +3998,7 @@ def edit_inspection_submit(inspection_id):
         return redirect(url_for("inspection_detail", inspection_id=inspection_id))
 
     specs, _, _ = _get_specs_for_material(header["material_no"])
-    specs_with_sample = build_specs_with_sample(specs, header["quantity"])
+    specs_with_sample = build_specs_with_sample(specs, header["quantity"], snapshot_items=old_items)
     items_with_results = []
     overall_ok = True
 
@@ -3935,6 +4026,7 @@ def edit_inspection_submit(inspection_id):
             "gauge_expiry": gauge_expiry,
             "gauge_name": gauge_name,
             "part_material_no": spec["material_no"],
+            **_snapshot_fields(spec),
         })
 
     # 측정값 자체가 바뀌어 자동판정이 달라진 항목의 옛 수동 오버라이드는 새 데이터에
@@ -3958,9 +4050,9 @@ def edit_inspection_submit(inspection_id):
     actual_time_sec = request.form.get("actual_time_sec", "").strip()
     actual_time_sec = int(actual_time_sec) if actual_time_sec.isdigit() else None
     est_time_label = format_duration(actual_time_sec) if actual_time_sec is not None else None
-    qty = header["quantity"]
-    specs_with_sample = build_specs_with_sample(specs, qty)
-    total_time_sec = compute_total_time_sec(specs_with_sample, actual_time_sec) if actual_time_sec else None
+    # 기존 검사 수정은 현재 분류/규격이 아니라 저장 당시 항목별 AQL 스냅샷으로 총시간을 유지한다.
+    stored_metrics = _inspection_aql_metrics(old_items, header["quantity"])
+    total_time_sec = compute_total_time_sec(stored_metrics, actual_time_sec) if actual_time_sec else None
     db.update_inspection_items(
         inspection_id,
         request.form.get("inspect_date"),
@@ -4080,7 +4172,7 @@ def _generate_report_files(inspection_id, approver, signature_path):
     per_cycle_label = format_duration(per_cycle_sec)
 
     # 총 측정시간 = 기준(AQL4) 샘플수×개당시간 + 다른 AQL 그룹의 초과분×10초
-    specs_with_sample = build_specs_with_sample(combined_specs, header["quantity"])
+    specs_with_sample = build_specs_with_sample(combined_specs, header["quantity"], snapshot_items=items)
     total_time_label = format_duration(compute_total_time_sec(specs_with_sample, per_cycle_sec))
 
     def _build_result(it):
@@ -4095,8 +4187,8 @@ def _generate_report_files(inspection_id, approver, signature_path):
         # 육안/O,X 항목은 OK/NG 문자열로 변환해서 그대로 기입
         if not values and raw_tokens and all(t.upper() in ("O", "X") for t in raw_tokens):
             values = ["OK" if t.upper() == "O" else "NG" for t in raw_tokens]
-        sample_qty = sample_size(it["aql"], header["quantity"]) if it["aql"] is not None else None
-        ac_allowance = aql_ac_allowance(it["aql"], sample_qty) if it["aql"] is not None else None
+        sample_qty = it["sample_qty"]
+        ac_allowance = it["ac_allowance"]
         return {
             "item_name": it["item_name"],
             "values": values,
@@ -4966,7 +5058,7 @@ def _approve_decision_context(inspection_id):
     # 총 측정시간 + AQL 그룹
     specs_raw, _, _ = _get_specs_for_material(header["material_no"])
     total_time_label = "-"
-    specs_with_sample_a = build_specs_with_sample(specs_raw, header["quantity"])
+    specs_with_sample_a = build_specs_with_sample(specs_raw, header["quantity"], snapshot_items=items)
     if specs_with_sample_a and per_cycle_sec:
         total_time_label = format_duration(compute_total_time_sec(specs_with_sample_a, per_cycle_sec))
     specs_map_a = {s["item_name"]: s for s in specs_with_sample_a}
@@ -5218,8 +5310,8 @@ def _collect_approval_history():
         total_sec = r["total_time_sec"] or 0
         max_sample = 0
         try:
-            specs, _grp, _gid = _get_specs_for_material(r["material_no"] or "")
-            sws = build_specs_with_sample(specs, r["quantity"] or 0)
+            _stored_header, stored_items = db.get_inspection(r["id"])
+            sws = _inspection_aql_metrics(stored_items, r["quantity"] or 0)
             max_sample = max((s.get("sample_qty", 0) or 0) for s in sws) if sws else 0
             if not total_sec and r["actual_time_sec"]:
                 total_sec = compute_total_time_sec(sws, r["actual_time_sec"])
@@ -6984,6 +7076,7 @@ def reinspect_submit(inspection_id):
             "gauge_expiry": gauge_expiry,
             "gauge_name": gauge_name,
             "part_material_no": spec["material_no"],
+            **_snapshot_fields(spec),
         })
 
     overall_result = "합격" if overall_ok else "검토필요"
@@ -7677,11 +7770,16 @@ def ncr_new(inspection_id):
     # LOT 수량 기본값: 입고수량
     auto_lot_qty = str(header["quantity"]) if header["quantity"] else ""
 
-    # 시료수 기본값: 불합격 항목 중 첫 번째의 AQL 기반 샘플수
+    # 시료수 기본값: 검사 당시 저장한 첫 불합격 항목의 샘플수 스냅샷.
+    # 스냅샷 도입 전 구형 행만 AQL+입고수량으로 계산한다.
     auto_sample_qty = ""
     if defect_items:
-        first_aql = defect_items[0]["aql"] if "aql" in defect_items[0].keys() else None
-        sq = sample_size(first_aql, header["quantity"])
+        first_item = defect_items[0]
+        if "aql_snapshot_set" in first_item.keys() and first_item["aql_snapshot_set"]:
+            sq = first_item["sample_qty"]
+        else:
+            first_aql = first_item["aql"] if "aql" in first_item.keys() else None
+            sq = sample_size(first_aql, header["quantity"])
         if sq is not None:
             auto_sample_qty = str(sq)
 
@@ -10895,6 +10993,7 @@ def outbound_qr_export_delete_selected():
 
 db.init_db()
 db.ensure_material_classification_asset()
+ensure_inspection_aql_snapshot_migration()
 ensure_default_admin()
 ensure_perm_migration()
 ensure_inspect_method_fill_20260825()

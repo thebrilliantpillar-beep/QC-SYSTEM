@@ -408,6 +408,17 @@ def init_db():
         # 조립품 그룹 검사일 때, 이 측정값이 실제로 어느 부품(자재)에 속하는지 기록.
         # 일반(단일 자재) 검사는 항상 헤더의 material_no와 동일하게 채움.
         cur.execute("ALTER TABLE inspection_items ADD COLUMN part_material_no TEXT")
+    if "aql_snapshot" not in existing_cols:
+        # 검사 당시의 AQL 정책을 항목별로 고정한다. specs.aql 또는 자재 분류가 나중에
+        # 바뀌어도 승인 이력·재출력 결과가 달라지면 안 된다. NULL AQL도 유효한 스냅샷이라
+        # aql_snapshot_set 플래그로 "아직 이관 안 됨"과 구분한다.
+        cur.execute("ALTER TABLE inspection_items ADD COLUMN aql_snapshot TEXT")
+    if "sample_qty_snapshot" not in existing_cols:
+        cur.execute("ALTER TABLE inspection_items ADD COLUMN sample_qty_snapshot INTEGER")
+    if "ac_allowance_snapshot" not in existing_cols:
+        cur.execute("ALTER TABLE inspection_items ADD COLUMN ac_allowance_snapshot INTEGER")
+    if "aql_snapshot_set" not in existing_cols:
+        cur.execute("ALTER TABLE inspection_items ADD COLUMN aql_snapshot_set INTEGER NOT NULL DEFAULT 0")
 
     existing_insp_cols = [row[1] for row in cur.execute("PRAGMA table_info(inspections)").fetchall()]
     if "est_time_label" not in existing_insp_cols:
@@ -1401,6 +1412,18 @@ def list_material_classification_pairs(major_category=None):
     return rows
 
 
+def get_material_classification(material_no):
+    """자재번호의 확정 대분류·중분류 매핑. 미지정이면 None."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT major_category, middle_category
+          FROM material_classification_map
+         WHERE material_no = ?
+    """, ((material_no or "").strip(),)).fetchone()
+    conn.close()
+    return row
+
+
 def list_major_categories():
     return list(dict.fromkeys(
         r["major_category"] for r in list_material_classification_pairs()
@@ -2169,11 +2192,14 @@ def create_inspection(header, items_with_results, overall_result, intake_id=None
     for it in items_with_results:
         cur.execute("""
             INSERT INTO inspection_items (inspection_id, item_name, measured_value,
-                                           max_value, min_value, result, gauge_expiry, gauge_name, part_material_no)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                           max_value, min_value, result, gauge_expiry, gauge_name, part_material_no,
+                                           aql_snapshot, sample_qty_snapshot, ac_allowance_snapshot, aql_snapshot_set)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (inspection_id, it["item_name"], it.get("measured_value"),
               it.get("max_value"), it.get("min_value"), it.get("result"),
-              it.get("gauge_expiry"), it.get("gauge_name"), it.get("part_material_no") or header["material_no"]))
+              it.get("gauge_expiry"), it.get("gauge_name"), it.get("part_material_no") or header["material_no"],
+              it.get("aql_snapshot"), it.get("sample_qty_snapshot"),
+              it.get("ac_allowance_snapshot"), 1 if "aql_snapshot" in it else 0))
 
     conn.commit()
     conn.close()
@@ -2286,11 +2312,15 @@ def update_inspection_items(inspection_id, inspect_date, inspector, items_with_r
     conn.execute("DELETE FROM inspection_items WHERE inspection_id=?", (inspection_id,))
     for it in items_with_results:
         conn.execute("""
-            INSERT INTO inspection_items (inspection_id, item_name, measured_value, max_value, min_value, result, gauge_expiry, gauge_name, part_material_no)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            INSERT INTO inspection_items (inspection_id, item_name, measured_value, max_value, min_value, result,
+                                          gauge_expiry, gauge_name, part_material_no,
+                                          aql_snapshot, sample_qty_snapshot, ac_allowance_snapshot, aql_snapshot_set)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (inspection_id, it["item_name"], it.get("measured_value"),
               it.get("max_value"), it.get("min_value"), it.get("result"),
-              it.get("gauge_expiry"), it.get("gauge_name"), it.get("part_material_no") or default_material_no))
+              it.get("gauge_expiry"), it.get("gauge_name"), it.get("part_material_no") or default_material_no,
+              it.get("aql_snapshot"), it.get("sample_qty_snapshot"),
+              it.get("ac_allowance_snapshot"), 1 if "aql_snapshot" in it else 0))
     conn.commit()
     conn.close()
 
@@ -2305,7 +2335,9 @@ def get_inspection(inspection_id):
     items = conn.execute("""
         SELECT ii.*,
                COALESCE(s.spec_display, ii.item_name) AS spec_display,
-               s.aql AS aql,
+               CASE WHEN ii.aql_snapshot_set = 1 THEN ii.aql_snapshot ELSE s.aql END AS aql,
+               CASE WHEN ii.aql_snapshot_set = 1 THEN ii.sample_qty_snapshot ELSE NULL END AS sample_qty,
+               CASE WHEN ii.aql_snapshot_set = 1 THEN ii.ac_allowance_snapshot ELSE NULL END AS ac_allowance,
                s.inspect_method AS inspect_method,
                s.lower_limit AS lower_limit,
                s.upper_limit AS upper_limit,
@@ -2330,6 +2362,56 @@ def get_inspection(inspection_id):
     """, (inspection_id, inspection_id, inspection_id)).fetchall()
     conn.close()
     return header, items
+
+
+def list_unset_inspection_aql_snapshots():
+    """신규 스냅샷 컬럼 도입 전 검사 항목을 이관하기 위한 읽기 전용 목록.
+
+    현재 규격의 AQL은 이관 시점에 한 번만 참고하고, 이후에는 set 플래그가 1인 행을
+    다시 건드리지 않는다. NULL AQL도 그대로 고정할 수 있도록 spec_aql 별칭을 쓴다.
+    """
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT ii.id, i.quantity,
+               (SELECT s.aql
+                  FROM specs s
+                 WHERE s.material_no = COALESCE(ii.part_material_no, i.material_no)
+                   AND s.item_name = ii.item_name
+                 ORDER BY s.id
+                 LIMIT 1) AS spec_aql
+          FROM inspection_items ii
+          JOIN inspections i ON i.id = ii.inspection_id
+         WHERE COALESCE(ii.aql_snapshot_set, 0) = 0
+         ORDER BY ii.id
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+def set_inspection_aql_snapshots(rows):
+    """[(item_id, aql, sample_qty, ac), ...]를 한 트랜잭션으로 최초 1회 고정."""
+    if not rows:
+        return 0
+    conn = get_conn()
+    cur = conn.cursor()
+    changed = 0
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+        for item_id, aql, sample_qty, ac_allowance in rows:
+            result = cur.execute("""
+                UPDATE inspection_items
+                   SET aql_snapshot=?, sample_qty_snapshot=?, ac_allowance_snapshot=?,
+                       aql_snapshot_set=1
+                 WHERE id=? AND COALESCE(aql_snapshot_set, 0)=0
+            """, (aql, sample_qty, ac_allowance, item_id))
+            changed += result.rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return changed
 
 
 def list_inspections(status=None):
