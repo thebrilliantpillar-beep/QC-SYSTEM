@@ -1374,23 +1374,6 @@ def format_duration(total_sec):
 EXTRA_SAMPLE_SEC = 10  # 기준 AQL 초과 샘플 1개당 추가 시간(고정값, 단위: 초)
 
 
-def _is_check_inspection_material(material_no, cache=None):
-    """사용자가 확정한 대·중분류 기반 체크검사 대상인지 정확히 판정한다."""
-    key = (material_no or "").strip()
-    if cache is not None and key in cache:
-        return cache[key]
-    classification = db.get_material_classification(key)
-    major = classification["major_category"] if classification else None
-    middle = classification["middle_category"] if classification else None
-    matched = (
-        major in ("기타 소자류", "조립부품류 (소모품)")
-        or (major == "상품" and middle == "엘보/부싱 액세서리")
-    )
-    if cache is not None:
-        cache[key] = matched
-    return matched
-
-
 def _snapshot_fields(spec):
     """검사 항목 저장 시 함께 굳힐 AQL 정책 필드."""
     return {
@@ -1412,7 +1395,6 @@ def build_specs_with_sample(specs, quantity, snapshot_items=None):
     (예전엔 같은 리스트 컴프리헨션이 8군데에 복사돼 있어서 한 곳만 고치면 나머지가 어긋났다)
     """
     out = []
-    policy_cache = {}
     snapshot_map = {}
     for item in snapshot_items or []:
         part_no = item["part_material_no"] if "part_material_no" in item.keys() else None
@@ -1425,17 +1407,10 @@ def build_specs_with_sample(specs, quantity, snapshot_items=None):
             d["aql"] = snap["aql"]
             d["sample_qty"] = snap["sample_qty"]
             d["ac_allowance"] = snap["ac_allowance"]
-            d["fixed_aql"] = str(snap["aql"] or "").strip() == "체크검사"
-        elif _is_check_inspection_material(d.get("material_no"), policy_cache):
-            d["aql"] = "체크검사"
-            d["sample_qty"] = sample_size("체크검사", quantity)
-            d["ac_allowance"] = 0
-            d["fixed_aql"] = True
         else:
             d["sample_qty"] = sample_size(d.get("aql"), quantity)
             d["ac_allowance"] = (aql_ac_allowance(d.get("aql"), d["sample_qty"])
                                  if d.get("aql") is not None else None)
-            d["fixed_aql"] = False
         d["no_limit"] = (d.get("judge_type") in ("numeric", "numeric_pair")
                          and d.get("lower_limit") is None
                          and d.get("upper_limit") is None)
@@ -2335,7 +2310,7 @@ def spec_new():
                            full_inspect_config=None, method_options=gauge_method_options(),
                            major_categories=db.list_major_categories(),
                            classification_pairs=db.list_material_classification_pairs(),
-                           is_new=True, bom_links=[], check_inspection_policy=False)
+                           is_new=True, bom_links=[])
 
 
 @app.route("/spec/<material_no>")
@@ -2361,8 +2336,7 @@ def spec_detail(material_no):
                            method_options=gauge_method_options(),
                            major_categories=db.list_major_categories(),
                            classification_pairs=db.list_material_classification_pairs(),
-                           bom_links=bom_links, bom_parent_exists=bom_parent_exists,
-                           check_inspection_policy=_is_check_inspection_material(material_no))
+                           bom_links=bom_links, bom_parent_exists=bom_parent_exists)
 
 
 @app.route("/spec/<material_no>/full-inspect-config", methods=["POST"])
@@ -10995,6 +10969,7 @@ def outbound_qr_export_delete_selected():
 db.init_db()
 db.ensure_material_classification_asset()
 ensure_inspection_aql_snapshot_migration()
+db.ensure_check_inspection_aql_migration()
 ensure_default_admin()
 ensure_perm_migration()
 ensure_inspect_method_fill_20260825()

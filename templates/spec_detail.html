@@ -38,8 +38,6 @@
   .form-field-wide { flex:2; min-width:200px; }
   .form-subrow { display:none; gap:6px; align-items:flex-end; }
   .view-row { display:flex; gap:20px; flex-wrap:wrap; font-size:13.5px; }
-  .effective-aql { display:block; margin-bottom:5px; font-weight:700; color:#166534; }
-  .raw-aql-label { display:block; margin-bottom:3px; font-size:10.5px; color:#6b7280; }
 
 </style>
 
@@ -124,18 +122,6 @@
     &nbsp; <span class="muted">중분류</span> {{ (material['middle_category'] if material else None) or '미지정' }}</div>
   {% endif %}
 </div>
-
-{% if check_inspection_policy %}
-<div class="card" id="checkInspectionPolicyCard" style="border-left:4px solid #16a34a;">
-  <h3 style="margin-top:0; color:#166534;">적용 검사 정책: 체크검사</h3>
-  <div style="font-size:13.5px; line-height:1.8;">
-    <b>적용 AQL</b> 체크검사 &nbsp;·&nbsp;
-    <b>검사수량</b> 최대 5개(입고수량 5개 미만은 전량) &nbsp;·&nbsp;
-    <b>판정</b> Ac0 / Re1(무결점)
-  </div>
-  <p class="hint" style="margin:6px 0 0;">현재 대분류·중분류 정책으로 모든 검사항목에 자동 적용돼. 아래 원본 AQL은 보존·편집할 수 있지만 실제 신규 검사에는 체크검사가 우선 적용돼.</p>
-</div>
-{% endif %}
 
 {% if bom_links %}
 <div class="card">
@@ -351,7 +337,7 @@
       <th>순서</th><th>항목</th><th style="min-width:150px;">규격표기</th><th>판정유형</th>
       <th>하한</th><th>상한</th><th>검사방법</th>
       <th>
-        {{ '적용 AQL / 원본 AQL' if check_inspection_policy else 'AQL' }}
+        AQL
         <span class="info-anchor">
           <button class="info-btn" data-pop="pop-aql-spec-hdr" type="button">i</button>
           <div id="pop-aql-spec-hdr" class="info-pop" style="left:auto;right:0;top:24px;">
@@ -361,6 +347,7 @@
               <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
               <b>1.5</b> 엄격<br>
               <b>4</b> 일반 기준 — 샘플 가장 적음<br>
+              <b>체크검사</b> 최대 5개(입고수량 5개 미만은 전량), 무결점<br>
               <b>전수</b> 입고 수량 전체 검사<br>
               <b>퍼센트</b> 입고 수량의 N% 검사
             </div>
@@ -406,14 +393,11 @@
       <td><input form="spec-row-{{ s['id'] }}" type="text" inputmode="decimal" name="upper_limit" id="upperLimit_{{ s['id'] }}" value="{{ s['upper_limit'] if s['upper_limit'] is not none else '' }}"></td>
       <td><input form="spec-row-{{ s['id'] }}" type="text" name="inspect_method" list="methodOptions" value="{{ s['inspect_method'] or '' }}"></td>
       <td>
-        {% if check_inspection_policy %}
-        <span class="effective-aql">적용: 체크검사</span>
-        <span class="raw-aql-label">원본 AQL(보존·편집)</span>
-        {% endif %}
         <select form="spec-row-{{ s['id'] }}" name="aql_select" onchange="const p=this.closest('td').querySelector('.aql-percent'); p.style.display = this.value==='퍼센트' ? 'inline-block' : 'none';">
           <option value="4" {% if s['aql']|string == '4' %}selected{% endif %}>4</option>
           <option value="1.5" {% if s['aql']|string == '1.5' %}selected{% endif %}>1.5</option>
           <option value="0.65" {% if s['aql']|string == '0.65' %}selected{% endif %}>0.65</option>
+          <option value="체크검사" {% if s['aql'] == '체크검사' %}selected{% endif %}>체크검사</option>
           <option value="전수" {% if s['aql'] == '전수' %}selected{% endif %}>전수</option>
           <option value="퍼센트" {% if (s['aql']|string).startswith('퍼센트') %}selected{% endif %}>퍼센트</option>
         </select>
@@ -440,8 +424,7 @@
   <table>
     <tr>
       <th>순서</th><th>항목</th><th>규격표기</th><th>판정유형</th>
-      <th>하한</th><th>상한</th><th>검사방법</th>
-      <th>{{ '적용 AQL / 원본 AQL' if check_inspection_policy else 'AQL' }}</th>
+      <th>하한</th><th>상한</th><th>검사방법</th><th>AQL</th>
     </tr>
     {% for s in specs %}
     <tr>
@@ -452,14 +435,7 @@
       <td>{{ s['lower_limit'] if s['lower_limit'] is not none else '-' }}</td>
       <td>{{ s['upper_limit'] if s['upper_limit'] is not none else '-' }}</td>
       <td>{{ s['inspect_method'] or '' }}</td>
-      <td>
-        {% if check_inspection_policy %}
-        <span class="effective-aql">적용: 체크검사</span>
-        <span class="raw-aql-label">원본: {{ s['aql'] | aql_display }}</span>
-        {% else %}
-        {{ s['aql'] | aql_display }}
-        {% endif %}
-      </td>
+      <td>{{ s['aql'] | aql_display }}</td>
     </tr>
     {% else %}
     <tr><td colspan="8">등록된 항목이 없어.</td></tr>
@@ -508,7 +484,7 @@
       <div class="form-field" style="min-width:80px;"><label>상한</label><input type="text" inputmode="decimal" name="upper_limit" id="upperLimit_new"></div>
       <div class="form-field" style="min-width:100px;"><label>검사방법</label><input type="text" name="inspect_method" list="methodOptions" placeholder="예: 버니어캘리퍼스"></div>
       <div class="form-field" style="min-width:70px;">
-        <label>{{ '원본 AQL (보존·편집)' if check_inspection_policy else 'AQL' }}
+        <label>AQL
           <span class="info-anchor">
             <button class="info-btn" data-pop="pop-aql-spec-new" type="button">i</button>
             <div id="pop-aql-spec-new" class="info-pop">
@@ -518,19 +494,18 @@
                 <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
                 <b>1.5</b> 엄격<br>
                 <b>4</b> 일반 기준 — 샘플 가장 적음<br>
+                <b>체크검사</b> 최대 5개(입고수량 5개 미만은 전량), 무결점<br>
                 <b>전수</b> 입고 수량 전체 검사<br>
                 <b>퍼센트</b> 입고 수량의 N% 검사
               </div>
             </div>
           </span>
         </label>
-        {% if check_inspection_policy %}
-        <span class="effective-aql">실제 적용: 체크검사</span>
-        {% endif %}
         <select name="aql_select" id="newAqlSelect" onchange="document.getElementById('newAqlPercent').style.display = this.value==='퍼센트' ? 'block' : 'none';">
           <option value="4">4</option>
           <option value="1.5">1.5</option>
           <option value="0.65">0.65</option>
+          <option value="체크검사">체크검사</option>
           <option value="전수">전수</option>
           <option value="퍼센트">퍼센트</option>
         </select>
@@ -626,12 +601,6 @@ function escapeAttr(v) {
   return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-{% if check_inspection_policy %}
-const CHECK_INSPECTION_AQL_HTML = '<span class="effective-aql">적용: 체크검사</span><span class="raw-aql-label">원본 AQL(보존·편집)</span>';
-{% else %}
-const CHECK_INSPECTION_AQL_HTML = '';
-{% endif %}
-
 // 항목 테이블의 한 행 — 서버가 새로 만든/기존 항목 데이터(spec)로 <tr> 내용을 만든다.
 // 규격 상세 화면을 처음 그릴 때(Jinja) 쓰는 행 구조와 반드시 같은 필드를 넣어야 한다.
 function buildRowHTML(spec) {
@@ -675,11 +644,11 @@ function buildRowHTML(spec) {
     <td><input form="spec-row-${id}" type="text" inputmode="decimal" name="upper_limit" id="upperLimit_${id}" value="${escapeAttr(upper)}"></td>
     <td><input form="spec-row-${id}" type="text" name="inspect_method" list="methodOptions" value="${escapeAttr(spec.inspect_method)}"></td>
     <td>
-      ${CHECK_INSPECTION_AQL_HTML}
       <select form="spec-row-${id}" name="aql_select" onchange="const p=this.closest('td').querySelector('.aql-percent'); p.style.display = this.value==='퍼센트' ? 'inline-block' : 'none';">
         <option value="4" ${aqlSel('4')}>4</option>
         <option value="1.5" ${aqlSel('1.5')}>1.5</option>
         <option value="0.65" ${aqlSel('0.65')}>0.65</option>
+        <option value="체크검사" ${aqlSel('체크검사')}>체크검사</option>
         <option value="전수" ${aqlSel('전수')}>전수</option>
         <option value="퍼센트" ${isPercent ? 'selected' : ''}>퍼센트</option>
       </select>

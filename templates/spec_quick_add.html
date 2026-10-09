@@ -123,6 +123,7 @@
                   <b style="color:#dc2626;">0.65</b> 중요항목 (*) — 샘플 가장 많음<br>
                   <b>1.5</b> 엄격<br>
                   <b>4</b> 일반 기준 — 샘플 가장 적음<br>
+                  <b>체크검사</b> 최대 5개(입고수량 5개 미만은 전량), 무결점<br>
                   <b>전수</b> 입고 수량 전체 검사<br>
                   <b>퍼센트</b> 입고 수량의 N% 검사
                 </div>
@@ -352,6 +353,7 @@ function renderItemRows() {
           <option value="4" ${it.aql_select==='4'?'selected':''}>4</option>
           <option value="1.5" ${it.aql_select==='1.5'?'selected':''}>1.5</option>
           <option value="0.65" ${it.aql_select==='0.65'?'selected':''}>0.65</option>
+          <option value="체크검사" ${it.aql_select==='체크검사'?'selected':''}>체크검사</option>
           <option value="전수" ${it.aql_select==='전수'?'selected':''}>전수</option>
           <option value="퍼센트" ${it.aql_select==='퍼센트'?'selected':''}>퍼센트</option>
         </select>

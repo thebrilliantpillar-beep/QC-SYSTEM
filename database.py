@@ -1562,6 +1562,92 @@ def ensure_material_classification_asset(asset_path=None):
         conn.close()
 
 
+CHECK_INSPECTION_AQL_MIGRATION_KEY = "check_inspection_aql_from_classification_v1"
+
+
+def ensure_check_inspection_aql_migration(asset_path=None):
+    """확정 분류 자산의 241개 대상 자재 기존 규격을 체크검사로 한 번만 전환한다.
+
+    완료 플래그와 specs 갱신을 같은 IMMEDIATE 트랜잭션에서 처리한다. 플래그가 기록된
+    뒤에는 분류나 사용자가 바꾼 AQL을 다시 덮어쓰지 않는다. 자산에 대상 번호가 정확히
+    241개가 아니면 운영 데이터를 건드리기 전에 중단한다.
+    """
+    # 완료된 DB는 이후 배포에서 분류 자산이 바뀌거나 사라져도 영향을 받지 않아야 한다.
+    # 따라서 파일 경로 계산·open·JSON 파싱보다 먼저 플래그를 확인한다.
+    conn = get_conn()
+    try:
+        done = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (CHECK_INSPECTION_AQL_MIGRATION_KEY,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if done:
+        return {"applied": False, "target_count": 241, "updated_spec_count": 0}
+
+    if asset_path is None:
+        asset_path = os.path.join(os.path.dirname(__file__), "data", "material_classifications.json")
+    with open(asset_path, "rb") as f:
+        payload = json.loads(f.read().decode("utf-8"))
+    mappings = payload.get("mappings")
+    if not isinstance(mappings, list):
+        raise ValueError("자재 분류 데이터의 mappings 배열이 없어.")
+
+    target_material_nos = set()
+    seen = {}
+    for idx, item in enumerate(mappings, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"자재 분류 데이터 {idx}번째 행 형식이 올바르지 않아.")
+        material_no = str(item.get("material_no") or "").strip()
+        major = str(item.get("major_category") or "").strip()
+        middle = str(item.get("middle_category") or "").strip()
+        if not material_no or not major or not middle:
+            raise ValueError(f"자재 분류 데이터 {idx}번째 행에 필수값 공백이 있어.")
+        pair = (major, middle)
+        if material_no in seen and seen[material_no] != pair:
+            raise ValueError(f"자재번호 '{material_no}'의 대/중분류가 서로 충돌해.")
+        seen[material_no] = pair
+        if (major in ("기타 소자류", "조립부품류 (소모품)")
+                or (major == "상품" and middle == "엘보/부싱 액세서리")):
+            target_material_nos.add(material_no)
+
+    if len(target_material_nos) != 241:
+        raise ValueError(
+            f"체크검사 전환 대상은 정확히 241개여야 하는데 {len(target_material_nos)}개야.")
+
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # 선조회와 트랜잭션 시작 사이에 다른 worker가 먼저 끝냈을 수 있으므로 재확인한다.
+        done = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (CHECK_INSPECTION_AQL_MIGRATION_KEY,)
+        ).fetchone()
+        if done:
+            conn.rollback()
+            return {"applied": False, "target_count": 241, "updated_spec_count": 0}
+
+        material_nos = sorted(target_material_nos)
+        placeholders = ",".join("?" for _ in material_nos)
+        cursor = conn.execute(
+            f"UPDATE specs SET aql = '체크검사' WHERE material_no IN ({placeholders})",
+            material_nos,
+        )
+        updated_count = cursor.rowcount
+        conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, '1')",
+            (CHECK_INSPECTION_AQL_MIGRATION_KEY,),
+        )
+        conn.commit()
+        return {"applied": True, "target_count": 241,
+                "updated_spec_count": updated_count}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _include_exclude_clause(columns, include_words=None, exclude_words=None):
     """포함/제외 다중 단어 검색 조건 생성 — 자재 관리(search_materials)/자재 찾기
     (search_bom_materials) 공용 헬퍼(8-1절 원칙, 복붙 금지). 포함 단어 여러 개 = OR

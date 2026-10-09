@@ -563,19 +563,16 @@
             <span style="color:#9ca3af;font-size:11.5px;">{{ s['inspect_method'] or '-' }}</span>
           </td>
           <td style="padding:3px 2px;">
-            {% if s.get('fixed_aql') %}
-            <span class="aql-fixed" data-spec-id="{{ s['id'] }}"><b>{{ s['aql'] | aql_display }}</b></span>
-            {% else %}
             <select class="aql-select" id="aql_{{ s['id'] }}" name="item_{{ s['id'] }}_aql_override"
                     data-spec-id="{{ s['id'] }}"
                     onchange="changeAQL({{ s['id'] }}); this.classList.toggle('changed', this.value !== '');">
               <option value="" data-qty="{{ s['sample_qty'] or '' }}">{{ s['aql'] | aql_display }} ★</option>
+              <option value="체크검사" data-qty="{{ sample_size('체크검사', intake.quantity) or '?' }}">체크검사</option>
               <option value="전수" data-qty="{{ intake.quantity or '' }}">전수</option>
               <option value="0.65" data-qty="{{ sample_size(0.65, intake.quantity) or '?' }}">0.65</option>
               <option value="1.5" data-qty="{{ sample_size(1.5, intake.quantity) or '?' }}">1.5</option>
               <option value="4" data-qty="{{ sample_size(4, intake.quantity) or '?' }}">4</option>
             </select>
-            {% endif %}
           </td>
           <td id="sqty_{{ s['id'] }}"><b>{{ s['sample_qty'] or '?' }}</b></td>
 
