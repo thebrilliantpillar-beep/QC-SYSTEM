@@ -201,7 +201,7 @@ def init_db():
         cur.execute("ALTER TABLE materials ADD COLUMN unit TEXT DEFAULT 'mm'")
     if "drawing_file" not in existing_material_cols:
         cur.execute("ALTER TABLE materials ADD COLUMN drawing_file TEXT")
-    # 커스텀(자유양식) 성적서 — 이 자재에 지정된 템플릿 id. NULL이면 기본(xlsx) 양식 사용
+    # 폐지된 커스텀 성적서 양식의 레거시 지정값 보존용. 앱은 이 값을 출력에 사용하지 않는다.
     if "custom_template_id" not in existing_material_cols:
         cur.execute("ALTER TABLE materials ADD COLUMN custom_template_id INTEGER")
     # 전수검사 — NULL이면 전수검사 없음. 열 정의는 JSON {"note":"...", "columns":[...]}
@@ -260,9 +260,8 @@ def init_db():
         )
     """)
 
-    # 0-1. 커스텀 성적서 템플릿 — 드래그앤드롭 디자이너로 만든 자유 배치 양식
-    #      layout_json = 요소 배열 [{kind,x,y,w,h,field?,text?,size,bold,align}, ...]
-    #      좌표는 캔버스 기준 px(canvas_w × canvas_h). 출력 시 reportlab로 PDF 직접 그림.
+    # 0-1. 폐지된 커스텀 성적서 양식의 레거시 데이터 보존용 테이블.
+    #      기존 레코드 삭제·변환 없이 유지하며, 앱 화면·라우트·출력에서는 사용하지 않는다.
     cur.execute("""
         CREATE TABLE IF NOT EXISTS custom_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

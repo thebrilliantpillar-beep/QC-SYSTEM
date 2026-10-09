@@ -237,7 +237,6 @@ PERM_GROUPS = [
     ]),
     ("출력", [
         ("output", "성적서 출력"),
-        ("custom_template", "커스텀 성적서 양식 제작·지정"),
     ]),
     ("자재", [
         ("material_view",   "자재 열람"),
@@ -4097,39 +4096,13 @@ def _save_signature_upload(inspection_id, file_storage):
 def _generate_report_files(inspection_id, approver, signature_path):
     """DB에 저장된 성적서 데이터를 report_builder 입력 형식으로 변환해 xlsx/PDF 생성.
     조립품 그룹 검사면 부품별로 시트를 나눈 통합 워크북을 만든다.
-    자재에 커스텀(자유양식) 성적서가 지정돼 있으면 reportlab로 PDF만 직접 그린다.
-    반환: (xlsx_path, pdf_path, error_message, is_custom) — error_message는 성공 시 None,
-          is_custom=True면 기준서 페이지가 없는 커스텀 PDF이므로 호출부에서 병합 방식을 달리해야 함"""
+    반환: (xlsx_path, pdf_path, error_message, is_custom) — error_message는 성공 시 None.
+
+    커스텀 성적서 양식 기능은 폐지됐다. 보존된 레거시 템플릿/지정값이 있더라도
+    새 출력과 재출력은 항상 표준 XLSX/PDF 양식을 사용한다."""
     header, items = db.get_inspection(inspection_id)
     if header is None:
         return None, None, "성적서 정보를 찾을 수 없어.", False
-
-    # ── 커스텀(자유양식) 성적서가 지정된 자재면 reportlab 경로로 분기 ──
-    template_id = db.get_material_template_id(header["material_no"])
-    if template_id:
-        tmpl = db.get_custom_template(template_id)
-        if tmpl is None:
-            return None, None, "지정된 커스텀 양식을 찾을 수 없어(양식이 삭제됐을 수 있어).", False
-        import custom_report
-        data = {
-            "fields": _custom_fields_from_header(header),
-            "items": _custom_items_from_inspection(items),
-            "signature_path": signature_path or header["signature_path"],
-            "logo_path": report_builder.LOGO_PATH,
-        }
-        fname = report_builder.build_report_filename(
-            header["supplier"], header["material_no"], header["material_name"] or "",
-            inspect_date=header["inspect_date"])
-        out_pdf = report_builder._dedupe_path(
-            os.path.join(report_builder.report_output_dir(), fname + ".pdf"))
-        try:
-            path, err = custom_report.build_custom_report(tmpl, data, out_pdf)
-        except Exception:
-            import traceback
-            return None, None, f"커스텀 성적서 생성 중 오류:\n{traceback.format_exc(limit=3)}", True
-        if err or not path:
-            return None, None, err or "커스텀 성적서 생성 실패", True
-        return None, path, None, True   # xlsx 없음 · 커스텀 표시
 
     rb_header = {
         "vendor": header["supplier"],
@@ -6620,200 +6593,6 @@ def output_download_zip():
     today = _dt.now().strftime("%Y%m%d_%H%M%S")
     return send_file(buf, as_attachment=True, download_name=f"성적서_{today}.zip",
                      mimetype="application/zip")
-
-
-# ---------- 커스텀(자유양식) 성적서 템플릿 ----------
-
-# 디자이너에서 끌어다 쓰는 데이터 필드 → 성적서 헤더에서 값을 뽑는 규칙
-CUSTOM_FIELD_KEYS = ["자재번호", "제품명", "업체명", "검사일", "검사자",
-                     "로트번호", "도면번호", "입고수량", "종합판정"]
-
-
-def _custom_fields_from_header(header):
-    """성적서 헤더(dict/Row)에서 디자이너 데이터 필드 값들을 뽑는다."""
-    def g(k):
-        try:
-            return header[k]
-        except (KeyError, IndexError, TypeError):
-            return None
-    qty = g("quantity")
-    overall = db._lot_state(g("status"), g("approval_type"))
-    if overall in ("미결", "대체됨"):
-        overall = ""    # 발행 시점엔 판정이 확정돼 있어야 정상
-    return {
-        "자재번호": g("material_no") or "",
-        "제품명":   g("material_name") or "",
-        "업체명":   g("supplier") or "",
-        "검사일":   g("inspect_date") or "",
-        "검사자":   g("inspector") or "",
-        "로트번호": g("po_number") or "",
-        "도면번호": report_builder.compute_drawing_no(g("material_no") or ""),
-        "입고수량": f"{qty:,}" if isinstance(qty, int) else (str(qty) if qty is not None else ""),
-        "종합판정": overall,
-    }
-
-
-def _custom_items_from_inspection(items):
-    """검사 항목들을 커스텀 표에 넣을 행 형식으로 변환."""
-    rows = []
-    for it in (items or []):
-        rows.append({
-            "label":   report_builder.item_label(it["item_name"], it["aql"]),
-            "spec":    it["spec_display"] or "",
-            "method":  it["inspect_method"] or "",
-            "value":   it["measured_value"] or "",
-            "verdict": it["result"] or "",
-        })
-    return rows
-
-
-@app.route("/custom-templates")
-@perm_required("custom_template")
-def custom_template_list():
-    templates = db.list_custom_templates()
-    return render_template("custom_template_list.html", templates=templates)
-
-
-@app.route("/custom-templates/create", methods=["POST"])
-@perm_required("custom_template")
-def custom_template_create():
-    name = (request.form.get("name") or "새 성적서 양식").strip()
-    tid = db.create_custom_template(name=name, created_by=g.user["username"])
-    record_change("커스텀 양식 생성", "custom_template", tid, name)
-    return redirect(url_for("custom_template_edit", template_id=tid))
-
-
-@app.route("/custom-templates/<int:template_id>")
-@perm_required("custom_template")
-def custom_template_edit(template_id):
-    tmpl = db.get_custom_template(template_id)
-    if tmpl is None:
-        flash("양식을 찾을 수 없어.")
-        return redirect(url_for("custom_template_list"))
-    return render_template("custom_template_edit.html",
-                           tmpl=tmpl, field_keys=CUSTOM_FIELD_KEYS)
-
-
-@app.route("/custom-templates/<int:template_id>/save", methods=["POST"])
-@perm_required("custom_template")
-def custom_template_save(template_id):
-    from flask import jsonify
-    tmpl = db.get_custom_template(template_id)
-    if tmpl is None:
-        return jsonify({"ok": False, "error": "양식을 찾을 수 없어."}), 404
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or tmpl["name"]).strip() or "제목 없음"
-    layout = payload.get("layout")
-    import json as _json
-    layout_json = _json.dumps(layout, ensure_ascii=False) if layout is not None else None
-    db.update_custom_template(
-        template_id, name=name, layout_json=layout_json,
-        canvas_w=payload.get("canvas_w"), canvas_h=payload.get("canvas_h"),
-        orientation=payload.get("orientation"),
-    )
-    record_change("커스텀 양식 저장", "custom_template", template_id, name)
-    return jsonify({"ok": True})
-
-
-@app.route("/custom-templates/<int:template_id>/delete", methods=["POST"])
-@perm_required("custom_template")
-def custom_template_delete(template_id):
-    tmpl = db.get_custom_template(template_id)
-    if tmpl:
-        db.delete_custom_template(template_id)
-        record_change("커스텀 양식 삭제", "custom_template", template_id, tmpl["name"])
-        flash(f"'{tmpl['name']}' 양식을 삭제했어.")
-    return redirect(url_for("custom_template_list"))
-
-
-@app.route("/custom-templates/<int:template_id>/assign", methods=["GET", "POST"])
-@perm_required("custom_template")
-def custom_template_assign(template_id):
-    tmpl = db.get_custom_template(template_id)
-    if tmpl is None:
-        flash("양식을 찾을 수 없어.")
-        return redirect(url_for("custom_template_list"))
-
-    if request.method == "POST":
-        chosen = set(request.form.getlist("material_no"))
-        # 화면에 실제로 표시됐던 자재만 대상으로 처리(검색 필터로 안 보인 자재는 건드리지 않음)
-        shown = set(request.form.getlist("shown"))
-        current = {m["material_no"] for m in db.materials_for_template(template_id)}
-        # 이 화면에서 체크 해제된(=현재 이 양식이지만 이번에 안 고른) 자재 → 기본 양식
-        for mno in (current & shown) - chosen:
-            db.set_material_template(mno, None)
-        # 새로 고른 자재 → 이 양식(다른 양식에 물려 있었어도 이쪽으로 이동)
-        for mno in chosen - current:
-            db.set_material_template(mno, template_id)
-        record_change("커스텀 양식 지정", "custom_template", template_id,
-                      f"{len(chosen)}개 자재")
-        flash(f"'{tmpl['name']}' 양식 지정을 저장했어(선택 {len(chosen)}개).")
-        return redirect(url_for("custom_template_assign", template_id=template_id))
-
-    q = (request.args.get("q") or "").strip()
-    materials = db.get_materials()
-    if q:
-        materials = [m for m in materials
-                     if q.lower() in (m["material_no"] or "").lower()
-                     or q.lower() in (m["material_name"] or "").lower()]
-    # 다른 템플릿에 이미 물린 자재는 표시(중복 지정 방지 안내용)
-    other_names = {t["id"]: t["name"] for t in db.list_custom_templates()}
-    return render_template("custom_template_assign.html",
-                           tmpl=tmpl, materials=materials, q=q,
-                           other_names=other_names, this_id=template_id)
-
-
-@app.route("/custom-templates/<int:template_id>/preview.pdf")
-@perm_required("custom_template")
-def custom_template_preview(template_id):
-    import custom_report
-    tmpl = db.get_custom_template(template_id)
-    if tmpl is None:
-        flash("양식을 찾을 수 없어.")
-        return redirect(url_for("custom_template_list"))
-
-    # 미리보기 데이터: 이 양식이 지정된 자재의 최신 승인 성적서가 있으면 그걸로, 없으면 샘플값
-    data = _custom_preview_data(template_id)
-    # 미리보기는 실제 발행폴더가 아니라 임시폴더에 만든다(성적서 발행 폴더 오염 방지)
-    import tempfile
-    tmp_pdf = os.path.join(tempfile.gettempdir(), f"iqc_preview_custom_{template_id}.pdf")
-    path, err = custom_report.build_custom_report(tmpl, data, tmp_pdf)
-    if err or not path:
-        flash(f"미리보기 생성 실패: {err or '알 수 없는 오류'}")
-        return redirect(url_for("custom_template_edit", template_id=template_id))
-    return send_file(path, mimetype="application/pdf")
-
-
-def _custom_preview_data(template_id):
-    """미리보기용 데이터 — 지정 자재의 최신 승인건이 있으면 실제값, 없으면 샘플."""
-    from datetime import date
-    for m in db.materials_for_template(template_id):
-        insp = db.latest_inspection_for_material(m["material_no"]) \
-            if hasattr(db, "latest_inspection_for_material") else None
-        if insp:
-            header, items = db.get_inspection(insp["id"])
-            if header:
-                return {
-                    "fields": _custom_fields_from_header(header),
-                    "items": _custom_items_from_inspection(items),
-                    "signature_path": header["signature_path"],
-                    "logo_path": report_builder.LOGO_PATH,
-                }
-    # 샘플 데이터
-    return {
-        "fields": {
-            "자재번호": "600005P086", "제품명": "둥근머리 볼트(M416L,STS304)",
-            "업체명": "ACE", "검사일": date.today().isoformat(), "검사자": "홍길동",
-            "로트번호": "CK260823-01", "도면번호": "A600005-086", "입고수량": "2,000",
-        },
-        "items": [
-            {"label": "*A", "spec": "Ø9.0 ±0.1", "method": "캘리퍼", "value": "9.02", "verdict": "합격"},
-            {"label": "B", "spec": "16 +0.2", "method": "캘리퍼", "value": "16.1", "verdict": "합격"},
-            {"label": "C", "spec": "백색 아연도금 5㎛ 이상", "method": "육안", "value": "양호", "verdict": "합격"},
-        ],
-        "signature_path": None,
-        "logo_path": report_builder.LOGO_PATH,
-    }
 
 
 # ---------- 출력 기록 ----------
