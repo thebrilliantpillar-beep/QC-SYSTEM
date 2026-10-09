@@ -53,6 +53,15 @@ class CheckInspectionPolicyTest(unittest.TestCase):
             sess["last_seen"] = 9999999999
         return user
 
+    def _login_material_user(self, client, username="material_editor", can_edit=True):
+        permissions = "material_view,material_edit" if can_edit else "material_view"
+        db.create_user(username, "pw", "자재 담당자", permissions)
+        user = db.get_user_by_username(username)
+        with client.session_transaction() as sess:
+            sess["user_id"] = user["id"]
+            sess["last_seen"] = 9999999999
+        return user
+
     def _snapshot_inspection(self, material_no, quantity, aql, sample_qty, ac,
                              result="합격", actual_time_sec=10, created_by_user_id=None):
         spec = db.get_specs_by_material(material_no)[0]
@@ -263,6 +272,92 @@ class CheckInspectionPolicyTest(unittest.TestCase):
         response = client.get(f"/ncr/new/{inspection_id}")
         self.assertEqual(response.status_code, 200)
         self.assertIn('name="sample_qty" min="0" value="8"', response.get_data(as_text=True))
+
+    def test_target_material_detail_shows_effective_policy_and_preserves_raw_aql(self):
+        # 운영 분류 자산에서 실제 체크검사 대상인 자재번호를 사용한다.
+        db.ensure_material_classification_asset()
+        material_no = "600007P051"
+        db.upsert_material(material_no, "IC")
+        spec_id = db.add_spec(material_no, "IC", "A", "10±1", "numeric", 9, 11,
+                              "버니어", "4", 1)
+        client = self.qms.app.test_client()
+        self._login_material_user(client)
+
+        response = client.get(f"/spec/{material_no}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="checkInspectionPolicyCard"', html)
+        self.assertIn("적용 검사 정책: 체크검사", html)
+        self.assertIn("최대 5개(입고수량 5개 미만은 전량)", html)
+        self.assertIn("Ac0 / Re1(무결점)", html)
+        self.assertIn("원본 AQL(보존·편집)", html)
+        self.assertIn('<option value="4" selected>4</option>', html)
+        self.assertNotIn('<option value="체크검사"', html)
+
+        response = client.post(f"/spec/{material_no}/item/{spec_id}/update", data={
+            "item_name": "A", "spec_display": "10±1", "judge_type": "numeric",
+            "lower_limit": "9", "upper_limit": "11", "inspect_method": "버니어",
+            "aql_select": "0.65", "aql_percent": "", "item_order": "1",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(str(db.get_spec_item(spec_id)["aql"]), "0.65")
+        self.assertNotEqual(db.get_spec_item(spec_id)["aql"], "체크검사")
+
+        response = client.post(f"/spec/{material_no}/item/add", data={
+            "item_name": "B", "spec_display": "육안 양호", "judge_type": "ok_ng",
+            "lower_limit": "", "upper_limit": "", "inspect_method": "육안",
+            "aql_select": "1.5", "aql_percent": "", "item_order": "2",
+        }, headers={"X-Requested-With": "XMLHttpRequest"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(str(payload["spec"]["aql"]), "1.5")
+        self.assertEqual(str(db.get_spec_item(payload["spec"]["id"])["aql"]), "1.5")
+        self.assertIn("CHECK_INSPECTION_AQL_HTML", html)
+
+    def test_non_target_material_detail_keeps_original_aql_display(self):
+        self._material("NON_TARGET", "상품", "다른 중분류", aql="1.5")
+        client = self.qms.app.test_client()
+        self._login_material_user(client)
+
+        response = client.get("/spec/NON_TARGET")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertNotIn('id="checkInspectionPolicyCard"', html)
+        self.assertNotIn("적용: 체크검사", html)
+        self.assertNotIn("원본 AQL(보존·편집)", html)
+        self.assertNotIn("적용 AQL / 원본 AQL", html)
+        self.assertIn('<option value="1.5" selected>1.5</option>', html)
+        self.assertNotIn('<option value="체크검사"', html)
+
+    def test_read_only_target_shows_effective_and_raw_without_edit_select(self):
+        self._material("READ_ONLY", "기타 소자류", "IC", aql="퍼센트10")
+        client = self.qms.app.test_client()
+        self._login_material_user(client, username="material_viewer", can_edit=False)
+
+        response = client.get("/spec/READ_ONLY")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("적용: 체크검사", html)
+        self.assertIn("원본: 10%", html)
+        self.assertIn("적용 AQL / 원본 AQL", html)
+        self.assertNotIn('name="aql_select"', html)
+
+    def test_removing_target_classification_removes_effective_policy_not_raw_aql(self):
+        self._material("REMOVED", "상품", "엘보/부싱 액세서리", aql="0.65")
+        client = self.qms.app.test_client()
+        self._login_material_user(client)
+        self.assertIn("적용 검사 정책: 체크검사",
+                      client.get("/spec/REMOVED").get_data(as_text=True))
+
+        db.update_material_classification("REMOVED", "", "")
+        response = client.get("/spec/REMOVED")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertNotIn('id="checkInspectionPolicyCard"', html)
+        self.assertNotIn("적용: 체크검사", html)
+        self.assertIn('<option value="0.65" selected>0.65</option>', html)
+        self.assertEqual(str(db.get_specs_by_material("REMOVED")[0]["aql"]), "0.65")
 
 
 if __name__ == "__main__":

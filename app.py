@@ -2335,7 +2335,7 @@ def spec_new():
                            full_inspect_config=None, method_options=gauge_method_options(),
                            major_categories=db.list_major_categories(),
                            classification_pairs=db.list_material_classification_pairs(),
-                           is_new=True, bom_links=[])
+                           is_new=True, bom_links=[], check_inspection_policy=False)
 
 
 @app.route("/spec/<material_no>")
@@ -2361,7 +2361,8 @@ def spec_detail(material_no):
                            method_options=gauge_method_options(),
                            major_categories=db.list_major_categories(),
                            classification_pairs=db.list_material_classification_pairs(),
-                           bom_links=bom_links, bom_parent_exists=bom_parent_exists)
+                           bom_links=bom_links, bom_parent_exists=bom_parent_exists,
+                           check_inspection_policy=_is_check_inspection_material(material_no))
 
 
 @app.route("/spec/<material_no>/full-inspect-config", methods=["POST"])
