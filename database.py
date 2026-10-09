@@ -986,6 +986,44 @@ def init_db():
                 "ON sticker_reference_items(model_no)")
     # ---- 2026-09-21 신규 끝 ----
 
+    # ---- 2026-10-10 신규: 완제품 모델 마스터(TASK #66 패키지 1B) ----
+    # product_model_history는 append-only — 수정·삭제 함수/UI를 만들지 말 것.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS product_models (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_no             TEXT NOT NULL,
+            model_key            TEXT NOT NULL UNIQUE,
+            display_name         TEXT,
+            voltage_code         TEXT,
+            voltage_kv           INTEGER,
+            suffix_code          TEXT,
+            pcode                TEXT,
+            phase_type           TEXT NOT NULL,
+            housing_required_qty INTEGER NOT NULL,
+            is_active            INTEGER NOT NULL DEFAULT 1,
+            revision             INTEGER NOT NULL DEFAULT 1,
+            note                 TEXT,
+            created_by           TEXT,
+            created_at           TEXT DEFAULT (datetime('now','localtime')),
+            updated_by           TEXT,
+            updated_at           TEXT
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS product_model_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_id    INTEGER NOT NULL REFERENCES product_models(id),
+            revision    INTEGER NOT NULL,
+            change_type TEXT NOT NULL,
+            before_json TEXT,
+            after_json  TEXT,
+            reason      TEXT,
+            changed_by  TEXT,
+            changed_at  TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    # ---- 2026-10-10 신규 끝 ----
+
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
     for col in ("round_no", "confirmed_by", "confirmed_at", "confirm_signature"):
@@ -3985,6 +4023,254 @@ def set_setting(key, value):
 def traceability_enabled():
     """제품검사 이력추적 기능 스위치 — 기본 OFF, 켜기 전까지 신규 기능이 동작하지 않게 하는 용도."""
     return get_setting("traceability_enabled", "0") == "1"
+
+def set_traceability_enabled(on):
+    """추적 기능 스위치 저장('1'/'0') — 같은 키를 traceability_enabled()가 읽는다."""
+    set_setting("traceability_enabled", "1" if on else "0")
+
+
+# ---------- 완제품 모델 마스터 (TASK #66 패키지 1B) ----------
+
+_MODEL_NO_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_PM_IDENTITY_FIELDS = ("voltage_code", "voltage_kv", "suffix_code", "pcode",
+                       "phase_type", "housing_required_qty")
+
+
+def normalize_model_key(s):
+    """모델번호 정규화 키 — 모든 공백 제거 후 대문자."""
+    return re.sub(r"\s+", "", s or "").upper()
+
+
+def _pm_clean(data):
+    """폼 입력을 검증·정리해 dict로 돌려준다(하우징 수량은 형식에서 서버가 강제)."""
+    def txt(k):
+        v = data.get(k)
+        return ("" if v is None else str(v).strip()) or None
+    phase = txt("phase_type")
+    if phase not in ("single", "three"):
+        raise ValueError("제품 형식은 단상 또는 3상이어야 해.")
+    kv = txt("voltage_kv")
+    if kv is not None:
+        try:
+            kv = int(kv)
+        except ValueError:
+            raise ValueError("전압(kV)은 숫자로 입력해줘.")
+    return {"display_name": txt("display_name"), "voltage_code": txt("voltage_code"),
+            "voltage_kv": kv, "suffix_code": txt("suffix_code"), "pcode": txt("pcode"),
+            "phase_type": phase, "housing_required_qty": 1 if phase == "single" else 3,
+            "note": txt("note")}
+
+
+def _pm_snapshot(row):
+    return {k: row[k] for k in ("display_name", "note") + _PM_IDENTITY_FIELDS}
+
+
+_PM_FULL_KEYS = ("model_no", "model_key", "display_name", "voltage_code", "voltage_kv",
+                 "suffix_code", "pcode", "phase_type", "housing_required_qty", "is_active",
+                 "revision", "note")
+
+
+def _pm_full(conn, model_id):
+    """이력용 전체 상태 스냅샷 — 같은 트랜잭션 연결에서 한 행을 읽어 고정 키 순서 dict로."""
+    row = conn.execute("SELECT * FROM product_models WHERE id=?", (model_id,)).fetchone()
+    return {k: row[k] for k in _PM_FULL_KEYS}
+
+
+def _pm_history(conn, model_id, revision, change_type, before, after, reason, user):
+    conn.execute(
+        "INSERT INTO product_model_history (model_id, revision, change_type, before_json, "
+        "after_json, reason, changed_by) VALUES (?,?,?,?,?,?,?)",
+        (model_id, revision, change_type,
+         json.dumps(before, ensure_ascii=False) if before is not None else None,
+         json.dumps(after, ensure_ascii=False) if after is not None else None,
+         reason, user))
+
+
+def list_product_models(search=None, active=None):
+    """모델번호·표시명 부분일치 검색. active가 True/False면 사용 여부로 거른다."""
+    sql, args = "SELECT * FROM product_models WHERE 1=1", []
+    if search:
+        sql += " AND (model_no LIKE ? OR display_name LIKE ?)"
+        args += [f"%{search}%"] * 2
+    if active is not None:
+        sql += " AND is_active = ?"
+        args.append(1 if active else 0)
+    conn = get_conn()
+    rows = conn.execute(sql + " ORDER BY model_no", args).fetchall()
+    conn.close()
+    return rows
+
+
+def get_product_model(model_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM product_models WHERE id=?", (model_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def get_product_model_history(model_id):
+    """변경 이력(최신순)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM product_model_history WHERE model_id=? "
+                        "ORDER BY id DESC", (model_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def create_product_model(data, user):
+    """모델 등록 + create 이력을 한 트랜잭션으로. 모델번호 중복·형식 오류는 ValueError."""
+    model_no = (data.get("model_no") or "").strip()
+    if not model_no or len(model_no) > 40 or not _MODEL_NO_RE.match(model_no):
+        raise ValueError("모델번호는 40자 이하 영문·숫자·하이픈·밑줄만 쓸 수 있어.")
+    c = _pm_clean(data)
+    key = normalize_model_key(model_no)
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM product_models WHERE model_key=?", (key,)).fetchone():
+            raise ValueError("이미 등록된 모델번호야.")
+        cur = conn.execute(
+            "INSERT INTO product_models (model_no, model_key, display_name, voltage_code, "
+            "voltage_kv, suffix_code, pcode, phase_type, housing_required_qty, note, created_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (model_no, key, c["display_name"], c["voltage_code"], c["voltage_kv"],
+             c["suffix_code"], c["pcode"], c["phase_type"], c["housing_required_qty"],
+             c["note"], user))
+        mid = cur.lastrowid
+        _pm_history(conn, mid, 1, "create", None, _pm_full(conn, mid), None, user)
+        conn.commit()
+        return mid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_product_model(model_id, data, user, reason):
+    """표시명·비고는 개정 없이, 식별 정보 변경은 개정+1(사유 필수). model_no는 못 바꾼다."""
+    c = _pm_clean(data)
+    reason = (reason or "").strip() or None
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM product_models WHERE id=?", (model_id,)).fetchone()
+        if not row:
+            raise ValueError("모델을 찾을 수 없어.")
+        before, after = _pm_snapshot(row), c
+        if before == after:
+            conn.rollback()
+            return row["revision"]
+        ident_changed = any(before[k] != after[k] for k in _PM_IDENTITY_FIELDS)
+        if ident_changed and not reason:
+            raise ValueError("식별 정보를 바꾸려면 사유를 입력해줘.")
+        rev = row["revision"] + (1 if ident_changed else 0)
+        full_before = _pm_full(conn, model_id)
+        conn.execute(
+            "UPDATE product_models SET display_name=?, voltage_code=?, voltage_kv=?, "
+            "suffix_code=?, pcode=?, phase_type=?, housing_required_qty=?, note=?, revision=?, "
+            "updated_by=?, updated_at=datetime('now','localtime') WHERE id=?",
+            (c["display_name"], c["voltage_code"], c["voltage_kv"], c["suffix_code"], c["pcode"],
+             c["phase_type"], c["housing_required_qty"], c["note"], rev, user, model_id))
+        _pm_history(conn, model_id, rev, "update", full_before, _pm_full(conn, model_id),
+                    reason, user)
+        conn.commit()
+        return rev
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def set_product_model_active(model_id, is_active, user, reason):
+    """사용 중지/재사용 전환 + 이력(deactivate/reactivate). 개정번호는 유지."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM product_models WHERE id=?", (model_id,)).fetchone()
+        if not row:
+            raise ValueError("모델을 찾을 수 없어.")
+        flag = 1 if is_active else 0
+        if row["is_active"] == flag:
+            conn.rollback()
+            return
+        before = _pm_full(conn, model_id)
+        conn.execute("UPDATE product_models SET is_active=?, updated_by=?, "
+                     "updated_at=datetime('now','localtime') WHERE id=?", (flag, user, model_id))
+        _pm_history(conn, model_id, row["revision"], "reactivate" if flag else "deactivate",
+                    before, _pm_full(conn, model_id),
+                    (reason or "").strip() or None, user)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _pm_seed_rows(conn):
+    """시드 계산 공용부 — STICKER_MODEL_MATCH_KEYS 21종 × 분류 규칙으로 후보 행 생성."""
+    rules = get_classify_rules()
+    suffix_map = dict(rules["suffix"])
+    existing = {r["model_key"] for r in conn.execute("SELECT model_key FROM product_models")}
+    out = []
+    for model_no, (volt, suf, pc) in STICKER_MODEL_MATCH_KEYS.items():
+        volt_label = rules["voltage"].get(volt)
+        suf_label = suffix_map.get(suf)
+        missing = []
+        if not volt_label:
+            missing.append(f"전압코드 {volt}")
+        if not suf_label:
+            missing.append(f"접미사 {suf}")
+        label = " ".join(p for p in (volt_label, suf_label, f"({pc}P)" if pc else None) if p)
+        m = re.search(r"\d+", volt_label or "")
+        phase = "single" if suf == "S" else "three"
+        out.append({"model_no": model_no, "voltage_code": volt, "suffix_code": suf, "pcode": pc,
+                    "label": label, "voltage_kv": int(m.group()) if m else None,
+                    "phase_type": phase, "housing_required_qty": 1 if phase == "single" else 3,
+                    "exists": normalize_model_key(model_no) in existing,
+                    "missing_rules": missing})
+    return out
+
+
+def product_model_seed_preview():
+    """초기 모델 21종 시드 미리보기(쓰기 없음)."""
+    conn = get_conn()
+    try:
+        return _pm_seed_rows(conn)
+    finally:
+        conn.close()
+
+
+def apply_product_model_seed(user):
+    """없는 model_key만 INSERT(덮어쓰기 금지) + seed 이력. (삽입 건수, 건너뜀 건수) 반환."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        inserted = skipped = 0
+        for r in _pm_seed_rows(conn):
+            if r["exists"]:
+                skipped += 1
+                continue
+            name = (r["model_no"] + " " + r["label"]).strip()
+            cur = conn.execute(
+                "INSERT INTO product_models (model_no, model_key, display_name, voltage_code, "
+                "voltage_kv, suffix_code, pcode, phase_type, housing_required_qty, created_by) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (r["model_no"], normalize_model_key(r["model_no"]), name, r["voltage_code"],
+                 r["voltage_kv"], r["suffix_code"], r["pcode"], r["phase_type"],
+                 r["housing_required_qty"], user))
+            _pm_history(conn, cur.lastrowid, 1, "seed", None,
+                        _pm_full(conn, cur.lastrowid), None, user)
+            inserted += 1
+        conn.commit()
+        return inserted, skipped
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def update_inspection_status(inspection_id, status, approver=None, reject_reason=None,

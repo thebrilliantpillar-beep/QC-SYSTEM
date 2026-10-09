@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}추적 기능 스위치 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>추적 기능 스위치</h2>
+
+<div class="card">
+  <p>현재 상태: <b>{{ '켜짐' if enabled else '꺼짐' }}</b></p>
+  {% if enabled %}
+  <form method="POST">
+    <input type="hidden" name="action" value="disable">
+    <button type="submit" class="btn secondary">추적 기능 끄기</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <h3 style="margin-top:0; font-size:15px;">새 권한을 가진 계정</h3>
+  <p class="muted">추적 기능을 켜면 아래 계정이 해당 새 권한을 실제로 쓸 수 있게 돼. (admin 계정은 모든 권한을 자동으로 가져.)</p>
+  <table>
+    <thead><tr><th>아이디</th><th>이름</th><th>가진 새 권한</th></tr></thead>
+    <tbody>
+      {% for h in holders %}
+      <tr>
+        <td>{{ h['username'] }}</td>
+        <td>{{ h['display_name'] or '' }}</td>
+        <td>{% for p in h['perms'] %}{{ perm_labels.get(p, p) }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" style="text-align:center; color:var(--muted);">해당 계정이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if not enabled %}
+<div class="card">
+  <form method="POST">
+    <input type="hidden" name="action" value="enable">
+    <label style="display:flex; align-items:center; gap:8px; font-weight:normal;">
+      <input type="checkbox" name="confirm" value="1" required> 위 목록을 확인했습니다
+    </label>
+    <button type="submit">추적 기능 켜기</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

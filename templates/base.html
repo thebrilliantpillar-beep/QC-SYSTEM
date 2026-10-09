@@ -360,6 +360,7 @@
       <a href="{{ url_for('outbound_rules') }}">분류 규칙 관리</a>
       <a href="{{ url_for('outbound_scan_list') }}">출하검사 스캔</a>
       <a href="{{ url_for('outbound_qr_export_history') }}">QR 출력 이력</a>
+      {% if traceability_on and 'product_model_manage' in perms %}<a href="{{ url_for('product_model_list') }}">완제품 모델 관리</a>{% endif %}
     </div>
   </div>
   {% endif %}
@@ -432,6 +433,7 @@
       {% if 'logs' in perms %}<a href="{{ url_for('activity_logs') }}">활동 로그</a>{% endif %}
       {% if 'users' in perms %}<a href="{{ url_for('data_health') }}">🩺 데이터 점검</a>{% endif %}
       {% if 'users' in perms %}<a href="{{ url_for('data_migrate') }}">📦 데이터 이전</a>{% endif %}
+      {% if is_admin %}<a href="{{ url_for('traceability_switch') }}">추적 기능 스위치</a>{% endif %}
     </div>
   </div>
   {% endif %}

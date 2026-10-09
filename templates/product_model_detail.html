@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}완제품 모델 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>{{ '완제품 모델: ' ~ model['model_no'] if model else '새 완제품 모델 등록' }}</h2>
+<p><a href="{{ url_for('product_model_list') }}">← 목록으로</a></p>
+
+<div class="card">
+  <form method="POST" action="{{ url_for('product_model_detail', model_id=model['id']) if model else url_for('product_model_new') }}">
+    {% if model %}
+    <p>모델번호: <b>{{ model['model_no'] }}</b> (모델번호는 바꿀 수 없어. 바꾸려면 새 모델로 등록해줘.) / 개정 {{ model['revision'] }} / {{ '사용 중' if model['is_active'] else '사용 중지' }}</p>
+    {% else %}
+    <label>모델번호 (영문·숫자·하이픈·밑줄, 40자 이하)</label>
+    <input type="text" name="model_no" value="{{ form.get('model_no', '') }}" maxlength="40" required>
+    {% endif %}
+
+    <label>표시명</label>
+    <input type="text" name="display_name" value="{{ form.get('display_name') or '' }}">
+    <label>비고</label>
+    <input type="text" name="note" value="{{ form.get('note') or '' }}">
+
+    <h3 style="font-size:15px;">식별 정보</h3>
+    {% if model %}<p class="muted">여기를 바꾸면 개정번호가 올라가고 이력에 남아. 사유를 꼭 적어줘.</p>{% endif %}
+    <label>전압코드</label>
+    <input type="text" name="voltage_code" value="{{ form.get('voltage_code') or '' }}">
+    <label>전압(kV)</label>
+    <input type="number" name="voltage_kv" value="{{ form.get('voltage_kv') if form.get('voltage_kv') is not none else '' }}">
+    <label>접미사 코드</label>
+    <input type="text" name="suffix_code" value="{{ form.get('suffix_code') or '' }}">
+    <label>P코드</label>
+    <input type="text" name="pcode" value="{{ form.get('pcode') or '' }}">
+    <label>제품 형식</label>
+    <select name="phase_type">
+      <option value="single" {{ 'selected' if form.get('phase_type') == 'single' else '' }}>단상 (하우징 1개)</option>
+      <option value="three" {{ 'selected' if form.get('phase_type', 'three') == 'three' else '' }}>3상 (하우징 3개)</option>
+    </select>
+    {% if model %}
+    <label>사유 (식별 정보를 바꿀 때 필수)</label>
+    <input type="text" name="reason">
+    {% endif %}
+    <button type="submit">{{ '저장' if model else '등록' }}</button>
+  </form>
+</div>
+
+{% if model %}
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">{{ '사용 중지' if model['is_active'] else '다시 사용' }}</h3>
+  <form method="POST" action="{{ url_for('product_model_active', model_id=model['id']) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <input type="hidden" name="is_active" value="{{ 0 if model['is_active'] else 1 }}">
+    <input type="text" name="reason" placeholder="사유" style="flex:1; min-width:160px;">
+    <button type="submit" class="btn secondary" style="margin-top:0;">{{ '사용 중지' if model['is_active'] else '다시 사용' }}</button>
+  </form>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <h3 style="margin-top:0; font-size:15px;">변경 이력</h3>
+  <table>
+    <thead><tr><th>개정</th><th>구분</th><th>사유</th><th>변경자</th><th>시각</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+      <tr>
+        <td>{{ h['revision'] }}</td>
+        <td>{{ {'create':'등록','update':'수정','deactivate':'사용 중지','reactivate':'다시 사용','seed':'초기 불러오기'}.get(h['change_type'], h['change_type']) }}</td>
+        <td>{{ h['reason'] or '' }}</td>
+        <td>{{ h['changed_by'] or '' }}</td>
+        <td>{{ h['changed_at'] | datetime_korean }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" style="text-align:center; color:var(--muted);">이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

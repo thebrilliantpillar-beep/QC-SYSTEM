@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}완제품 모델 관리 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>완제품 모델 관리</h2>
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input type="text" name="q" value="{{ q }}" placeholder="모델번호·표시명 검색" style="flex:1; min-width:160px;">
+    <select name="active">
+      <option value="all" {{ 'selected' if active == 'all' else '' }}>전체</option>
+      <option value="1" {{ 'selected' if active == '1' else '' }}>사용 중</option>
+      <option value="0" {{ 'selected' if active == '0' else '' }}>사용 중지</option>
+    </select>
+    <button type="submit" style="margin-top:0;">검색</button>
+    <a class="btn secondary" href="{{ url_for('product_model_new') }}" style="margin-top:0;">새 모델 등록</a>
+    {% if is_admin %}<a class="btn secondary" href="{{ url_for('product_model_seed') }}" style="margin-top:0;">초기 모델 불러오기</a>{% endif %}
+  </form>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <table>
+    <thead><tr><th>모델번호</th><th>표시명</th><th>전압</th><th>제품 형식</th><th>하우징 수량</th><th>개정</th><th>상태</th><th>비고</th></tr></thead>
+    <tbody>
+      {% for m in models %}
+      <tr>
+        <td><a href="{{ url_for('product_model_detail', model_id=m['id']) }}">{{ m['model_no'] }}</a></td>
+        <td>{{ m['display_name'] or '' }}</td>
+        <td>{{ (m['voltage_kv'] ~ 'kV') if m['voltage_kv'] else '' }}</td>
+        <td>{{ phase_labels.get(m['phase_type'], m['phase_type']) }}</td>
+        <td>{{ m['housing_required_qty'] }}</td>
+        <td>{{ m['revision'] }}</td>
+        <td>{{ '사용 중' if m['is_active'] else '사용 중지' }}</td>
+        <td>{{ m['note'] or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" style="text-align:center; color:var(--muted);">등록된 모델이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

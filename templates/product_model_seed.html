@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}초기 모델 불러오기 — Chardon QMS{% endblock %}
+{% block content %}
+<h2>완제품 모델 초기 불러오기 (미리보기)</h2>
+<p class="muted">스티커 기준의 모델 {{ rows|length }}종을 분류 규칙으로 해석한 결과야. 이미 있는 모델은 건드리지 않고 건너뛰어.</p>
+
+<div class="card" style="overflow-x:auto;">
+  <table>
+    <thead><tr><th>모델번호</th><th>표시명</th><th>전압(kV)</th><th>제품 형식</th><th>하우징 수량</th><th>상태</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r['model_no'] }}</td>
+        <td>{{ r['model_no'] }} {{ r['label'] }}</td>
+        <td>{{ r['voltage_kv'] if r['voltage_kv'] is not none else '' }}</td>
+        <td>{{ phase_labels[r['phase_type']] }}</td>
+        <td>{{ r['housing_required_qty'] }}</td>
+        <td>
+          {% if r['exists'] %}이미 있음{% else %}새로 추가{% endif %}
+          {% if r['missing_rules'] %}<br>경고: 분류 규칙 없음 ({{ r['missing_rules'] | join(', ') }}){% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <form method="POST">
+    <label style="display:flex; align-items:center; gap:8px; font-weight:normal;">
+      <input type="checkbox" name="confirm" value="1" required> 미리보기를 확인했습니다
+    </label>
+    <button type="submit">모델 추가하기</button>
+  </form>
+</div>
+{% endblock %}

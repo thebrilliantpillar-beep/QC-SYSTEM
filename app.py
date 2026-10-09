@@ -33,7 +33,7 @@ def _check_license():
 _check_license()
 # ──────────────────────────────────────────────
 
-import os, base64, io, time, shutil, re, zipfile, tempfile, uuid, sys
+import json, os, base64, io, time, shutil, re, zipfile, tempfile, uuid, sys
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
@@ -246,7 +246,7 @@ PERM_GROUPS = [
         ("outbound_delete", "출하검사 기록 일괄삭제 ('출하검사' 권한과 함께 부여할 것)"),
         ("outbound_return",       "완제품 반품·수리 관리 (준비중)"),
         ("outbound_pool_convert", "기존 자료 출하대기 풀 전환 (준비중)"),
-        ("product_model_manage",  "완제품 모델 관리 (준비중)"),
+        ("product_model_manage",  "완제품 모델 관리 (준비중, '출하검사' 권한과 함께 부여할 것)"),
     ]),
     ("출력", [
         ("output", "성적서 출력 (수입검사·하우징·전수검사 기록지)"),
@@ -590,7 +590,8 @@ def inject_perm_labels():
     is_admin = bool(g.user) and (g.user["username"] or "").strip().lower() == "admin"
     return {"perm_labels": PERM_LABELS, "user_perms": user_perms,
             "status_display": status_display, "sample_size": sample_size,
-            "nav_counts": nav_counts, "is_admin": is_admin}
+            "nav_counts": nav_counts, "is_admin": is_admin,
+            "traceability_on": db.traceability_enabled()}
 
 
 def _admin_only():
@@ -10314,6 +10315,175 @@ def outbound_qr_history_export():
     ]
     buf = report_builder.build_list_excel("QR출력이력", columns, exports, filter_summary=filt)
     return _send_list_excel(buf, "QR출력이력")
+
+
+# ---- 완제품 모델 마스터 · 추적 기능 스위치 (TASK #66 패키지 1B) ----
+# 1A에서 추가한 "(준비중)" 권한 14개 — 추적 기능을 켜는 순간 실제로 의미를 갖는다.
+# PERM_GROUPS에서 파생하지 않고 명시: 스위치 확인 화면이 "무엇을 확인하는지"를 고정하기 위함.
+NEW_TRACE_PERMS = [
+    "process_input", "process_lot", "process_correct", "process_link", "process_ng_cancel",
+    "process_review", "process_final", "test_data_delete",
+    "outbound_return", "outbound_pool_convert", "product_model_manage",
+    "output_process", "output_shipping", "template_manage",
+]
+_PHASE_LABELS = {"single": "단상", "three": "3상"}
+
+
+def _traceability_gate():
+    """추적 기능이 꺼져 있으면 안내 후 홈으로 보내는 응답을, 켜져 있으면 None을 돌려준다."""
+    if db.traceability_enabled():
+        return None
+    flash("추적 기능이 아직 꺼져 있어.")
+    return redirect(url_for("home"))
+
+
+def _actor_name():
+    return g.user["display_name"] or g.user["username"]
+
+
+@app.route("/product-models")
+@perm_required("product_model_manage")
+def product_model_list():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    q = request.args.get("q", "").strip()
+    active = request.args.get("active", "all")
+    models = db.list_product_models(search=q or None,
+                                    active={"1": True, "0": False}.get(active))
+    return render_template("product_models.html", models=models, q=q, active=active,
+                           phase_labels=_PHASE_LABELS)
+
+
+@app.route("/product-models/new", methods=["GET", "POST"])
+@perm_required("product_model_manage")
+def product_model_new():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    if request.method == "POST":
+        try:
+            mid = db.create_product_model(request.form, _actor_name())
+        except ValueError as e:
+            flash(str(e))
+            return render_template("product_model_detail.html", model=None, form=request.form,
+                                   history=[], phase_labels=_PHASE_LABELS)
+        record_change("완제품 모델 등록", "product_model", mid,
+                      request.form.get("model_no", "").strip())
+        flash("모델이 등록됐어.")
+        return redirect(url_for("product_model_detail", model_id=mid))
+    return render_template("product_model_detail.html", model=None, form={}, history=[],
+                           phase_labels=_PHASE_LABELS)
+
+
+@app.route("/product-models/<int:model_id>", methods=["GET", "POST"])
+@perm_required("product_model_manage")
+def product_model_detail(model_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    model = db.get_product_model(model_id)
+    if not model:
+        flash("모델을 찾을 수 없어.")
+        return redirect(url_for("product_model_list"))
+    if request.method == "POST":
+        try:
+            rev = db.update_product_model(model_id, request.form, _actor_name(),
+                                          request.form.get("reason"))
+        except ValueError as e:
+            flash(str(e))
+        else:
+            if rev != model["revision"] or request.form.get("display_name", "") != (model["display_name"] or "") \
+                    or request.form.get("note", "") != (model["note"] or ""):
+                record_change("완제품 모델 수정", "product_model", model_id,
+                              f"{model['model_no']} / 개정 {model['revision']}->{rev} / "
+                              f"사유: {(request.form.get('reason') or '').strip() or '-'}")
+            flash("저장됐어.")
+        return redirect(url_for("product_model_detail", model_id=model_id))
+    return render_template("product_model_detail.html", model=model, form=dict(model),
+                           history=db.get_product_model_history(model_id),
+                           phase_labels=_PHASE_LABELS)
+
+
+@app.route("/product-models/<int:model_id>/active", methods=["POST"])
+@perm_required("product_model_manage")
+def product_model_active(model_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    model = db.get_product_model(model_id)
+    if not model:
+        flash("모델을 찾을 수 없어.")
+        return redirect(url_for("product_model_list"))
+    turn_on = request.form.get("is_active") == "1"
+    reason = request.form.get("reason", "").strip()
+    try:
+        db.set_product_model_active(model_id, turn_on, _actor_name(), reason)
+    except ValueError as e:
+        flash(str(e))
+    else:
+        record_change("완제품 모델 재사용" if turn_on else "완제품 모델 사용 중지",
+                      "product_model", model_id, f"{model['model_no']} / 사유: {reason or '-'}")
+        flash("재사용으로 바꿨어." if turn_on else "사용 중지로 바꿨어.")
+    return redirect(url_for("product_model_detail", model_id=model_id))
+
+
+@app.route("/admin/product-models/seed", methods=["GET", "POST"])
+@login_required
+def product_model_seed():
+    guard = _admin_only()
+    if guard:
+        return guard
+    if request.method == "POST":
+        if request.form.get("confirm") != "1":
+            flash("미리보기를 확인했다는 체크가 필요해.")
+            return redirect(url_for("product_model_seed"))
+        inserted, skipped = db.apply_product_model_seed(_actor_name())
+        record_change("완제품 모델 초기 시드", "product_model", None,
+                      f"추가 {inserted}건 / 건너뜀 {skipped}건")
+        flash(f"모델 {inserted}건을 추가했고 {skipped}건은 이미 있어서 건너뛰었어.")
+        return redirect(url_for("product_model_list"))
+    return render_template("product_model_seed.html", rows=db.product_model_seed_preview(),
+                           phase_labels=_PHASE_LABELS)
+
+
+def _trace_perm_holders():
+    """NEW_TRACE_PERMS 중 하나라도 유효 권한(admin 포함)으로 가진 계정 목록."""
+    holders = []
+    for u in db.list_users():
+        eff = _user_perms(u)
+        have = [p for p in NEW_TRACE_PERMS if p in eff]
+        if have:
+            holders.append({"username": u["username"], "display_name": u["display_name"],
+                            "perms": have})
+    return holders
+
+
+@app.route("/admin/traceability", methods=["GET", "POST"])
+@login_required
+def traceability_switch():
+    guard = _admin_only()
+    if guard:
+        return guard
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "enable":
+            if request.form.get("confirm") != "1":
+                flash("계정 목록을 확인했다는 체크가 필요해.")
+                return redirect(url_for("traceability_switch"))
+            snap = {"enabled_by": g.user["username"],
+                    "accounts": {h["username"]: h["perms"] for h in _trace_perm_holders()}}
+            db.set_traceability_enabled(True)
+            record_change("추적 기능 켬", "traceability", None,
+                          json.dumps(snap, ensure_ascii=False))
+            flash("추적 기능을 켰어.")
+        elif action == "disable":
+            db.set_traceability_enabled(False)
+            record_change("추적 기능 끔", "traceability", None, g.user["username"])
+            flash("추적 기능을 껐어.")
+        return redirect(url_for("traceability_switch"))
+    return render_template("traceability_switch.html", enabled=db.traceability_enabled(),
+                           holders=_trace_perm_holders(), perm_labels=PERM_LABELS)
 
 
 _OUTBOUND_RULE_KIND_LABELS = {"voltage": "전압코드", "suffix": "접미사", "pcode": "P코드 특수값"}
