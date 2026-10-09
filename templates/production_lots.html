@@ -19,19 +19,20 @@
 
 <div class="card" style="overflow-x:auto;">
   <table>
-    <thead><tr><th>LOT 번호</th><th>모델</th><th>상태</th><th>테스트</th><th>비고</th><th>생성일</th></tr></thead>
+    <thead><tr><th>LOT 번호</th><th>모델</th><th>상태</th><th>정상/제외</th><th>테스트</th><th>비고</th><th>생성일</th></tr></thead>
     <tbody>
       {% for l in lots %}
       <tr>
         <td><a href="{{ url_for('production_lot_detail', lot_id=l['id']) }}">{{ l['lot_no'] }}</a></td>
         <td>{{ l['model_no'] }} {{ l['model_display_name'] or '' }}</td>
         <td>{{ status_labels.get(l['status'], l['status']) }}</td>
+        <td>{{ l['active_count'] }} / {{ l['excluded_count'] }}</td>
         <td>{{ '테스트' if l['is_test'] else '' }}</td>
         <td>{{ l['note'] or '' }}</td>
         <td>{{ l['created_at'] | datetime_korean }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" style="text-align:center; color:var(--muted);">LOT이 없어.</td></tr>
+      <tr><td colspan="7"style="text-align:center; color:var(--muted);">LOT이 없어.</td></tr>
       {% endfor %}
     </tbody>
   </table>

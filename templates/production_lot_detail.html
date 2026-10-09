@@ -6,6 +6,7 @@
 
 <div class="card">
   <p>상태: <b>{{ status_labels.get(lot['status'], lot['status']) }}</b>{% if lot['is_test'] %} / 테스트 LOT{% endif %}</p>
+  <p>LOT 개정 {{ lot['lot_revision'] }} / 정상 {{ units | selectattr('status', 'equalto', 'active') | list | length }}건 · 제외 {{ units | selectattr('status', 'equalto', 'excluded') | list | length }}건</p>
   <p class="muted">생성 {{ lot['created_by'] or '' }} {{ lot['created_at'] | datetime_korean }}
     {% if lot['confirmed_at'] %} / 확정 {{ lot['confirmed_by'] or '' }} {{ lot['confirmed_at'] | datetime_korean }}{% endif %}
     {% if lot['cancelled_at'] %} / 취소 {{ lot['cancelled_by'] or '' }} {{ lot['cancelled_at'] | datetime_korean }} (사유: {{ lot['cancel_reason'] or '' }}){% endif %}</p>
@@ -40,6 +41,79 @@
   </form>
 </div>
 {% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">S/N</h3>
+  {% set can_edit = can_manage and lot['status'] != 'cancelled' %}
+  {% if can_edit %}
+  <form method="POST" action="{{ url_for('production_lot_units_add', lot_id=lot['id']) }}">
+    <label>S/N 추가 (한 줄에 하나, 쉼표·세미콜론·탭으로도 구분할 수 있어)</label>
+    <textarea name="serials" rows="4" required></textarea>
+    <label>사유 {{ '(필수)' if lot['status'] == 'confirmed' else '(선택)' }}</label>
+    <input type="text" name="reason" {{ 'required' if lot['status'] == 'confirmed' else '' }}>
+    <p class="muted">확정된 LOT은 사유가 필요하고 개정번호가 올라가요. 하나라도 형식 오류·중복이면 전부 추가되지 않아요.</p>
+    <button type="submit">S/N 추가</button>
+  </form>
+  {% endif %}
+  <div style="overflow-x:auto;">
+    <table>
+      <thead><tr><th>내부 ID</th><th>S/N</th><th>상태</th><th>모델 일치</th>{% if can_edit %}<th>작업</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for u in units %}
+        <tr>
+          <td>{{ u['id'] }}</td>
+          <td>{{ u['serial_raw'] }}{% if u['past_serials'] %}<br><small class="muted">과거: {{ u['past_serials'] | join(', ') }}</small>{% endif %}</td>
+          <td>{% if u['status'] == 'active' %}정상{% else %}제외<br><small class="muted">{{ u['excluded_reason'] or '' }}</small>{% endif %}</td>
+          <td>{{ '모델 불일치' if u['model_mismatch'] else '일치' }}</td>
+          {% if can_edit %}
+          <td>
+            {% if u['status'] == 'active' %}
+            <form method="POST" action="{{ url_for('production_lot_unit_exclude', lot_id=lot['id'], unit_id=u['id']) }}">
+              <input type="text" name="reason" placeholder="제외 사유(필수)" required>
+              <button type="submit" class="btn secondary" onclick="return confirm('이 완제품을 제외할까?');">제외</button>
+            </form>
+            <form method="POST" action="{{ url_for('production_lot_unit_correct', lot_id=lot['id'], unit_id=u['id']) }}">
+              <input type="text" name="new_serial" placeholder="새 S/N" required>
+              <input type="text" name="reason" placeholder="정정 사유(필수)" required>
+              <button type="submit" class="btn secondary" onclick="return confirm('S/N을 정정할까?');">S/N 정정</button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('production_lot_unit_restore', lot_id=lot['id'], unit_id=u['id']) }}">
+              <input type="text" name="reason" placeholder="복구 사유(필수)" required>
+              <button type="submit" class="btn secondary">복구</button>
+            </form>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ 5 if can_edit else 4 }}" style="text-align:center; color:var(--muted);">등록된 S/N이 없어.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <h3 style="margin-top:0; font-size:15px;">S/N 변경 이력</h3>
+  <table>
+    <thead><tr><th>구분</th><th>S/N</th><th>사유</th><th>변경자</th><th>시각</th><th>LOT 개정</th></tr></thead>
+    <tbody>
+      {% for h in unit_history %}
+      <tr>
+        <td>{{ unit_history_labels.get(h['change_type'], h['change_type']) }}</td>
+        <td>{% if h['prev_serial'] %}{{ h['prev_serial'] }} → {% endif %}{{ h['serial'] or '' }}</td>
+        <td>{{ h['reason'] or '' }}</td>
+        <td>{{ h['changed_by'] or '' }}</td>
+        <td>{{ h['changed_at'] | datetime_korean }}</td>
+        <td>{{ h['lot_revision'] }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="text-align:center; color:var(--muted);">이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 
 <div class="card" style="overflow-x:auto;">
   <h3 style="margin-top:0; font-size:15px;">변경 이력</h3>

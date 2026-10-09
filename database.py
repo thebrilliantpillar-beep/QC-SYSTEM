@@ -2,7 +2,7 @@
 # Copyright (c) 2026 윤주호. All rights reserved.
 # 무단 복제·배포·수정을 금합니다.
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
-import hashlib, json, re, sqlite3, os
+import functools, hashlib, json, re, sqlite3, os, time
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 # 검사자 비고의 표준 불량 문구 파싱 — app.py의 parse_defect_counts와 동일 패턴
@@ -158,6 +158,28 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+class DbBusyError(ValueError):
+    """DB 잠금이 풀리지 않아 재시도를 모두 소진했을 때."""
+
+
+def _write_retry(fn):
+    """쓰기 함수 전체를 최대 3회 시도 — 'locked'/'busy' OperationalError일 때만 0.4·0.8초 쉬고 재시도.
+    각 함수가 실패 시 rollback·close 하는 구조라 통째로 다시 불러도 안전하다."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        for attempt in range(3):
+            try:
+                return fn(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                msg = str(e).lower()
+                if "locked" not in msg and "busy" not in msg:
+                    raise
+                if attempt < 2:
+                    time.sleep(0.4 * (attempt + 1))
+        raise DbBusyError("다른 작업이 처리 중이야. 잠시 후 다시 시도해줘.")
+    return wrapper
 
 
 def _safe_add_column(cur, alter_sql):
@@ -1062,6 +1084,52 @@ def init_db():
             changed_at  TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    # ---- 2026-10-10 신규 끝 ----
+
+    # ---- 2026-10-10 신규: 완제품 내부 ID와 S/N(TASK #66 패키지 1C-b) ----
+    # finished_unit_history는 append-only — 수정·삭제 함수/UI를 만들지 말 것.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS finished_units (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_id          INTEGER NOT NULL REFERENCES production_lots(id),
+            origin_state    TEXT NOT NULL DEFAULT 'production_lot',
+            status          TEXT NOT NULL DEFAULT 'active',
+            excluded_reason TEXT,
+            excluded_by     TEXT,
+            excluded_at     TEXT,
+            model_mismatch  INTEGER NOT NULL DEFAULT 0,
+            created_by      TEXT,
+            created_at      TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS unit_serial_aliases (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id         INTEGER NOT NULL REFERENCES finished_units(id),
+            serial_raw      TEXT NOT NULL,
+            serial_key      TEXT NOT NULL UNIQUE,
+            kind            TEXT NOT NULL DEFAULT 'current',
+            replaced_reason TEXT,
+            created_by      TEXT,
+            created_at      TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS finished_unit_history (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id      INTEGER NOT NULL REFERENCES finished_units(id),
+            lot_id       INTEGER NOT NULL,
+            change_type  TEXT NOT NULL,
+            before_json  TEXT,
+            after_json   TEXT,
+            reason       TEXT,
+            lot_revision INTEGER NOT NULL,
+            changed_by   TEXT,
+            changed_at   TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_finished_units_lot ON finished_units(lot_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_unit_alias_unit ON unit_serial_aliases(unit_id)")
     # ---- 2026-10-10 신규 끝 ----
 
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
@@ -4157,6 +4225,7 @@ def get_product_model_history(model_id):
     return rows
 
 
+@_write_retry
 def create_product_model(data, user):
     """모델 등록 + create 이력을 한 트랜잭션으로. 모델번호 중복·형식 오류는 ValueError."""
     model_no = (data.get("model_no") or "").strip()
@@ -4187,6 +4256,7 @@ def create_product_model(data, user):
         conn.close()
 
 
+@_write_retry
 def update_product_model(model_id, data, user, reason):
     """표시명·비고는 개정 없이, 식별 정보 변경은 개정+1(사유 필수). model_no는 못 바꾼다."""
     c = _pm_clean(data)
@@ -4226,6 +4296,7 @@ def update_product_model(model_id, data, user, reason):
         conn.close()
 
 
+@_write_retry
 def set_product_model_active(model_id, is_active, user, reason):
     """사용 중지/재사용 전환 + 이력(deactivate/reactivate). 개정번호는 유지."""
     conn = get_conn()
@@ -4297,6 +4368,7 @@ def _pl_lock(conn, lot_id, need_draft=False):
     return row
 
 
+@_write_retry
 def create_production_lot(model_id, is_test, note, user):
     """생산 LOT 생성(작성중) + create 이력. 번호는 한국 날짜 기준 일련번호, 취소 번호도 재사용 안 함."""
     note = (note or "").strip() or None
@@ -4326,6 +4398,7 @@ def create_production_lot(model_id, is_test, note, user):
         conn.close()
 
 
+@_write_retry
 def update_production_lot(lot_id, note, is_test, user):
     """작성중 LOT의 비고·테스트 표시 수정 + update 이력. 값이 같으면 이력 없음."""
     note = (note or "").strip() or None
@@ -4348,14 +4421,18 @@ def update_production_lot(lot_id, note, is_test, user):
         conn.close()
 
 
+@_write_retry
 def confirm_production_lot(lot_id, user):
-    """작성중 LOT 확정 — 그 시점 모델 값을 스냅샷으로 굳히고 confirm 이력."""
+    """작성중 LOT 확정 — 정상 S/N이 1개 이상일 때만, 그 시점 모델 값을 스냅샷으로 굳히고 confirm 이력."""
     conn = get_conn()
     try:
         row = _pl_lock(conn, lot_id, need_draft=True)
         m = conn.execute("SELECT * FROM product_models WHERE id=?", (row["model_id"],)).fetchone()
         if not m or not m["is_active"]:
             raise ValueError("사용 중지된 모델이야.")
+        if not conn.execute("SELECT 1 FROM finished_units WHERE lot_id=? AND status='active' LIMIT 1",
+                            (lot_id,)).fetchone():
+            raise ValueError("정상 S/N이 1개 이상 있어야 확정할 수 있어.")
         snap = {"model_id": m["id"], "model_no": m["model_no"], "model_key": m["model_key"],
                 "model_revision": m["revision"], "display_name": m["display_name"],
                 "voltage_code": m["voltage_code"], "voltage_kv": m["voltage_kv"],
@@ -4375,8 +4452,14 @@ def confirm_production_lot(lot_id, user):
         conn.close()
 
 
+def lot_has_started_inspection(lot_id):
+    """제품검사가 시작된 완제품이 있는지 — 1D에서 실제 검사 기록과 연결하기 전까지는 항상 False."""
+    return False
+
+
+@_write_retry
 def cancel_production_lot(lot_id, reason, user):
-    """LOT 전체 취소(사유 필수) + cancel 이력. 행·번호는 남긴다."""
+    """LOT 전체 취소(사유 필수) + cancel 이력. 행·번호는 남긴다. 검사 시작된 LOT은 취소 불가."""
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("취소 사유를 입력해줘.")
@@ -4385,6 +4468,8 @@ def cancel_production_lot(lot_id, reason, user):
         row = _pl_lock(conn, lot_id)
         if row["status"] == "cancelled":
             raise ValueError("이미 취소된 LOT이야.")
+        if lot_has_started_inspection(lot_id):
+            raise ValueError("제품검사가 시작된 완제품이 있어서 취소할 수 없어.")
         before = _pl_full(conn, lot_id)
         conn.execute("UPDATE production_lots SET status='cancelled', cancel_reason=?, "
                      "cancelled_by=?, cancelled_at=datetime('now','localtime'), updated_by=?, "
@@ -4404,7 +4489,12 @@ _PL_SELECT = ("SELECT l.*, m.model_no AS model_no, m.display_name AS model_displ
 
 def list_production_lots(search=None, status=None):
     """LOT 번호·모델번호·비고 부분일치 + 상태 필터, 최신순."""
-    sql, args = _PL_SELECT + " WHERE 1=1", []
+    sql, args = (_PL_SELECT.replace(
+        " FROM production_lots l",
+        ", (SELECT COUNT(*) FROM finished_units u WHERE u.lot_id=l.id AND u.status='active') "
+        "AS active_count, (SELECT COUNT(*) FROM finished_units u WHERE u.lot_id=l.id "
+        "AND u.status='excluded') AS excluded_count FROM production_lots l", 1)
+        + " WHERE 1=1"), []
     if search:
         sql += " AND (l.lot_no LIKE ? OR m.model_no LIKE ? OR l.note LIKE ?)"
         args += [f"%{search}%"] * 3
@@ -4430,6 +4520,291 @@ def get_production_lot_history(lot_id):
     rows = conn.execute("SELECT * FROM production_lot_history WHERE lot_id=? ORDER BY id DESC",
                         (lot_id,)).fetchall()
     conn.close()
+    return rows
+
+
+# ---------- 완제품 내부 ID와 S/N (TASK #66 패키지 1C-b) ----------
+
+class SerialBatchError(ValueError):
+    """S/N 일괄 추가 거부 — errors=[(줄번호, 원문, 사유), ...]. 하나라도 있으면 전부 취소."""
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__(f"S/N {len(errors)}건에 문제가 있어서 아무것도 추가하지 않았어.")
+
+
+def normalize_serial_key(s):
+    """모든 공백(탭·NBSP 포함) 제거 + 대문자. 하이픈은 유지."""
+    return re.sub(r"\s+", "", s or "").upper()
+
+
+def parse_serial_lines(text):
+    """줄바꿈·탭·세미콜론·쉼표로 분리, 앞뒤 공백 제거, 빈 항목 무시(공백으로는 분리하지 않는다)."""
+    return [p.strip() for p in re.split(r"[\r\n\t;,]+", text or "") if p.strip()]
+
+
+def serial_key_conflicts(conn, keys):
+    """{키: 사유} — 완제품 별칭(현재·과거) 및 기존 출하 자료 3종(읽기 전용)과 겹치는 키만."""
+    keys, out = set(keys), {}
+    for r in conn.execute("SELECT a.serial_key, l.lot_no FROM unit_serial_aliases a "
+                          "JOIN finished_units u ON u.id=a.unit_id "
+                          "JOIN production_lots l ON l.id=u.lot_id"):
+        if r["serial_key"] in keys:
+            out[r["serial_key"]] = f"이미 등록된 S/N(LOT {r['lot_no']})"
+    sources = (
+        ("SELECT serial_no, NULL AS rno, NULL AS bid FROM finished_goods_serials",
+         lambda r: "기존 출하 자료(S/N 발급 이력)에 이미 있는 S/N"),
+        ("SELECT p.serial_no, b.round_no AS rno, p.batch_id AS bid FROM outbound_planned_items p "
+         "LEFT JOIN outbound_batches b ON b.id=p.batch_id",
+         lambda r: f"기존 출하 자료(차수 {r['rno'] or '#' + str(r['bid'])} 계획)에 이미 있는 S/N"),
+        ("SELECT i.serial_no, b.round_no AS rno, i.batch_id AS bid FROM outbound_items i "
+         "LEFT JOIN outbound_batches b ON b.id=i.batch_id",
+         lambda r: f"기존 출하 자료(차수 {r['rno'] or '#' + str(r['bid'])} 출하 항목)에 이미 있는 S/N"),
+    )
+    for sql, why in sources:
+        for r in conn.execute(sql):
+            k = normalize_serial_key(r["serial_no"])
+            if k in keys and k not in out:
+                out[k] = why(r)
+    return out
+
+
+def _lot_model_codes(conn, lot):
+    """LOT 모델의 (전압코드, 접미사, P코드) — 확정이면 스냅샷, 작성중이면 현재 모델 값."""
+    if lot["model_snapshot_json"]:
+        m = json.loads(lot["model_snapshot_json"])
+    else:
+        m = conn.execute("SELECT * FROM product_models WHERE id=?", (lot["model_id"],)).fetchone()
+    return (m["voltage_code"] or "", m["suffix_code"] or "", m["pcode"] or "")
+
+
+def _serial_parse(raw, rules, codes):
+    """(키, 형식 오류 문구 또는 None, 모델 불일치 여부) — 형식은 기존 CKMR 본체 패턴 재사용."""
+    key = normalize_serial_key(raw)
+    mt = _match_ckmr(key, rules)
+    if not mt:
+        return key, "S/N 형식이 CKMR 본체 형식이 아니야.", 0
+    mismatch = (mt["volt_code"] != codes[0] or mt["suffix_code"] is None
+                or mt["suffix_code"] != codes[1] or (mt["pcode"] or "") != codes[2])
+    return key, None, 1 if mismatch else 0
+
+
+def _fu_full(conn, unit_id):
+    """완제품 전체 상태 스냅샷(고정 키 순서) — 현재 별칭 포함."""
+    u = conn.execute("SELECT * FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+    a = conn.execute("SELECT serial_raw, serial_key FROM unit_serial_aliases "
+                     "WHERE unit_id=? AND kind='current'", (unit_id,)).fetchone()
+    return {"unit_id": u["id"], "lot_id": u["lot_id"], "origin_state": u["origin_state"],
+            "status": u["status"], "excluded_reason": u["excluded_reason"],
+            "excluded_by": u["excluded_by"], "excluded_at": u["excluded_at"],
+            "model_mismatch": u["model_mismatch"],
+            "serial_raw": a["serial_raw"] if a else None,
+            "serial_key": a["serial_key"] if a else None}
+
+
+def _fu_history(conn, unit_id, lot_id, change_type, before, after, reason, rev, user):
+    conn.execute(
+        "INSERT INTO finished_unit_history (unit_id, lot_id, change_type, before_json, after_json, "
+        "reason, lot_revision, changed_by) VALUES (?,?,?,?,?,?,?,?)",
+        (unit_id, lot_id, change_type,
+         json.dumps(before, ensure_ascii=False) if before is not None else None,
+         json.dumps(after, ensure_ascii=False), reason, rev, user))
+
+
+def _unit_lot_begin(conn, lot_id, reason):
+    """잠금 후 LOT 검사 — 취소 거부, 확정이면 사유 필수. (LOT행, 사유, 변경 전 스냅샷, 변경 후 개정번호)."""
+    row = _pl_lock(conn, lot_id)
+    if row["status"] == "cancelled":
+        raise ValueError("취소된 LOT은 바꿀 수 없어.")
+    reason = (reason or "").strip() or None
+    if row["status"] == "confirmed" and not reason:
+        raise ValueError("확정된 LOT은 사유를 입력해야 바꿀 수 있어.")
+    rev = row["lot_revision"] + (1 if row["status"] == "confirmed" else 0)
+    return row, reason, _pl_full(conn, lot_id), rev
+
+
+def _unit_lot_finish(conn, lot_id, rev, change_type, before, reason, user):
+    """LOT 개정번호·갱신자 반영 + LOT 이력 1행."""
+    conn.execute("UPDATE production_lots SET lot_revision=?, updated_by=?, "
+                 "updated_at=datetime('now','localtime') WHERE id=?", (rev, user, lot_id))
+    _pl_history(conn, lot_id, change_type, before, _pl_full(conn, lot_id), reason, user)
+
+
+def _unit_lot_id(conn, unit_id):
+    r = conn.execute("SELECT lot_id FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+    if not r:
+        raise ValueError("완제품을 찾을 수 없어.")
+    return r["lot_id"]
+
+
+def get_finished_unit(unit_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+    conn.close()
+    return row
+
+
+@_write_retry
+def add_units(lot_id, serial_text, user, reason=None):
+    """S/N 일괄 추가 — 하나라도 오류면 전부 취소(SerialBatchError). (추가 건수, 경고[(번호, S/N, 사유)])."""
+    items = parse_serial_lines(serial_text)
+    if not items:
+        raise ValueError("추가할 S/N을 입력해줘.")
+    rules = get_classify_rules()
+    conn = get_conn()
+    try:
+        lot, reason, before, rev = _unit_lot_begin(conn, lot_id, reason)
+        codes = _lot_model_codes(conn, lot)
+        parsed = [(i + 1, raw) + _serial_parse(raw, rules, codes) for i, raw in enumerate(items)]
+        conflicts = serial_key_conflicts(conn, [p[2] for p in parsed if p[3] is None])
+        errors, seen = [], set()
+        for no, raw, key, err, mm in parsed:
+            if err is None and key in seen:
+                err = "같은 입력에서 중복"
+            elif err is None:
+                err = conflicts.get(key)
+            seen.add(key)
+            if err:
+                errors.append((no, raw, err))
+        if errors:
+            raise SerialBatchError(errors)
+        warnings = []
+        for no, raw, key, err, mm in parsed:
+            uid = conn.execute("INSERT INTO finished_units (lot_id, model_mismatch, created_by) "
+                               "VALUES (?,?,?)", (lot_id, mm, user)).lastrowid
+            try:
+                conn.execute("INSERT INTO unit_serial_aliases (unit_id, serial_raw, serial_key, kind, "
+                             "created_by) VALUES (?,?,?, 'current', ?)", (uid, raw, key, user))
+            except sqlite3.IntegrityError as e:
+                # 사전 검사와 같은 트랜잭션이라 정상 경로에선 못 오지만, S/N 키의 UNIQUE 위반만 안내 문구로
+                # 바꾸고 다른 무결성 오류는 가리지 않고 그대로 전달한다
+                if "unit_serial_aliases.serial_key" not in str(e):
+                    raise
+                raise ValueError("이미 등록된 S/N이야. 다시 확인해줘.")
+            _fu_history(conn, uid, lot_id, "add", None, _fu_full(conn, uid), reason, rev, user)
+            if mm:
+                warnings.append((no, raw, "LOT 모델과 S/N의 모델 코드가 달라."))
+        _unit_lot_finish(conn, lot_id, rev, "unit_add", before, reason, user)
+        conn.commit()
+        return len(parsed), warnings
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def exclude_unit(unit_id, reason, user):
+    """완제품 제외(사유 필수). S/N 번호는 그대로 예약 유지."""
+    return _unit_change(unit_id, reason, user, "exclude", "active", "정상 상태인 완제품만 제외할 수 있어.")
+
+
+@_write_retry
+def restore_unit(unit_id, reason, user):
+    """제외된 완제품 복구(사유 필수)."""
+    return _unit_change(unit_id, reason, user, "restore", "excluded", "제외된 완제품만 복구할 수 있어.")
+
+
+def _unit_change(unit_id, reason, user, kind, need_status, state_msg):
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("사유를 입력해줘.")
+    conn = get_conn()
+    try:
+        lot_id = _unit_lot_id(conn, unit_id)
+        lot, reason, lot_before, rev = _unit_lot_begin(conn, lot_id, reason)
+        if conn.execute("SELECT status FROM finished_units WHERE id=?", (unit_id,)).fetchone()[0] != need_status:
+            raise ValueError(state_msg)
+        before = _fu_full(conn, unit_id)
+        if kind == "exclude":
+            conn.execute("UPDATE finished_units SET status='excluded', excluded_reason=?, "
+                         "excluded_by=?, excluded_at=datetime('now','localtime') WHERE id=?",
+                         (reason, user, unit_id))
+        else:
+            conn.execute("UPDATE finished_units SET status='active', excluded_reason=NULL, "
+                         "excluded_by=NULL, excluded_at=NULL WHERE id=?", (unit_id,))
+        _fu_history(conn, unit_id, lot_id, kind, before, _fu_full(conn, unit_id), reason, rev, user)
+        _unit_lot_finish(conn, lot_id, rev, "unit_" + kind, lot_before, reason, user)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def correct_serial(unit_id, new_serial, reason, user):
+    """S/N 정정(사유 필수) — 기존 번호는 과거 별칭으로 남아 계속 예약된다."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("사유를 입력해줘.")
+    rules = get_classify_rules()
+    conn = get_conn()
+    try:
+        lot_id = _unit_lot_id(conn, unit_id)
+        lot, reason, lot_before, rev = _unit_lot_begin(conn, lot_id, reason)
+        raw = (new_serial or "").strip()
+        key, err, mm = _serial_parse(raw, rules, _lot_model_codes(conn, lot))
+        if err:
+            raise ValueError(err)
+        if conn.execute("SELECT 1 FROM unit_serial_aliases WHERE unit_id=? AND serial_key=?",
+                        (unit_id, key)).fetchone():
+            raise ValueError("이미 이 완제품의 S/N이야.")
+        why = serial_key_conflicts(conn, [key]).get(key)
+        if why:
+            raise ValueError(why)
+        before = _fu_full(conn, unit_id)
+        conn.execute("UPDATE unit_serial_aliases SET kind='past', replaced_reason=? "
+                     "WHERE unit_id=? AND kind='current'", (reason, unit_id))
+        try:
+            conn.execute("INSERT INTO unit_serial_aliases (unit_id, serial_raw, serial_key, kind, "
+                         "created_by) VALUES (?,?,?, 'current', ?)", (unit_id, raw, key, user))
+        except sqlite3.IntegrityError as e:
+            if "unit_serial_aliases.serial_key" not in str(e):
+                raise
+            raise ValueError("이미 등록된 S/N이야. 다시 확인해줘.")
+        conn.execute("UPDATE finished_units SET model_mismatch=? WHERE id=?", (mm, unit_id))
+        _fu_history(conn, unit_id, lot_id, "correct", before, _fu_full(conn, unit_id), reason, rev, user)
+        _unit_lot_finish(conn, lot_id, rev, "serial_correct", lot_before, reason, user)
+        conn.commit()
+        return mm
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_production_lot_units(lot_id):
+    """LOT의 완제품 목록(내부 ID 오름차순) — 현재 S/N, 과거 S/N 목록 포함."""
+    conn = get_conn()
+    units = [dict(r) for r in conn.execute(
+        "SELECT u.*, a.serial_raw AS serial_raw FROM finished_units u "
+        "LEFT JOIN unit_serial_aliases a ON a.unit_id=u.id AND a.kind='current' "
+        "WHERE u.lot_id=? ORDER BY u.id", (lot_id,))]
+    past = {}
+    for r in conn.execute("SELECT a.unit_id, a.serial_raw FROM unit_serial_aliases a "
+                          "JOIN finished_units u ON u.id=a.unit_id "
+                          "WHERE u.lot_id=? AND a.kind='past' ORDER BY a.id", (lot_id,)):
+        past.setdefault(r["unit_id"], []).append(r["serial_raw"])
+    conn.close()
+    for u in units:
+        u["past_serials"] = past.get(u["id"], [])
+    return units
+
+
+def get_unit_history_for_lot(lot_id):
+    """완제품 변경 이력(최신순) — 변경 시점의 S/N(serial)과 정정 전 S/N(prev_serial) 포함."""
+    conn = get_conn()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM finished_unit_history WHERE lot_id=? ORDER BY id DESC", (lot_id,))]
+    conn.close()
+    for h in rows:
+        after = json.loads(h["after_json"]) if h["after_json"] else {}
+        before = json.loads(h["before_json"]) if h["before_json"] else {}
+        h["serial"] = after.get("serial_raw")
+        h["prev_serial"] = before.get("serial_raw") if before.get("serial_raw") != h["serial"] else None
     return rows
 
 
@@ -4467,6 +4842,7 @@ def product_model_seed_preview():
         conn.close()
 
 
+@_write_retry
 def apply_product_model_seed(user):
     """없는 model_key만 INSERT(덮어쓰기 금지) + seed 이력. (삽입 건수, 건너뜀 건수) 반환."""
     conn = get_conn()
@@ -5386,49 +5762,89 @@ def serial_exists(serial_no):
     return row is not None
 
 
-def create_serial(serial_no, issued_by):
-    """완제품 S/N을 발급 이력에 등록. 이미 발급된 S/N이면 재발급 자체를 막는다(ValueError)."""
-    if serial_exists(serial_no):
-        raise ValueError(f"'{serial_no}'는 이미 발급된 S/N이야.")
+def unit_alias_lot_no(serial_no):
+    """제품검사 LOT에 완제품으로 등록된 S/N(정규화 비교, 현재·과거 별칭 모두)이면 그 LOT 번호, 아니면 None."""
+    key = normalize_serial_key(serial_no)
+    if not key:
+        return None
     conn = get_conn()
     try:
+        row = conn.execute(
+            "SELECT l.lot_no FROM unit_serial_aliases a JOIN finished_units u ON u.id=a.unit_id "
+            "JOIN production_lots l ON l.id=u.lot_id WHERE a.serial_key=?", (key,)).fetchone()
+    finally:
+        conn.close()
+    return row["lot_no"] if row else None
+
+
+@_write_retry
+def create_serial(serial_no, issued_by):
+    """완제품 S/N을 발급 이력에 등록. 이미 발급된 S/N이거나 제품검사 LOT에 등록된 S/N이면 재발급을 막는다(ValueError).
+    별칭 확인과 INSERT를 BEGIN IMMEDIATE 한 트랜잭션에 묶어, LOT S/N 추가(add_units)와 동시에 실행돼도 직렬화된다."""
+    key = normalize_serial_key(serial_no)
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM finished_goods_serials WHERE serial_no=?", (serial_no,)).fetchone():
+            raise ValueError(f"'{serial_no}'는 이미 발급된 S/N이야.")
+        row = conn.execute(
+            "SELECT l.lot_no FROM unit_serial_aliases a JOIN finished_units u ON u.id=a.unit_id "
+            "JOIN production_lots l ON l.id=u.lot_id WHERE a.serial_key=?", (key,)).fetchone() if key else None
+        if row:
+            raise ValueError(f"'{serial_no}'는 이미 제품검사 LOT({row['lot_no']})에 등록된 S/N이야.")
         cur = conn.execute(
             "INSERT INTO finished_goods_serials (serial_no, issued_by) VALUES (?, ?)",
             (serial_no, issued_by))
         conn.commit()
         return cur.lastrowid
     except sqlite3.IntegrityError:
-        # UNIQUE 제약이 최종 방어선(동시 발급 경합 시). 위의 사전체크가 거의 다 잡아내므로
-        # 실제로 여기 걸릴 일은 드물지만, 걸리면 같은 메시지로 통일해서 처리한다.
+        conn.rollback()
         raise ValueError(f"'{serial_no}'는 이미 발급된 S/N이야.")
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
 
+@_write_retry
 def create_serials_bulk(serial_nos, issued_by):
-    """여러 S/N을 한 번에 발급 — 이미 발급된 것(제출 목록 내 중복 포함)은 조용히
-    건너뛰고 나머지는 계속 진행한다(create_serial()과 달리 예외를 던지지 않는다 —
-    붙여넣기 특성상 한 줄이 실패했다고 전체를 막으면 안 되기 때문).
-    반환: (added: [str], skipped: [str])."""
+    """여러 S/N을 한 번에 발급 — 이미 발급된 것·LOT에 등록된 것·제출 목록 내 중복(정규화 비교)은 조용히
+    건너뛰고 나머지는 계속 진행한다(붙여넣기 특성상 한 줄 실패로 전체를 막으면 안 되기 때문).
+    별칭 조회와 INSERT는 BEGIN IMMEDIATE 한 트랜잭션. 반환: (added: [str], skipped: [str])."""
     conn = get_conn()
     added, skipped, seen = [], [], set()
-    for sn in serial_nos:
-        sn = (sn or "").strip()
-        if not sn:
-            continue
-        if sn in seen:
-            skipped.append(sn)
-            continue
-        seen.add(sn)
-        try:
-            conn.execute(
-                "INSERT INTO finished_goods_serials (serial_no, issued_by) VALUES (?, ?)",
-                (sn, issued_by))
-            added.append(sn)
-        except sqlite3.IntegrityError:
-            skipped.append(sn)
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        aliased = set()
+        ks = [k for k in (normalize_serial_key(s) for s in serial_nos if (s or "").strip()) if k]
+        for i in range(0, len(ks), 500):
+            chunk = ks[i:i + 500]
+            aliased.update(r[0] for r in conn.execute(
+                "SELECT serial_key FROM unit_serial_aliases WHERE serial_key IN (%s)" % ",".join("?" * len(chunk)),
+                chunk).fetchall())
+        for sn in serial_nos:
+            sn = (sn or "").strip()
+            if not sn:
+                continue
+            k = normalize_serial_key(sn)
+            if k in seen or k in aliased:
+                skipped.append(sn)
+                continue
+            seen.add(k)
+            try:
+                conn.execute(
+                    "INSERT INTO finished_goods_serials (serial_no, issued_by) VALUES (?, ?)",
+                    (sn, issued_by))
+                added.append(sn)
+            except sqlite3.IntegrityError:
+                skipped.append(sn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     return added, skipped
 
 

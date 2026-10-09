@@ -9656,13 +9656,17 @@ def outbound_serial_new():
         if not serials:
             flash("S/N을 최소 1개 이상 입력해줘.")
             return redirect(url_for("outbound_serial_new"))
-        added, skipped = db.create_serials_bulk(serials, g.user["display_name"] or g.user["username"])
+        try:
+            added, skipped = db.create_serials_bulk(serials, g.user["display_name"] or g.user["username"])
+        except db.DbBusyError as e:
+            flash(str(e))
+            return redirect(url_for("outbound_serial_new"))
         if added:
             preview = ", ".join(added[:10]) + (" 외" if len(added) > 10 else "")
             record_change("완제품 S/N 발급", "outbound_serial", None, f"{len(added)}건 ({preview})")
         msg = f"{len(added)}건 발급 완료."
         if skipped:
-            msg += f" {len(skipped)}건은 이미 발급됐거나 중복이라 건너뜀."
+            msg += f" {len(skipped)}건은 이미 발급됐거나 중복(제품검사 LOT에 등록된 S/N 포함)이라 건너뜀."
         flash(msg)
         recent = db.list_serials(limit=50)
         return render_template("outbound_serial.html", added=added, recent=recent, q="")
@@ -9937,9 +9941,13 @@ def outbound_serial_check():
     # 이번 배치의 차수 계획에 이미 있는 S/N이면 "완제품 S/N 발급" 이력에 별도로 없어도
     # 미등록 경고를 안 띄운다 — 계획에 들어있다는 것 자체가 이미 검증된 것으로 본다
     # (사용자 요청, 2026-09-21).
-    registered = db.serial_exists(serial_no) or bool(in_plan)
+    # 제품검사 LOT에 완제품으로 등록된 S/N이면 이것도 등록된 것으로 본다(막지 않고 LOT 번호만 알려 준다 — 실제
+    # 연결은 출하 대기 풀 단계에서 unit_id로 한다)
+    unit_lot_no = db.unit_alias_lot_no(serial_no)
+    registered = db.serial_exists(serial_no) or bool(in_plan) or bool(unit_lot_no)
     return jsonify({
         "registered": registered,
+        "unit_lot_no": unit_lot_no,
         "used_in_other_batch": other_batch_id,
         "used_in_other_batch_customer": other_batch_customer,
         "classified_label": classified_label,
@@ -10449,7 +10457,10 @@ def product_model_seed():
 
 # ---- 생산 LOT (TASK #66 패키지 1C-a) ----
 _LOT_STATUS_LABELS = {"draft": "작성중", "confirmed": "확정", "cancelled": "취소"}
-_LOT_HISTORY_LABELS = {"create": "생성", "update": "수정", "confirm": "확정", "cancel": "취소"}
+_LOT_HISTORY_LABELS = {"create": "생성", "update": "수정", "confirm": "확정", "cancel": "취소",
+                       "unit_add": "S/N 추가", "unit_exclude": "완제품 제외",
+                       "unit_restore": "완제품 복구", "serial_correct": "S/N 정정"}
+_UNIT_HISTORY_LABELS = {"add": "추가", "exclude": "제외", "restore": "복구", "correct": "S/N 정정"}
 
 
 def _lot_template_args():
@@ -10518,6 +10529,9 @@ def production_lot_detail(lot_id):
         snap["model_revision"] = m["revision"]
     return render_template("production_lot_detail.html", lot=lot, model=snap,
                            history=db.get_production_lot_history(lot_id),
+                           units=db.get_production_lot_units(lot_id),
+                           unit_history=db.get_unit_history_for_lot(lot_id),
+                           unit_history_labels=_UNIT_HISTORY_LABELS,
                            history_labels=_LOT_HISTORY_LABELS, **_lot_template_args())
 
 
@@ -10562,6 +10576,90 @@ def production_lot_confirm(lot_id):
 @perm_required("process_lot")
 def production_lot_cancel(lot_id):
     return _lot_action(lot_id, "cancel", "LOT을 취소했어.", "생산 LOT 취소")
+
+
+@app.route("/production-lots/<int:lot_id>/units/add", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_units_add(lot_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        flash("LOT을 찾을 수 없어.")
+        return redirect(url_for("production_lot_list"))
+    try:
+        n, warns = db.add_units(lot_id, request.form.get("serials"), _actor_name(),
+                                request.form.get("reason"))
+    except db.SerialBatchError as e:
+        for no, raw, why in e.errors[:10]:
+            flash(f"{no}번째 '{raw}': {why}")
+        if len(e.errors) > 10:
+            flash(f"외 {len(e.errors) - 10}건")
+        flash("하나라도 오류가 있어서 아무것도 추가하지 않았어.")
+        record_change("S/N 일괄 추가 거부", "production_lot", lot_id,
+                      json.dumps([{"line": no, "serial": raw, "reason": why}
+                                  for no, raw, why in e.errors[:50]], ensure_ascii=False))
+    except ValueError as e:
+        flash(str(e))
+    else:
+        record_change("S/N 추가", "production_lot", lot_id, f"{lot['lot_no']} / {n}건")
+        flash(f"{n}건 추가했어.")
+        for no, raw, why in warns:
+            flash(f"경고 {no}번째 '{raw}': {why}")
+    return redirect(url_for("production_lot_detail", lot_id=lot_id))
+
+
+def _unit_action(lot_id, unit_id, action):
+    """완제품 제외/복구/정정 POST 공용 처리 — 게이트·존재/소속 확인·ValueError flash·감사로그."""
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        flash("LOT을 찾을 수 없어.")
+        return redirect(url_for("production_lot_list"))
+    unit = db.get_finished_unit(unit_id)
+    if not unit or unit["lot_id"] != lot_id:
+        flash("완제품을 찾을 수 없어.")
+        return redirect(url_for("production_lot_detail", lot_id=lot_id))
+    f, user = request.form, _actor_name()
+    names = {"exclude": "완제품 제외", "restore": "완제품 복구", "correct": "S/N 정정"}
+    try:
+        if action == "exclude":
+            db.exclude_unit(unit_id, f.get("reason"), user)
+        elif action == "restore":
+            db.restore_unit(unit_id, f.get("reason"), user)
+        else:
+            db.correct_serial(unit_id, f.get("new_serial"), f.get("reason"), user)
+    except ValueError as e:
+        flash(str(e))
+        if action == "correct":
+            record_change("S/N 정정 거부", "production_lot", lot_id,
+                          f"{lot['lot_no']} / 완제품 {unit_id} / 입력 {f.get('new_serial')} / {e}")
+    else:
+        record_change(names[action], "production_lot", lot_id,
+                      f"{lot['lot_no']} / 완제품 {unit_id} / 사유: {(f.get('reason') or '').strip()}")
+        flash("처리했어.")
+    return redirect(url_for("production_lot_detail", lot_id=lot_id))
+
+
+@app.route("/production-lots/<int:lot_id>/units/<int:unit_id>/exclude", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_unit_exclude(lot_id, unit_id):
+    return _unit_action(lot_id, unit_id, "exclude")
+
+
+@app.route("/production-lots/<int:lot_id>/units/<int:unit_id>/restore", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_unit_restore(lot_id, unit_id):
+    return _unit_action(lot_id, unit_id, "restore")
+
+
+@app.route("/production-lots/<int:lot_id>/units/<int:unit_id>/correct", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_unit_correct(lot_id, unit_id):
+    return _unit_action(lot_id, unit_id, "correct")
 
 
 def _trace_perm_holders():
