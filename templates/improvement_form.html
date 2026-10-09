@@ -41,6 +41,17 @@
     <label>LOT 수량 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
     <input type="text" name="lot_qty" value="{{ header['quantity'] or '' }}" placeholder="예: 12대">
 
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div>
+        <label>표본수량 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+        <input type="number" name="sample_qty" min="0" step="1" placeholder="예: 20">
+      </div>
+      <div>
+        <label>불량수량 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택)</span></label>
+        <input type="number" name="defect_qty" min="0" step="1" placeholder="예: 2">
+      </div>
+    </div>
+
     <label style="margin-bottom:4px; display:block;">불량 분류 <span style="color:#9ca3af; font-weight:400; font-size:12px;">(선택, 복수 가능)</span></label>
     <div class="imp-cat-list" style="margin-bottom:10px;">
       {% for cat in defect_categories %}

@@ -3253,3 +3253,355 @@ def build_list_excel(sheet_title, columns, rows, filter_summary=None, title=None
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+# ---------- 품질현황 수입검사 LIST — 5개 시트 회사 보고 양식 ----------
+
+def build_quality_status_excel(lots, start_date, end_date, filter_summary=""):
+    """DB에서 확정한 검사 행을 5개 시트 수입검사 현황 엑셀로 만든다.
+
+    ``lots``의 표본수/불량수/검사방법은 database.quality_status_export_rows()가 과거
+    스냅샷과 불량 문서 우선순위를 적용한 결과다. 이 함수는 현재 specs를 조회하거나
+    수량을 다시 계산하지 않고 표시·집계만 담당한다.
+    """
+    from collections import Counter, defaultdict
+    import io as _io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font as _Font, Alignment as _Alignment
+    from openpyxl.styles import Border as _Border, Side as _Side, PatternFill as _PatternFill
+
+    def number(value):
+        return int(value or 0)
+
+    def sum_optional(rows, key):
+        return sum(number(r.get(key)) for r in rows)
+
+    def verdict(rows):
+        states = {r.get("판정") for r in rows}
+        if "불합격" in states:
+            return "불합격 포함"
+        if "특채" in states:
+            return "특채 포함"
+        if "미결" in states:
+            return "미결 포함"
+        return "합격"
+
+    def unique_text(rows, key):
+        values = []
+        for row in rows:
+            value = str(row.get(key) or "").strip()
+            if value and value not in values:
+                values.append(value)
+        return "\n".join(values)
+
+    def aggregate_detail(rows):
+        qty = sum_optional(rows, "quantity")
+        sample = sum_optional(rows, "sample_qty")
+        defect = sum_optional(rows, "defect_qty")
+        special_rows = [r for r in rows if r.get("판정") == "특채"]
+        pending_rows = [r for r in rows if r.get("판정") == "미결"]
+        pass_rows = [r for r in rows if r.get("판정") == "합격"]
+        methods = []
+        for row in rows:
+            method = row.get("inspection_method") or ""
+            if method and method not in methods:
+                methods.append(method)
+        return {
+            "검사로트수": len(rows), "입고수량": qty,
+            "검사 방법": " / ".join(methods),
+            "검사수량(표본)": sample, "불량수량(표본)": defect,
+            "표본불량률": defect / sample if sample else None,
+            "특채로트수": len(special_rows),
+            "특채수량": sum_optional(special_rows, "quantity"),
+            "미결수량": sum_optional(pending_rows, "quantity"),
+            "합격수량": sum_optional(pass_rows, "quantity"),
+            "판정": verdict(rows),
+            "특채내용": unique_text(rows, "special_content"),
+            "비고": unique_text(rows, "notes"),
+            "최초검사일": min((r.get("inspect_date") or "" for r in rows), default=""),
+            "최종검사일": max((r.get("inspect_date") or "" for r in rows), default=""),
+        }
+
+    grouped_lots = defaultdict(list)
+    for lot in lots:
+        grouped_lots[(lot.get("supplier") or "미입력",
+                      lot.get("material_no") or "미입력")].append(lot)
+    details = []
+    for (supplier, material_no), rows in sorted(grouped_lots.items()):
+        base = rows[0]
+        item = {
+            "협력사": supplier,
+            "대분류": base.get("major_category") or "미지정",
+            "중분류": base.get("middle_category") or "미지정",
+            "중요부품": "",
+            "자재번호": material_no,
+            "자재명": base.get("material_name") or "",
+        }
+        item.update(aggregate_detail(rows))
+        details.append(item)
+    details.sort(key=lambda r: (r["협력사"], r["대분류"], r["중분류"], r["자재번호"]))
+    for idx, row in enumerate(details, 1):
+        row["No"] = idx
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    navy = "FF1F4E78"
+    blue = "FFD9EAF7"
+    pale = "FFF3F6F9"
+    white = "FFFFFFFF"
+    text = "FF1F2937"
+    thin = _Side(style="thin", color="FFD1D5DB")
+    border = _Border(left=thin, right=thin, top=thin, bottom=thin)
+    title_font = _Font(name="맑은 고딕", size=15, bold=True, color=text)
+    body_font = _Font(name="맑은 고딕", size=9, color=text)
+    header_font = _Font(name="맑은 고딕", size=9, bold=True, color=white)
+
+    def add_table_sheet(name, title, subtitle, columns, rows, total_columns=(), *,
+                        freeze_panes=None, auto_filter=False):
+        ws = wb.create_sheet(name)
+        ws.sheet_view.showGridLines = False
+        last_col = get_column_letter(len(columns))
+        ws.merge_cells(f"A1:{last_col}1")
+        ws["A1"] = title
+        ws["A1"].font = title_font
+        ws["A1"].alignment = _Alignment(horizontal="left", vertical="center")
+        ws.row_dimensions[1].height = 25
+        ws.merge_cells(f"A2:{last_col}2")
+        ws["A2"] = subtitle
+        ws["A2"].font = _Font(name="맑은 고딕", size=9, italic=True, color="FF6B7280")
+        ws["A2"].alignment = _Alignment(horizontal="left", vertical="center")
+        header_row = 4
+        for col_idx, (header, key, width, fmt) in enumerate(columns, 1):
+            cell = ws.cell(header_row, col_idx, header)
+            cell.font = header_font
+            cell.fill = _PatternFill("solid", fgColor=navy)
+            cell.alignment = _Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = border
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+        ws.row_dimensions[header_row].height = 34
+        for row_idx, row in enumerate(rows, header_row + 1):
+            row_kind = row.get("_row_kind")
+            needed_lines = 1
+            for col_idx, (_header, key, _width, fmt) in enumerate(columns, 1):
+                cell = ws.cell(row_idx, col_idx, row.get(key))
+                cell.font = (_Font(name="맑은 고딕", size=9, bold=True, color=text)
+                             if row_kind in ("subtotal", "total") else body_font)
+                cell.border = border
+                if row_kind == "total":
+                    fill_color = blue
+                elif row_kind == "subtotal":
+                    fill_color = "FFEAF2F8"
+                else:
+                    fill_color = white if row_idx % 2 else pale
+                cell.fill = _PatternFill("solid", fgColor=fill_color)
+                cell.alignment = _Alignment(
+                    horizontal="left" if fmt == "text" else "right" if fmt in ("int", "pct") else "center",
+                    vertical="center", wrap_text=fmt == "text")
+                if fmt == "int":
+                    cell.number_format = "#,##0"
+                elif fmt == "pct":
+                    cell.number_format = "0.00%"
+                elif fmt == "date":
+                    cell.number_format = "yyyy-mm-dd"
+                if fmt == "text" and cell.value:
+                    text_value = str(cell.value)
+                    visual_lines = sum(max(1, (len(part) + max(8, _width) - 1) // max(8, _width))
+                                       for part in text_value.splitlines() or [text_value])
+                    needed_lines = max(needed_lines, visual_lines)
+            ws.row_dimensions[row_idx].height = min(90, max(22, 15 * needed_lines))
+        if rows and total_columns:
+            total_row = header_row + 1 + len(rows)
+            ws.cell(total_row, 1, "합계")
+            for col_idx, (_header, key, _width, fmt) in enumerate(columns, 1):
+                if key in total_columns:
+                    ws.cell(total_row, col_idx, sum(number(r.get(key)) for r in rows))
+                    if fmt == "int":
+                        ws.cell(total_row, col_idx).number_format = "#,##0"
+            for cell in ws[total_row]:
+                cell.font = _Font(name="맑은 고딕", size=9, bold=True, color=text)
+                cell.fill = _PatternFill("solid", fgColor=blue)
+                cell.border = border
+                cell.alignment = _Alignment(horizontal="center", vertical="center")
+        ws.freeze_panes = freeze_panes
+        if auto_filter:
+            ws.auto_filter.ref = f"A4:{last_col}{header_row + len(rows)}"
+        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.print_title_rows = "1:4"
+        return ws
+
+    # 1. 협력사 × 대분류 × 중분류 LIST
+    list_groups = defaultdict(list)
+    for row in details:
+        list_groups[(row["협력사"], row["대분류"], row["중분류"])].append(row)
+    total_items = len(details)
+    supplier_item_counts = Counter(r["협력사"] for r in details)
+    list_rows = []
+    for idx, ((supplier, major, middle), rows) in enumerate(sorted(list_groups.items()), 1):
+        item_count = len(rows)
+        list_rows.append({
+            "No": idx, "협력사": supplier, "대분류": major, "중분류": middle,
+            "품목수": item_count,
+            "품목 구성비(협력사 내)": item_count / supplier_item_counts[supplier] if supplier_item_counts[supplier] else 0,
+            "품목 구성비(전체)": item_count / total_items if total_items else 0,
+            "검사로트수": sum_optional(rows, "검사로트수"),
+            "입고수량": sum_optional(rows, "입고수량"),
+            "검사수량(표본)": sum_optional(rows, "검사수량(표본)"),
+            "불량수량(표본)": sum_optional(rows, "불량수량(표본)"),
+            "표본불량률": (sum_optional(rows, "불량수량(표본)") / sum_optional(rows, "검사수량(표본)")
+                            if sum_optional(rows, "검사수량(표본)") else None),
+            "특채수량": sum_optional(rows, "특채수량"),
+            "합격수량": sum_optional(rows, "합격수량"),
+            "판정": verdict([{"판정": "불합격" if any(r["판정"].startswith("불합격") for r in rows)
+                              else "특채" if any(r["판정"].startswith("특채") for r in rows)
+                              else "미결" if any(r["판정"].startswith("미결") for r in rows)
+                              else "합격"}]),
+            "특채내용": unique_text(rows, "특채내용"), "비고": unique_text(rows, "비고"),
+        })
+    list_columns = [
+        ("No", "No", 6, "center"), ("협력사", "협력사", 16, "text"),
+        ("대분류", "대분류", 15, "text"), ("중분류", "중분류", 22, "text"),
+        ("품목수", "품목수", 9, "int"), ("품목 구성비\n(협력사 내)", "품목 구성비(협력사 내)", 13, "pct"),
+        ("품목 구성비\n(전체)", "품목 구성비(전체)", 12, "pct"), ("검사로트수", "검사로트수", 11, "int"),
+        ("입고수량", "입고수량", 12, "int"), ("검사수량\n(표본)", "검사수량(표본)", 12, "int"),
+        ("불량수량\n(표본)", "불량수량(표본)", 12, "int"), ("표본\n불량률", "표본불량률", 11, "pct"),
+        ("특채수량", "특채수량", 11, "int"), ("합격수량", "합격수량", 12, "int"),
+        ("판정", "판정", 11, "center"), ("특채내용", "특채내용", 38, "text"), ("비고", "비고", 38, "text"),
+    ]
+    add_table_sheet("수입검사 LIST", f"수입검사 현황 LIST ({start_date} ~ {end_date})",
+                    filter_summary or "협력사 × 대분류 × 중분류 집계", list_columns, list_rows,
+                    {"품목수", "검사로트수", "입고수량", "검사수량(표본)", "불량수량(표본)", "특채수량", "합격수량"},
+                    freeze_panes="E5", auto_filter=True)
+
+    # 2. 협력사별
+    supplier_groups = defaultdict(list)
+    for row in details:
+        supplier_groups[row["협력사"]].append(row)
+    total_lots = sum_optional(details, "검사로트수")
+    total_qty = sum_optional(details, "입고수량")
+    supplier_rows = []
+    ordered_suppliers = sorted(supplier_groups.items(), key=lambda item: -sum_optional(item[1], "입고수량"))
+    for rank, (supplier, rows) in enumerate(ordered_suppliers, 1):
+        major_counts = Counter(r["대분류"] for r in rows)
+        qty = sum_optional(rows, "입고수량")
+        sample = sum_optional(rows, "검사수량(표본)")
+        defect = sum_optional(rows, "불량수량(표본)")
+        confirmed = qty - sum_optional(rows, "미결수량")
+        supplier_rows.append({
+            "순위": rank, "협력사": supplier,
+            "주요 대분류": ", ".join(f"{k}({v})" for k, v in major_counts.most_common()),
+            "품목수": len(rows), "품목 구성비": len(rows) / total_items if total_items else 0,
+            "검사로트수": sum_optional(rows, "검사로트수"),
+            "로트 구성비": sum_optional(rows, "검사로트수") / total_lots if total_lots else 0,
+            "입고수량": qty, "입고 구성비": qty / total_qty if total_qty else 0,
+            "검사수량(표본)": sample, "불량수량(표본)": defect,
+            "표본불량률": defect / sample if sample else None,
+            "특채로트수": sum_optional(rows, "특채로트수"), "특채수량": sum_optional(rows, "특채수량"),
+            "특채율(수량)": sum_optional(rows, "특채수량") / qty if qty else 0,
+            "미결수량": sum_optional(rows, "미결수량"), "합격수량": sum_optional(rows, "합격수량"),
+            "합격률(확정수량)": sum_optional(rows, "합격수량") / confirmed if confirmed else None,
+            "판정": "불합격 포함" if any(r["판정"].startswith("불합격") for r in rows)
+                    else "특채 포함" if any(r["판정"].startswith("특채") for r in rows)
+                    else "미결 포함" if any(r["판정"].startswith("미결") for r in rows) else "합격",
+            "특채내용 / 비고": "\n".join(v for v in (unique_text(rows, "특채내용"), unique_text(rows, "비고")) if v),
+        })
+    supplier_columns = [
+        ("순위", "순위", 7, "int"), ("협력사", "협력사", 16, "text"), ("주요 대분류", "주요 대분류", 30, "text"),
+        ("품목수", "품목수", 9, "int"), ("품목 구성비", "품목 구성비", 11, "pct"),
+        ("검사로트수", "검사로트수", 11, "int"), ("로트 구성비", "로트 구성비", 11, "pct"),
+        ("입고수량", "입고수량", 12, "int"), ("입고 구성비", "입고 구성비", 11, "pct"),
+        ("검사수량\n(표본)", "검사수량(표본)", 12, "int"), ("불량수량\n(표본)", "불량수량(표본)", 12, "int"),
+        ("표본\n불량률", "표본불량률", 11, "pct"), ("특채로트수", "특채로트수", 11, "int"),
+        ("특채수량", "특채수량", 11, "int"), ("특채율\n(수량)", "특채율(수량)", 11, "pct"),
+        ("미결수량", "미결수량", 11, "int"), ("합격수량", "합격수량", 12, "int"),
+        ("합격률\n(확정수량)", "합격률(확정수량)", 13, "pct"), ("판정", "판정", 11, "center"),
+        ("특채내용 / 비고", "특채내용 / 비고", 44, "text"),
+    ]
+    add_table_sheet("협력사별 현황", f"협력사별 수입검사 현황 ({start_date} ~ {end_date})",
+                    "입고수량 순 정렬", supplier_columns, supplier_rows,
+                    {"품목수", "검사로트수", "입고수량", "검사수량(표본)", "불량수량(표본)", "특채로트수", "특채수량", "미결수량", "합격수량"},
+                    freeze_panes="C5")
+
+    # 3. 대분류/중분류
+    category_groups = defaultdict(list)
+    for row in details:
+        category_groups[(row["대분류"], row["중분류"])].append(row)
+    def category_summary(major, middle, rows, row_kind=None):
+        sample = sum_optional(rows, "검사수량(표본)")
+        defect = sum_optional(rows, "불량수량(표본)")
+        result = {
+            "대분류": major, "중분류": middle, "협력사수": len({r["협력사"] for r in rows}),
+            "품목수": len(rows), "품목 구성비": len(rows) / total_items if total_items else 0,
+            "검사로트수": sum_optional(rows, "검사로트수"), "입고수량": sum_optional(rows, "입고수량"),
+            "입고 구성비": sum_optional(rows, "입고수량") / total_qty if total_qty else 0,
+            "검사수량(표본)": sample, "불량수량(표본)": defect,
+            "표본불량률": defect / sample if sample else None, "특채수량": sum_optional(rows, "특채수량"),
+            "판정": "불합격 포함" if any(r["판정"].startswith("불합격") for r in rows)
+                    else "특채 포함" if any(r["판정"].startswith("특채") for r in rows)
+                    else "미결 포함" if any(r["판정"].startswith("미결") for r in rows) else "합격",
+        }
+        if row_kind:
+            result["_row_kind"] = row_kind
+        return result
+
+    category_rows = []
+    major_groups = defaultdict(list)
+    for (major, middle), rows in sorted(category_groups.items()):
+        category_rows.append(category_summary(major, middle, rows))
+        major_groups[major].extend(rows)
+        remaining_middles = [key for key in category_groups if key[0] == major and key[1] > middle]
+        if not remaining_middles:
+            category_rows.append(category_summary(f"{major} 소계", "", major_groups[major], "subtotal"))
+    category_rows.append(category_summary("총계", "", details, "total"))
+    category_columns = [
+        ("대분류", "대분류", 16, "text"), ("중분류", "중분류", 24, "text"), ("협력사수", "협력사수", 10, "int"),
+        ("품목수", "품목수", 9, "int"), ("품목 구성비", "품목 구성비", 11, "pct"),
+        ("검사로트수", "검사로트수", 11, "int"), ("입고수량", "입고수량", 12, "int"),
+        ("입고 구성비", "입고 구성비", 11, "pct"), ("검사수량\n(표본)", "검사수량(표본)", 12, "int"),
+        ("불량수량\n(표본)", "불량수량(표본)", 12, "int"), ("표본\n불량률", "표본불량률", 11, "pct"),
+        ("특채수량", "특채수량", 11, "int"), ("판정", "판정", 11, "center"),
+    ]
+    add_table_sheet("대분류별 요약", f"대분류 / 중분류별 수입검사 요약 ({start_date} ~ {end_date})",
+                    "품목상세 집계", category_columns, category_rows,
+                    freeze_panes="C5")
+
+    # 4. 품목상세
+    detail_columns = [
+        ("No", "No", 6, "int"), ("협력사", "협력사", 16, "text"), ("대분류", "대분류", 15, "text"),
+        ("중분류", "중분류", 22, "text"), ("중요부품", "중요부품", 10, "center"),
+        ("자재번호", "자재번호", 15, "text"), ("자재명", "자재명", 34, "text"),
+        ("검사로트수", "검사로트수", 11, "int"), ("입고수량", "입고수량", 12, "int"),
+        ("검사 방법", "검사 방법", 16, "text"), ("검사수량(표본)", "검사수량(표본)", 13, "int"),
+        ("불량수량(표본)", "불량수량(표본)", 13, "int"), ("표본불량률", "표본불량률", 11, "pct"),
+        ("특채로트수", "특채로트수", 11, "int"), ("특채수량", "특채수량", 11, "int"),
+        ("미결수량", "미결수량", 11, "int"), ("합격수량", "합격수량", 12, "int"),
+        ("판정", "판정", 11, "center"), ("특채내용", "특채내용", 42, "text"), ("비고", "비고", 42, "text"),
+        ("최초검사일", "최초검사일", 13, "date"), ("최종검사일", "최종검사일", 13, "date"),
+    ]
+    add_table_sheet("품목상세", f"수입검사 품목상세 ({start_date} ~ {end_date})",
+                    "협력사 × 자재번호 단위", detail_columns, details,
+                    {"검사로트수", "입고수량", "검사수량(표본)", "불량수량(표본)", "특채로트수", "특채수량", "미결수량", "합격수량"},
+                    freeze_panes="H5", auto_filter=True)
+
+    # 5. 분류기준
+    rules = [
+        {"구분": "표본수량", "항목": "일반 검사", "내용": "검사 당시 외관 항목의 저장 AQL 표본수량을 사용"},
+        {"구분": "표본수량", "항목": "구형 검사", "내용": "AQL 스냅샷이 없으면 외관 항목에 실제 저장된 측정값 개수만 사용하고 현재 규격으로 재계산하지 않음"},
+        {"구분": "불량 문서", "항목": "수량 우선순위", "내용": "NCR 명시값 → 개선요청서 명시값 → 일반 외관 기준"},
+        {"구분": "불량 문서", "항목": "여러 문서", "내용": "확정/발송 상태 우선, 같은 우선순위에서는 최신 ID 사용"},
+        {"구분": "검사방법", "항목": "전수 검사", "내용": "대분류 하우징·기구물 또는 중분류 고저항·VI"},
+        {"구분": "검사방법", "항목": "체크 검사", "내용": "외관 항목의 검사 당시 AQL 스냅샷이 체크검사인 경우. 현재 규칙을 과거 이력에 소급하지 않음"},
+        {"구분": "특채내용", "항목": "원문", "내용": "선택된 NCR의 특채사유·불량내용과 개선요청서 요청내용 원문만 표시"},
+        {"구분": "비고", "항목": "원문", "내용": "검사자·검토자·최종승인자 비고 원문만 표시"},
+    ]
+    rule_columns = [("구분", "구분", 16, "text"), ("항목", "항목", 24, "text"), ("내용", "내용", 95, "text")]
+    add_table_sheet("분류기준", "분류 기준 및 산출 방법", filter_summary or "품질현황 다운로드 적용 기준",
+                    rule_columns, rules)
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf

@@ -761,6 +761,15 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     """)
+    existing_imp_cols = [r[1] for r in conn.execute(
+        "PRAGMA table_info(improvement_requests)"
+    ).fetchall()]
+    for col, definition in [
+        ("sample_qty", "INTEGER"),
+        ("defect_qty", "INTEGER"),
+    ]:
+        if col not in existing_imp_cols:
+            _safe_add_column(cur, f"ALTER TABLE improvement_requests ADD COLUMN {col} {definition}")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS improvement_request_photos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3195,17 +3204,17 @@ def _next_improvement_no():
 def create_improvement_request(inspection_id, material_no, material_name, supplier,
                                 lot_number, po_number, lot_qty, defect_categories,
                                 defect_category_etc, request_detail, confirmed_name,
-                                issued_by, issued_date):
+                                issued_by, issued_date, sample_qty=None, defect_qty=None):
     request_no = _next_improvement_no()
     conn = get_conn()
     cur = conn.execute("""
         INSERT INTO improvement_requests (request_no, inspection_id, material_no, material_name,
             supplier, lot_number, po_number, lot_qty, defect_categories, defect_category_etc,
-            request_detail, confirmed_name, issued_by, issued_date, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+            request_detail, confirmed_name, issued_by, issued_date, sample_qty, defect_qty, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
     """, (request_no, inspection_id, material_no, material_name, supplier, lot_number,
           po_number, lot_qty, defect_categories, defect_category_etc, request_detail,
-          confirmed_name, issued_by, issued_date))
+          confirmed_name, issued_by, issued_date, sample_qty, defect_qty))
     conn.commit()
     req_id = cur.lastrowid
     conn.close()
@@ -3215,7 +3224,7 @@ def create_improvement_request(inspection_id, material_no, material_name, suppli
 def update_improvement_request(req_id, material_no, material_name, supplier,
                                 lot_number, po_number, lot_qty, defect_categories,
                                 defect_category_etc, request_detail, confirmed_name,
-                                issued_date):
+                                issued_date, sample_qty=None, defect_qty=None):
     """개선요청서 내용 수정. NCR과 같은 원칙 — 발송 여부 무관하게 수정 허용하되
     저장 시 status를 'draft'로 되돌리고 발송 흔적을 지운다(서명 개념은 없음)."""
     conn = get_conn()
@@ -3223,12 +3232,12 @@ def update_improvement_request(req_id, material_no, material_name, supplier,
         UPDATE improvement_requests SET
             material_no = ?, material_name = ?, supplier = ?, lot_number = ?, po_number = ?,
             lot_qty = ?, defect_categories = ?, defect_category_etc = ?, request_detail = ?,
-            confirmed_name = ?, issued_date = ?,
+            confirmed_name = ?, issued_date = ?, sample_qty = ?, defect_qty = ?,
             status = 'draft', email_sent_at = NULL, sent_to = NULL
         WHERE id = ?
     """, (material_no, material_name, supplier, lot_number, po_number, lot_qty,
           defect_categories, defect_category_etc, request_detail, confirmed_name,
-          issued_date, req_id))
+          issued_date, sample_qty, defect_qty, req_id))
     conn.commit()
     conn.close()
 
@@ -6036,6 +6045,206 @@ def _ncr_extra_stats(rows, manual_ncr_lot_qtys):
         qty += int(m.group())
         cnt += 1
     return qty, cnt
+
+
+def _recorded_sample_count(measured_value):
+    """저장된 측정값 문자열에서 실제 기록 개수만 센다.
+
+    과거 검사에 AQL 스냅샷이 없을 때 현재 specs로 표본수를 다시 계산하면 당시 이력이
+    바뀌므로, 외관 항목에 실제로 남아 있는 값만 근거로 사용한다.
+    """
+    return len([v for v in str(measured_value or "").split(",") if v.strip()])
+
+
+def _preferred_quality_document(rows):
+    """확정/발송 문서를 먼저, 같은 우선순위에서는 최신 id를 고른다."""
+    if not rows:
+        return None
+    return max(rows, key=lambda r: (
+        1 if (r.get("status") or "") in ("confirmed", "sent") else 0,
+        int(r.get("id") or 0),
+    ))
+
+
+def quality_status_export_rows(start_date, end_date, supplier=None, po_number=None,
+                               material=None, states=None, major_category=None,
+                               middle_category=None):
+    """품질현황 엑셀 전용 원본 행을 DB에서 직접 조회한다.
+
+    화면용 ``quality_report()``와 분리해 과거 검사 표본수를 현재 규격으로 재계산하지 않는다.
+    일반 표본수는 외관 항목의 저장 스냅샷, 구형 검사는 외관 항목의 실제 기록 개수만 쓴다.
+    불량 문서 수량은 NCR → 개선요청서 → 일반 외관 근거 순서로 적용한다.
+    """
+    def as_list(value):
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(v).strip() for v in value if str(v).strip()]
+        value = str(value).strip()
+        return [value] if value else []
+
+    suppliers = as_list(supplier)
+    po_numbers = as_list(po_number)
+    states = as_list(states)
+    conn = get_conn()
+    sql = """
+        SELECT i.*, mc.major_category, mc.middle_category
+          FROM inspections i
+          LEFT JOIN material_classification_map mc ON mc.material_no = i.material_no
+         WHERE i.status != 'superseded'
+    """
+    params = []
+    if start_date:
+        sql += " AND i.inspect_date >= ?"; params.append(start_date)
+    if end_date:
+        sql += " AND i.inspect_date <= ?"; params.append(end_date)
+    if suppliers:
+        sql += f" AND i.supplier IN ({','.join('?' * len(suppliers))})"; params += suppliers
+    if po_numbers:
+        sql += f" AND i.po_number IN ({','.join('?' * len(po_numbers))})"; params += po_numbers
+    if material:
+        sql += " AND (i.material_no LIKE ? OR i.material_name LIKE ?)"
+        params += [f"%{material}%", f"%{material}%"]
+    major_category = (major_category or "").strip()
+    middle_category = (middle_category or "").strip()
+    if major_category == UNASSIGNED_CLASSIFICATION or middle_category == UNASSIGNED_CLASSIFICATION:
+        sql += " AND mc.material_no IS NULL"
+    else:
+        if major_category:
+            sql += " AND mc.major_category = ?"; params.append(major_category)
+        if middle_category:
+            sql += " AND mc.middle_category = ?"; params.append(middle_category)
+    sql += " ORDER BY i.inspect_date, i.id"
+    lots = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    for row in lots:
+        row["판정"] = _lot_state(row["status"], row["approval_type"], row["overall_result"])
+    if states:
+        lots = [row for row in lots if row["판정"] in states]
+
+    ids = [row["id"] for row in lots]
+    exterior_by_inspection = {}
+    ncr_by_inspection = {}
+    improvement_by_inspection = {}
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        exterior_rows = conn.execute(f"""
+            SELECT ii.id, ii.inspection_id, ii.measured_value, ii.aql_snapshot,
+                   ii.sample_qty_snapshot, ii.aql_snapshot_set, ii.item_name,
+                   COALESCE(s.spec_display, '') AS spec_display,
+                   COALESCE(s.item_order, 999999) AS spec_item_order
+              FROM inspection_items ii
+              JOIN inspections i ON i.id = ii.inspection_id
+              LEFT JOIN specs s
+                ON s.material_no = COALESCE(ii.part_material_no, i.material_no)
+               AND s.item_name = ii.item_name
+             WHERE ii.inspection_id IN ({placeholders})
+               AND (TRIM(ii.item_name) LIKE '%외관%'
+                    OR TRIM(COALESCE(s.spec_display, '')) LIKE '%외관%')
+             ORDER BY ii.inspection_id,
+                      CASE WHEN TRIM(ii.item_name) = '외관' THEN 0
+                           WHEN TRIM(COALESCE(s.spec_display, '')) = '외관' THEN 1
+                           ELSE 2 END,
+                      COALESCE(s.item_order, 999999),
+                      ii.id
+        """, ids).fetchall()
+        for item in exterior_rows:
+            exterior_by_inspection.setdefault(item["inspection_id"], dict(item))
+
+        for item in conn.execute(f"""
+            SELECT id, inspection_id, ncr_no, status, sample_qty, defect_qty,
+                   defect_description, special_note
+              FROM ncr
+             WHERE inspection_id IN ({placeholders})
+             ORDER BY id
+        """, ids).fetchall():
+            ncr_by_inspection.setdefault(item["inspection_id"], []).append(dict(item))
+        for item in conn.execute(f"""
+            SELECT id, inspection_id, request_no, status, sample_qty, defect_qty,
+                   request_detail
+              FROM improvement_requests
+             WHERE inspection_id IN ({placeholders})
+             ORDER BY id
+        """, ids).fetchall():
+            improvement_by_inspection.setdefault(item["inspection_id"], []).append(dict(item))
+    conn.close()
+
+    for row in lots:
+        exterior = exterior_by_inspection.get(row["id"])
+        if exterior and exterior.get("aql_snapshot_set") == 1:
+            general_sample_qty = exterior.get("sample_qty_snapshot")
+            general_source = "외관 AQL 저장 스냅샷"
+        elif exterior:
+            recorded = _recorded_sample_count(exterior.get("measured_value"))
+            general_sample_qty = recorded or None
+            general_source = "외관 실제 기록" if recorded else ""
+        else:
+            general_sample_qty = None
+            general_source = ""
+
+        ncr = _preferred_quality_document(ncr_by_inspection.get(row["id"], []))
+        improvement = _preferred_quality_document(improvement_by_inspection.get(row["id"], []))
+        sample_qty = (ncr.get("sample_qty") if ncr and ncr.get("sample_qty") is not None else
+                      improvement.get("sample_qty") if improvement and improvement.get("sample_qty") is not None else
+                      general_sample_qty)
+        if ncr and ncr.get("defect_qty") is not None:
+            defect_qty = ncr["defect_qty"]
+        elif improvement and improvement.get("defect_qty") is not None:
+            defect_qty = improvement["defect_qty"]
+        elif row["판정"] in ("합격", "미결"):
+            defect_qty = 0
+        else:
+            defect_qty = None
+
+        if ncr and ncr.get("sample_qty") is not None:
+            sample_source = f"NCR {ncr.get('ncr_no') or ''}".strip()
+        elif improvement and improvement.get("sample_qty") is not None:
+            sample_source = f"개선요청서 {improvement.get('request_no') or ''}".strip()
+        else:
+            sample_source = general_source
+
+        major = row.get("major_category") or UNASSIGNED_CLASSIFICATION
+        middle = row.get("middle_category") or UNASSIGNED_CLASSIFICATION
+        aql_snapshot = exterior.get("aql_snapshot") if exterior else None
+        if major in ("하우징", "기구물") or middle in ("고저항", "VI"):
+            inspection_method = "전수 검사"
+        elif str(aql_snapshot or "").strip() == "체크검사":
+            inspection_method = "체크 검사"
+        elif "전수" in str(aql_snapshot or ""):
+            inspection_method = "전수 검사"
+        elif exterior and (aql_snapshot is not None or general_sample_qty is not None):
+            inspection_method = "샘플링 검사"
+        else:
+            inspection_method = ""
+
+        special_parts = []
+        if row["판정"] == "특채":
+            if ncr:
+                for value in (ncr.get("special_note"), ncr.get("defect_description")):
+                    if value and value not in special_parts:
+                        special_parts.append(value)
+            if improvement and improvement.get("request_detail"):
+                special_parts.append(improvement["request_detail"])
+        note_parts = []
+        for label, value in (("검사자", row.get("remark_inspector")),
+                             ("검토자", row.get("remark_manager")),
+                             ("최종승인자", row.get("remark_approver"))):
+            if value:
+                note_parts.append(f"{label}: {value}")
+
+        row.update({
+            "major_category": major,
+            "middle_category": middle,
+            "exterior_aql_snapshot": aql_snapshot,
+            "sample_qty": sample_qty,
+            "defect_qty": defect_qty,
+            "sample_source": sample_source,
+            "inspection_method": inspection_method,
+            "selected_ncr": ncr,
+            "selected_improvement": improvement,
+            "special_content": "\n".join(special_parts),
+            "notes": "\n".join(note_parts),
+        })
+    return lots
 
 
 LOT_STATES = ["합격", "특채", "불합격", "미결"]   # 화면 상태 필터에 쓰는 값

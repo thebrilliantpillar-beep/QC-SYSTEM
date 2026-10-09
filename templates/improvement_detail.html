@@ -86,6 +86,8 @@
       <td class="lbl">불량 분류</td><td>
         {{ req['defect_categories'] or '-' }}{% if req['defect_category_etc'] %} ({{ req['defect_category_etc'] }}){% endif %}
       </td></tr>
+  <tr><td class="lbl">표본수량</td><td>{{ req['sample_qty'] if req['sample_qty'] is not none else '-' }}</td>
+      <td class="lbl">불량수량</td><td>{{ req['defect_qty'] if req['defect_qty'] is not none else '-' }}</td></tr>
   <tr><td class="lbl">요청 내용</td><td colspan="3" style="white-space:pre-wrap;">{{ req['request_detail'] or '-' }}</td></tr>
   <tr><td class="lbl">담당자 확인</td><td colspan="3">{{ req['confirmed_name'] or '(미입력)' }}</td></tr>
 </table>

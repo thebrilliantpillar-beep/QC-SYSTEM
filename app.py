@@ -8296,6 +8296,31 @@ def improvement_export():
     return _send_list_excel(buf, "개선요청서")
 
 
+def _improvement_quantities_from_form():
+    """개선요청서 표본/불량수량을 선택 정수로 읽고 입력 오류를 반환한다."""
+    values = []
+    for field, label in (("sample_qty", "표본수량"), ("defect_qty", "불량수량")):
+        raw = request.form.get(field, "").strip()
+        if not raw:
+            values.append(None)
+            continue
+        if not raw.isdigit():
+            return None, None, f"{label}은 0 이상의 정수로 입력해줘."
+        try:
+            value = int(raw)
+        except ValueError:
+            # str.isdigit() includes characters such as superscript digits that
+            # Python's integer parser intentionally does not accept.
+            return None, None, f"{label}은 0 이상의 정수로 입력해줘."
+        if value > 9_223_372_036_854_775_807:
+            return None, None, f"{label}이 입력 가능한 범위를 초과했어."
+        values.append(value)
+    sample_qty, defect_qty = values
+    if sample_qty is not None and defect_qty is not None and defect_qty > sample_qty:
+        return None, None, "불량수량은 표본수량보다 클 수 없어."
+    return sample_qty, defect_qty, None
+
+
 @app.route("/improvement/new", methods=["GET", "POST"])
 @perm_required("improvement")
 def improvement_new_manual():
@@ -8307,6 +8332,10 @@ def improvement_new_manual():
         issued_date = request.form.get("issued_date", "").strip()
         if not material_no or not supplier or not request_detail or not issued_date:
             flash("자재번호·업체·요청내용·발신일은 필수야.")
+            return redirect(url_for("improvement_new_manual"))
+        sample_qty, defect_qty, quantity_error = _improvement_quantities_from_form()
+        if quantity_error:
+            flash(quantity_error)
             return redirect(url_for("improvement_new_manual"))
 
         categories = [c for c in request.form.getlist("defect_categories") if c in db.list_improvement_defect_categories()]
@@ -8324,6 +8353,8 @@ def improvement_new_manual():
             confirmed_name=request.form.get("confirmed_name", "").strip() or None,
             issued_by=g.user["display_name"] or g.user["username"],
             issued_date=issued_date,
+            sample_qty=sample_qty,
+            defect_qty=defect_qty,
         )
         _save_improvement_photos(req_id, req_no)
         record_change("개선요청서 작성(수기입력)", "improvement_request", req_id,
@@ -8351,6 +8382,10 @@ def improvement_new(inspection_id):
         if not request_detail or not issued_date:
             flash("요청내용과 발신일은 필수야.")
             return redirect(url_for("improvement_new", inspection_id=inspection_id))
+        sample_qty, defect_qty, quantity_error = _improvement_quantities_from_form()
+        if quantity_error:
+            flash(quantity_error)
+            return redirect(url_for("improvement_new", inspection_id=inspection_id))
 
         categories = [c for c in request.form.getlist("defect_categories") if c in db.list_improvement_defect_categories()]
         req_id, req_no = db.create_improvement_request(
@@ -8367,6 +8402,8 @@ def improvement_new(inspection_id):
             confirmed_name=request.form.get("confirmed_name", "").strip() or None,
             issued_by=g.user["display_name"] or g.user["username"],
             issued_date=issued_date,
+            sample_qty=sample_qty,
+            defect_qty=defect_qty,
         )
         _save_improvement_photos(req_id, req_no)
         record_change("개선요청서 작성", "improvement_request", req_id,
@@ -8396,6 +8433,10 @@ def improvement_edit(req_id):
         issued_date = request.form.get("issued_date", "").strip()
         if not request_detail or not issued_date:
             flash("요청내용과 발신일은 필수야.")
+            return redirect(url_for("improvement_edit", req_id=req_id))
+        sample_qty, defect_qty, quantity_error = _improvement_quantities_from_form()
+        if quantity_error:
+            flash(quantity_error)
             return redirect(url_for("improvement_edit", req_id=req_id))
 
         if is_linked:
@@ -8429,6 +8470,8 @@ def improvement_edit(req_id):
             request_detail=request_detail,
             confirmed_name=request.form.get("confirmed_name", "").strip() or None,
             issued_date=issued_date,
+            sample_qty=sample_qty,
+            defect_qty=defect_qty,
         )
         detail = f"{req['request_no']} — {material_no} / {supplier}"
         if was_sent:
@@ -9347,144 +9390,30 @@ def dashboard_export_json():
 @app.route("/dashboard/export.xlsx")
 @perm_required("defect_history", "inspect_history")
 def dashboard_export_xlsx():
-    """엑셀 내보내기 — 시트별로 요약/기간별/업체별/자재별/불량항목/성적서목록."""
-    import unicodedata
-    from openpyxl import Workbook
-    from openpyxl.styles import Font as XFont, Border, Side
-
+    """조건검색 결과를 회사 수입검사 현황 5개 시트 양식으로 다운로드한다."""
     p = _dashboard_params()
-    report = _build_quality_report(p)
-    wb = Workbook()
-    head_font = XFont(bold=True)
-
-    def _display_width(s):
-        # 한글/한자 등 "wide" 문자는 엑셀 열너비 단위(반각 기준)로 2칸을 차지한다.
-        # len()만 쓰면 한글이 섞인 값일수록 실제 필요한 폭보다 좁게 계산된다.
-        return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in s)
-
-    def sheet(title, columns, rows):
-        ws = wb.create_sheet(title[:31])
-        ws.append(columns)
-        for c in ws[1]:
-            c.font = head_font
-        for r in rows:
-            ws.append([r.get(k) for k in columns])
-        for idx, col in enumerate(columns, start=1):
-            width = (max(_display_width(str(col)), *(_display_width(str(r.get(col, ""))) for r in rows))
-                     if rows else _display_width(str(col)))
-            ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = min(60, width + 3)
-        return ws
-
-    ws0 = wb.active
-    ws0.title = "요약"
-    s = report["요약"]
-    ws0.append(["항목", "값"])
-    ws0["A1"].font = head_font; ws0["B1"].font = head_font
-    for k, v in [("보고기간", f"{p['start']} ~ {p['end']}"),
-                 ("기간유형", dict(db.PERIOD_TYPES)[p["period_type"]]),
-                 ("업체", report["필터"]["업체"]),
-                 ("로트번호", report["필터"]["로트번호"]),
-                 ("자재/제품명", report["필터"]["자재/제품명"]),
-                 ("대분류", report["필터"]["대분류"]),
-                 ("중분류", report["필터"]["중분류"]),
-                 ("불량률기준", report["불량률기준"]),
-                 ("검사 로트", s["로트"]), ("입고 수량", s["수량"]),
-                 ("검사 표본수(실측)", s["검사표본수"]),
-                 ("합격 수량", s["합격수량"]), ("특채 수량", s["특채수량"]),
-                 ("불합격 수량", s["불합격수량"]), ("미결 수량", s["미결수량"]),
-                 ("불량률(%)", s["불량률"]), ("PPM", s["PPM"]),
-                 ("규격이탈률(%)", s["규격이탈률"]),
-                 ("표본 불량수", s["표본불량수"]),
-                 ("표본 불량률(%)", s["표본불량률"]),
-                 ("표본 PPM", s["표본PPM"]),
-                 ("불량률기준(NCR포함)", report["불량률기준_NCR포함"]),
-                 ("불량률(NCR포함,%)", s["불량률_NCR포함"]), ("PPM(NCR포함)", s["PPM_NCR포함"]),
-                 ("불량건수율기준(NCR포함)", report["불량건수율기준_NCR포함"]),
-                 ("불량건수율(NCR포함,%)", s["불량건수율_NCR포함"]),
-                 ("NCR만있는로트 추가수량", s["NCR추가수량"]),
-                 ("NCR만있는로트 추가건수", s["NCR추가로트"])]:
-        ws0.append([k, v])
-    ws0.column_dimensions["A"].width = 18
-    ws0.column_dimensions["B"].width = 46
-
-    highlights = db.quality_highlights(report)
-    ws0.append([])
-    ws0.append(["핵심 요약", highlights["headline"]])
-    ws0.cell(row=ws0.max_row, column=1).font = head_font
-    if highlights["표본참고"]:
-        ws0.append(["표본 참고", highlights["표본참고"]])
-    for c in highlights["특이사항"]:
-        ws0.append([f"특이사항({c['구분']})", c["메시지"]])
-
-    sheet("기간별", ["구간", "로트", "수량", "검사표본수", "합격수량", "특채수량", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
-          report["기간별"])
-    sheet("업체별", ["업체", "로트", "수량", "검사표본수", "합격수량", "특채수량", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
-          report["업체별"])
-    sheet("자재별", ["자재번호", "자재명", "대분류", "중분류", "로트", "수량", "검사표본수", "불합격수량", "불량률", "PPM", "표본불량수", "표본불량률", "표본PPM"],
-          report["자재별"])
-
-    # 백데이터 — 같은 자재의 로트를 하나로 합치지 않고 로트(성적서)별로 한 줄씩 펼친 버전.
-    # 업체/입고일을 같이 보여주고, 판정은 합격/불합격/특채 수량 3개 열로 나눠서 쓴다.
-    # 불합격수량/특채수량은 로트 전체 수량이 아니라 **실제 불량으로 집계된 수량(표본불량수)**
-    # 만큼만 넣고, 합격수량은 그 나머지다(사용자 확정 2026-10-03: 입고 100개 중 표본 12개,
-    # 그중 3개 불량/특채면 합격은 97개). 표본불량수를 못 읽은 경우(원격 판정만 있고 검사자
-    # 비고에 "검사수량 N개 중 M개 불량" 형식 기록이 없는 경우)는 집계 불가하므로 로트 전체를
-    # 불량으로 간주한다(이전 동작과 동일 — 불합격/특채 판정 자체가 화면에서 사라지지 않게).
-    # 특채는 "따지고 보면 불합격 계열"이라는 사용자 확정 — 불합격수량 열에도 그 수량이
-    # 같이 들어간다(= 특채가 불합격수량에 포함된다는 뜻, 불합격수량+특채수량을 또 더하면
-    # 안 됨 — 이미 포함돼 있어서 더하면 특채 수량이 중복 집계된다).
-    detail_src = sorted(report["성적서목록"],
-                        key=lambda r: (r["material_no"] or "", r["receive_date"] or "", r["inspect_date"] or ""))
-    detail_rows = []
-    for r in detail_src:
-        samp = r["검사표본수"]
-        qty = r["quantity"] or 0
-        state = r["판정"]
-        if state in ("불합격", "특채"):
-            defect_qty = r["표본불량수"] or qty
-            ok_qty = max(qty - defect_qty, 0)
-        else:
-            defect_qty, ok_qty = 0, (qty if state == "합격" else 0)
-        detail_rows.append({
-            "업체": r["supplier"], "입고일": r["receive_date"], "로트번호": r["po_number"],
-            "자재번호": r["material_no"], "자재명": r["material_name"],
-            "대분류": r.get("major_category") or "미지정",
-            "중분류": r.get("middle_category") or "미지정",
-            "수량": qty,
-            "합격수량": ok_qty,
-            "불합격수량": defect_qty if state in ("불합격", "특채") else 0,
-            "특채수량": defect_qty if state == "특채" else 0,
-            "검사표본수": samp, "표본불량수": r["표본불량수"],
-            "표본불량률": round(r["표본불량수"] / samp * 100, 3) if samp else None,
-            "표본PPM": int(round(r["표본불량수"] / samp * 1_000_000)) if samp else None,
-        })
-    ws_backdata = sheet("백데이터", ["업체", "입고일", "로트번호", "자재번호", "자재명", "대분류", "중분류", "수량",
-                                   "합격수량", "불합격수량", "특채수량",
-                                   "검사표본수", "표본불량수", "표본불량률", "표본PPM"],
-                        detail_rows)
-    ws_backdata.sheet_properties.tabColor = "FFFFFF00"  # 8자리 ARGB(알파 FF)로 명시 — 6자리만 주면
-    # openpyxl이 알파를 "00"(투명)으로 채워서 실제 엑셀에서 색이 깨질 수 있다(25절 참고)
-    thin = Side(style="thin")
-    cell_border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    for row in ws_backdata.iter_rows(min_row=1, max_row=ws_backdata.max_row,
-                                      min_col=1, max_col=ws_backdata.max_column):
-        for cell in row:
-            cell.border = cell_border
-    ws_backdata.freeze_panes = "A2"  # 틀고정 — 헤더행 고정, 아래로 스크롤해도 항상 보이게
-
-    sheet("불량항목", ["자재번호", "자재명", "항목", "규격", "발생건수", "업체"],
-          report["불량항목순위"])
-    sheet("성적서목록", ["id", "inspect_date", "material_no", "material_name", "major_category", "middle_category", "supplier",
-                        "po_number", "quantity", "overall_result", "status", "approval_type"],
-          report["성적서목록"])
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    fname = f"품질현황_{p['start']}_{p['end']}.xlsx"
+    lots = db.quality_status_export_rows(
+        start_date=p["start"], end_date=p["end"],
+        supplier=p["suppliers"], po_number=p["po_numbers"],
+        material=p["material"] or None, states=p["states"],
+        major_category=p["major_category"] or None,
+        middle_category=p["middle_category"] or None,
+    )
+    filter_parts = []
+    for label, values in (("협력사", p["suppliers"]), ("발주번호", p["po_numbers"]),
+                          ("판정", p["states"])):
+        if values:
+            filter_parts.append(f"{label}: {', '.join(values)}")
+    for label, value in (("자재/제품명", p["material"]), ("대분류", p["major_category"]),
+                         ("중분류", p["middle_category"])):
+        if value:
+            filter_parts.append(f"{label}: {value}")
+    filter_summary = " / ".join(filter_parts) or "전체 조건"
+    buf = report_builder.build_quality_status_excel(
+        lots, p["start"], p["end"], filter_summary=filter_summary)
+    fname = f"수입검사현황_LIST_{p['start']}_{p['end']}.xlsx"
     return send_file(buf, as_attachment=True, download_name=fname,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
 
 def _avg_time_report_group(material_name, supplier, category):
     """이번 리포트 전용 구분 규칙(2026-09-08 사용자 확정, materials.category와는 별개):
