@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}생산 LOT — Chardon QMS{% endblock %}
+{% block content %}
+<h2>생산 LOT</h2>
+
+<div class="card">
+  <form method="GET" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input type="text" name="q" value="{{ q }}" placeholder="LOT 번호·모델번호·비고 검색" style="flex:1; min-width:160px;">
+    <select name="status">
+      <option value="all" {{ 'selected' if status == 'all' else '' }}>전체</option>
+      <option value="draft" {{ 'selected' if status == 'draft' else '' }}>작성중</option>
+      <option value="confirmed" {{ 'selected' if status == 'confirmed' else '' }}>확정</option>
+      <option value="cancelled" {{ 'selected' if status == 'cancelled' else '' }}>취소</option>
+    </select>
+    <button type="submit" style="margin-top:0;">검색</button>
+    {% if can_manage %}<a class="btn secondary" href="{{ url_for('production_lot_new') }}" style="margin-top:0;">새 LOT</a>{% endif %}
+  </form>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <table>
+    <thead><tr><th>LOT 번호</th><th>모델</th><th>상태</th><th>테스트</th><th>비고</th><th>생성일</th></tr></thead>
+    <tbody>
+      {% for l in lots %}
+      <tr>
+        <td><a href="{{ url_for('production_lot_detail', lot_id=l['id']) }}">{{ l['lot_no'] }}</a></td>
+        <td>{{ l['model_no'] }} {{ l['model_display_name'] or '' }}</td>
+        <td>{{ status_labels.get(l['status'], l['status']) }}</td>
+        <td>{{ '테스트' if l['is_test'] else '' }}</td>
+        <td>{{ l['note'] or '' }}</td>
+        <td>{{ l['created_at'] | datetime_korean }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="text-align:center; color:var(--muted);">LOT이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

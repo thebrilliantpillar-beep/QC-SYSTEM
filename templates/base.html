@@ -63,6 +63,9 @@
                            transition: background .1s, transform .08s ease-out; }
   .nav-dropdown .menu a:hover { background: rgba(255,255,255,.1); transform: translateX(2px); }
   .nav-dropdown .menu a:active { background: rgba(255,255,255,.28); transform: scale(.96); }
+  /* 숨은 메뉴(투명)도 레이아웃에 있어 오른쪽 끝 근처 버튼의 메뉴가 화면 폭을 넘기면 페이지에 가로 스크롤이
+     생긴다. fitNavMenus()가 넘칠 메뉴에만 menu-right를 붙여 오른쪽 기준으로 편다(2026-10-10). */
+  .nav-dropdown.menu-right .menu { left: auto; right: 0; }
   /* 화면 오른쪽 끝 메뉴는 목록이 화면 밖으로 나가지 않게 오른쪽 기준으로 편다 */
   @media (max-width: 560px) {
     .nav-dropdown .menu { min-width: 150px; }
@@ -365,6 +368,16 @@
   </div>
   {% endif %}
 
+  {# 🧪 제품검사 (TASK #66 1C-a) #}
+  {% if traceability_on and ('process_lot' in perms or 'process_input' in perms) %}
+  <div class="nav-dropdown">
+    <button type="button" onclick="toggleNav(this)">🧪 제품검사 ▾</button>
+    <div class="menu">
+      <a href="{{ url_for('production_lot_list') }}">생산 LOT</a>
+    </div>
+  </div>
+  {% endif %}
+
   {# 🖨️ 출력 #}
   {% if 'output' in perms %}
   <div class="nav-dropdown">
@@ -460,6 +473,20 @@ function toggleNav(btn) {
   document.querySelectorAll('.nav-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
   if (!wasOpen) box.classList.add('open');
 }
+
+/* 왼쪽 기준으로 펴면 화면 폭을 넘길 메뉴만 오른쪽 기준(menu-right)으로 바꾼다 */
+function fitNavMenus() {
+  var vw = document.documentElement.clientWidth;
+  document.querySelectorAll('.nav-dropdown').forEach(function (d) {
+    var m = d.querySelector('.menu');
+    if (!m) return;
+    d.classList.remove('menu-right');
+    if (d.getBoundingClientRect().left + m.offsetWidth > vw) d.classList.add('menu-right');
+  });
+}
+fitNavMenus();
+window.addEventListener('load', fitNavMenus);
+window.addEventListener('resize', fitNavMenus);
 
 // 터치 기기(특히 iOS Safari)는 문서에 touch 리스너가 하나라도 없으면 :active
 // 가상클래스를 아예 켜주지 않는다 — 태블릿에서 버튼을 눌러도 CSS로 만든 "눌림"

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}생산 LOT — Chardon QMS{% endblock %}
+{% block content %}
+<h2>생산 LOT: {{ lot['lot_no'] }}</h2>
+<p><a href="{{ url_for('production_lot_list') }}">← 목록으로</a></p>
+
+<div class="card">
+  <p>상태: <b>{{ status_labels.get(lot['status'], lot['status']) }}</b>{% if lot['is_test'] %} / 테스트 LOT{% endif %}</p>
+  <p class="muted">생성 {{ lot['created_by'] or '' }} {{ lot['created_at'] | datetime_korean }}
+    {% if lot['confirmed_at'] %} / 확정 {{ lot['confirmed_by'] or '' }} {{ lot['confirmed_at'] | datetime_korean }}{% endif %}
+    {% if lot['cancelled_at'] %} / 취소 {{ lot['cancelled_by'] or '' }} {{ lot['cancelled_at'] | datetime_korean }} (사유: {{ lot['cancel_reason'] or '' }}){% endif %}</p>
+  {% if can_manage and lot['status'] == 'draft' %}
+  <form method="POST" action="{{ url_for('production_lot_update', lot_id=lot['id']) }}">
+    <label><input type="checkbox" name="is_test" value="1" {{ 'checked' if lot['is_test'] else '' }} style="width:auto;"> 테스트 LOT</label>
+    <label>비고</label>
+    <input type="text" name="note" value="{{ lot['note'] or '' }}">
+    <button type="submit">저장</button>
+  </form>
+  {% else %}
+  <p>비고: {{ lot['note'] or '-' }}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">모델 정보 {{ '(확정 시점 기준)' if lot['model_snapshot_json'] else '(현재 값)' }}</h3>
+  <p>모델번호: <b>{{ model['model_no'] }}</b> / 개정 {{ model['model_revision'] }}</p>
+  <p>표시명: {{ model['display_name'] or '-' }} / 전압: {{ (model['voltage_kv'] ~ 'kV') if model['voltage_kv'] else '-' }} / 제품 형식: {{ phase_labels.get(model['phase_type'], model['phase_type']) }} / 하우징 수량: {{ model['housing_required_qty'] }}</p>
+</div>
+
+{% if can_manage and lot['status'] != 'cancelled' %}
+<div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">
+  {% if lot['status'] == 'draft' %}
+  <form method="POST" action="{{ url_for('production_lot_confirm', lot_id=lot['id']) }}">
+    <button type="submit" style="margin-top:0;" onclick="return confirm('LOT을 확정할까?');">확정</button>
+  </form>
+  {% endif %}
+  <form method="POST" action="{{ url_for('production_lot_cancel', lot_id=lot['id']) }}" style="display:flex; gap:8px; flex-wrap:wrap; flex:1;">
+    <input type="text" name="reason" placeholder="취소 사유" required style="flex:1; min-width:160px;">
+    <button type="submit" class="btn secondary" style="margin-top:0;" onclick="return confirm('LOT 전체를 취소할까?');">전체 취소</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card" style="overflow-x:auto;">
+  <h3 style="margin-top:0; font-size:15px;">변경 이력</h3>
+  <table>
+    <thead><tr><th>구분</th><th>사유</th><th>변경자</th><th>시각</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+      <tr>
+        <td>{{ history_labels.get(h['change_type'], h['change_type']) }}</td>
+        <td>{{ h['reason'] or '' }}</td>
+        <td>{{ h['changed_by'] or '' }}</td>
+        <td>{{ h['changed_at'] | datetime_korean }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" style="text-align:center; color:var(--muted);">이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

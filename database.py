@@ -3,7 +3,7 @@
 # 무단 복제·배포·수정을 금합니다.
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
 import hashlib, json, re, sqlite3, os
-from datetime import datetime as _dt
+from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 # 검사자 비고의 표준 불량 문구 파싱 — app.py의 parse_defect_counts와 동일 패턴
 _DEFECT_RE = re.compile(r"검사\s*수량\s*(\d+)\s*개\s*중\s*(\d+)\s*개\s*불량")
@@ -1014,6 +1014,46 @@ def init_db():
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             model_id    INTEGER NOT NULL REFERENCES product_models(id),
             revision    INTEGER NOT NULL,
+            change_type TEXT NOT NULL,
+            before_json TEXT,
+            after_json  TEXT,
+            reason      TEXT,
+            changed_by  TEXT,
+            changed_at  TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    # ---- 2026-10-10 신규 끝 ----
+
+    # ---- 2026-10-10 신규: 생산 LOT(TASK #66 패키지 1C-a) ----
+    # production_lot_history는 append-only — 수정·삭제 함수/UI를 만들지 말 것.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS production_lots (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_no              TEXT NOT NULL UNIQUE,
+            lot_date            TEXT NOT NULL,
+            seq                 INTEGER NOT NULL,
+            model_id            INTEGER NOT NULL REFERENCES product_models(id),
+            model_snapshot_json TEXT,
+            status              TEXT NOT NULL DEFAULT 'draft',
+            is_test             INTEGER NOT NULL DEFAULT 0,
+            lot_revision        INTEGER NOT NULL DEFAULT 0,
+            note                TEXT,
+            cancel_reason       TEXT,
+            created_by          TEXT,
+            created_at          TEXT DEFAULT (datetime('now','localtime')),
+            confirmed_by        TEXT,
+            confirmed_at        TEXT,
+            cancelled_by        TEXT,
+            cancelled_at        TEXT,
+            updated_by          TEXT,
+            updated_at          TEXT,
+            UNIQUE(lot_date, seq)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS production_lot_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_id      INTEGER NOT NULL REFERENCES production_lots(id),
             change_type TEXT NOT NULL,
             before_json TEXT,
             after_json  TEXT,
@@ -4164,6 +4204,9 @@ def update_product_model(model_id, data, user, reason):
         ident_changed = any(before[k] != after[k] for k in _PM_IDENTITY_FIELDS)
         if ident_changed and not reason:
             raise ValueError("식별 정보를 바꾸려면 사유를 입력해줘.")
+        if ident_changed and conn.execute("SELECT 1 FROM production_lots WHERE model_id=? LIMIT 1",
+                                          (model_id,)).fetchone():
+            raise ValueError("이미 LOT에서 쓰는 모델은 식별 정보를 바꿀 수 없어. 새 모델로 등록해줘.")
         rev = row["revision"] + (1 if ident_changed else 0)
         full_before = _pm_full(conn, model_id)
         conn.execute(
@@ -4207,6 +4250,187 @@ def set_product_model_active(model_id, is_active, user, reason):
         raise
     finally:
         conn.close()
+
+
+# ---------- 생산 LOT (TASK #66 패키지 1C-a) ----------
+
+def kst_date_str():
+    """오늘 날짜(한국, YYYYMMDD) — 서버가 UTC여도 UTC+9를 직접 계산한다."""
+    return _dt.now(_tz(_td(hours=9))).strftime("%Y%m%d")
+
+
+def product_model_lot_reference_count(model_id):
+    """이 모델을 쓰는 생산 LOT 수(상태 불문)."""
+    conn = get_conn()
+    n = conn.execute("SELECT COUNT(*) FROM production_lots WHERE model_id=?", (model_id,)).fetchone()[0]
+    conn.close()
+    return n
+
+
+def _pl_full(conn, lot_id):
+    """이력용 전체 상태 스냅샷 — 같은 연결에서 읽어 고정 키 순서 dict로."""
+    r = conn.execute("SELECT * FROM production_lots WHERE id=?", (lot_id,)).fetchone()
+    snap = json.loads(r["model_snapshot_json"]) if r["model_snapshot_json"] else None
+    return {"lot_no": r["lot_no"], "lot_date": r["lot_date"], "seq": r["seq"],
+            "model_id": r["model_id"], "model_snapshot": snap, "status": r["status"],
+            "is_test": r["is_test"], "lot_revision": r["lot_revision"], "note": r["note"],
+            "cancel_reason": r["cancel_reason"]}
+
+
+def _pl_history(conn, lot_id, change_type, before, after, reason, user):
+    conn.execute(
+        "INSERT INTO production_lot_history (lot_id, change_type, before_json, after_json, "
+        "reason, changed_by) VALUES (?,?,?,?,?,?)",
+        (lot_id, change_type,
+         json.dumps(before, ensure_ascii=False) if before is not None else None,
+         json.dumps(after, ensure_ascii=False), reason, user))
+
+
+def _pl_lock(conn, lot_id, need_draft=False):
+    """BEGIN IMMEDIATE 후 LOT 행을 읽는다. 없으면/상태가 안 맞으면 ValueError."""
+    conn.execute("BEGIN IMMEDIATE")
+    row = conn.execute("SELECT * FROM production_lots WHERE id=?", (lot_id,)).fetchone()
+    if not row:
+        raise ValueError("LOT을 찾을 수 없어.")
+    if need_draft and row["status"] != "draft":
+        raise ValueError("작성 중인 LOT만 바꿀 수 있어.")
+    return row
+
+
+def create_production_lot(model_id, is_test, note, user):
+    """생산 LOT 생성(작성중) + create 이력. 번호는 한국 날짜 기준 일련번호, 취소 번호도 재사용 안 함."""
+    note = (note or "").strip() or None
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        m = conn.execute("SELECT is_active FROM product_models WHERE id=?", (model_id,)).fetchone()
+        if not m:
+            raise ValueError("모델을 찾을 수 없어.")
+        if not m["is_active"]:
+            raise ValueError("사용 중지된 모델이야.")
+        lot_date = kst_date_str()
+        seq = conn.execute("SELECT COALESCE(MAX(seq),0)+1 FROM production_lots WHERE lot_date=?",
+                           (lot_date,)).fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO production_lots (lot_no, lot_date, seq, model_id, status, is_test, note, "
+            "created_by) VALUES (?,?,?,?, 'draft', ?,?,?)",
+            (f"PROD-{lot_date}-{seq:03d}", lot_date, seq, model_id, 1 if is_test else 0, note, user))
+        lid = cur.lastrowid
+        _pl_history(conn, lid, "create", None, _pl_full(conn, lid), None, user)
+        conn.commit()
+        return lid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_production_lot(lot_id, note, is_test, user):
+    """작성중 LOT의 비고·테스트 표시 수정 + update 이력. 값이 같으면 이력 없음."""
+    note = (note or "").strip() or None
+    flag = 1 if is_test else 0
+    conn = get_conn()
+    try:
+        row = _pl_lock(conn, lot_id, need_draft=True)
+        if row["note"] == note and row["is_test"] == flag:
+            conn.rollback()
+            return
+        before = _pl_full(conn, lot_id)
+        conn.execute("UPDATE production_lots SET note=?, is_test=?, updated_by=?, "
+                     "updated_at=datetime('now','localtime') WHERE id=?", (note, flag, user, lot_id))
+        _pl_history(conn, lot_id, "update", before, _pl_full(conn, lot_id), None, user)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def confirm_production_lot(lot_id, user):
+    """작성중 LOT 확정 — 그 시점 모델 값을 스냅샷으로 굳히고 confirm 이력."""
+    conn = get_conn()
+    try:
+        row = _pl_lock(conn, lot_id, need_draft=True)
+        m = conn.execute("SELECT * FROM product_models WHERE id=?", (row["model_id"],)).fetchone()
+        if not m or not m["is_active"]:
+            raise ValueError("사용 중지된 모델이야.")
+        snap = {"model_id": m["id"], "model_no": m["model_no"], "model_key": m["model_key"],
+                "model_revision": m["revision"], "display_name": m["display_name"],
+                "voltage_code": m["voltage_code"], "voltage_kv": m["voltage_kv"],
+                "suffix_code": m["suffix_code"], "pcode": m["pcode"], "phase_type": m["phase_type"],
+                "housing_required_qty": m["housing_required_qty"]}
+        before = _pl_full(conn, lot_id)
+        conn.execute("UPDATE production_lots SET status='confirmed', model_snapshot_json=?, "
+                     "confirmed_by=?, confirmed_at=datetime('now','localtime'), updated_by=?, "
+                     "updated_at=datetime('now','localtime') WHERE id=?",
+                     (json.dumps(snap, ensure_ascii=False), user, user, lot_id))
+        _pl_history(conn, lot_id, "confirm", before, _pl_full(conn, lot_id), None, user)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def cancel_production_lot(lot_id, reason, user):
+    """LOT 전체 취소(사유 필수) + cancel 이력. 행·번호는 남긴다."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("취소 사유를 입력해줘.")
+    conn = get_conn()
+    try:
+        row = _pl_lock(conn, lot_id)
+        if row["status"] == "cancelled":
+            raise ValueError("이미 취소된 LOT이야.")
+        before = _pl_full(conn, lot_id)
+        conn.execute("UPDATE production_lots SET status='cancelled', cancel_reason=?, "
+                     "cancelled_by=?, cancelled_at=datetime('now','localtime'), updated_by=?, "
+                     "updated_at=datetime('now','localtime') WHERE id=?", (reason, user, user, lot_id))
+        _pl_history(conn, lot_id, "cancel", before, _pl_full(conn, lot_id), reason, user)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+_PL_SELECT = ("SELECT l.*, m.model_no AS model_no, m.display_name AS model_display_name "
+              "FROM production_lots l JOIN product_models m ON m.id = l.model_id")
+
+
+def list_production_lots(search=None, status=None):
+    """LOT 번호·모델번호·비고 부분일치 + 상태 필터, 최신순."""
+    sql, args = _PL_SELECT + " WHERE 1=1", []
+    if search:
+        sql += " AND (l.lot_no LIKE ? OR m.model_no LIKE ? OR l.note LIKE ?)"
+        args += [f"%{search}%"] * 3
+    if status:
+        sql += " AND l.status = ?"
+        args.append(status)
+    conn = get_conn()
+    rows = conn.execute(sql + " ORDER BY l.id DESC", args).fetchall()
+    conn.close()
+    return rows
+
+
+def get_production_lot(lot_id):
+    conn = get_conn()
+    row = conn.execute(_PL_SELECT + " WHERE l.id=?", (lot_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def get_production_lot_history(lot_id):
+    """LOT 변경 이력(최신순)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM production_lot_history WHERE lot_id=? ORDER BY id DESC",
+                        (lot_id,)).fetchall()
+    conn.close()
+    return rows
 
 
 def _pm_seed_rows(conn):

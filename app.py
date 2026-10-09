@@ -10447,6 +10447,123 @@ def product_model_seed():
                            phase_labels=_PHASE_LABELS)
 
 
+# ---- 생산 LOT (TASK #66 패키지 1C-a) ----
+_LOT_STATUS_LABELS = {"draft": "작성중", "confirmed": "확정", "cancelled": "취소"}
+_LOT_HISTORY_LABELS = {"create": "생성", "update": "수정", "confirm": "확정", "cancel": "취소"}
+
+
+def _lot_template_args():
+    return {"status_labels": _LOT_STATUS_LABELS, "phase_labels": _PHASE_LABELS,
+            "can_manage": "process_lot" in _user_perms(g.user)}
+
+
+@app.route("/production-lots")
+@perm_required("process_lot", "process_input")
+def production_lot_list():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "all")
+    lots = db.list_production_lots(search=q or None,
+                                   status=status if status in _LOT_STATUS_LABELS else None)
+    return render_template("production_lots.html", lots=lots, q=q, status=status,
+                           **_lot_template_args())
+
+
+@app.route("/production-lots/new", methods=["GET", "POST"])
+@perm_required("process_lot")
+def production_lot_new():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    models = db.list_product_models(active=True)
+    if request.method == "POST":
+        try:
+            model_id = int(request.form.get("model_id", ""))
+        except ValueError:
+            flash("모델을 선택해줘.")
+            return render_template("production_lot_form.html", models=models, form=request.form,
+                                   **_lot_template_args())
+        try:
+            lid = db.create_production_lot(model_id, request.form.get("is_test") == "1",
+                                           request.form.get("note"), _actor_name())
+        except ValueError as e:
+            flash(str(e))
+            return render_template("production_lot_form.html", models=models, form=request.form,
+                                   **_lot_template_args())
+        lot = db.get_production_lot(lid)
+        record_change("생산 LOT 생성", "production_lot", lid, lot["lot_no"])
+        flash(f"{lot['lot_no']} 을(를) 만들었어.")
+        return redirect(url_for("production_lot_detail", lot_id=lid))
+    return render_template("production_lot_form.html", models=models, form={},
+                           **_lot_template_args())
+
+
+@app.route("/production-lots/<int:lot_id>")
+@perm_required("process_lot", "process_input")
+def production_lot_detail(lot_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        flash("LOT을 찾을 수 없어.")
+        return redirect(url_for("production_lot_list"))
+    snap = json.loads(lot["model_snapshot_json"]) if lot["model_snapshot_json"] else None
+    if snap is None:  # 확정 전(또는 확정 없이 취소된) LOT은 현재 모델 값을 보여준다
+        m = db.get_product_model(lot["model_id"])
+        snap = {k: m[k] for k in ("model_no", "display_name", "voltage_code", "voltage_kv",
+                                  "suffix_code", "pcode", "phase_type", "housing_required_qty")}
+        snap["model_revision"] = m["revision"]
+    return render_template("production_lot_detail.html", lot=lot, model=snap,
+                           history=db.get_production_lot_history(lot_id),
+                           history_labels=_LOT_HISTORY_LABELS, **_lot_template_args())
+
+
+def _lot_action(lot_id, action, done_msg, log_name):
+    """update/confirm/cancel POST 공용 처리 — 게이트·존재 확인·ValueError flash·감사로그."""
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        flash("LOT을 찾을 수 없어.")
+        return redirect(url_for("production_lot_list"))
+    f, user = request.form, _actor_name()
+    try:
+        if action == "update":
+            db.update_production_lot(lot_id, f.get("note"), f.get("is_test") == "1", user)
+        elif action == "confirm":
+            db.confirm_production_lot(lot_id, user)
+        else:
+            db.cancel_production_lot(lot_id, f.get("reason"), user)
+    except ValueError as e:
+        flash(str(e))
+    else:
+        record_change(log_name, "production_lot", lot_id, lot["lot_no"])
+        flash(done_msg)
+    return redirect(url_for("production_lot_detail", lot_id=lot_id))
+
+
+@app.route("/production-lots/<int:lot_id>/update", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_update(lot_id):
+    return _lot_action(lot_id, "update", "저장됐어.", "생산 LOT 수정")
+
+
+@app.route("/production-lots/<int:lot_id>/confirm", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_confirm(lot_id):
+    return _lot_action(lot_id, "confirm", "LOT을 확정했어.", "생산 LOT 확정")
+
+
+@app.route("/production-lots/<int:lot_id>/cancel", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_cancel(lot_id):
+    return _lot_action(lot_id, "cancel", "LOT을 취소했어.", "생산 LOT 취소")
+
+
 def _trace_perm_holders():
     """NEW_TRACE_PERMS 중 하나라도 유효 권한(admin 포함)으로 가진 계정 목록."""
     holders = []
