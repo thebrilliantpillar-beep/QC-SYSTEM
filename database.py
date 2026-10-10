@@ -1230,6 +1230,50 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_liue_unit ON lot_inspection_unit_events(inspection_id, unit_id)")
     # ---- 2026-10-11 신규(1D-c1) 끝 ----
 
+    # ---- 2026-10-11 신규: 제품 성적서 승인 (TASK #148 패키지 4a) ----
+    # 두 테이블 모두 UPDATE/DELETE 금지(append-only). 상태는 저장하지 않고 revision별 마지막 이벤트로 도출한다.
+    # event_type은 CHECK 제약 없음(4e가 review 계열 추가). CREATE IF NOT EXISTS만 — 기존 테이블 ALTER 없음.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS product_report_revisions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES production_lot_inspections(id),
+            unit_id       INTEGER NOT NULL REFERENCES finished_units(id),
+            submission_no INTEGER NOT NULL,
+            results_digest TEXT NOT NULL,
+            completion_seq INTEGER NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            content_hash  TEXT NOT NULL,
+            serial_at_submit TEXT,
+            lot_revision  INTEGER,
+            writer_user_id INTEGER,
+            writer_name   TEXT,
+            approver_user_id INTEGER,
+            approver_name TEXT,
+            created_at    TEXT NOT NULL,
+            UNIQUE(inspection_id, unit_id, submission_no)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_prr_unit ON product_report_revisions(inspection_id, unit_id)")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS product_report_events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            revision_id   INTEGER NOT NULL REFERENCES product_report_revisions(id),
+            seq           INTEGER NOT NULL,
+            event_type    TEXT NOT NULL,
+            reason        TEXT,
+            reject_kind   TEXT,
+            doc_rev       INTEGER,
+            actor_name    TEXT,
+            actor_user_id INTEGER,
+            payload_json  TEXT,
+            prev_event_hash TEXT,
+            event_hash    TEXT NOT NULL,
+            at            TEXT NOT NULL,
+            UNIQUE(revision_id, seq)
+        )
+    """)
+    # ---- 2026-10-11 신규(4a) 끝 ----
+
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
     for col in ("round_no", "confirmed_by", "confirmed_at", "confirm_signature"):
@@ -4560,14 +4604,32 @@ def lot_has_started_inspection(lot_id):
         conn.close()
 
 
-def has_final_documents_for_lot(lot_id):
-    """LOT에 최종 승인·출력된 성적서가 있는지 — 성적서 단계(1D 이후)에서 구현 예정, 지금은 항상 False."""
-    return False
+_FINAL_DOC_SQL = ("SELECT 1 FROM product_report_revisions r JOIN production_lot_inspections i "
+                  "ON i.id=r.inspection_id JOIN product_report_events e ON e.revision_id=r.id "
+                  "AND e.seq=(SELECT MAX(x.seq) FROM product_report_events x WHERE x.revision_id=r.id) "
+                  "WHERE e.event_type='approved' AND ")
 
 
-def unit_has_final_document(unit_id):
-    """완제품 성적서가 최종 승인·출력됐는지 — 성적서 단계(1D 이후)에서 구현 예정, 지금은 항상 False."""
-    return False
+def has_final_documents_for_lot(lot_id, conn=None):
+    """LOT에 최종 승인된 제품 성적서(마지막 이벤트=approved)가 있는지. 쓰기 트랜잭션 안에서는 자기 conn을 넘길 것."""
+    own = conn is None
+    c = get_conn() if own else conn
+    try:
+        return c.execute(_FINAL_DOC_SQL + "i.lot_id=? LIMIT 1", (lot_id,)).fetchone() is not None
+    finally:
+        if own:
+            c.close()
+
+
+def unit_has_final_document(unit_id, conn=None):
+    """완제품의 제품 성적서가 최종 승인됐는지(어느 revision이든 마지막 이벤트=approved). 쓰기 트랜잭션 안에서는 자기 conn을 넘길 것."""
+    own = conn is None
+    c = get_conn() if own else conn
+    try:
+        return c.execute(_FINAL_DOC_SQL + "r.unit_id=? LIMIT 1", (unit_id,)).fetchone() is not None
+    finally:
+        if own:
+            c.close()
 
 
 _FINAL_DOC_UNIT_MSG = "이 S/N의 성적서가 이미 최종 승인 또는 출력되어 제외/정정할 수 없어요. 승인 회수가 먼저 필요해요."
@@ -4587,7 +4649,7 @@ def cancel_production_lot(lot_id, reason, user):
         row = _pl_lock(conn, lot_id)
         if row["status"] == "cancelled":
             raise ValueError("이미 취소된 LOT이야.")
-        if has_final_documents_for_lot(lot_id):
+        if has_final_documents_for_lot(lot_id, conn):
             raise ValueError("최종 승인 또는 출력된 성적서가 있어서 취소할 수 없어요. 승인 회수가 먼저 필요해요.")
         before = _pl_full(conn, lot_id)
         if not lot_has_started_inspection(lot_id):
@@ -5123,7 +5185,7 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
                                "AND unit_id=? ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
         was_done = bool(last_ev and last_ev["event_type"] == "complete")
         if was_done:  # 완료된 S/N은 정정 권한자만, 정정하면 같은 트랜잭션에서 자동 재개
-            if unit_has_final_document(unit_id):
+            if unit_has_final_document(unit_id, conn):
                 raise ValueError(_FINAL_DOC_UNIT_MSG)
             if not can_correct_completed:
                 raise ValueError("완료된 S/N이에요. 값을 고치려면 정정 권한이 필요해요.")
@@ -5371,6 +5433,8 @@ def _append_unit_event(conn, insp, unit_id, event_type, source, reason, actor, a
         (insp["id"], unit_id, seq, event_type, source, reason, _results_digest(conn, insp["id"], unit_id),
          _canon(summary) if summary is not None else None, 1 if unit_id in _roster_ids(insp) else 0,
          sa["serial_raw"] if sa else None, lot["lot_revision"], actor, actor_id, _utc_now()))
+    if event_type == "reopen":  # 승인 대기 중인 제품 성적서는 재개(사용자·정정·시스템 모두) 때 자동 철회 — 한 지점
+        _withdraw_pending_report(conn, insp, unit_id, reason, source, actor, actor_id)
     return seq
 
 
@@ -5451,7 +5515,7 @@ def reopen_unit_completion(lot_id, unit_id, reason, actor, actor_id, source="use
                             "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
         if not last or last["event_type"] != "complete":
             raise ValueError("완료된 S/N이 아니에요.")
-        if unit_has_final_document(unit_id):
+        if unit_has_final_document(unit_id, conn):
             raise ValueError(_FINAL_DOC_UNIT_MSG)
         seq = _append_unit_event(conn, insp, unit_id, "reopen", source, reason[:200], actor, actor_id)
         conn.commit()
@@ -5471,18 +5535,466 @@ def unit_completion_valid(lot_id, unit_id):
         return False, "제품검사가 시작되지 않았어요."
     conn = get_conn()
     try:
-        lot = conn.execute("SELECT status FROM production_lots WHERE id=?", (lot_id,)).fetchone()
-        if not lot or lot["status"] == "cancelled":
-            return False, "LOT이 취소됐어요."
-        u = conn.execute("SELECT status FROM finished_units WHERE id=? AND lot_id=?", (unit_id, lot_id)).fetchone()
-        if not u or u["status"] != "active":
-            return False, "제외된 S/N이에요."
-        ev = _unit_events_latest(conn, insp["id"]).get(unit_id)
-        if not ev or ev["event_type"] != "complete":
-            return False, "완료되지 않은 S/N이에요."
-        if _results_digest(conn, insp["id"], unit_id) != ev["results_digest"]:
-            return False, "완료 이후 값이 바뀌었어요."
-        return True, ""
+        return _unit_completion_valid_conn(conn, insp, unit_id)
+    finally:
+        conn.close()
+
+
+def _unit_completion_valid_conn(conn, insp, unit_id):
+    """unit_completion_valid의 본문 — 호출자가 연 conn(트랜잭션 안)에서 같은 판정을 한다. insp는 id·lot_id를 가진 행/dict."""
+    lot_id = insp["lot_id"]
+    lot = conn.execute("SELECT status FROM production_lots WHERE id=?", (lot_id,)).fetchone()
+    if not lot or lot["status"] == "cancelled":
+        return False, "LOT이 취소됐어요."
+    u = conn.execute("SELECT status FROM finished_units WHERE id=? AND lot_id=?", (unit_id, lot_id)).fetchone()
+    if not u or u["status"] != "active":
+        return False, "제외된 S/N이에요."
+    ev = _unit_events_latest(conn, insp["id"]).get(unit_id)
+    if not ev or ev["event_type"] != "complete":
+        return False, "완료되지 않은 S/N이에요."
+    if _results_digest(conn, insp["id"], unit_id) != ev["results_digest"]:
+        return False, "완료 이후 값이 바뀌었어요."
+    return True, ""
+
+
+# ---------- 제품 성적서 제출·승인 (TASK #148 패키지 4a) ----------
+# 계약: product_report_revisions/events는 append-only(UPDATE/DELETE 금지). 승인 단위=S/N 1건.
+# 상태는 revision별 마지막 이벤트(submitted=승인 대기, approved=승인됨, withdrawn/rejected/revoked=비활성).
+# 모든 쓰기는 _insp_begin(LOT 단위 BEGIN IMMEDIATE) 안에서 상태·자격·digest를 다시 확인한다.
+# 수입검사 approve/approve_revoke/compute_content_hash는 inspections 테이블 전제라 재사용하지 않는다.
+
+class ReportBlocked(ValueError):
+    """제품 성적서 제출·승인·반려·회수 거부 — blockers=[{code, item_key, name, msg}, ...]."""
+    def __init__(self, blockers):
+        self.blockers = blockers
+        super().__init__(blockers[0]["msg"] if blockers else "처리할 수 없어요.")
+
+
+_REJECT_KINDS = ("document_fix", "quality_impact")
+
+
+def _explicit_perms(conn, user_id):
+    """users.permissions에 직접 체크된 권한만(콤마 구분) — admin 자동 전권을 인정하지 않는다(사용자 확정 Q4)."""
+    if user_id is None:
+        return set()
+    r = conn.execute("SELECT permissions FROM users WHERE id=?", (user_id,)).fetchone()
+    return {p.strip() for p in (r["permissions"] or "").split(",") if p.strip()} if r else set()
+
+
+def unit_revoke_blockers(conn, unit_id):
+    """승인 회수를 막는 사유 목록 — 출하 완료 후 회수 차단 훅(지금은 항상 빈 목록)."""
+    return []
+
+
+def _report_event_hash(revision_id, seq, event_type, reason, actor_name, actor_user_id, reject_kind,
+                       doc_rev, at, prev_hash, payload_json, content_hash):
+    """이벤트 해시의 단일 출처 — 쓰기와 verify가 같은 식을 쓴다."""
+    h = lambda s: hashlib.sha256(s.encode("utf-8")).hexdigest() if s else None
+    return _sha({"revision_id": revision_id, "seq": seq, "event_type": event_type, "reason_hash": h(reason),
+                 "actor_name": actor_name, "actor_user_id": actor_user_id, "reject_kind": reject_kind,
+                 "doc_rev": doc_rev, "at": at, "prev_event_hash": prev_hash, "payload_hash": h(payload_json),
+                 "content_hash": content_hash})
+
+
+def _report_event_append(conn, revision_id, event_type, actor, actor_id, reason=None, reject_kind=None,
+                         doc_rev=None, payload=None):
+    """제품 성적서 이벤트 한 줄 추가(seq·prev_event_hash·event_hash의 단일 출처). _insp_begin 잠금 안에서만 부를 것."""
+    last = conn.execute("SELECT seq, event_hash FROM product_report_events WHERE revision_id=? "
+                        "ORDER BY seq DESC LIMIT 1", (revision_id,)).fetchone()
+    seq = (last["seq"] if last else 0) + 1
+    prev = last["event_hash"] if last else None
+    ch = conn.execute("SELECT content_hash FROM product_report_revisions WHERE id=?", (revision_id,)).fetchone()[0]
+    pj = _canon(payload) if payload is not None else None
+    at = _utc_now()
+    eh = _report_event_hash(revision_id, seq, event_type, reason, actor, actor_id, reject_kind, doc_rev, at,
+                            prev, pj, ch)
+    conn.execute(
+        "INSERT INTO product_report_events (revision_id, seq, event_type, reason, reject_kind, doc_rev, "
+        "actor_name, actor_user_id, payload_json, prev_event_hash, event_hash, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (revision_id, seq, event_type, reason, reject_kind, doc_rev, actor, actor_id, pj, prev, eh, at))
+    return seq
+
+
+def _report_state(conn, inspection_id, unit_id):
+    """unit의 가장 최근 revision 상태 {state, revision_id, submission_no, last_event}. 없으면 state=None."""
+    r = conn.execute("SELECT id, submission_no FROM product_report_revisions WHERE inspection_id=? AND unit_id=? "
+                     "ORDER BY submission_no DESC LIMIT 1", (inspection_id, unit_id)).fetchone()
+    if not r:
+        return {"state": None, "revision_id": None, "submission_no": 0, "last_event": None}
+    ev = conn.execute("SELECT * FROM product_report_events WHERE revision_id=? ORDER BY seq DESC LIMIT 1",
+                      (r["id"],)).fetchone()
+    return {"state": ev["event_type"] if ev else None, "revision_id": r["id"],
+            "submission_no": r["submission_no"], "last_event": ev}
+
+
+def _withdraw_pending_report(conn, insp, unit_id, reason, source, actor, actor_id):
+    """마지막 이벤트가 submitted인 revision만 철회. 이미 반려·철회·승인된 revision에는 아무것도 안 한다(중복 방지)."""
+    st = _report_state(conn, insp["id"], unit_id)
+    if st["state"] != "submitted":
+        return None
+    return _report_event_append(conn, st["revision_id"], "withdrawn", actor, actor_id,
+                                reason=(reason or "완료 취소"), payload={"source": source, "cause": reason})
+
+
+def _sig_ok(sig):
+    return isinstance(sig, dict) and bool(sig.get("file")) and bool(sig.get("sha256"))
+
+
+def _sig_payload(sig, role):
+    return {"role": role, "file": sig["file"], "sha256": sig["sha256"], "stamp": sig.get("stamp")}
+
+
+def _snapshot_rows(rows):
+    return [{"item_key": r["item_key"], "idx": r["idx"], "rev": r["rev"], "value_input": r["value_input"],
+             "value": r["value"], "verdict": r["verdict"], "is_missing": r["is_missing"],
+             "file_sha256": r["file_sha256"], "entered_by": r["entered_by"],
+             "entered_by_user_id": r["entered_by_user_id"], "entered_at": r["entered_at"]} for r in rows]
+
+
+@_write_retry
+def submit_product_report(lot_id, unit_id, actor, actor_id, expected_digest, approver_user_id,
+                          writer_signature, photo_blockers=None):
+    """S/N 1건의 성적서 승인 요청 → {revision_id, submission_no, content_hash, seq}. 위반은 ReportBlocked(.blockers).
+    writer_signature={file, sha256, stamp} — 파일 처리는 라우트 몫, 여기서는 기록만."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        u = _unit_in_lot(conn, lot_id, unit_id)
+        if u["status"] != "active":
+            raise ReportBlocked([_blk("unit_excluded", "제외된 완제품은 승인 요청할 수 없어요.")])
+        st = _report_state(conn, insp["id"], unit_id)
+        if st["state"] == "submitted":
+            raise ReportBlocked([_blk("already_submitted", "이미 승인 요청 중이에요.")])
+        if st["state"] == "approved":
+            raise ReportBlocked([_blk("already_approved", "이미 최종 승인됐어요. 승인 회수가 먼저 필요해요.")])
+        valid, why = _unit_completion_valid_conn(conn, insp, unit_id)
+        if not valid:
+            raise ReportBlocked([_blk("not_completed", why)])
+        digest = _results_digest(conn, insp["id"], unit_id)
+        blockers = []
+        if expected_digest != digest:
+            blockers.append(_blk("stale", "화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘."))
+        blockers.extend(photo_blockers or [])
+        items = json.loads(insp["items_json"])
+        names = {i["key"]: i["name"] for i in items}
+        rows = _slot_current(conn, insp["id"], unit_id)
+        for k in sorted({r["item_key"] for r in rows if r["verdict"] == "fail"}):
+            blockers.append(_blk("ng_present", f"{names.get(k, k)}: NG(부적합) 값이 있어요. NG 사건 처리 후 승인 요청할 수 있어요.",
+                                 k, names.get(k)))
+        if not _sig_ok(writer_signature):
+            blockers.append(_blk("no_signature", "등록된 내 서명이 없어요. 서명을 먼저 등록해줘."))
+        wp = _explicit_perms(conn, actor_id)
+        participants = {r[0] for r in conn.execute(
+            "SELECT entered_by_user_id FROM lot_inspection_results WHERE inspection_id=? AND unit_id=?",
+            (insp["id"], unit_id)) if r[0] is not None}
+        participants |= {r[0] for r in conn.execute(
+            "SELECT by_user_id FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+            "AND event_type='complete'", (insp["id"], unit_id)) if r[0] is not None}
+        if actor_id is None or "process_submit" not in wp:
+            blockers.append(_blk("no_submit_perm", "승인 요청 권한(process_submit)이 없어요."))
+        elif actor_id not in participants:
+            blockers.append(_blk("not_participant", "이 S/N 검사에 참여한 사람만 승인 요청할 수 있어요."))
+        ap = conn.execute("SELECT id, username, display_name FROM users WHERE id=?", (approver_user_id,)).fetchone() \
+            if approver_user_id is not None else None
+        if not ap or "process_final" not in _explicit_perms(conn, ap["id"]):
+            blockers.append(_blk("no_approver", "최종결정권자 지정이 필요해요. 관리자에게 제품검사 최종결정 권한 지정을 요청해줘."))
+        elif ap["id"] == actor_id:
+            blockers.append(_blk("same_person", "작성자와 최종 승인자는 다른 사람이어야 해요."))
+        if blockers:
+            raise ReportBlocked(blockers)
+        cev = conn.execute("SELECT * FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                           "AND event_type='complete' ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                          (unit_id,)).fetchone()
+        serial = sa["serial_raw"] if sa else None
+        hist = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY item_key, idx, rev", (insp["id"], unit_id)).fetchall()
+        snapshot = {
+            "schema": 1,
+            "inspection": {"id": insp["id"], "snapshot_hash": insp["snapshot_hash"],
+                           "item_version": insp["item_version"], "started_at": insp["started_at"], "items": items},
+            "lot": json.loads(insp["lot_snapshot_json"]), "model": json.loads(insp["model_snapshot_json"]),
+            "unit": {"unit_id": unit_id, "serial_at_submit": serial, "model_mismatch": bool(u["model_mismatch"]),
+                     "roster_member": unit_id in _roster_ids(insp)},
+            "slots": sorted(_snapshot_rows(rows), key=lambda x: (x["item_key"], x["idx"])),
+            "history": _snapshot_rows(hist),
+            "completion": {"seq": cev["seq"], "at": cev["at"], "by_name": cev["by_name"],
+                           "by_user_id": cev["by_user_id"], "source": cev["source"], "results_digest": cev["results_digest"]},
+            "missing_count": sum(1 for r in rows if r["is_missing"]),
+        }
+        sj = _canon(snapshot)
+        try:
+            cur = conn.execute(
+                "INSERT INTO product_report_revisions (inspection_id, unit_id, submission_no, results_digest, "
+                "completion_seq, snapshot_json, content_hash, serial_at_submit, lot_revision, writer_user_id, "
+                "writer_name, approver_user_id, approver_name, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (insp["id"], unit_id, st["submission_no"] + 1, digest, cev["seq"], sj, _sha(snapshot), serial,
+                 lot["lot_revision"], actor_id, actor, ap["id"], ap["display_name"] or ap["username"], _utc_now()))
+            rid = cur.lastrowid
+        except sqlite3.IntegrityError as ie:
+            if "product_report_revisions" not in str(ie) or "UNIQUE" not in str(ie):
+                raise
+            raise ValueError("다른 사람이 먼저 처리했어요. 새로고침해줘.")
+        seq = _report_event_append(conn, rid, "submitted", actor, actor_id,
+                                   payload={"signature": _sig_payload(writer_signature, "writer")})
+        conn.commit()
+        return {"revision_id": rid, "submission_no": st["submission_no"] + 1, "content_hash": _sha(snapshot), "seq": seq}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _report_lot_id(revision_id):
+    """revision → lot_id(잠금 전 사전 조회). 없으면 ValueError."""
+    conn = get_conn()
+    try:
+        r = conn.execute("SELECT i.lot_id FROM product_report_revisions r JOIN production_lot_inspections i "
+                         "ON i.id=r.inspection_id WHERE r.id=?", (revision_id,)).fetchone()
+    finally:
+        conn.close()
+    if not r:
+        raise ValueError("성적서를 찾을 수 없어요.")
+    return r["lot_id"]
+
+
+def _report_locked(conn, revision_id):
+    """잠금 안에서 revision·마지막 이벤트를 다시 읽는다 → (lot, insp, revision행, 마지막 이벤트행)."""
+    lot_id = _report_lot_id(revision_id)
+    lot, insp = _insp_begin(conn, lot_id)
+    rev = conn.execute("SELECT * FROM product_report_revisions WHERE id=?", (revision_id,)).fetchone()
+    last = conn.execute("SELECT * FROM product_report_events WHERE revision_id=? ORDER BY seq DESC LIMIT 1",
+                        (revision_id,)).fetchone()
+    return lot, insp, rev, last
+
+
+def _need_designated_approver(conn, rev, actor_id):
+    """지정된 승인자 본인 + process_final 명시 보유(admin 폴백 없음) + 작성자와 다른 계정."""
+    if actor_id is None or actor_id != rev["approver_user_id"]:
+        raise ReportBlocked([_blk("not_approver", "이 성적서에 지정된 최종결정권자만 처리할 수 있어요.")])
+    if "process_final" not in _explicit_perms(conn, actor_id):
+        raise ReportBlocked([_blk("no_final_perm", "제품검사 최종결정 권한(process_final)이 필요해요.")])
+    if actor_id == rev["writer_user_id"]:
+        raise ReportBlocked([_blk("same_person", "작성자와 최종 승인자는 다른 사람이어야 해요.")])
+
+
+@_write_retry
+def approve_product_report(revision_id, actor, actor_id, approver_signature, expected_digest, photo_blockers=None):
+    """최종 승인 → {seq, doc_rev}. doc_rev=이전 approved 이벤트 수(최초 승인본 0, 정정본부터 1)."""
+    conn = get_conn()
+    try:
+        lot, insp, rev, last = _report_locked(conn, revision_id)
+        if last["event_type"] != "submitted":
+            raise ReportBlocked([_blk("not_pending", "승인 대기 상태가 아니에요. 새로고침해줘.")])
+        _need_designated_approver(conn, rev, actor_id)
+        valid, why = _unit_completion_valid_conn(conn, insp, rev["unit_id"])
+        if not valid:
+            raise ReportBlocked([_blk("not_completed", why)])
+        blockers = []
+        digest = _results_digest(conn, insp["id"], rev["unit_id"])
+        if digest != rev["results_digest"] or (expected_digest is not None and expected_digest != rev["results_digest"]):
+            blockers.append(_blk("stale", "제출 뒤에 값이 바뀌었어요. 새로고침해줘."))
+        blockers.extend(photo_blockers or [])
+        if not _sig_ok(approver_signature):
+            blockers.append(_blk("no_signature", "등록된 내 서명이 없어요. 서명을 먼저 등록해줘."))
+        if blockers:
+            raise ReportBlocked(blockers)
+        doc_rev = conn.execute(
+            "SELECT COUNT(*) FROM product_report_events e JOIN product_report_revisions r ON r.id=e.revision_id "
+            "WHERE r.inspection_id=? AND r.unit_id=? AND e.event_type='approved'",
+            (insp["id"], rev["unit_id"])).fetchone()[0]
+        seq = _report_event_append(conn, revision_id, "approved", actor, actor_id, doc_rev=doc_rev,
+                                   payload={"signature": _sig_payload(approver_signature, "approver")})
+        conn.commit()
+        return {"seq": seq, "doc_rev": doc_rev}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def reject_product_report(revision_id, actor, actor_id, reason, reject_kind):
+    """반려(사유·종류 필수) → seq. quality_impact면 같은 트랜잭션에서 완료를 시스템 재개한다(document_fix는 완료 유지)."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ReportBlocked([_blk("reason_required", "반려 사유를 입력해줘.")])
+    if reject_kind not in _REJECT_KINDS:
+        raise ReportBlocked([_blk("kind_required", "반려 종류를 선택해줘.")])
+    conn = get_conn()
+    try:
+        lot, insp, rev, last = _report_locked(conn, revision_id)
+        if last["event_type"] != "submitted":
+            raise ReportBlocked([_blk("not_pending", "승인 대기 상태가 아니에요. 새로고침해줘.")])
+        _need_designated_approver(conn, rev, actor_id)
+        seq = _report_event_append(conn, revision_id, "rejected", actor, actor_id, reason=reason,
+                                   reject_kind=reject_kind)
+        if reject_kind == "quality_impact":
+            ev = _unit_events_latest(conn, insp["id"]).get(rev["unit_id"])
+            if ev and ev["event_type"] == "complete":  # rejected가 먼저 기록돼서 재개 훅의 철회는 중복되지 않는다
+                _append_unit_event(conn, insp, rev["unit_id"], "reopen", "system",
+                                   ("성적서 반려(품질 영향): " + reason)[:200], actor, actor_id)
+        conn.commit()
+        return seq
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def revoke_product_report(revision_id, actor, actor_id, reason):
+    """승인 회수(사유 필수) → seq. 서명·해시는 그대로 남고 '회수됨'으로만 바뀐다. process_final 명시 보유자."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ReportBlocked([_blk("reason_required", "회수 사유를 입력해줘.")])
+    conn = get_conn()
+    try:
+        lot, insp, rev, last = _report_locked(conn, revision_id)
+        if last["event_type"] != "approved":
+            raise ReportBlocked([_blk("not_approved", "승인된 성적서가 아니에요. 새로고침해줘.")])
+        if actor_id is None or "process_final" not in _explicit_perms(conn, actor_id):
+            raise ReportBlocked([_blk("no_final_perm", "제품검사 최종결정 권한(process_final)이 필요해요.")])
+        blk = unit_revoke_blockers(conn, rev["unit_id"])
+        if blk:
+            raise ReportBlocked(blk)
+        seq = _report_event_append(conn, revision_id, "revoked", actor, actor_id, reason=reason,
+                                   payload={"content_hash_before": rev["content_hash"]})
+        conn.commit()
+        return seq
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _event_dict(r):
+    d = dict(r)
+    d["payload"] = json.loads(d["payload_json"]) if d.get("payload_json") else None
+    return d
+
+
+def list_report_events(revision_id):
+    conn = get_conn()
+    try:
+        return [_event_dict(r) for r in conn.execute(
+            "SELECT * FROM product_report_events WHERE revision_id=? ORDER BY seq", (revision_id,))]
+    finally:
+        conn.close()
+
+
+_REPORT_LIST_SQL = (
+    "SELECT r.id, r.inspection_id, r.unit_id, r.submission_no, r.results_digest, r.content_hash, "
+    "r.serial_at_submit, r.writer_user_id, r.writer_name, r.approver_user_id, r.approver_name, r.created_at, "
+    "i.lot_id, l.lot_no, e.event_type AS state, e.at AS state_at, e.doc_rev AS doc_rev, e.reject_kind AS reject_kind, "
+    "(SELECT COUNT(*) FROM product_report_events x WHERE x.revision_id=r.id AND x.event_type='approved') AS was_approved "
+    "FROM product_report_revisions r JOIN production_lot_inspections i ON i.id=r.inspection_id "
+    "JOIN production_lots l ON l.id=i.lot_id JOIN product_report_events e ON e.revision_id=r.id "
+    "AND e.seq=(SELECT MAX(x.seq) FROM product_report_events x WHERE x.revision_id=r.id) WHERE 1=1")
+
+
+def list_product_reports(state=None, lot_id=None, approver_user_id=None, writer_user_id=None):
+    """revision 목록(최신순, 한 쿼리). state=마지막 이벤트 종류('submitted'|'approved'|...)."""
+    sql, args = _REPORT_LIST_SQL, []
+    for col, val in (("e.event_type", state), ("i.lot_id", lot_id), ("r.approver_user_id", approver_user_id),
+                     ("r.writer_user_id", writer_user_id)):
+        if val is not None:
+            sql += f" AND {col}=?"
+            args.append(val)
+    conn = get_conn()
+    try:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY r.id DESC", args)]
+    finally:
+        conn.close()
+
+
+def list_unit_reports(lot_id, unit_id):
+    """한 S/N의 revision 이력(최신순, 상태 포함)."""
+    conn = get_conn()
+    try:
+        return [dict(r) for r in conn.execute(
+            _REPORT_LIST_SQL + " AND i.lot_id=? AND r.unit_id=? ORDER BY r.submission_no DESC", (lot_id, unit_id))]
+    finally:
+        conn.close()
+
+
+def get_product_report(revision_id):
+    """revision 한 건(snapshot 파싱·상태·이벤트 포함). 없으면 None."""
+    conn = get_conn()
+    try:
+        rows = [dict(r) for r in conn.execute(_REPORT_LIST_SQL + " AND r.id=?", (revision_id,))]
+        if not rows:
+            return None
+        full =conn.execute("SELECT snapshot_json, completion_seq, lot_revision FROM product_report_revisions "
+                            "WHERE id=?", (revision_id,)).fetchone()
+    finally:
+        conn.close()
+    d = rows[0]
+    d.update(snapshot=json.loads(full["snapshot_json"]), completion_seq=full["completion_seq"],
+             lot_revision=full["lot_revision"], events=list_report_events(revision_id))
+    return d
+
+
+def verify_product_report(revision_id, photo_dir=None):
+    """저장된 값에서 해시 체인·스냅샷·현재 결과를 다시 계산해 대조(읽기 전용).
+    photo_dir를 주면 스냅샷 사진 파일의 존재·sha256도 확인한다(None이면 photo_ok=None).
+    live_digest_ok는 승인 대기·승인 상태일 때만 의미가 있어 그 외엔 None."""
+    out = {"ok": False, "chain_ok": False, "content_ok": False, "live_digest_ok": None, "photo_ok": None,
+           "problems": []}
+    conn = get_conn()
+    try:
+        rev = conn.execute("SELECT r.*, i.lot_id FROM product_report_revisions r JOIN production_lot_inspections i "
+                           "ON i.id=r.inspection_id WHERE r.id=?", (revision_id,)).fetchone()
+        if not rev:
+            out["problems"].append("성적서를 찾을 수 없어요.")
+            return out
+        evs = conn.execute("SELECT * FROM product_report_events WHERE revision_id=? ORDER BY seq", (revision_id,)).fetchall()
+        chain, prev = True, None
+        for n, e in enumerate(evs, 1):
+            want = _report_event_hash(revision_id, e["seq"], e["event_type"], e["reason"], e["actor_name"],
+                                      e["actor_user_id"], e["reject_kind"], e["doc_rev"], e["at"],
+                                      e["prev_event_hash"], e["payload_json"], rev["content_hash"])
+            if e["seq"] != n or e["prev_event_hash"] != prev or e["event_hash"] != want:
+                chain = False
+                out["problems"].append(f"이벤트 #{n} 해시 체인이 맞지 않아요.")
+                break
+            prev = e["event_hash"]
+        if not evs:
+            chain = False
+            out["problems"].append("이벤트가 없어요.")
+        out["chain_ok"] = chain
+        snap = json.loads(rev["snapshot_json"])
+        content = _sha(snap) == rev["content_hash"] and _digest_rows(snap["slots"]) == rev["results_digest"]
+        out["content_ok"] = content
+        if not content:
+            out["problems"].append("제출 당시 스냅샷이 저장된 해시와 달라요.")
+        state = evs[-1]["event_type"] if evs else None
+        if state in ("submitted", "approved"):
+            live = _results_digest(conn, rev["inspection_id"], rev["unit_id"]) == rev["results_digest"]
+            out["live_digest_ok"] = live
+            if not live:
+                out["problems"].append("현재 결과 값이 제출 당시와 달라요.")
+        if photo_dir is not None:
+            photo_ok = True
+            for s in snap["slots"]:
+                if s["verdict"] != "recorded":
+                    continue
+                p = os.path.join(photo_dir, os.path.basename(s["value"] or ""))
+                try:
+                    with open(p, "rb") as f:
+                        okh = hashlib.sha256(f.read()).hexdigest() == s["file_sha256"]
+                except OSError:
+                    okh = False
+                if not okh:
+                    photo_ok = False
+                    out["problems"].append(f"사진 파일 확인 실패: {s['item_key']}-{s['idx']}")
+            out["photo_ok"] = photo_ok
+        out["ok"] = chain and content and out["live_digest_ok"] is not False and out["photo_ok"] is not False
+        return out
     finally:
         conn.close()
 
@@ -5679,7 +6191,7 @@ def _unit_change(unit_id, reason, user, kind, need_status, state_msg):
         lot, reason, lot_before, rev = _unit_lot_begin(conn, lot_id, reason)
         if conn.execute("SELECT status FROM finished_units WHERE id=?", (unit_id,)).fetchone()[0] != need_status:
             raise ValueError(state_msg)
-        if kind == "exclude" and unit_has_final_document(unit_id):
+        if kind == "exclude" and unit_has_final_document(unit_id, conn):
             raise ValueError(_FINAL_DOC_UNIT_MSG)
         before = _fu_full(conn, unit_id)
         if kind == "exclude":
@@ -5710,7 +6222,7 @@ def correct_serial(unit_id, new_serial, reason, user):
     try:
         lot_id = _unit_lot_id(conn, unit_id)
         lot, reason, lot_before, rev = _unit_lot_begin(conn, lot_id, reason)
-        if unit_has_final_document(unit_id):
+        if unit_has_final_document(unit_id, conn):
             raise ValueError(_FINAL_DOC_UNIT_MSG)
         raw = (new_serial or "").strip()
         key, err, mm = _serial_parse(raw, rules, _lot_model_codes(conn, lot))

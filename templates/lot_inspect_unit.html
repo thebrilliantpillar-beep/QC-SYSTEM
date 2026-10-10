@@ -90,6 +90,37 @@
              background: var(--bg); border-top: 1px solid var(--border); box-shadow: 0 -4px 10px rgba(36,52,79,.08); }
   #saveBar button { min-height: 52px; width: 100%; font-size: 17px; margin: 0; }
   @media (max-width: 480px) { .slot { padding: 10px; } .slot > span { font-size: 18px; } }
+  /* ---- 제품 성적서 패널 (stageBanner와 같은 남색 왼쪽 띠·제목 위계) ---- */
+  #reportPanel { border-left: 4px solid var(--primary); padding: 14px; }
+  #reportPanel > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 18px !important; line-height: 1.35; color: var(--primary-dark); margin-bottom: 4px; }
+  #reportPanel > h3 .badge { margin: 0; }
+  #reportPanel > p { margin: 8px 0 0; font-size: 15px; line-height: 1.5; }
+  #reportPanel > p.muted { font-size: 13px; }
+  /* 상태 안내 문구(승인됨·승인 대기 중)는 남색 안내 박스 */
+  #reportPanel > p:not(.muted) { padding: 10px 12px; border-radius: 8px; background: #ECEEF2; border-left: 4px solid var(--primary); color: var(--primary-dark); }
+  #reportPanel > p.muted img { margin-left: 6px; border-radius: 6px; }
+  #reportPanel > div[style*="flex"] { margin-top: 10px; gap: 8px 10px !important; }
+  #reportPanel label { font-size: 14px; margin: 0 !important; color: var(--primary-dark); }
+  #reportPanel select, #reportPanel input[type=text] { margin: 0; font-size: 16px; min-height: 48px; }
+  #reportPanel .btn { margin: 0; min-height: 48px; }
+  #submitReportBtn { flex: 1 1 100%; min-height: 52px !important; font-size: 17px; }
+  #submitReportBtn:disabled, #reportPanel .btn:disabled { opacity: .5; cursor: not-allowed; animation: none; }
+  #reportHint { font-size: 13px; line-height: 1.5; color: var(--primary-dark); }
+  #reportHint:empty { display: none; }
+  /* 차단 사유: 빨강 대신 주황 안내(빨강은 규격이탈/NG 전용) */
+  #reportBlockers { list-style: none; padding: 0 !important; margin: 10px 0 0 !important; }
+  #reportBlockers li { margin-top: 6px; padding: 9px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending);
+                       color: #92400e; font-size: 14px; line-height: 1.5; }
+  /* 서명 등록 */
+  #reportSigBox { padding: 12px; border-radius: 8px; background: #F9F9F8; border: 1px solid var(--border); }
+  #reportSigBox br { display: none; }
+  #reportSigBox canvas { display: block; margin: 8px 0 10px; border-radius: 8px; }
+  #reportSigBox .btn { margin-right: 8px; min-width: 110px; }
+  @media (max-width: 480px) { #reportSigBox .btn { min-width: 0; width: calc(50% - 6px); margin-right: 0; } #reportSigBox .btn + .btn { margin-left: 8px; } #reportRevokeBtn { flex: 1 1 100%; } }
+  #reportMsg { color: #92400e; font-size: 14px; font-weight: 600; line-height: 1.5; }
+  #reportMsg:empty { display: none; }
+  #reportRevokeBtn { color: #92400e; border-color: #b45309; animation: none; }
+  #reportRevokeBtn:hover { background: #fef3c7; }
 </style>
 <h2>{{ unit['serial_raw'] }} <small class="muted">내부 ID {{ unit['unit_id'] }}</small></h2>
 <p><a href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">← 완제품 목록 ({{ lot['lot_no'] }})</a>
@@ -107,7 +138,7 @@
 
 {% set stage = unit['stage'] %}
 {% set comp = unit['completion'] %}
-{% set can_write = (not read_only) and can_input and (not is_done or can_correct_others) %}
+{% set can_write = (not read_only) and can_input and (not is_done or can_correct_others) and (not report_final) %}
 <div class="card" id="stageBanner" data-digest="{{ digest }}"
      data-complete-url="{{ url_for('lot_inspect_complete', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
      data-reopen-url="{{ url_for('lot_inspect_reopen', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
@@ -127,7 +158,7 @@
     <small class="muted" id="completeHint"></small>
   </div>
   {% endif %}
-  {% if (not read_only) and can_reopen and stage == 'completed' %}
+  {% if (not read_only) and can_reopen and stage == 'completed' and (not report_final) %}
   <div style="margin-top:8px;">
     <input type="text" id="reopenReason" placeholder="완료 취소 사유(필수)" style="min-height:48px;">
     <button type="button" class="btn secondary" id="reopenBtn" style="min-height:48px;">완료 취소(재개)</button>
@@ -141,6 +172,65 @@
     {% endfor %}</ul>
   </details>
   {% endif %}
+</div>
+
+{# ---- 제품 성적서 패널 (TASK #148 패키지 4a) — 감춤은 인라인 display:none, 서버 값은 자동 이스케이프 ---- #}
+{% set state_labels = {'submitted': '승인 대기', 'approved': '승인됨', 'rejected': '반려됨', 'withdrawn': '철회됨', 'revoked': '회수됨'} %}
+{% set kind_labels = {'document_fix': '서류 수정(완료 유지)', 'quality_impact': '품질 영향(완료 취소됨)'} %}
+{% set rp = report %}
+{% set lr = rp['latest'] %}
+<div class="card" id="reportPanel"
+     data-submit-url="{{ url_for('product_report_submit', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
+     data-sig-save-url="{{ url_for('signature_default_save') }}"
+     {% if lr %}data-revoke-url="{{ url_for('product_report_revoke', revision_id=lr['id']) }}"{% endif %}>
+  <h3 style="margin-top:0; font-size:15px;">제품 성적서
+    <span class="badge {{ 'pass' if rp['state'] == 'approved' else 'pending' }}" id="reportStateChip">{{ state_labels.get(rp['state'], '미제출') }}</span>
+    {% if lr and lr['was_approved'] and rp['state'] != 'approved' %}<span class="badge pending">이전 승인본 있음</span>{% endif %}
+    {% if unit['has_fail'] %}<span class="badge fail">NG 포함</span>{% endif %}
+    {% if rp['missing_count'] %}<span class="badge pending">결측 {{ rp['missing_count'] }}개</span>{% endif %}
+  </h3>
+  {% if lr %}
+  <p class="muted" style="margin:4px 0;">제출 {{ lr['submission_no'] }}회차 · 작성 {{ lr['writer_name'] or '' }} → 지정 승인자 {{ lr['approver_name'] or '' }} · {{ lr['state_at'] | datetime_korean }}
+    · <a href="{{ url_for('product_report_detail', revision_id=lr['id']) }}">성적서 상세</a></p>
+  {% if rp['state'] == 'rejected' and lr['reject_kind'] %}<p class="muted" style="margin:4px 0;">반려 종류: {{ kind_labels.get(lr['reject_kind'], lr['reject_kind']) }}</p>{% endif %}
+  {% endif %}
+  {% if rp['state'] == 'approved' %}
+  <p><b>최종 승인된 성적서예요. 입력·정정·완료 취소는 승인 회수가 먼저 필요해요.</b></p>
+  {% if rp['can_revoke'] %}
+  <div style="display:flex; flex-wrap:wrap; gap:8px;">
+    <input type="text" id="reportRevokeReason" placeholder="회수 사유(필수)" style="flex:1 1 220px; min-height:48px;">
+    <button type="button" class="btn secondary" id="reportRevokeBtn" style="min-height:48px;">승인 회수</button>
+  </div>
+  {% endif %}
+  {% elif rp['state'] == 'submitted' %}
+  <p>승인 대기 중이에요. 완료를 취소하거나 값을 정정하면 자동으로 철회돼요.</p>
+  {% elif rp['show_submit'] %}
+  <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+    <label for="approverSelect" style="flex:1 0 100%; margin:0;">지정 최종결정권자</label>
+    <select id="approverSelect" style="flex:1 1 220px; min-height:48px;">
+      <option value="">선택해줘</option>
+      {% for c in rp['candidates'] %}<option value="{{ c['id'] }}">{{ c['name'] }}</option>{% endfor %}
+    </select>
+    <button type="button" class="btn" id="submitReportBtn" style="min-height:48px;" {% if rp['blockers'] %}data-blocked="1" disabled{% endif %}>승인 요청</button>
+    <small class="muted" id="reportHint" style="flex:1 0 100%;"></small>
+  </div>
+  {% endif %}
+  {% if rp['show_submit'] and rp['blockers'] %}
+  <ul id="reportBlockers" class="muted" style="margin:8px 0 0; padding-left:18px;">
+    {% for b in rp['blockers'] %}<li>{{ b }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if rp['show_submit'] and not rp['has_sig'] %}
+  <div id="reportSigBox" style="margin-top:10px;">
+    <b>내 서명 등록</b> <small class="muted">(제출·승인 때 이 서명이 복사되어 고정돼요)</small><br>
+    <canvas id="reportSigPad" width="360" height="140" style="border:1px solid var(--border); background:#fff; max-width:100%; touch-action:none;"></canvas><br>
+    <button type="button" class="btn secondary" id="reportSigClear" style="min-height:48px;">지우기</button>
+    <button type="button" class="btn" id="reportSigSave" style="min-height:48px;">서명 등록</button>
+  </div>
+  {% elif rp['show_submit'] %}
+  <p class="muted" style="margin:8px 0 0;">등록된 내 서명: <img src="{{ rp['sig_url'] }}" alt="내 서명" style="height:40px; vertical-align:middle; background:#fff; border:1px solid var(--border);"></p>
+  {% endif %}
+  <div id="reportMsg" class="slot-msg" style="margin-top:6px;"></div>
 </div>
 
 <div id="inspectRoot" data-done="{{ 1 if is_done else 0 }}" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
@@ -456,4 +546,58 @@
 })();
 </script>
 {% endif %}
+<script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
+<script>
+(function () {
+  var panel = document.getElementById('reportPanel');
+  if (!panel) return;
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  var msg = document.getElementById('reportMsg');
+  var btn = document.getElementById('submitReportBtn'), hint = document.getElementById('reportHint');
+  var sel = document.getElementById('approverSelect');
+  var root = document.getElementById('inspectRoot'), banner = document.getElementById('stageBanner');
+  var dirty = false, stale = false;
+  function refresh() {
+    if (!btn) return;
+    btn.disabled = btn.dataset.blocked === '1' || dirty || stale;
+    hint.textContent = dirty ? '저장하지 않은 입력이 있어요. 저장 먼저 해줘.' : (stale ? '사진이 바뀌었어요. 새로고침 후 요청해줘.' : '');
+  }
+  root.addEventListener('input', function (ev) { if (ev.target.closest('.entry')) { dirty = true; refresh(); } });
+  root.addEventListener('change', function (ev) { if (ev.target.closest('.entry')) { dirty = true; refresh(); } });
+  root.addEventListener('click', function (ev) { if (ev.target.classList.contains('okng')) { dirty = true; refresh(); } });
+  var prev = window.inspectMarkChanged;
+  window.inspectMarkChanged = function (s) { if (s) stale = true; refresh(); if (prev) prev(s); };
+  function post(url, body, b, isForm) {
+    b.disabled = true; msg.textContent = '';
+    var h = {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'};
+    if (!isForm) h['Content-Type'] = 'application/json';
+    fetch(url, {method: 'POST', headers: h, body: isForm ? body : JSON.stringify(body)})
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) { location.reload(); return; }
+        b.disabled = false; refresh();
+        var bl = d.blockers || [];
+        if (!bl.length) { msg.textContent = d.error || '처리하지 못했어요.'; return; }
+        bl.forEach(function (x) { var p = document.createElement('div'); p.textContent = x.msg; msg.appendChild(p); });
+      }).catch(function () { b.disabled = false; refresh(); msg.textContent = '서버와 통신하지 못했어요.'; });
+  }
+  if (btn) btn.addEventListener('click', function () {
+    if (!sel.value) { msg.textContent = '지정 최종결정권자를 선택해줘.'; return; }
+    post(panel.dataset.submitUrl, {seen_digest: banner.dataset.digest, approver_user_id: sel.value}, btn);
+  });
+  var rv = document.getElementById('reportRevokeBtn');
+  if (rv) rv.addEventListener('click', function () {
+    var rs = document.getElementById('reportRevokeReason').value.trim();
+    if (!rs) { msg.textContent = '회수 사유를 입력해줘.'; return; }
+    post(panel.dataset.revokeUrl, {reason: rs}, rv);
+  });
+  var pad = window.SignaturePad ? SignaturePad.attach('reportSigPad') : null;
+  var sc = document.getElementById('reportSigClear'), ss = document.getElementById('reportSigSave');
+  if (pad && sc) sc.addEventListener('click', function () { pad.clear(); });
+  if (pad && ss) ss.addEventListener('click', function () {
+    if (pad.isEmpty()) { msg.textContent = '서명을 먼저 해줘.'; return; }
+    var fd = new FormData(); fd.append('signature_data', pad.toDataURL());
+    post(panel.dataset.sigSaveUrl, fd, ss, true);
+  });
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}제품 성적서 — Chardon QMS{% endblock %}
+{% block content %}
+{% set state_labels = {'submitted': '승인 대기', 'approved': '승인됨', 'rejected': '반려됨', 'withdrawn': '철회됨', 'revoked': '회수됨'} %}
+{% set kind_labels = {'document_fix': '서류 수정(완료 유지)', 'quality_impact': '품질 영향(완료 취소됨)'} %}
+{% set ev_labels = {'submitted': '승인 요청', 'approved': '최종 승인', 'rejected': '반려', 'withdrawn': '자동 철회', 'revoked': '승인 회수'} %}
+{% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측', 'recorded': '등록됨'} %}
+{% set snap = report['snapshot'] %}
+{% set ng_n = snap['slots'] | selectattr('verdict', 'equalto', 'fail') | list | length %}
+<style>
+  h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  h2 .badge { font-size: 13px; }
+  #reportHeader .badge { margin: 0 4px 0 0; }
+  #reportHeader > ul { list-style: none; padding: 0; margin: 8px 0; }
+  #reportHeader > ul li { margin-top: 6px; padding: 8px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); color: #92400e; font-size: 14px; }
+  /* 항목 카드: 슬롯 = [#번호][값 또는 썸네일] / 메타는 그 아래 한 줄 */
+  .item .slot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .item .slot > b { min-width: 30px; color: var(--primary-dark); }
+  .item .slot > span { flex: 1 1 0; min-width: 0; font-size: 18px; font-weight: 700; word-break: break-all; }
+  .item .slot > a { display: inline-block; line-height: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: #ECEEF2; }
+  .item .slot > a img { display: block; object-fit: contain; }
+  .item .slot > small { flex: 1 0 100%; line-height: 1.5; }
+  .item .slot > details { flex: 1 0 100%; font-size: 13px; }
+  .item details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--primary); font-weight: 600; }
+  .item details ul { margin: 0 0 4px; padding-left: 18px; line-height: 1.6; color: #4b5563; }
+  /* 처리 이력: 타임라인형 카드 목록, 서명은 항목 아래 블록 */
+  .card > ul { list-style: none; padding: 0; margin: 0; }
+  .card > ul > li { margin-bottom: 8px; padding: 10px 12px; border-radius: 8px; background: #F9F9F8; border-left: 4px solid var(--border); line-height: 1.6; font-size: 14px; }
+  .card > ul > li br { display: none; }
+  .card > ul > li img { display: block; margin-top: 8px; border-radius: 6px; }
+  /* 처리 결과 메시지: 빨강 대신 주황(빨강은 NG 전용) */
+  #reportMsg { color: #92400e; font-size: 14px; font-weight: 600; line-height: 1.5; }
+  #reportMsg:empty { display: none; }
+  #reportMsg:not(:empty) { margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); }
+  /* 최종 결정: 승인 = 주 행동(남색 띠·큰 버튼), 반려·회수 = 보조/주의(주황 외곽선) */
+  #decisionBox { border-left: 4px solid var(--primary); }
+  #revokeBox { border-left: 4px solid var(--pending); }
+  #decisionBox input, #decisionBox select, #revokeBox input { margin: 0 0 8px; font-size: 16px; min-height: 48px; }
+  #decisionBox .btn, #revokeBox .btn { margin: 0; }
+  #approveBtn { width: 100%; min-height: 56px !important; font-size: 17px; }
+  #approveBtn:disabled, #rejectBtn:disabled, #revokeBtn:disabled { opacity: .5; cursor: not-allowed; animation: none; }
+  #decisionBox hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0 14px; }
+  #decisionBox hr::after { content: none; }
+  #rejectBtn, #revokeBtn { color: #92400e; border-color: #b45309; animation: none; }
+  #rejectBtn:hover, #revokeBtn:hover { background: #fef3c7; }
+  @media (max-width: 480px) { #rejectBtn, #revokeBtn { width: 100%; } }
+</style>
+<h2>제품 성적서 {{ report['serial_at_submit'] or '' }}
+  <span class="badge {{ 'pass' if report['state'] == 'approved' else 'pending' }}">{{ state_labels.get(report['state'], report['state']) }}</span>
+  {% if report['state'] == 'approved' and report['doc_rev'] %}<span class="badge pending">Rev.{{ report['doc_rev'] }}</span>{% endif %}
+</h2>
+<p><a href="{{ url_for('product_report_list') }}">← 목록</a> |
+  <a href="{{ url_for('lot_inspect_unit', lot_id=report['lot_id'], unit_id=report['unit_id']) }}">S/N 검사 화면</a></p>
+<div class="card" id="reportHeader">
+  <p style="margin:0;">LOT {{ report['lot_no'] }} · 제출 {{ report['submission_no'] }}회차 · 제출 {{ report['created_at'] | datetime_korean }}</p>
+  <p style="margin:4px 0;">작성 {{ report['writer_name'] or '' }} → 지정 승인자 {{ report['approver_name'] or '' }}</p>
+  <p style="margin:4px 0;">
+    {% if ng_n %}<span class="badge fail">NG {{ ng_n }}개</span>{% endif %}
+    {% if snap['missing_count'] %}<span class="badge pending">결측 {{ snap['missing_count'] }}개</span>{% endif %}
+    {% if snap['unit']['model_mismatch'] %}<span class="badge pending">모델 불일치</span>{% endif %}
+    <span class="badge {{ 'pass' if verify['ok'] else 'pending' }}" id="verifyBadge">무결성 {{ '확인됨' if verify['ok'] else '확인 필요' }}</span>
+  </p>
+  {% if verify['problems'] %}<ul class="muted">{% for p in verify['problems'] %}<li>{{ p }}</li>{% endfor %}</ul>{% endif %}
+  <small class="muted">무결성: 이벤트 해시 체인·제출 당시 스냅샷·현재 값·사진 파일을 서버가 다시 계산해 대조한 결과예요.</small>
+</div>
+
+{% for it in snap['inspection']['items'] %}
+<div class="card item">
+  <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }}</h3>
+  {% for s in snap['slots'] if s['item_key'] == it['key'] %}
+  <div class="slot" style="padding:8px 0; border-top:1px solid var(--border);">
+    <b>#{{ s['idx'] }}</b>
+    {% if it['input_type'] == 'photo' %}
+      <a href="{{ url_for('product_inspection_photo_file', filename=s['value']) }}" target="_blank"><img alt="사진 #{{ s['idx'] }}" loading="lazy" src="{{ url_for('product_inspection_photo_file', filename=s['value']) }}" style="max-width:160px; max-height:120px;"></a>
+    {% else %}
+      <span {% if s['verdict'] == 'fail' %}style="color:var(--fail);"{% endif %}>{{ '결측' if s['is_missing'] else s['value'] }} · {{ verdict_labels.get(s['verdict'], s['verdict']) }}</span>
+    {% endif %}
+    <small class="muted">{{ s['rev'] }}회차 · {{ s['entered_by'] or '' }} · {{ s['entered_at'] | datetime_korean }}</small>
+    {% set hist = snap['history'] | selectattr('item_key', 'equalto', it['key']) | selectattr('idx', 'equalto', s['idx']) | list %}
+    {% if hist | length > 1 %}
+    <details><summary>정정 이력 ({{ hist | length }}회차)</summary>
+      <ul>{% for h in hist %}
+        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
+      {% endfor %}</ul>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">처리 이력</h3>
+  <ul>
+  {% for e in report['events'] %}
+    <li>{{ e['seq'] }}. {{ ev_labels.get(e['event_type'], e['event_type']) }} · {{ e['actor_name'] or '' }} · {{ e['at'] | datetime_korean }}
+      {% if e['reject_kind'] %} · {{ kind_labels.get(e['reject_kind'], e['reject_kind']) }}{% endif %}
+      {% if e['reason'] %} · 사유: {{ e['reason'] }}{% endif %}
+      {% if e['payload'] and e['payload'].get('signature') %}<br>
+        <img alt="서명" src="/static/signatures/{{ e['payload']['signature']['file'] }}" style="height:40px; background:#fff; border:1px solid var(--border);">
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</div>
+
+<div id="reportMsg" class="slot-msg"></div>
+{% if can_decide %}
+<div class="card" id="decisionBox"
+     data-digest="{{ report['results_digest'] }}"
+     data-approve-url="{{ url_for('product_report_approve', revision_id=report['id']) }}"
+     data-reject-url="{{ url_for('product_report_reject', revision_id=report['id']) }}">
+  <h3 style="margin-top:0; font-size:15px;">최종 결정</h3>
+  {% if ng_n %}<p class="muted">NG가 있는 성적서는 승인할 수 없어요.</p>{% endif %}
+  <button type="button" class="btn" id="approveBtn" style="min-height:48px;">최종 승인(내 등록 서명 사용)</button>
+  <hr>
+  <input type="text" id="rejectReason" placeholder="반려 사유(필수)" style="min-height:48px;">
+  <select id="rejectKind" style="min-height:48px;">
+    <option value="">반려 종류 선택</option>
+    <option value="document_fix">서류 수정(완료 유지)</option>
+    <option value="quality_impact">품질 영향(완료 취소 후 재검사)</option>
+  </select>
+  <button type="button" class="btn secondary" id="rejectBtn" style="min-height:48px;">반려</button>
+</div>
+{% endif %}
+{% if can_revoke %}
+<div class="card" id="revokeBox" data-revoke-url="{{ url_for('product_report_revoke', revision_id=report['id']) }}">
+  <h3 style="margin-top:0; font-size:15px;">승인 회수</h3>
+  <input type="text" id="revokeReason" placeholder="회수 사유(필수)" style="min-height:48px;">
+  <button type="button" class="btn secondary" id="revokeBtn" style="min-height:48px;">승인 회수</button>
+</div>
+{% endif %}
+<script>
+(function () {
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  var msg = document.getElementById('reportMsg');
+  function post(url, body, btn) {
+    btn.disabled = true; msg.textContent = '';
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf,
+                'X-Requested-With': 'XMLHttpRequest'}, body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) { location.reload(); return; }
+        btn.disabled = false;
+        var bl = d.blockers || [];
+        if (!bl.length) { msg.textContent = d.error || '처리하지 못했어요.'; return; }
+        bl.forEach(function (x) { var p = document.createElement('div'); p.textContent = x.msg; msg.appendChild(p); });
+      }).catch(function () { btn.disabled = false; msg.textContent = '서버와 통신하지 못했어요.'; });
+  }
+  var box = document.getElementById('decisionBox');
+  if (box) {
+    document.getElementById('approveBtn').addEventListener('click', function () {
+      post(box.dataset.approveUrl, {seen_digest: box.dataset.digest}, this);
+    });
+    document.getElementById('rejectBtn').addEventListener('click', function () {
+      var rs = document.getElementById('rejectReason').value.trim(), k = document.getElementById('rejectKind').value;
+      if (!rs) { msg.textContent = '반려 사유를 입력해줘.'; return; }
+      if (!k) { msg.textContent = '반려 종류를 선택해줘.'; return; }
+      post(box.dataset.rejectUrl, {reason: rs, reject_kind: k}, this);
+    });
+  }
+  var rb = document.getElementById('revokeBox');
+  if (rb) document.getElementById('revokeBtn').addEventListener('click', function () {
+    var rs = document.getElementById('revokeReason').value.trim();
+    if (!rs) { msg.textContent = '회수 사유를 입력해줘.'; return; }
+    post(rb.dataset.revokeUrl, {reason: rs}, this);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}제품 성적서 승인 — Chardon QMS{% endblock %}
+{% block content %}
+{% set state_labels = {'submitted': '승인 대기', 'approved': '승인됨', 'rejected': '반려됨', 'withdrawn': '철회됨', 'revoked': '회수됨'} %}
+<style>
+  /* 탭: 터치 타깃 48px, 좁은 폭에서 줄바꿈 */
+  h2 + p { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  h2 + p > .btn { margin: 0; flex: 1 1 130px; display: inline-flex; align-items: center; justify-content: center; text-align: center; font-size: 15px; }
+  .report-card { border-left: 4px solid var(--border); padding: 12px 14px; }
+  .report-card > p:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .report-card > p:first-child a { font-size: 20px; color: var(--primary-dark); text-decoration: none; }
+  .report-card .badge { margin: 0; }
+  .report-card > p.muted { line-height: 1.6; }
+</style>
+<h2>제품 성적서 승인</h2>
+<p>
+  <a class="btn {{ '' if tab == 'approve' else 'secondary' }}" style="min-height:48px;" href="{{ url_for('product_report_list', tab='approve') }}">내 승인 대기 ({{ counts['approve'] }})</a>
+  <a class="btn {{ '' if tab == 'mine' else 'secondary' }}" style="min-height:48px;" href="{{ url_for('product_report_list', tab='mine') }}">내가 제출 ({{ counts['mine'] }})</a>
+  <a class="btn {{ '' if tab == 'all' else 'secondary' }}" style="min-height:48px;" href="{{ url_for('product_report_list', tab='all') }}">전체 ({{ counts['all'] }})</a>
+</p>
+{% for r in reports %}
+<div class="card report-card">
+  <p style="margin:0;">
+    <a href="{{ url_for('product_report_detail', revision_id=r['id']) }}" style="display:inline-block; min-height:44px; line-height:44px;"><b>{{ r['serial_at_submit'] or '' }}</b></a>
+    <span class="badge {{ 'pass' if r['state'] == 'approved' else 'pending' }}">{{ state_labels.get(r['state'], r['state']) }}</span>
+    {% if r['doc_rev'] %}<span class="badge pending">Rev.{{ r['doc_rev'] }}</span>{% endif %}
+  </p>
+  <p class="muted" style="margin:4px 0;">{{ r['lot_no'] }} · 제출 {{ r['submission_no'] }}회차 · 작성 {{ r['writer_name'] or '' }} → 승인자 {{ r['approver_name'] or '' }} · {{ r['state_at'] | datetime_korean }}</p>
+</div>
+{% else %}
+<div class="card muted">표시할 성적서가 없어요.</div>
+{% endfor %}
+{% endblock %}

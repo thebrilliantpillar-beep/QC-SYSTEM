@@ -61,6 +61,7 @@
   {% set act = insp_units | selectattr('status', 'equalto', 'active') | list %}
   {% set n_done = act | selectattr('stage', 'equalto', 'completed') | list | length %}
   <p>검사 진행: 정상 {{ act | length }}건 중 검사 완료 {{ n_done }} · 입력 끝 {{ act | selectattr('stage', 'equalto', 'ready') | list | length }} · NG 포함 {{ act | selectattr('has_fail') | list | length }}</p>
+  <p>성적서 승인 {{ report_counts['approved'] }} / 대기 {{ report_counts['pending'] }} / 전체 {{ report_counts['total'] }}</p>
   {% if act and n_done == act | length %}<p><b>이 LOT의 정상 완제품이 모두 검사 완료됐어요.</b></p>{% endif %}
   <p><a class="btn" style="min-height:48px; line-height:24px; font-size:16px;" href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">{{ '결과 열람' if lot['status'] == 'cancelled' else '검사 입력 화면' }}</a></p>
   <p class="muted">시작한 시점의 모델·LOT·검사 항목이 그대로 보존돼요.</p>

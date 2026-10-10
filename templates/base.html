@@ -369,11 +369,12 @@
   {% endif %}
 
   {# 🧪 제품검사 (TASK #66 1C-a) #}
-  {% if traceability_on and ('process_lot' in perms or 'process_input' in perms) %}
+  {% if traceability_on and ('process_lot' in perms or 'process_input' in perms or 'process_submit' in perms or 'process_final' in perms) %}
   <div class="nav-dropdown">
     <button type="button" onclick="toggleNav(this)">🧪 제품검사 ▾</button>
     <div class="menu">
       <a href="{{ url_for('production_lot_list') }}">생산 LOT</a>
+      <a href="{{ url_for('product_report_list') }}">제품 성적서 승인</a>
     </div>
   </div>
   {% endif %}

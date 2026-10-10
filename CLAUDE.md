@@ -1799,3 +1799,18 @@ def _safe_add_column(cur, alter_sql):
 - 알려진 한계: 완료 요청마다 현재 사진 파일을 통째로 읽어 sha256을 재계산(사진이 많으면 느릴 수 있음, Render CPU 0.5). 목록 카드에 overall 칩과 stage 칩이 중복 표시됨(경미).
 - 검증은 저장소 밖 scratchpad의 v1dc1.py(격리 DB 113건, CSRF ON)와 CDP 실제 입력 e2e 12건을 썼다.
 
+## 27-3. 제품 성적서 승인(4a, 2026-10-11) — 4b 이후가 이어 쓸 계약
+
+- **승인 단위는 S/N(unit) 1건.** 신규 테이블 `product_report_revisions`(불변 스냅샷: 현재 결과 행·슬롯 이력·동결 items·완료 이벤트 요약·결측 개수, 서명·상태는 해시에 안 넣음)와
+  `product_report_events`(append-only: submitted/withdrawn/rejected/approved/revoked, event_type TEXT·CHECK 없음 — 4e가 review 계열 추가). 상태는 마지막 이벤트로 도출. **두 테이블 UPDATE/DELETE 금지.**
+  이벤트는 revision별 seq·prev_event_hash·event_hash(`_report_event_hash`가 쓰기·verify의 단일 출처) 해시 체인, `verify_product_report`가 체인·스냅샷·현재 digest·사진 파일을 재계산한다.
+- **흐름 작성자(process_submit+참여자) → 지정 최종결정권자(process_final) 2단계**, 작성자≠승인자. 검토 단계는 4e로 제외. 서명은 제출·승인 시점의 등록 서명을 `prs_{user_id}_{uuid8}.png`로 복사해 스냅샷(수입검사 `{id}.png`와 파일 공간 분리, 복사는 DB 락 밖, DB 실패 시 새 파일만 삭제).
+- **Q4 명시 권한**: process_submit·process_final은 `users.permissions`에 직접 체크된 계정만 인정한다(`_explicit_perms`, 라우트의 `_explicit_perm_required`). `_user_perms()`의 admin 자동 전권은 승인 자격에 쓰지 않는다.
+  **주의: `ensure_default_admin()`이 새 DB의 admin에 ALL_PERMS를 통째로 저장하므로 새 DB의 admin은 process_final·process_submit이 이미 명시 체크된 상태다. 운영 DB의 admin permissions 컬럼은 추적 기능을 켜기 전에 확인하고 admin에게 승인 자격을 줄지 의도적으로 정할 것.**
+- **제출 시 서버가 재검증**: unit_completion_valid, 화면 digest==현재 digest, 사진 file_sha256 재계산, NG(fail) 있으면 차단(Q1, NG는 4b에서 특채·종결 후), 서명 등록 여부, 자격. 전부 결측인 항목은 승인 허용+결측 N개 배지. **승인 함수는 NG를 다시 검사하지 않고 제출 단계 차단+현재 digest==제출 digest에 의존한다(값이 바뀌면 stale) — 4b가 NG 사건 흐름을 만들 때 이 가정을 다시 확인할 것.**
+- **승인되면 가드 5곳이 실제로 켜진다**: `unit_has_final_document`/`has_final_documents_for_lot`(같은 트랜잭션 conn 전달)이 save_unit_results·reopen_unit_completion·_unit_change(제외)·correct_serial·cancel_production_lot을 막는다. 회수 후에만 재개·정정 가능(회수=기존 승인본 서명·해시 보존, 다음 승인은 doc_rev+1).
+  대기(submitted) 중 완료 취소·값 정정(자동 재개)은 `_append_unit_event`의 훅이 같은 트랜잭션에서 자동 철회(withdrawn)한다. 반려 reject_kind: quality_impact=시스템 재개(작성자 수정·재제출), document_fix=완료 유지.
+- 회수는 process_final 명시 보유자, 사유 필수, `unit_revoke_blockers`(출하 완료 후 회수 차단 훅, 지금 빈 목록)는 5번 단계가 채운다. 시각은 `_utc_now()`(서버 로컬) 문자열 그대로 해시(정본 S50의 UTC 정규화는 4c 전 확인).
+- 알려진 한계: process_final 단독 계정은 S/N 검사 화면(process_lot/process_input 필요)에 못 들어가고 성적서 상세에서 승인한다(메뉴 '생산 LOT' 링크는 거부됨), 서명 이미지 서빙은 login_required만(수입검사와 동일 구조), 상태 칩이 승인됨 외 모두 같은 주황(문구로만 구분), 사진 폴더는 DB 백업에 안 들어감.
+- 검증은 저장소 밖 scratchpad의 v2a.py(DB 계층 98)·v2b.py(CSRF ON 라우트 80)·v2c.py(서버 렌더 35)와 CDP 역할 전환 e2e 17건(작성자 제출→승인자 승인→승인 후 UI 숨김→회수→재제출→반려 후 자동 재개)을 썼다.
+

@@ -270,7 +270,8 @@ PERM_GROUPS = [
         ("process_link",      "하우징·MA 부품 연결·분리 (준비중)"),
         ("process_ng_cancel", "NG 이력 입력 취소 (준비중)"),
         ("process_review",    "제품검사 검토 (준비중)"),
-        ("process_final",     "제품검사 최종결정 (준비중)"),
+        ("process_submit",    "제품검사 승인 요청(성적서 제출)"),
+        ("process_final",     "제품검사 최종결정 (성적서 최종승인·반려·회수)"),
         ("test_data_delete",  "테스트 데이터 삭제 (준비중)"),
     ]),
     ("출하검사", [
@@ -4626,7 +4627,7 @@ def approve(inspection_id):
 # ---------- 사용자 기본 서명 저장/확인 ----------
 
 @app.route("/signature/default/save", methods=["POST"])
-@perm_required("approve")
+@perm_required("approve", "process_input", "process_submit", "process_final")
 def signature_default_save():
     """현재 사용자의 기본(default) 서명 PNG를 저장."""
     sig_data = request.form.get("signature_data", "").strip()
@@ -4657,7 +4658,7 @@ def signature_default_save():
 
 
 @app.route("/signature/default/check")
-@perm_required("approve")
+@perm_required("approve", "process_input", "process_submit", "process_final")
 def signature_default_check():
     """현재 사용자의 기본 서명 존재 여부 반환."""
     user_id = g.user["id"]
@@ -10362,7 +10363,7 @@ def outbound_qr_history_export():
 # PERM_GROUPS에서 파생하지 않고 명시: 스위치 확인 화면이 "무엇을 확인하는지"를 고정하기 위함.
 NEW_TRACE_PERMS = [
     "process_input", "process_lot", "process_correct", "process_link", "process_ng_cancel",
-    "process_review", "process_final", "test_data_delete",
+    "process_review", "process_submit", "process_final", "test_data_delete",
     "outbound_return", "outbound_pool_convert", "product_model_manage",
     "output_process", "output_shipping", "template_manage",
 ]
@@ -10563,9 +10564,11 @@ def production_lot_detail(lot_id):
         snap["model_revision"] = m["revision"]
     units = db.get_production_lot_units(lot_id)
     cur_model = db.get_product_model(lot["model_id"])
+    insp_units = db.list_inspection_units(lot_id)
     return render_template("production_lot_detail.html", lot=lot, model=snap,
                            inspection=db.get_lot_inspection(lot_id),
-                           insp_units=db.list_inspection_units(lot_id),
+                           insp_units=insp_units,
+                           report_counts=_lot_report_summary(lot_id, insp_units)[1],
                            current_items=db.get_current_model_items(lot["model_id"]),
                            model_active=bool(cur_model and cur_model["is_active"]),
                            history=db.get_production_lot_history(lot_id),
@@ -10756,8 +10759,10 @@ def lot_inspect_units(lot_id):
     lot, insp, resp = _inspect_lot_or_redirect(lot_id)
     if resp:
         return resp
-    return render_template("lot_inspect_units.html", lot=lot, inspection=insp,
-                           units=db.list_inspection_units(lot_id),
+    units = db.list_inspection_units(lot_id)
+    reports, counts = _lot_report_summary(lot_id, units)
+    return render_template("lot_inspect_units.html", lot=lot, inspection=insp, units=units,
+                           reports=reports, report_counts=counts,
                            read_only=lot["status"] == "cancelled")
 
 
@@ -10810,7 +10815,7 @@ def lot_inspect_unit(lot_id, unit_id):
         read_only=lot["status"] == "cancelled" or unit["status"] != "active",
         cancelled=lot["status"] == "cancelled",
         can_input="process_input" in perms, can_correct_others="process_correct" in perms,
-        me=_actor_name(), me_id=g.user["id"])
+        me=_actor_name(), me_id=g.user["id"], **_unit_report_panel(lot, unit, results, db.list_unit_events(insp["id"], unit_id)))
 
 
 @app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/save", methods=["POST"])
@@ -11020,7 +11025,7 @@ def _clean_photo_name(name):
 
 
 @app.route("/static/product_inspection_photos/<filename>")
-@perm_required("process_lot", "process_input")
+@perm_required("process_lot", "process_input", "process_submit", "process_final")
 def product_inspection_photo_file(filename):
     guard = _traceability_gate()
     if guard:
@@ -11028,6 +11033,335 @@ def product_inspection_photo_file(filename):
     if not db.is_product_photo_name(filename):
         abort(404)
     return send_from_directory(PRODUCT_PHOTO_DIR, filename)
+
+
+# ---- 제품 성적서 제출·승인 (TASK #148 패키지 4a) ----
+# 쓰기 라우트는 코드 단독(두 개를 같이 넘기면 OR이라 구멍). admin 자동 전권은 인정하지 않는다(사용자 확정 Q4) —
+# 최종 방어선은 DB 함수의 _explicit_perms이고, 라우트의 _explicit_perm_required는 같은 기준의 얇은 사전 거부다.
+def _explicit_perms_of(user_row):
+    """users.permissions에 직접 체크된 권한만 — _user_perms()의 admin 자동 부여를 쓰지 않는다."""
+    return {p.strip() for p in ((user_row["permissions"] if user_row else "") or "").split(",") if p.strip()}
+
+
+def _final_candidates(exclude_id=None):
+    """지정 가능한 최종결정권자 후보 — process_final을 계정 상세에서 직접 체크한 계정만(admin 자동 전권 불인정)."""
+    return [{"id": u["id"], "name": u["display_name"] or u["username"]} for u in db.list_users()
+            if "process_final" in _explicit_perms_of(u) and u["id"] != exclude_id]
+
+
+def _lot_report_summary(lot_id, units):
+    """({unit_id: 최신 revision}, {approved, pending, total}) — 쿼리 1번(N+1 없음). total은 정상(active) S/N 수."""
+    latest = {}
+    for r in db.list_product_reports(lot_id=lot_id):  # 최신 id 순 → 처음 보이는 게 unit의 최신 revision
+        latest.setdefault(r["unit_id"], r)
+    act = [u["unit_id"] for u in units if u["status"] == "active"]
+    return latest, {"approved": sum(1 for i in act if latest.get(i, {}).get("state") == "approved"),
+                    "pending": sum(1 for i in act if latest.get(i, {}).get("state") == "submitted"),
+                    "total": len(act)}
+
+
+def _unit_report_panel(lot, unit, results, events):
+    """S/N 화면의 '제품 성적서' 패널 컨텍스트(읽기 전용 계산). 버튼 활성 여부는 서버가 blockers로 정하고, 진짜 방어선은 DB 함수."""
+    uid = g.user["id"]
+    reports = db.list_unit_reports(lot["id"], unit["unit_id"])
+    latest = reports[0] if reports else None
+    state = latest["state"] if latest else None
+    ex = _explicit_perms_of(g.user)
+    cands = _final_candidates(uid)
+    has_sig = os.path.isfile(os.path.join(SIGNATURE_DIR, f"user_{uid}_default.png"))
+    slots = [sl for per_item in results.values() for sl in per_item.values()]
+    participants = {h["entered_by_user_id"] for sl in slots for h in sl["history"]}
+    participants |= {e["by_user_id"] for e in events if e["event_type"] == "complete"}
+    valid, why = db.unit_completion_valid(lot["id"], unit["unit_id"])
+    blockers = []
+    if lot["status"] == "cancelled":
+        blockers.append("취소된 LOT은 열람만 할 수 있어요.")
+    elif unit["status"] != "active":
+        blockers.append("제외된 완제품은 승인 요청할 수 없어요.")
+    elif not valid:
+        blockers.append(why if unit["stage"] == "completed" else "검사 완료 후 승인 요청할 수 있어요.")
+    if unit["has_fail"]:
+        blockers.append("NG 사건 처리 후 승인할 수 있어요.")
+    if "process_submit" not in ex:
+        blockers.append("승인 요청 권한(process_submit)이 계정 상세에 직접 체크되어 있지 않아요.")
+    elif uid not in participants:
+        blockers.append("이 S/N 검사에 참여한 사람만 승인 요청할 수 있어요.")
+    if not cands:
+        blockers.append("관리자에게 최종결정권자 지정 필요")
+    if not has_sig:
+        blockers.append("등록된 내 서명이 없어요. 아래에서 서명을 등록해줘.")
+    return {"report_final": state == "approved",
+            "report": {"latest": latest, "state": state, "candidates": cands, "has_sig": has_sig,
+                       "sig_url": f"/static/signatures/user_{uid}_default.png" if has_sig else None,
+                       "blockers": blockers, "show_submit": "process_submit" in ex and state not in ("submitted", "approved"),
+                       "can_revoke": "process_final" in ex and state == "approved",
+                       "missing_count": sum(1 for sl in slots if sl["current"]["is_missing"])}}
+
+
+def _report_ajax():
+    return request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+def _explicit_perm_required(code):
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if code not in _explicit_perms_of(g.user):
+                msg = "이 계정에 이 권한이 직접 체크되어 있지 않아요. 관리자 계정도 계정 상세에서 직접 체크해야 해요."
+                if _report_ajax():
+                    return jsonify({"ok": False, "error": msg, "blockers": []}), 403
+                flash(msg)
+                return redirect(url_for("home"))
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+def _snapshot_signature(user_id):
+    """등록된 내 기본 서명을 prs_{user_id}_{uuid8}.png로 복사해 고정 → {file, sha256, stamp}. 등록 서명이 없으면 None.
+    수입검사 서명({id}.png)과 파일명 공간이 겹치지 않게 접두어를 다르게 한다. DB 락 밖에서 부를 것."""
+    src = os.path.join(SIGNATURE_DIR, f"user_{user_id}_default.png")
+    if not os.path.isfile(src):
+        return None
+    name = f"prs_{user_id}_{uuid.uuid4().hex[:8]}.png"
+    dst = os.path.join(SIGNATURE_DIR, name)
+    stamp = os.path.isfile(src + ".stamp")
+    try:
+        shutil.copyfile(src, dst)
+        if stamp:
+            shutil.copyfile(src + ".stamp", dst + ".stamp")
+        with open(dst, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        _drop_signature_snapshot({"file": name})
+        return None
+    return {"file": name, "sha256": sha, "stamp": stamp}
+
+
+def _drop_signature_snapshot(sig):
+    """DB 쓰기가 실패했을 때 방금 만든 서명 복사본만 지운다(기존 파일은 건드리지 않는다)."""
+    name = (sig or {}).get("file") or ""
+    if not re.fullmatch(r"prs_\d+_[0-9a-f]{8}\.png", name):
+        return
+    for p in (os.path.join(SIGNATURE_DIR, name), os.path.join(SIGNATURE_DIR, name + ".stamp")):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
+def _report_request_fields(*names):
+    body = request.get_json(silent=True) if request.is_json else None
+    src = body if isinstance(body, dict) else request.form
+    return [src.get(n) for n in names]
+
+
+def _report_back_responder(endpoint, **kw):
+    ajax = _report_ajax()
+
+    def fail(msg, status=409, blockers=None):
+        if ajax:
+            return jsonify({"ok": False, "error": msg, "blockers": blockers or []}), status
+        flash(msg)
+        return redirect(url_for(endpoint, **kw))
+    return ajax, fail
+
+
+@app.route("/product-reports")
+@perm_required("process_lot", "process_input", "process_submit", "process_final")
+def product_report_list():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    uid = g.user["id"]
+    rows = db.list_product_reports()
+    tabs = {"approve": [r for r in rows if r["state"] == "submitted" and r["approver_user_id"] == uid],
+            "mine": [r for r in rows if r["writer_user_id"] == uid],
+            "all": rows}
+    tab = request.args.get("tab", "all")
+    if tab not in tabs:
+        tab = "all"
+    return render_template("product_report_list.html", tab=tab, reports=tabs[tab],
+                           counts={k: len(v) for k, v in tabs.items()})
+
+
+@app.route("/product-reports/<int:revision_id>")
+@perm_required("process_lot", "process_input", "process_submit", "process_final")
+def product_report_detail(revision_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    report = db.get_product_report(revision_id)
+    if not report:
+        flash("성적서를 찾을 수 없어요.")
+        return redirect(url_for("product_report_list"))
+    uid, ex = g.user["id"], _explicit_perms_of(g.user)
+    final = "process_final" in ex
+    return render_template(
+        "product_report_detail.html", report=report, me_id=uid,
+        can_decide=final and report["state"] == "submitted" and uid == report["approver_user_id"]
+        and uid != report["writer_user_id"],
+        can_revoke=final and report["state"] == "approved",
+        verify=db.verify_product_report(revision_id, photo_dir=PRODUCT_PHOTO_DIR))
+
+
+@app.route("/product-reports/<int:revision_id>/verify")
+@perm_required("process_lot", "process_input", "process_submit", "process_final")
+def product_report_verify(revision_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    if not db.get_product_report(revision_id):
+        return jsonify({"ok": False, "error": "성적서를 찾을 수 없어요."}), 404
+    return jsonify(db.verify_product_report(revision_id, photo_dir=PRODUCT_PHOTO_DIR))
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/report/submit", methods=["POST"])
+@perm_required("process_submit")
+@_explicit_perm_required("process_submit")
+def product_report_submit(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    ajax, fail = _report_back_responder("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id)
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    seen, approver_raw = _report_request_fields("seen_digest", "approver_user_id")
+    if not seen:
+        return fail("화면 정보가 없어요. 새로고침해줘.", 400)
+    try:
+        approver = int(approver_raw) if approver_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        return fail("최종결정권자 선택이 올바르지 않아요.", 400)
+    stale = [{"code": "stale", "item_key": None, "name": None,
+              "msg": "화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘."}]
+    if db.unit_results_digest(lot_id, unit_id) != seen:
+        return fail(stale[0]["msg"], 409, stale)
+    sig = None
+    try:
+        sig = _snapshot_signature(g.user["id"])  # 파일 확인·복사는 DB 락 밖
+        r = db.submit_product_report(lot_id, unit_id, _actor_name(), g.user["id"], seen, approver, sig,
+                                     photo_blockers=_photo_file_blockers(lot_id, unit_id))
+    except db.ReportBlocked as e:
+        _drop_signature_snapshot(sig)
+        return fail(str(e), 409, e.blockers)
+    except ValueError as e:
+        _drop_signature_snapshot(sig)
+        return fail(str(e), 409)
+    except Exception:
+        _drop_signature_snapshot(sig)
+        raise
+    lot = db.get_production_lot(lot_id)
+    record_change("제품 성적서 승인 요청", "production_lot", lot_id,
+                  f"{lot['lot_no']} / 완제품 {unit_id} / 제출 {r['submission_no']}회")
+    if not ajax:
+        flash("승인 요청을 보냈어요.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "revision_id": r["revision_id"], "submission_no": r["submission_no"]})
+
+
+def _report_for_action(revision_id):
+    """(report 또는 None, ajax, fail) — 승인·반려·회수 공용."""
+    ajax, fail = _report_back_responder("product_report_detail", revision_id=revision_id)
+    return db.get_product_report(revision_id), ajax, fail
+
+
+@app.route("/product-reports/<int:revision_id>/approve", methods=["POST"])
+@perm_required("process_final")
+@_explicit_perm_required("process_final")
+def product_report_approve(revision_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    report, ajax, fail = _report_for_action(revision_id)
+    if not report:
+        return fail("성적서를 찾을 수 없어요.", 404)
+    lot_id = report["lot_id"]
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    (seen,) = _report_request_fields("seen_digest")
+    if not seen:
+        return fail("화면 정보가 없어요. 새로고침해줘.", 400)
+    sig = None
+    try:
+        sig = _snapshot_signature(g.user["id"])
+        r = db.approve_product_report(revision_id, _actor_name(), g.user["id"], sig, seen,
+                                      photo_blockers=_photo_file_blockers(lot_id, report["unit_id"]))
+    except db.ReportBlocked as e:
+        _drop_signature_snapshot(sig)
+        return fail(str(e), 409, e.blockers)
+    except ValueError as e:
+        _drop_signature_snapshot(sig)
+        return fail(str(e), 409)
+    except Exception:
+        _drop_signature_snapshot(sig)
+        raise
+    record_change("제품 성적서 최종 승인", "production_lot", lot_id,
+                  f"{report['lot_no']} / 완제품 {report['unit_id']} / 제출 {report['submission_no']}회")
+    if not ajax:
+        flash("최종 승인했어요.")
+        return redirect(url_for("product_report_detail", revision_id=revision_id))
+    return jsonify({"ok": True, "doc_rev": r["doc_rev"]})
+
+
+@app.route("/product-reports/<int:revision_id>/reject", methods=["POST"])
+@perm_required("process_final")
+@_explicit_perm_required("process_final")
+def product_report_reject(revision_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    report, ajax, fail = _report_for_action(revision_id)
+    if not report:
+        return fail("성적서를 찾을 수 없어요.", 404)
+    lot_id = report["lot_id"]
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    reason, kind = _report_request_fields("reason", "reject_kind")
+    try:
+        db.reject_product_report(revision_id, _actor_name(), g.user["id"], reason, kind)
+    except db.ReportBlocked as e:
+        return fail(str(e), 409, e.blockers)
+    except ValueError as e:
+        return fail(str(e), 409)
+    record_change("제품 성적서 반려", "production_lot", lot_id,
+                  f"{report['lot_no']} / 완제품 {report['unit_id']} / {kind}")
+    if not ajax:
+        flash("반려했어요.")
+        return redirect(url_for("product_report_detail", revision_id=revision_id))
+    return jsonify({"ok": True})
+
+
+@app.route("/product-reports/<int:revision_id>/revoke", methods=["POST"])
+@perm_required("process_final")
+@_explicit_perm_required("process_final")
+def product_report_revoke(revision_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    report, ajax, fail = _report_for_action(revision_id)
+    if not report:
+        return fail("성적서를 찾을 수 없어요.", 404)
+    lot_id = report["lot_id"]
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    (reason,) = _report_request_fields("reason")
+    try:
+        db.revoke_product_report(revision_id, _actor_name(), g.user["id"], reason)
+    except db.ReportBlocked as e:
+        return fail(str(e), 409, e.blockers)
+    except ValueError as e:
+        return fail(str(e), 409)
+    record_change("제품 성적서 승인 회수", "production_lot", lot_id,
+                  f"{report['lot_no']} / 완제품 {report['unit_id']}")
+    if not ajax:
+        flash("승인을 회수했어요.")
+        return redirect(url_for("product_report_detail", revision_id=revision_id))
+    return jsonify({"ok": True})
 
 
 @app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/photo", methods=["POST"])

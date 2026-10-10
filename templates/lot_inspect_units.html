@@ -13,6 +13,7 @@
   .unit-card > p .badge { margin: 0; }
   .unit-card { border-left: 4px solid var(--border); }
   h2 + p + p, h2 + p + .card + p { font-size: 17px; font-weight: 700; color: var(--primary-dark); }
+  #reportCounts { margin: 2px 0 14px; font-size: 15px; font-weight: 600; color: var(--primary-dark); }
   .find-card form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .find-card label { flex: 1 0 100%; margin: 0; }
   .find-card input[type=text] { flex: 1 1 200px; min-height: 48px; font-size: 17px; margin: 0; }
@@ -25,6 +26,8 @@
 {% endif %}
 
 <p>완료 {{ act | selectattr('stage', 'equalto', 'completed') | list | length }} / 전체 {{ act | length }}</p>
+<p class="muted" id="reportCounts">성적서 승인 {{ report_counts['approved'] }} / 대기 {{ report_counts['pending'] }} / 전체 {{ report_counts['total'] }}</p>
+{% set rstate_labels = {'submitted': '승인 대기', 'approved': '승인됨', 'rejected': '반려됨', 'withdrawn': '철회됨', 'revoked': '회수됨'} %}
 
 <div class="card find-card">
   <form method="GET" action="{{ url_for('lot_inspect_find', lot_id=lot['id']) }}">
@@ -49,6 +52,8 @@
     <span class="badge {{ 'pass' if u['stage'] == 'completed' else 'pending' }}">{{ stage_labels[u['stage']] }}</span>
     {% if u['has_fail'] and u['stage'] in ('ready', 'completed') %}<span class="badge fail">NG 포함</span>{% endif %}
     {% if u['completion'] and u['completion']['reopened'] %}<span class="badge pending">재개됨</span>{% endif %}
+    {% set rr = reports.get(u['unit_id']) %}
+    <span class="badge {{ 'pass' if rr and rr['state'] == 'approved' else 'pending' }}">성적서 {{ rstate_labels.get(rr['state'], '미제출') if rr else '미제출' }}</span>
     항목 {{ u['progress'] | selectattr('state', 'in', ['pass', 'fail', 'missing_only', 'nospec', 'recorded']) | list | length }}/{{ u['progress'] | length }}
   </p>
   <ul class="muted" style="margin:0;">
