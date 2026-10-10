@@ -8,6 +8,15 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-11 (4a 제품 성적서 승인 코어, .collab TASK #148 스펙·#149 구현)**:
+  S/N 단위 제출→지정 최종결정권자 승인/반려→회수. 신규 테이블 `product_report_revisions`(불변 스냅샷)·`product_report_events`(append-only 해시 체인),
+  `unit_has_final_document` 실구현으로 승인 후 정정·재개·제외·S/N정정·LOT취소 5곳 차단, 대기 중 완료 취소·정정은 자동 철회, 새 권한 `process_submit`.
+  사용자 확정: NG 없는 S/N만 제출(NG는 4b), 결측만 있는 항목은 승인 허용+배지, 반려 종류 분기(quality_impact 자동 재개/document_fix 완료 유지),
+  process_final 명시 체크 계정만 승인 자격(admin 자동 불인정), 검토 단계는 4e. 4번 전체는 4a~4e 분할(4b NG 사건·특채, 4c XLSX 출력, 4d 출하 성적서, 4e 검토·추적).
+  검증: v2a 98+v2b 80(CSRF ON)+v2c 35+회귀 5종, CDP 역할 전환 e2e 17/17, 390px 캡처, quality-watcher PASS. 계약은 CLAUDE.md 27-3절.
+  **활성화 전 필수 확인: 운영 DB admin의 permissions 컬럼(process_final 사전 체크 가능성), process_final·process_submit 부여 대상, 서명 등록.**
+  Codex 독립 검토 PASS(4a 커밋 가능). 아직 push·배포 안 함(운영 deploy는 7353c99, 1D-c1·4a 모두 새 테이블만 추가). 다음: 4b(NG 사건·특채) 또는 1D-c2(항목 잠금).
+
 - **2026-10-11 (1D-c1 제품검사 완료 요청·재개, .collab TASK #145 스펙·#146 구현·#147 보완)**:
   unit별 검사 완료/재개를 append-only 이벤트(`lot_inspection_unit_events`)로 저장. 완료 요청은 서버가 한 트랜잭션으로
   재검증(표본·사진 장수·digest·사진 파일 해시·취소/제외)하고 통과해야만 이벤트 생성. 사용자 확정: NG 포함도 완료 허용(완료≠합격),
