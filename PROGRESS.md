@@ -8,6 +8,21 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-10 (1D-b2 제품검사 사진 입력·정정, .collab TASK #142 스펙·#143 구현·#144 본문 크기 제한)**:
+  photo 항목 입력·정정(미리보기 후 등록, 사진 1장=슬롯 1개, 정정=새 회차+새 파일, 구 파일 보존),
+  `file_sha256` 컬럼, 업로드/서빙 라우트(경로 이탈 방어), 진행도·overall에 사진 재포함(`recorded`),
+  붙여넣기가 저장 전 입력칸을 빈 칸으로 세던 UX 수정. 사용자 확정: 미리보기 후 등록, 해시 컬럼 추가,
+  1280px/JPEG80, 백업·이전 정책은 만들지 않고 한계만 문서화(CLAUDE.md 27-1절), 다중 선택 제외.
+  검증: 격리 DB v1db2 OK106+v1db1 OK153+v1da OK120+v1cb 통과, CDP 실제 파일 주입 e2e 10/10, 붙여넣기 3/3,
+  390px 캡처, quality-watcher PASS(미리보기 blob URL 미해제 지적은 메인 세션이 1줄 수정, 재검증 e2e 통과,
+  quality-watcher 재검증은 안 함). 스펙 이탈: 이미지 검증을 verify() 대신 load()로. .collab TASK #143은
+  developer/designer 결과가 렌더링을 직접 못 봐서 PARTIAL로 남음. 실제 폰 카메라 촬영은 미검증.
+  사진 폴더는 DB 백업에 안 들어간다(27-1절). Codex 1차 검토 PARTIAL: 업로드 10MB 검사가 본문 파싱 뒤라 대용량 요청이
+  메모리를 먼저 점유(Render 메모리 512MB·CPU 0.5, 디스크 50GB는 대시보드 캡처로 확인) → TASK #144 첫 수정(라우트 안 한도)은
+  CSRFProtect가 request.form을 먼저 파싱해 무효, 메인 세션이 CSRF 켠 실서버 검증으로 발견 → 재수정(요청 클래스 서브클래스+413
+  errorhandler), CSRF 켠 실서버+Chrome fetch로 30MB→413(242ms) 확인.
+  Codex 재확인 PASS(1D-b2 커밋 가능), #144 COMPLETED. 아직 push·배포 안 함(추적 기능 스위치 꺼짐). 다음: 1D-c 또는 4번 단계(승인·출력).
+
 - **2026-10-10 (1D-b1 제품검사 측정값 입력·정정, .collab TASK #139 스펙·#140 구현·#141 권한 수정)**:
   시작된 LOT 검사에서 S/N·항목·표본별 측정값을 입력/정정하는 기능(숫자·적합/부적합). 신규
   테이블 `lot_inspection_results`(append-only, 정정=회차 추가), DB 함수 12개, 라우트 4개, 화면 2개
