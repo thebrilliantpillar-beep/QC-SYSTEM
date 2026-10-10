@@ -8,6 +8,20 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-11 (4b-1 NG 사건·후속조치·재검사·특채 종결, .collab TASK #150 스펙·#151 구현·#153 트리거 보완)**:
+  검사 완료 요청 시 NG 항목마다 사건 자동 생성, 후속조치 5종, 재검사(불량 칸만)로 자동 종결, 특채 요청→성적서 제출→승인 시 특채 사유 입력으로 특채 종결(승인 이벤트+사건 종결 한 트랜잭션).
+  신규 테이블 `ng_events`·`ng_event_log`(append-only 해시 체인), 기존 테이블 ALTER 없음, 4a 제출·승인 보강·자동 철회 확장·스냅샷 schema 2, `save_unit_results` 분리(retest_ctx).
+  사용자 확정: 완료 시 자동 생성, 불량 칸만 재검사, 특채 요청 선등록, 사용 금지·사건 취소는 4b-2, 재검사 합격 시 자동 종결, 교착은 알려진 한계.
+  검증: v3a 136·v3b 63·v3c 37+회귀 8종(단계마다 2~3개씩 순차 재현), CDP 역할 전환 e2e, 390px 캡처, quality-watcher PASS(구조 수준). 계약은 CLAUDE.md 27-4절.
+  **한계: 특채 요청 후 정정으로 NG가 사라지면 제출이 영구 차단되는 교착(4b-2 사건 취소로 해소) — 4b-2 완료 전에는 추적 기능을 켜지 말 것.**
+  메모리 부족으로 백그라운드 작업이 세 번 중단돼 회귀를 나눠 재현. 아직 push·배포 안 함(운영 deploy는 cb83e79).
+  Codex 1차 검토 PARTIAL: (1) append-only가 코드 관례뿐이라 ng_event_log 마지막 행 삭제가 verify를 통과(높음) (2) 특채 종결 로그와 성적서 승인 이벤트 교차 검증 부재(중간) → TASK #153에서
+  **증거성 테이블 6개에 UPDATE/DELETE 거부 DB 트리거 12개(사용자 확정 B: ng_*·product_report_*·lot_inspection_results·lot_inspection_unit_events 전체)**와 `verify_ng_events` 교차 검증 추가.
+  재현 중 v3d가 빈 새 DB 동시 초기화에서 기존 ALTER 경합(26-1)에 걸려 테스트를 기존 DB 동시 부팅으로 수정(사용자 확정 A). v3d 49건 3회 연속, 회귀 11종 통과.
+  Codex 재검토 PASS(4b-1 커밋 가능). 아직 push·배포 안 함(운영 deploy는 cb83e79, 이번 변경은 새 테이블 2개+트리거 12개).
+  **추적 기능 활성화 전 필수**: 4b-2(사건 취소·사용 금지, 교착 해소) 완료, 운영 DB admin permissions 확인, process_final·process_submit 부여 대상·서명 등록, 모델 시드·자재 연결,
+  그리고 Codex 권고: 호스트·DB 파일 접근 권한자까지 변조 탐지를 주장하려면 4d head-commit(마지막 해시 외부 보관) 또는 동등한 위험 수용 결정을 명시.
+
 - **2026-10-11 (4a 제품 성적서 승인 코어, .collab TASK #148 스펙·#149 구현)**:
   S/N 단위 제출→지정 최종결정권자 승인/반려→회수. 신규 테이블 `product_report_revisions`(불변 스냅샷)·`product_report_events`(append-only 해시 체인),
   `unit_has_final_document` 실구현으로 승인 후 정정·재개·제외·S/N정정·LOT취소 5곳 차단, 대기 중 완료 취소·정정은 자동 철회, 새 권한 `process_submit`.
