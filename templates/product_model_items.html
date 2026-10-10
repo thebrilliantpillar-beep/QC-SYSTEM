@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}제품검사 항목 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  /* 넓은 폭: 열 최소폭 확보(부족하면 바깥 overflow-x:auto 래퍼가 가로 스크롤) */
+  @media (min-width: 641px) {
+    /* 최소폭 합 506 + 삭제 버튼 ~46 + 좌우 padding 4px x 16 = 약 616px (카드 내부 ~620px) */
+    #itemTable th, #itemTable td { padding-left: 4px; padding-right: 4px; }
+    #itemRows td:nth-child(1) input { min-width: 92px; }
+    #itemRows td:nth-child(2) select { min-width: 128px; }
+    #itemRows td:nth-child(3) input, #itemRows td:nth-child(4) input { min-width: 58px; }
+    #itemRows td:nth-child(5) input, #itemRows td:nth-child(6) input { min-width: 48px; }
+    #itemRows td:nth-child(7) select { min-width: 72px; }
+    #itemRows td:nth-child(8) { white-space: nowrap; }
+    #itemRows td:nth-child(8) button { white-space: nowrap; padding: 8px 10px; }
+  }
+  /* 좁은 폭: 항목 행을 카드형(라벨+입력)으로. 라벨은 CSS nth-child로 붙여 마크업 불변 */
+  @media (max-width: 640px) {
+    #itemTable { overflow: visible; background: transparent; }
+    #itemTable thead { display: none; }
+    #itemRows, #itemRows tr { display: block; }
+    #itemRows tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+    #itemRows td { display: block; border: 0; padding: 0; text-align: left; min-width: 0; }
+    #itemRows td::before { display: block; font-size: 12px; font-weight: 700; color: #4b5563; margin-bottom: 4px; }
+    #itemRows td:nth-child(1)::before { content: "항목 이름"; }
+    #itemRows td:nth-child(2)::before { content: "입력 방식"; }
+    #itemRows td:nth-child(3)::before { content: "하한"; }
+    #itemRows td:nth-child(4)::before { content: "상한"; }
+    #itemRows td:nth-child(5)::before { content: "소수 자릿수"; }
+    #itemRows td:nth-child(6)::before { content: "필요 개수"; }
+    #itemRows td:nth-child(7)::before { content: "없음 허용"; }
+    #itemRows td:nth-child(1), #itemRows td:nth-child(2), #itemRows td:nth-child(7), #itemRows td:nth-child(8) { grid-column: 1 / -1; }
+    #itemRows td:nth-child(8)::before { content: none; }
+    #itemRows td:nth-child(8) button { width: 100%; min-height: 44px; }
+    #itemRows input, #itemRows select { min-height: 44px; }
+  }
+</style>
+<h2>제품검사 항목: {{ model['model_no'] }}</h2>
+<p><a href="{{ url_for('product_model_detail', model_id=model['id']) }}">← 모델로 돌아가기</a></p>
+
+{% macro item_row(it, disabled) %}
+<tr>
+  <td><input type="text" name="name" value="{{ it.get('name') or '' }}" maxlength="60" required {{ 'disabled' if disabled else '' }}>
+    <input type="hidden" name="key" value="{{ it.get('key') or '' }}" {{ 'disabled' if disabled else '' }}></td>
+  <td><select name="input_type" {{ 'disabled' if disabled else '' }}>
+    {% for k, label in type_labels.items() %}<option value="{{ k }}" {{ 'selected' if it.get('input_type') == k else '' }}>{{ label }}</option>{% endfor %}
+  </select></td>
+  <td><input type="text" name="lower" value="{{ it.get('lower') if it.get('lower') is not none else '' }}" {{ 'disabled' if disabled else '' }}></td>
+  <td><input type="text" name="upper" value="{{ it.get('upper') if it.get('upper') is not none else '' }}" {{ 'disabled' if disabled else '' }}></td>
+  <td><input type="number" name="display_digits" min="0" max="6" value="{{ it.get('display_digits') if it.get('display_digits') is not none else '' }}" {{ 'disabled' if disabled else '' }}></td>
+  <td><input type="number" name="required_n" min="1" max="50" value="{{ it.get('required_n') or 1 }}" {{ 'disabled' if disabled else '' }}></td>
+  <td><select name="allow_missing" {{ 'disabled' if disabled else '' }}>
+    <option value="0" {{ '' if it.get('allow_missing') in (1, '1') else 'selected' }}>불가</option>
+    <option value="1" {{ 'selected' if it.get('allow_missing') in (1, '1') else '' }}>허용</option>
+  </select></td>
+  {% if not disabled %}<td><button type="button" class="btn secondary" style="margin-top:0;" onclick="this.closest('tr').remove();">삭제</button></td>{% endif %}
+</tr>
+{% endmacro %}
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">검사 항목 {% if versions %}(현재 버전 {{ versions[0]['version'] }}){% else %}(아직 설정 안 됨){% endif %}</h3>
+  {% if copied_from %}<p class="muted">{{ copied_from }} 모델의 항목을 불러왔어요. 고친 뒤 저장해야 반영돼요.</p>{% endif %}
+  {% if not editable %}<p class="muted">항목 설정은 admin 계정만 바꿀 수 있어요.</p>{% endif %}
+  <p class="muted">숫자 항목은 하한·상한 중 하나 이상이 필요해요. 필요 개수는 측정 횟수(사진 항목은 필요한 사진 수)예요.</p>
+  <form method="POST" action="{{ url_for('product_model_items', model_id=model['id']) }}">
+    <div style="overflow-x:auto;">
+      <table id="itemTable">
+        <thead><tr><th>항목 이름</th><th>입력 방식</th><th>하한</th><th>상한</th><th>소수 자릿수</th><th>필요 개수</th><th>없음 허용</th>{% if editable %}<th></th>{% endif %}</tr></thead>
+        <tbody id="itemRows">
+          {% for it in items %}{{ item_row(it, not editable) }}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if editable %}
+    <button type="button" class="btn secondary" onclick="addItemRow();">항목 추가</button>
+    <label>사유 (두 번째 버전부터 필수)</label>
+    <input type="text" name="reason">
+    <button type="submit" onclick="return confirm('새 버전으로 저장할까? 이미 시작한 LOT에는 영향이 없어요.');">저장</button>
+    {% endif %}
+  </form>
+  {% if editable %}
+  <template id="itemRowTpl">{{ item_row({'required_n': 1, 'input_type': 'numeric', 'display_digits': 2}, false) }}</template>
+  <script>
+    function addItemRow() {
+      var tpl = document.getElementById('itemRowTpl');
+      document.getElementById('itemRows').appendChild(tpl.content.cloneNode(true));
+    }
+  </script>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">다른 모델에서 복사</h3>
+  <form method="GET" action="{{ url_for('product_model_items', model_id=model['id']) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <select name="copy_from" style="flex:1; min-width:160px;">
+      {% for m in other_models %}<option value="{{ m['id'] }}">{{ m['model_no'] }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn secondary" style="margin-top:0;">불러오기</button>
+  </form>
+  <p class="muted">불러오기만 하고 저장하지는 않아요.</p>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <h3 style="margin-top:0; font-size:15px;">버전 이력</h3>
+  <table>
+    <thead><tr><th>버전</th><th>항목 수</th><th>사유</th><th>저장자</th><th>시각</th></tr></thead>
+    <tbody>
+      {% for v in versions %}
+      <tr>
+        <td>{{ v['version'] }}</td>
+        <td>{{ v['items'] | length }}</td>
+        <td>{{ v['reason'] or '' }}</td>
+        <td>{{ v['created_by'] or '' }}</td>
+        <td>{{ v['created_at'] | datetime_korean }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" style="text-align:center; color:var(--muted);">이력이 없어.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

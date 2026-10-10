@@ -43,6 +43,12 @@
 
 {% if model %}
 <div class="card">
+  <h3 style="margin-top:0; font-size:15px;">제품검사 항목</h3>
+  <p>{% if item_version %}현재 버전 {{ item_version['version'] }} / 항목 {{ item_version['items'] | length }}개{% else %}아직 설정되지 않았어.{% endif %}
+    <a href="{{ url_for('product_model_items', model_id=model['id']) }}">검사 항목 설정</a></p>
+</div>
+
+<div class="card">
   <h3 style="margin-top:0; font-size:15px;">{{ '사용 중지' if model['is_active'] else '다시 사용' }}</h3>
   <form method="POST" action="{{ url_for('product_model_active', model_id=model['id']) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
     <input type="hidden" name="is_active" value="{{ 0 if model['is_active'] else 1 }}">

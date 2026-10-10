@@ -1,6 +1,28 @@
 {% extends "base.html" %}
 {% block title %}생산 LOT — Chardon QMS{% endblock %}
 {% block content %}
+<style>
+  /* 좁은 폭: S/N 표 행을 카드형으로, 작업 칸은 전체 폭으로 줄바꿈 */
+  @media (max-width: 640px) {
+    #unitTable { overflow: visible; background: transparent; }
+    #unitTable thead { display: none; }
+    #unitTable tbody, #unitTable tr { display: block; }
+    #unitTable tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+    #unitTable td { display: block; border: 0; padding: 0; text-align: left; min-width: 0; overflow-wrap: anywhere; }
+    #unitTable td[colspan] { grid-column: 1 / -1; text-align: center; }
+    #unitTable td:not([colspan])::before { display: block; font-size: 12px; font-weight: 700; color: #4b5563; margin-bottom: 2px; }
+    #unitTable td:nth-child(1)::before { content: "내부 ID"; }
+    #unitTable td:nth-child(2)::before { content: "S/N"; }
+    #unitTable td:nth-child(3)::before { content: "상태"; }
+    #unitTable td:nth-child(4)::before { content: "모델 일치"; }
+    #unitTable td:nth-child(5) { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 10px; }
+    #unitTable td:nth-child(5)::before { content: "작업"; }
+    #unitTable td:nth-child(5) form { margin-bottom: 8px; }
+    #unitTable td:nth-child(5) input { margin-bottom: 6px; min-height: 44px; }
+    #unitTable td:nth-child(5) button { width: 100%; min-height: 44px; margin-top: 0; }
+  }
+</style>
 <h2>생산 LOT: {{ lot['lot_no'] }}</h2>
 <p><a href="{{ url_for('production_lot_list') }}">← 목록으로</a></p>
 
@@ -28,6 +50,35 @@
   <p>표시명: {{ model['display_name'] or '-' }} / 전압: {{ (model['voltage_kv'] ~ 'kV') if model['voltage_kv'] else '-' }} / 제품 형식: {{ phase_labels.get(model['phase_type'], model['phase_type']) }} / 하우징 수량: {{ model['housing_required_qty'] }}</p>
 </div>
 
+{% set active_n = units | selectattr('status', 'equalto', 'active') | list | length %}
+<div class="card">
+  <h3 style="margin-top:0; font-size:15px;">제품검사 시작</h3>
+  {% if inspection %}
+  <p>시작됨: <b>{{ inspection['started_by'] or '' }}</b> / {{ inspection['started_at'] | datetime_korean }} / 항목 버전 {{ inspection['item_version'] }}</p>
+  <p class="muted">시작한 시점의 모델·LOT·검사 항목이 그대로 보존돼요.</p>
+  <ul>
+    {% for it in inspection['items'] %}
+    <li>{{ it['name'] }} ({{ {'numeric':'숫자','ok_ng':'적합/부적합','photo':'사진'}.get(it['input_type'], it['input_type']) }}{% if it['input_type'] == 'numeric' %}, {{ it['lower'] if it['lower'] is not none else '-' }} ~ {{ it['upper'] if it['upper'] is not none else '-' }}{% endif %})</li>
+    {% endfor %}
+  </ul>
+  {% elif lot['status'] == 'cancelled' %}
+  <p class="muted">취소된 LOT이라 시작할 수 없어요.</p>
+  {% else %}
+  <ul>
+    <li>{{ '✔' if lot['status'] == 'confirmed' else '✘' }} LOT이 확정됨</li>
+    <li>{{ '✔' if active_n >= 1 else '✘' }} 정상 S/N이 1개 이상 ({{ active_n }}건)</li>
+    <li>{{ '✔' if model_active else '✘' }} 모델이 사용 중</li>
+    <li>{{ '✔' if current_items else '✘' }} 모델의 검사 항목이 설정됨{% if current_items %} (버전 {{ current_items['version'] }}){% endif %}</li>
+  </ul>
+  {% if can_manage %}
+  <form method="POST" action="{{ url_for('production_lot_inspection_start', lot_id=lot['id']) }}">
+    {% set can_start = lot['status'] == 'confirmed' and active_n >= 1 and model_active and current_items %}
+    <button type="submit" {% if not can_start %}disabled{% endif %} onclick="return confirm('제품검사를 시작할까? 시작하면 모델·LOT·검사 항목이 고정돼요.');">제품검사 시작</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</div>
+
 {% if can_manage and lot['status'] != 'cancelled' %}
 <div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">
   {% if lot['status'] == 'draft' %}
@@ -37,8 +88,9 @@
   {% endif %}
   <form method="POST" action="{{ url_for('production_lot_cancel', lot_id=lot['id']) }}" style="display:flex; gap:8px; flex-wrap:wrap; flex:1;">
     <input type="text" name="reason" placeholder="취소 사유" required style="flex:1; min-width:160px;">
-    <button type="submit" class="btn secondary" style="margin-top:0;" onclick="return confirm('LOT 전체를 취소할까?');">전체 취소</button>
+    <button type="submit" class="btn secondary" style="margin-top:0;" onclick="return confirm('{{ 'LOT 전체를 취소할까? 제품검사가 이미 시작돼서 S/N과 검사 기록은 그대로 남아요.' if inspection else 'LOT 전체를 취소할까? 정상 S/N이 모두 제외돼요.' }}');">전체 취소</button>
   </form>
+  <p class="muted" style="flex-basis:100%; margin:0;">{{ '제품검사가 시작된 LOT이라 취소해도 S/N과 검사 기록은 보존돼요.' if inspection else '검사 시작 전에 취소하면 정상 S/N이 모두 제외돼요.' }}</p>
 </div>
 {% endif %}
 
@@ -56,7 +108,7 @@
   </form>
   {% endif %}
   <div style="overflow-x:auto;">
-    <table>
+    <table id="unitTable">
       <thead><tr><th>내부 ID</th><th>S/N</th><th>상태</th><th>모델 일치</th>{% if can_edit %}<th>작업</th>{% endif %}</tr></thead>
       <tbody>
         {% for u in units %}

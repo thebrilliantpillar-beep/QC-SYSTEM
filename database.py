@@ -4,6 +4,7 @@
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
 import functools, hashlib, json, re, sqlite3, os, time
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+from decimal import Decimal as _Dec, InvalidOperation as _DecInvalid
 
 # 검사자 비고의 표준 불량 문구 파싱 — app.py의 parse_defect_counts와 동일 패턴
 _DEFECT_RE = re.compile(r"검사\s*수량\s*(\d+)\s*개\s*중\s*(\d+)\s*개\s*불량")
@@ -1130,6 +1131,41 @@ def init_db():
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_finished_units_lot ON finished_units(lot_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_unit_alias_unit ON unit_serial_aliases(unit_id)")
+    # ---- 2026-10-10 신규 끝 ----
+
+    # ---- 2026-10-10 신규: 제품검사 항목 버전과 LOT 검사 시작 스냅샷(TASK #136 패키지 1D-a) ----
+    # 두 테이블 모두 append-only — 수정·삭제 함수/UI를 만들지 말 것.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS product_model_item_versions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_id     INTEGER NOT NULL REFERENCES product_models(id),
+            version      INTEGER NOT NULL,
+            items_json   TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            reason       TEXT,
+            created_by   TEXT,
+            created_at   TEXT NOT NULL,
+            UNIQUE(model_id, version)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS production_lot_inspections (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_id              INTEGER NOT NULL UNIQUE REFERENCES production_lots(id),
+            started_by          TEXT,
+            started_at          TEXT NOT NULL,
+            model_snapshot_json TEXT NOT NULL,
+            lot_snapshot_json   TEXT NOT NULL,
+            item_version_id     INTEGER NOT NULL REFERENCES product_model_item_versions(id),
+            item_version        INTEGER NOT NULL,
+            items_json          TEXT NOT NULL,
+            snapshot_hash       TEXT NOT NULL,
+            units_json          TEXT NOT NULL DEFAULT '[]'
+        )
+    """)
+    _ins_cols = [r[1] for r in cur.execute("PRAGMA table_info(production_lot_inspections)").fetchall()]
+    if "units_json" not in _ins_cols:
+        _safe_add_column(cur, "ALTER TABLE production_lot_inspections ADD COLUMN units_json TEXT NOT NULL DEFAULT '[]'")
     # ---- 2026-10-10 신규 끝 ----
 
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
@@ -4453,13 +4489,34 @@ def confirm_production_lot(lot_id, user):
 
 
 def lot_has_started_inspection(lot_id):
-    """제품검사가 시작된 완제품이 있는지 — 1D에서 실제 검사 기록과 연결하기 전까지는 항상 False."""
+    """이 LOT의 제품검사 시작 기록(production_lot_inspections)이 있는지."""
+    conn = get_conn()
+    try:
+        return conn.execute("SELECT 1 FROM production_lot_inspections WHERE lot_id=?",
+                            (lot_id,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def has_final_documents_for_lot(lot_id):
+    """LOT에 최종 승인·출력된 성적서가 있는지 — 성적서 단계(1D 이후)에서 구현 예정, 지금은 항상 False."""
     return False
+
+
+def unit_has_final_document(unit_id):
+    """완제품 성적서가 최종 승인·출력됐는지 — 성적서 단계(1D 이후)에서 구현 예정, 지금은 항상 False."""
+    return False
+
+
+_FINAL_DOC_UNIT_MSG = "이 S/N의 성적서가 이미 최종 승인 또는 출력되어 제외/정정할 수 없어요. 승인 회수가 먼저 필요해요."
 
 
 @_write_retry
 def cancel_production_lot(lot_id, reason, user):
-    """LOT 전체 취소(사유 필수) + cancel 이력. 행·번호는 남긴다. 검사 시작된 LOT은 취소 불가."""
+    """LOT 전체 취소(사유 필수) + cancel 이력. 행·번호는 남긴다.
+    검사 시작 전이면 정상 S/N을 모두 'LOT 취소'로 제외(같은 트랜잭션), 시작 후면 LOT 상태만 취소하고
+    S/N·검사 기록은 보존한다. 최종 승인·출력된 성적서가 있으면 취소 불가.
+    lot_revision은 올리지 않는다 — 취소는 LOT 상태 전이 1건이고, S/N별 제외 이력에는 취소 시점의 lot_revision이 기록된다."""
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("취소 사유를 입력해줘.")
@@ -4468,9 +4525,18 @@ def cancel_production_lot(lot_id, reason, user):
         row = _pl_lock(conn, lot_id)
         if row["status"] == "cancelled":
             raise ValueError("이미 취소된 LOT이야.")
-        if lot_has_started_inspection(lot_id):
-            raise ValueError("제품검사가 시작된 완제품이 있어서 취소할 수 없어.")
+        if has_final_documents_for_lot(lot_id):
+            raise ValueError("최종 승인 또는 출력된 성적서가 있어서 취소할 수 없어요. 승인 회수가 먼저 필요해요.")
         before = _pl_full(conn, lot_id)
+        if not lot_has_started_inspection(lot_id):
+            for u in conn.execute("SELECT id FROM finished_units WHERE lot_id=? AND status='active' "
+                                  "ORDER BY id", (lot_id,)).fetchall():
+                ub = _fu_full(conn, u["id"])
+                conn.execute("UPDATE finished_units SET status='excluded', excluded_reason='LOT 취소', "
+                             "excluded_by=?, excluded_at=datetime('now','localtime') WHERE id=?",
+                             (user, u["id"]))
+                _fu_history(conn, u["id"], lot_id, "exclude", ub, _fu_full(conn, u["id"]),
+                            "LOT 취소", row["lot_revision"], user)
         conn.execute("UPDATE production_lots SET status='cancelled', cancel_reason=?, "
                      "cancelled_by=?, cancelled_at=datetime('now','localtime'), updated_by=?, "
                      "updated_at=datetime('now','localtime') WHERE id=?", (reason, user, user, lot_id))
@@ -4521,6 +4587,243 @@ def get_production_lot_history(lot_id):
                         (lot_id,)).fetchall()
     conn.close()
     return rows
+
+
+# ---------- 제품검사 항목 버전 · LOT 검사 시작 (TASK #136 패키지 1D-a) ----------
+
+_ITEM_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,40}$")
+_ITEM_TYPES = ("numeric", "ok_ng", "photo")
+_ITEM_KEYS = ("key", "name", "input_type", "lower", "upper", "display_digits",
+              "required_n", "allow_missing", "sort_order")
+
+
+def _canon(obj):
+    """해시용 정규화 직렬화 — 키 정렬·비ASCII 유지·공백 없음."""
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def _sha(obj):
+    return hashlib.sha256(_canon(obj).encode("utf-8")).hexdigest()
+
+
+def _utc_now():
+    """기존 테이블의 datetime('now','localtime')과 같은 형식·기준(서버 로컬 시각) — 한 화면에서 시각이 어긋나지 않게 맞춘다."""
+    return _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# 전각 숫자(０-９)·전각 부호/점·유니코드 마이너스만 반각으로 바꾼다. ¹ ① 같은 호환 숫자는 바꾸지 않아 거부된다.
+_ITEM_NUM_MAP = {**{0xFF10 + i: 0x30 + i for i in range(10)},
+                 0xFF0B: ord("+"), 0xFF0D: ord("-"), 0x2212: ord("-"), 0xFF0E: ord(".")}
+
+
+def _item_num(v, label, n):
+    """빈 값은 None, 숫자 아니면 ValueError. Decimal로 읽어 float 오차 없이 '10.5'처럼 표준 십진 문자열로 돌려준다
+    (5와 5.0과 5.00은 모두 '5', -0은 0). 1D-b 판정이 Decimal로 비교하도록 문자열로 보관한다.
+    전각 숫자는 반각으로, 유니코드 마이너스(−)는 '-'로 바꾼 뒤 [부호]숫자[.숫자] 형태만 받는다
+    (지수 표기·밑줄·쉼표·NaN·무한대는 거부 — 거대한 지수로 긴 문자열이 만들어지는 것을 막는다)."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    s = str(v).translate(_ITEM_NUM_MAP).strip()
+    if not re.fullmatch(r"[+-]?(\d+(\.\d*)?|\.\d+)", s, re.ASCII) or len(s) > 24:
+        raise ValueError(f"{n}번째 항목: {label}은(는) 숫자로 입력해줘.")
+    x = _Dec(s)
+    if x == 0:
+        return "0"
+    return format(x.normalize(), "f")
+
+
+def _item_int(v, label, n, lo, hi, default):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return default
+    try:
+        i = int(str(v).strip())
+    except ValueError:
+        raise ValueError(f"{n}번째 항목: {label}은(는) 정수로 입력해줘.")
+    if not lo <= i <= hi:
+        raise ValueError(f"{n}번째 항목: {label}은(는) {lo}~{hi} 사이여야 해.")
+    return i
+
+
+def _norm_items(items):
+    """항목 목록 검증·정규화 → 키 순서 고정 dict 리스트. 오류는 한국어 ValueError.
+    key가 비어 있으면 'item_N'으로 자동 부여한다(새 행 입력용)."""
+    if not isinstance(items, (list, tuple)) or not items:
+        raise ValueError("검사 항목을 1개 이상 입력해줘.")
+    out, used = [], set()
+    for raw in items:
+        k = (raw.get("key") or "").strip() if isinstance(raw, dict) else ""
+        if k:
+            used.add(k)
+    auto = 0
+    for pos, raw in enumerate(items, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{pos}번째 항목 형식이 올바르지 않아.")
+        name = (raw.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"{pos}번째 항목: 이름을 입력해줘.")
+        if len(name) > 60:
+            raise ValueError(f"{pos}번째 항목: 이름은 60자 이하로 입력해줘.")
+        key = (raw.get("key") or "").strip()
+        if not key:
+            while True:
+                auto += 1
+                key = f"item_{auto}"
+                if key not in used:
+                    break
+        if not _ITEM_KEY_RE.match(key):
+            raise ValueError(f"{pos}번째 항목: 항목 키는 40자 이하 영문·숫자·밑줄만 쓸 수 있어.")
+        if any(o["key"] == key for o in out):
+            raise ValueError(f"{pos}번째 항목: 항목 키 '{key}'가 중복이야.")
+        used.add(key)
+        itype = (raw.get("input_type") or "").strip()
+        if itype not in _ITEM_TYPES:
+            raise ValueError(f"{pos}번째 항목: 입력 방식은 숫자·적합/부적합·사진 중 하나여야 해.")
+        lower = upper = digits = None
+        if itype == "numeric":
+            lower = _item_num(raw.get("lower"), "하한", pos)
+            upper = _item_num(raw.get("upper"), "상한", pos)
+            if lower is None and upper is None:
+                raise ValueError(f"{pos}번째 항목: 숫자 항목은 하한이나 상한 중 하나는 필요해.")
+            if lower is not None and upper is not None and _Dec(lower) > _Dec(upper):
+                raise ValueError(f"{pos}번째 항목: 하한이 상한보다 클 수 없어.")
+            digits = _item_int(raw.get("display_digits"), "표시 소수 자릿수", pos, 0, 6, 2)
+        am = raw.get("allow_missing")
+        out.append({"key": key, "name": name, "input_type": itype, "lower": lower, "upper": upper,
+                    "display_digits": digits,
+                    "required_n": _item_int(raw.get("required_n"), "필요 개수", pos, 1, 50, 1),
+                    "allow_missing": 1 if am in (1, True, "1", "on", "true") else 0,
+                    "sort_order": pos})
+    return out
+
+
+def _miv_dict(row):
+    d = dict(row)
+    d["items"] = json.loads(d["items_json"])
+    return d
+
+
+def list_model_item_versions(model_id):
+    """모델의 항목 버전 목록(최신순, items 파싱 포함)."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM product_model_item_versions WHERE model_id=? "
+                        "ORDER BY version DESC", (model_id,)).fetchall()
+    conn.close()
+    return [_miv_dict(r) for r in rows]
+
+
+def get_current_model_items(model_id):
+    """모델의 최신 항목 버전(dict, items 파싱 포함). 없으면 None."""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM product_model_item_versions WHERE model_id=? "
+                       "ORDER BY version DESC LIMIT 1", (model_id,)).fetchone()
+    conn.close()
+    return _miv_dict(row) if row else None
+
+
+def copy_items_from_model(src_model_id):
+    """다른 모델의 현재 항목 목록을 돌려준다(저장하지 않음 — 화면에서 고친 뒤 저장)."""
+    cur = get_current_model_items(src_model_id)
+    if not cur:
+        raise ValueError("복사할 모델에 저장된 검사 항목이 없어.")
+    return cur["items"]
+
+
+@_write_retry
+def save_model_items(model_id, items, reason, actor):
+    """항목 목록을 새 버전으로 저장 → 버전 번호. 현재와 같으면 거부, 2번째 버전부터 사유 필수."""
+    norm = _norm_items(items)
+    reason = (reason or "").strip() or None
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("SELECT 1 FROM product_models WHERE id=?", (model_id,)).fetchone():
+            raise ValueError("모델을 찾을 수 없어.")
+        cur = conn.execute("SELECT version, content_hash FROM product_model_item_versions "
+                           "WHERE model_id=? ORDER BY version DESC LIMIT 1", (model_id,)).fetchone()
+        h = _sha(norm)
+        if cur and cur["content_hash"] == h:
+            raise ValueError("변경 사항이 없어요.")
+        if cur and not reason:
+            raise ValueError("항목을 바꾸려면 사유를 입력해줘.")
+        ver = (cur["version"] if cur else 0) + 1
+        conn.execute("INSERT INTO product_model_item_versions (model_id, version, items_json, "
+                     "content_hash, reason, created_by, created_at) VALUES (?,?,?,?,?,?,?)",
+                     (model_id, ver, json.dumps(norm, ensure_ascii=False), h, reason, actor,
+                      _utc_now()))
+        conn.commit()
+        return ver
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def start_lot_inspection(lot_id, actor):
+    """확정된 LOT의 제품검사 시작 — 그 시점의 모델·LOT·항목 버전을 스냅샷으로 굳힌다(시작 후 불변)."""
+    conn = get_conn()
+    try:
+        row = _pl_lock(conn, lot_id)
+        if row["status"] != "confirmed":
+            raise ValueError("확정된 LOT만 제품검사를 시작할 수 있어요.")
+        if conn.execute("SELECT 1 FROM production_lot_inspections WHERE lot_id=?",
+                        (lot_id,)).fetchone():
+            raise ValueError("이미 제품검사가 시작된 LOT이에요.")
+        if not conn.execute("SELECT 1 FROM finished_units WHERE lot_id=? AND status='active' LIMIT 1",
+                            (lot_id,)).fetchone():
+            raise ValueError("정상 S/N이 1개 이상 있어야 시작할 수 있어요.")
+        m = conn.execute("SELECT is_active FROM product_models WHERE id=?", (row["model_id"],)).fetchone()
+        if not m or not m["is_active"]:
+            raise ValueError("사용 중지된 모델이라 시작할 수 없어요.")
+        v = conn.execute("SELECT * FROM product_model_item_versions WHERE model_id=? "
+                         "ORDER BY version DESC LIMIT 1", (row["model_id"],)).fetchone()
+        if not v:
+            raise ValueError("모델의 검사 항목이 설정되어 있지 않아요.")
+        model_snap = _pm_full(conn, row["model_id"])
+        lot_snap = _pl_full(conn, lot_id)
+        # 시작 당시 정상 S/N 목록 — unit_id 오름차순으로 동결(이후 추가·제외·정정과 분리된 검사 대상 기준)
+        units_snap = []
+        for ur in conn.execute("SELECT id FROM finished_units WHERE lot_id=? AND status='active' "
+                               "ORDER BY id", (lot_id,)).fetchall():
+            f = _fu_full(conn, ur["id"])
+            units_snap.append({"unit_id": f["unit_id"], "serial_raw": f["serial_raw"],
+                               "serial_key": f["serial_key"], "status": f["status"],
+                               "model_mismatch": f["model_mismatch"]})
+        started_at = _utc_now()
+        h = _sha({"lot_id": lot_id, "started_by": actor, "started_at": started_at,
+                  "model": model_snap, "lot": lot_snap, "item_version_id": v["id"],
+                  "item_version": v["version"], "items": json.loads(v["items_json"]),
+                  "units": units_snap})
+        conn.execute("INSERT INTO production_lot_inspections (lot_id, started_by, started_at, "
+                     "model_snapshot_json, lot_snapshot_json, item_version_id, item_version, "
+                     "items_json, snapshot_hash, units_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     (lot_id, actor, started_at, json.dumps(model_snap, ensure_ascii=False),
+                      json.dumps(lot_snap, ensure_ascii=False), v["id"], v["version"],
+                      v["items_json"], h, json.dumps(units_snap, ensure_ascii=False)))
+        _pl_history(conn, lot_id, "inspection_start", lot_snap, lot_snap, None, actor)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_lot_inspection(lot_id):
+    """LOT의 제품검사 시작 기록(스냅샷 JSON 파싱 포함). 시작 전이면 None."""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM production_lot_inspections WHERE lot_id=?",
+                       (lot_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d["items"] = json.loads(d["items_json"])
+    d["model_snapshot"] = json.loads(d["model_snapshot_json"])
+    d["lot_snapshot"] = json.loads(d["lot_snapshot_json"])
+    d["units"] = json.loads(d["units_json"] or "[]")
+    return d
 
 
 # ---------- 완제품 내부 ID와 S/N (TASK #66 패키지 1C-b) ----------
@@ -4715,6 +5018,8 @@ def _unit_change(unit_id, reason, user, kind, need_status, state_msg):
         lot, reason, lot_before, rev = _unit_lot_begin(conn, lot_id, reason)
         if conn.execute("SELECT status FROM finished_units WHERE id=?", (unit_id,)).fetchone()[0] != need_status:
             raise ValueError(state_msg)
+        if kind == "exclude" and unit_has_final_document(unit_id):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
         before = _fu_full(conn, unit_id)
         if kind == "exclude":
             conn.execute("UPDATE finished_units SET status='excluded', excluded_reason=?, "
@@ -4744,6 +5049,8 @@ def correct_serial(unit_id, new_serial, reason, user):
     try:
         lot_id = _unit_lot_id(conn, unit_id)
         lot, reason, lot_before, rev = _unit_lot_begin(conn, lot_id, reason)
+        if unit_has_final_document(unit_id):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
         raw = (new_serial or "").strip()
         key, err, mm = _serial_parse(raw, rules, _lot_model_codes(conn, lot))
         if err:

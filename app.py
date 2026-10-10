@@ -10409,6 +10409,7 @@ def product_model_detail(model_id):
             flash("저장됐어.")
         return redirect(url_for("product_model_detail", model_id=model_id))
     return render_template("product_model_detail.html", model=model, form=dict(model),
+                           item_version=db.get_current_model_items(model_id),
                            history=db.get_product_model_history(model_id),
                            phase_labels=_PHASE_LABELS)
 
@@ -10459,7 +10460,8 @@ def product_model_seed():
 _LOT_STATUS_LABELS = {"draft": "작성중", "confirmed": "확정", "cancelled": "취소"}
 _LOT_HISTORY_LABELS = {"create": "생성", "update": "수정", "confirm": "확정", "cancel": "취소",
                        "unit_add": "S/N 추가", "unit_exclude": "완제품 제외",
-                       "unit_restore": "완제품 복구", "serial_correct": "S/N 정정"}
+                       "unit_restore": "완제품 복구", "serial_correct": "S/N 정정",
+                       "inspection_start": "제품검사 시작"}
 _UNIT_HISTORY_LABELS = {"add": "추가", "exclude": "제외", "restore": "복구", "correct": "S/N 정정"}
 
 
@@ -10527,9 +10529,14 @@ def production_lot_detail(lot_id):
         snap = {k: m[k] for k in ("model_no", "display_name", "voltage_code", "voltage_kv",
                                   "suffix_code", "pcode", "phase_type", "housing_required_qty")}
         snap["model_revision"] = m["revision"]
+    units = db.get_production_lot_units(lot_id)
+    cur_model = db.get_product_model(lot["model_id"])
     return render_template("production_lot_detail.html", lot=lot, model=snap,
+                           inspection=db.get_lot_inspection(lot_id),
+                           current_items=db.get_current_model_items(lot["model_id"]),
+                           model_active=bool(cur_model and cur_model["is_active"]),
                            history=db.get_production_lot_history(lot_id),
-                           units=db.get_production_lot_units(lot_id),
+                           units=units,
                            unit_history=db.get_unit_history_for_lot(lot_id),
                            unit_history_labels=_UNIT_HISTORY_LABELS,
                            history_labels=_LOT_HISTORY_LABELS, **_lot_template_args())
@@ -10660,6 +10667,89 @@ def production_lot_unit_restore(lot_id, unit_id):
 @perm_required("process_lot")
 def production_lot_unit_correct(lot_id, unit_id):
     return _unit_action(lot_id, unit_id, "correct")
+
+
+@app.route("/production-lots/<int:lot_id>/inspection/start", methods=["POST"])
+@perm_required("process_lot")
+def production_lot_inspection_start(lot_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        flash("LOT을 찾을 수 없어.")
+        return redirect(url_for("production_lot_list"))
+    try:
+        db.start_lot_inspection(lot_id, _actor_name())
+    except ValueError as e:
+        flash(str(e))
+    else:
+        record_change("제품검사 시작", "production_lot", lot_id, lot["lot_no"])
+        flash("제품검사를 시작했어요.")
+    return redirect(url_for("production_lot_detail", lot_id=lot_id))
+
+
+# ---- 제품검사 항목 설정 (TASK #136 패키지 1D-a) ----
+_ITEM_FORM_FIELDS = ("key", "name", "input_type", "lower", "upper", "display_digits",
+                     "required_n", "allow_missing")
+_ITEM_TYPE_LABELS = {"numeric": "숫자", "ok_ng": "적합/부적합", "photo": "사진"}
+
+
+def _items_from_form(form):
+    """폼의 필드별 배열(key[], name[] ...)을 항목 dict 리스트로 합친다."""
+    cols = {f: form.getlist(f) for f in _ITEM_FORM_FIELDS}
+    n = len(cols["name"])
+    return [{f: (cols[f][i] if i < len(cols[f]) else "") for f in _ITEM_FORM_FIELDS}
+            for i in range(n)]
+
+
+def _render_model_items(model, items, copied_from=None):
+    return render_template("product_model_items.html", model=model, items=items,
+                           copied_from=copied_from,
+                           versions=db.list_model_item_versions(model["id"]),
+                           other_models=[m for m in db.list_product_models() if m["id"] != model["id"]],
+                           editable=_admin_only_ok(), type_labels=_ITEM_TYPE_LABELS)
+
+
+def _admin_only_ok():
+    return bool(g.user and (g.user["username"] or "").strip().lower() == "admin")
+
+
+@app.route("/product-models/<int:model_id>/items", methods=["GET", "POST"])
+@perm_required("process_lot")
+def product_model_items(model_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    model = db.get_product_model(model_id)
+    if not model:
+        flash("모델을 찾을 수 없어.")
+        return redirect(url_for("product_model_list"))
+    if request.method == "POST":
+        guard = _admin_only()
+        if guard:
+            return guard
+        items, reason = _items_from_form(request.form), request.form.get("reason")
+        try:
+            ver = db.save_model_items(model_id, items, reason, _actor_name())
+        except ValueError as e:
+            flash(str(e))
+            return _render_model_items(model, items)
+        record_change("제품검사 항목 저장", "product_model", model_id,
+                      f"{model['model_no']} / 버전 {ver} / 사유: {(reason or '').strip() or '-'}")
+        flash(f"검사 항목을 저장했어요. (버전 {ver})")
+        return redirect(url_for("product_model_items", model_id=model_id))
+    copy_from = request.args.get("copy_from", "").strip()
+    if copy_from:
+        try:
+            src = db.get_product_model(int(copy_from))
+            if not src:
+                raise ValueError("복사할 모델을 찾을 수 없어.")
+            return _render_model_items(model, db.copy_items_from_model(src["id"]), src["model_no"])
+        except ValueError as e:
+            flash(str(e))
+    cur = db.get_current_model_items(model_id)
+    return _render_model_items(model, cur["items"] if cur else [])
 
 
 def _trace_perm_holders():
