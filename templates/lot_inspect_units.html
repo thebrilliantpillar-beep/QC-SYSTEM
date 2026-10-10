@@ -18,6 +18,8 @@
   .find-card label { flex: 1 0 100%; margin: 0; }
   .find-card input[type=text] { flex: 1 1 200px; min-height: 48px; font-size: 17px; margin: 0; }
   .find-card button { min-height: 48px; margin: 0; }
+  .ngChip { margin: 0 4px 0 0; }
+  .ngChip.pending { color: #92400e; }
 </style>
 <h2>제품검사 입력: {{ lot['lot_no'] }}</h2>
 <p><a href="{{ url_for('production_lot_detail', lot_id=lot['id']) }}">← LOT 상세로</a></p>
@@ -51,6 +53,8 @@
     <span class="badge {{ 'fail' if u['overall'] == 'fail' else ('pass' if u['overall'] == 'all_filled' else 'pending') }}">{{ overall_labels[u['overall']] }}</span>
     <span class="badge {{ 'pass' if u['stage'] == 'completed' else 'pending' }}">{{ stage_labels[u['stage']] }}</span>
     {% if u['has_fail'] and u['stage'] in ('ready', 'completed') %}<span class="badge fail">NG 포함</span>{% endif %}
+    {% set ng = (ng_summary or {}).get(u['unit_id']) %}
+    {% if ng %}<span class="badge {{ 'fail' if ng['open'] else 'pending' }} ngChip">NG 사건 {{ ng['total'] }}{% if ng['unresolved'] %} · 미종결 {{ ng['unresolved'] }}{% endif %}</span>{% endif %}
     {% if u['completion'] and u['completion']['reopened'] %}<span class="badge pending">재개됨</span>{% endif %}
     {% set rr = reports.get(u['unit_id']) %}
     <span class="badge {{ 'pass' if rr and rr['state'] == 'approved' else 'pending' }}">성적서 {{ rstate_labels.get(rr['state'], '미제출') if rr else '미제출' }}</span>

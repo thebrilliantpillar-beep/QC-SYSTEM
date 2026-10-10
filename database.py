@@ -165,6 +165,20 @@ class DbBusyError(ValueError):
     """DB 잠금이 풀리지 않아 재시도를 모두 소진했을 때."""
 
 
+APPEND_ONLY_TABLES = ("lot_inspection_results", "lot_inspection_unit_events", "product_report_revisions",
+                      "product_report_events", "ng_events", "ng_event_log")
+
+
+def _install_append_only_triggers(cur, tables):
+    """증거성 테이블마다 UPDATE/DELETE를 거부하는 트리거 2개(trg_<table>_no_update / _no_delete)를 만든다.
+    CREATE TRIGGER IF NOT EXISTS라 멱등이고 gunicorn 워커가 동시에 init_db를 돌려도 안전하다(ALTER 아님, 기존 행 불변).
+    정당한 수정 경로는 없다 — 정정은 새 행(rev+1)·새 이벤트로만 한다."""
+    for tb in tables:
+        for op in ("UPDATE", "DELETE"):
+            cur.execute(f"CREATE TRIGGER IF NOT EXISTS trg_{tb}_no_{op.lower()} BEFORE {op} ON {tb} "
+                        f"BEGIN SELECT RAISE(ABORT, '{tb}은(는) append-only라 수정할 수 없어요'); END")
+
+
 def _write_retry(fn):
     """쓰기 함수 전체를 최대 3회 시도 — 'locked'/'busy' OperationalError일 때만 0.4·0.8초 쉬고 재시도.
     각 함수가 실패 시 rollback·close 하는 구조라 통째로 다시 불러도 안전하다."""
@@ -1273,6 +1287,59 @@ def init_db():
         )
     """)
     # ---- 2026-10-11 신규(4a) 끝 ----
+
+    # ---- 2026-10-11 신규: NG 사건 (TASK #150 패키지 4b-1) ----
+    # 두 테이블 모두 UPDATE/DELETE 금지(append-only). 사건 상태는 저장하지 않고 ng_event_log에서 파생한다.
+    # log_type/action_kind/close_kind에 CHECK 없음(4b-2가 cancelled·unusable 추가). CREATE IF NOT EXISTS만.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ng_events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES production_lot_inspections(id),
+            unit_id       INTEGER NOT NULL REFERENCES finished_units(id),
+            item_key      TEXT NOT NULL,
+            event_no      INTEGER NOT NULL,
+            origin_event_id INTEGER,
+            origin_round_no INTEGER,
+            opened_trigger TEXT NOT NULL,
+            fail_snapshot_json TEXT NOT NULL,
+            header_hash   TEXT NOT NULL,
+            serial_at_open TEXT,
+            lot_revision  INTEGER,
+            opened_by     TEXT,
+            opened_by_user_id INTEGER,
+            opened_at     TEXT NOT NULL,
+            UNIQUE(inspection_id, unit_id, event_no)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_nge_unit ON ng_events(inspection_id, unit_id)")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ng_event_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            ng_event_id   INTEGER NOT NULL REFERENCES ng_events(id),
+            seq           INTEGER NOT NULL,
+            log_type      TEXT NOT NULL,
+            action_kind   TEXT,
+            round_no      INTEGER,
+            outcome       TEXT,
+            close_kind    TEXT,
+            reason        TEXT,
+            memo          TEXT,
+            revision_id   INTEGER,
+            report_event_seq INTEGER,
+            payload_json  TEXT,
+            actor_name    TEXT,
+            actor_user_id INTEGER,
+            prev_hash     TEXT,
+            event_hash    TEXT NOT NULL,
+            at            TEXT NOT NULL,
+            UNIQUE(ng_event_id, seq)
+        )
+    """)
+    # ---- 2026-10-11 신규(4b-1) 끝 ----
+
+    # ---- 2026-10-11 신규: 증거성 테이블 6개 append-only DB 트리거 (TASK #153) ----
+    _install_append_only_triggers(cur, APPEND_ONLY_TABLES)
+    # ---- 2026-10-11 신규(트리거) 끝 ----
 
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
@@ -5169,131 +5236,154 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
     actor=표시명(감사용 스냅샷), actor_id=계정 id("본인" 판정 기준; None이면 본인 불인정).
     entries=[{item_key, idx, raw, base_rev(None=최초 입력), reason, missing}].
     photo_files={(item_key, idx): (저장파일명, 원본파일명, sha256)} — 사진 업로드 라우트만 넘긴다
-    (일괄 저장 라우트는 안 넘기므로 photo 칸은 거부 → 클라이언트가 임의 파일명을 끼워 넣을 수 없다)."""
-    photo_files = photo_files or {}
+    (일괄 저장 라우트는 안 넘기므로 photo 칸은 거부 → 클라이언트가 임의 파일명을 끼워 넣을 수 없다).
+    판정·저장 본문은 _save_results_conn 하나(NG 재검사도 같은 본문을 쓴다)."""
     if not entries:
         raise ValueError("저장할 내용이 없어요.")
     conn = get_conn()
     try:
         lot, insp = _insp_begin(conn, lot_id)
-        u = conn.execute("SELECT lot_id, status FROM finished_units WHERE id=?", (unit_id,)).fetchone()
-        if not u or u["lot_id"] != lot_id:
-            raise ValueError("이 LOT의 완제품이 아니에요.")
-        if u["status"] != "active":
-            raise ValueError("제외된 완제품은 입력/정정할 수 없어요.")
-        last_ev = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? "
-                               "AND unit_id=? ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
-        was_done = bool(last_ev and last_ev["event_type"] == "complete")
-        if was_done:  # 완료된 S/N은 정정 권한자만, 정정하면 같은 트랜잭션에서 자동 재개
-            if unit_has_final_document(unit_id, conn):
-                raise ValueError(_FINAL_DOC_UNIT_MSG)
-            if not can_correct_completed:
-                raise ValueError("완료된 S/N이에요. 값을 고치려면 정정 권한이 필요해요.")
-        items = {i["key"]: i for i in json.loads(insp["items_json"])}
-        roster = 1 if unit_id in _roster_ids(insp) else 0
-        sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
-                          (unit_id,)).fetchone()
-        serial = sa["serial_raw"] if sa else None
-        seen = set()
-        for e in entries:
-            key = e.get("item_key")
+        n = _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_correct_others,
+                               photo_files, can_correct_completed)
+        conn.commit()
+        return n
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_correct_others=False,
+                       photo_files=None, can_correct_completed=False, retest_ctx=None):
+    """save_unit_results의 본문 — 이미 _insp_begin으로 잠긴 트랜잭션 안에서만 부를 것(commit은 호출한 쪽).
+    retest_ctx={"reason": ...}면 NG 재검사 저장: entry_type='retest', reason 자동, 본인/타인 정정 권한·변경없음 검사 생략,
+    사진·base_rev 없는 입력 거부, 완료 S/N 재개는 호출자가 한다(여기서는 하지 않는다)."""
+    photo_files = photo_files or {}
+    lot_id = insp["lot_id"]
+    u = conn.execute("SELECT lot_id, status FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+    if not u or u["lot_id"] != lot_id:
+        raise ValueError("이 LOT의 완제품이 아니에요.")
+    if u["status"] != "active":
+        raise ValueError("제외된 완제품은 입력/정정할 수 없어요.")
+    last_ev = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? "
+                           "AND unit_id=? ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+    was_done = bool(last_ev and last_ev["event_type"] == "complete")
+    if retest_ctx:  # 재검사는 완료 S/N도 받는다(재개는 호출자) — 단, 최종 승인된 S/N은 불가
+        if unit_has_final_document(unit_id, conn):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
+        was_done = False
+    if was_done:  # 완료된 S/N은 정정 권한자만, 정정하면 같은 트랜잭션에서 자동 재개
+        if unit_has_final_document(unit_id, conn):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
+        if not can_correct_completed:
+            raise ValueError("완료된 S/N이에요. 값을 고치려면 정정 권한이 필요해요.")
+    items = {i["key"]: i for i in json.loads(insp["items_json"])}
+    roster = 1 if unit_id in _roster_ids(insp) else 0
+    sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                      (unit_id,)).fetchone()
+    serial = sa["serial_raw"] if sa else None
+    seen = set()
+    for e in entries:
+        key = e.get("item_key")
+        try:
+            idx = int(e.get("idx"))
+        except (TypeError, ValueError):
+            raise SlotError("칸 번호가 올바르지 않아요.", key)
+        it = items.get(key)
+        if not it:
+            raise SlotError("알 수 없는 검사 항목이에요.", key, idx)
+        is_photo = it["input_type"] == "photo"
+        if is_photo and (key, idx) not in photo_files:
+            raise SlotError("사진은 사진 업로드 버튼으로만 등록할 수 있어요.", key, idx)
+        if not is_photo and (key, idx) in photo_files:
+            raise SlotError("사진 항목이 아니에요.", key, idx)
+        if retest_ctx and is_photo:
+            raise SlotError("사진 항목은 재검사로 입력할 수 없어요.", key, idx)
+        if not 1 <= idx <= it["required_n"]:
+            raise SlotError("칸 번호가 범위를 벗어났어요.", key, idx)
+        if (key, idx) in seen:
+            raise SlotError("같은 칸이 한 번에 두 번 들어왔어요.", key, idx)
+        seen.add((key, idx))
+        base = e.get("base_rev")
+        base = None if base in (None, "") else base
+        if base is not None:
             try:
-                idx = int(e.get("idx"))
+                base = int(base)
             except (TypeError, ValueError):
-                raise SlotError("칸 번호가 올바르지 않아요.", key)
-            it = items.get(key)
-            if not it:
-                raise SlotError("알 수 없는 검사 항목이에요.", key, idx)
-            is_photo = it["input_type"] == "photo"
-            if is_photo and (key, idx) not in photo_files:
-                raise SlotError("사진은 사진 업로드 버튼으로만 등록할 수 있어요.", key, idx)
-            if not is_photo and (key, idx) in photo_files:
-                raise SlotError("사진 항목이 아니에요.", key, idx)
-            if not 1 <= idx <= it["required_n"]:
-                raise SlotError("칸 번호가 범위를 벗어났어요.", key, idx)
-            if (key, idx) in seen:
-                raise SlotError("같은 칸이 한 번에 두 번 들어왔어요.", key, idx)
-            seen.add((key, idx))
-            base = e.get("base_rev")
-            base = None if base in (None, "") else base
-            if base is not None:
-                try:
-                    base = int(base)
-                except (TypeError, ValueError):
-                    raise SlotError("회차 정보가 올바르지 않아요.", key, idx)
-            if was_done and base is None:
-                raise SlotError("완료된 S/N은 새로 입력할 수 없어요. 먼저 완료를 취소(재개)해줘.", key, idx)
-            cur = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
-                               "AND item_key=? AND idx=? ORDER BY rev DESC LIMIT 1",
-                               (insp["id"], unit_id, key, idx)).fetchone()
-            reason = (e.get("reason") or "").strip() or None
-            if base is None:
-                if cur:
-                    raise SlotError("다른 사람이 이미 입력했어요. 정정으로 다시 입력해줘.", key, idx)
-                rev, etype, reason = 1, "initial", None
+                raise SlotError("회차 정보가 올바르지 않아요.", key, idx)
+        if retest_ctx and base is None:
+            raise SlotError("재검사는 기존 값이 있는 칸만 입력할 수 있어요.", key, idx)
+        if was_done and base is None:
+            raise SlotError("완료된 S/N은 새로 입력할 수 없어요. 먼저 완료를 취소(재개)해줘.", key, idx)
+        cur = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
+                           "AND item_key=? AND idx=? ORDER BY rev DESC LIMIT 1",
+                           (insp["id"], unit_id, key, idx)).fetchone()
+        reason = (e.get("reason") or "").strip() or None
+        if base is None:
+            if cur:
+                raise SlotError("다른 사람이 이미 입력했어요. 정정으로 다시 입력해줘.", key, idx)
+            rev, etype, reason = 1, "initial", None
+        else:
+            if not cur:
+                raise SlotError("정정할 기존 값이 없어요.", key, idx)
+            if base != cur["rev"]:
+                raise SlotError(f"그 사이에 정정됐어요(현재 {cur['rev']}회차). 새로고침해줘.", key, idx)
+            if retest_ctx:
+                reason, rev, etype = retest_ctx["reason"], cur["rev"] + 1, "retest"
             else:
-                if not cur:
-                    raise SlotError("정정할 기존 값이 없어요.", key, idx)
-                if base != cur["rev"]:
-                    raise SlotError(f"그 사이에 정정됐어요(현재 {cur['rev']}회차). 새로고침해줘.", key, idx)
                 if not reason:
                     raise SlotError("정정 사유를 입력해줘.", key, idx)
                 is_own = actor_id is not None and cur["entered_by_user_id"] == actor_id
                 if not is_own and not can_correct_others:
                     raise SlotError("다른 사람이 입력한 값은 정정 권한이 있어야 고칠 수 있어요.", key, idx)
                 rev, etype = cur["rev"] + 1, "correction"
-            sha = None
-            try:
-                if is_photo:
-                    if e.get("missing"):
-                        raise ValueError("사진은 결측으로 입력할 수 없어요.")
-                    val, vin, sha = photo_files[(key, idx)]
-                    if not re.fullmatch(rf"pi{insp['id']}_{unit_id}_{re.escape(key)}_{idx}_[0-9a-f]{{8}}\.jpg", val or ""):
-                        raise ValueError("사진 파일 정보가 올바르지 않아요.")
-                    miss, verdict = 0, "recorded"
-                elif e.get("missing"):
-                    if not it["allow_missing"]:
-                        raise ValueError("이 항목은 결측으로 입력할 수 없어요.")
-                    vin = val = None
-                    miss, verdict = 1, "missing"
+        sha = None
+        try:
+            if is_photo:
+                if e.get("missing"):
+                    raise ValueError("사진은 결측으로 입력할 수 없어요.")
+                val, vin, sha = photo_files[(key, idx)]
+                if not re.fullmatch(rf"pi{insp['id']}_{unit_id}_{re.escape(key)}_{idx}_[0-9a-f]{{8}}\.jpg", val or ""):
+                    raise ValueError("사진 파일 정보가 올바르지 않아요.")
+                miss, verdict = 0, "recorded"
+            elif e.get("missing"):
+                if not it["allow_missing"]:
+                    raise ValueError("이 항목은 결측으로 입력할 수 없어요.")
+                vin = val = None
+                miss, verdict = 1, "missing"
+            else:
+                vin = str(e.get("raw") if e.get("raw") is not None else "").strip()
+                if it["input_type"] == "ok_ng":
+                    val = vin.upper()
+                    if val not in ("OK", "NG"):
+                        raise ValueError("적합 또는 부적합을 선택해줘.")
                 else:
-                    vin = str(e.get("raw") if e.get("raw") is not None else "").strip()
-                    if it["input_type"] == "ok_ng":
-                        val = vin.upper()
-                        if val not in ("OK", "NG"):
-                            raise ValueError("적합 또는 부적합을 선택해줘.")
-                    else:
-                        val = parse_measure_number(vin)
-                    miss, verdict = 0, judge_measure(it, val)
-            except SlotError:
+                    val = parse_measure_number(vin)
+                miss, verdict = 0, judge_measure(it, val)
+        except SlotError:
+            raise
+        except ValueError as ve:
+            raise SlotError(str(ve), key, idx)
+        if not retest_ctx and not is_photo and cur and cur["is_missing"] == miss and cur["value"] == val:
+            raise SlotError("변경 없음 — 현재 값과 같아요.", key, idx)
+        try:
+            conn.execute(
+                "INSERT INTO lot_inspection_results (inspection_id, unit_id, item_key, idx, rev, "
+                "entry_type, value_input, value, is_missing, verdict, reason, roster_member, "
+                "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at, file_sha256) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (insp["id"], unit_id, key, idx, rev, etype, vin, val, miss, verdict, reason,
+                 roster, serial, lot["lot_revision"], actor, actor_id, _utc_now(), sha))
+        except sqlite3.IntegrityError as ie:
+            if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
                 raise
-            except ValueError as ve:
-                raise SlotError(str(ve), key, idx)
-            if not is_photo and cur and cur["is_missing"] == miss and cur["value"] == val:
-                raise SlotError("변경 없음 — 현재 값과 같아요.", key, idx)
-            try:
-                conn.execute(
-                    "INSERT INTO lot_inspection_results (inspection_id, unit_id, item_key, idx, rev, "
-                    "entry_type, value_input, value, is_missing, verdict, reason, roster_member, "
-                    "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at, file_sha256) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (insp["id"], unit_id, key, idx, rev, etype, vin, val, miss, verdict, reason,
-                     roster, serial, lot["lot_revision"], actor, actor_id, _utc_now(), sha))
-            except sqlite3.IntegrityError as ie:
-                if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
-                    raise
-                raise SlotError("다른 사람이 먼저 입력했어요. 새로고침해줘.", key, idx)
-        if was_done:
-            reasons = list(dict.fromkeys((e.get("reason") or "").strip() for e in entries))
-            why = "; ".join(r for r in reasons if r)[:200] or "값 정정"
-            _append_unit_event(conn, insp, unit_id, "reopen", "correction", why, actor, actor_id)
-        conn.commit()
-        return len(entries)
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+            raise SlotError("다른 사람이 먼저 입력했어요. 새로고침해줘.", key, idx)
+    if was_done:
+        reasons = list(dict.fromkeys((e.get("reason") or "").strip() for e in entries))
+        why = "; ".join(r for r in reasons if r)[:200] or "값 정정"
+        _append_unit_event(conn, insp, unit_id, "reopen", "correction", why, actor, actor_id)
+    return len(entries)
 
 
 def verify_lot_inspection_snapshot(lot_id):
@@ -5484,6 +5574,7 @@ def complete_unit_inspection(lot_id, unit_id, actor, actor_id, expected_digest, 
                    "fail_items": [p["key"] for p in prog if p["fail_count"]],
                    "missing_only_items": [p["key"] for p in prog if p["state"] == "missing_only"],
                    "model_mismatch": bool(u["model_mismatch"])}
+        ng_ids = _ng_open_missing(conn, insp, unit_id, actor, actor_id, "completion")  # NG 항목별 사건(멱등)
         try:
             seq = _append_unit_event(conn, insp, unit_id, "complete", "user", None, actor, actor_id, summary)
         except sqlite3.IntegrityError as ie:
@@ -5491,7 +5582,8 @@ def complete_unit_inspection(lot_id, unit_id, actor, actor_id, expected_digest, 
                 raise
             raise ValueError("다른 사람이 먼저 처리했어요. 새로고침해줘.")
         conn.commit()
-        return {"seq": seq, "digest": digest, "has_fail": summary["has_fail"], "summary": summary}
+        return {"seq": seq, "digest": digest, "has_fail": summary["has_fail"], "summary": summary,
+                "ng_event_ids": ng_ids}
     except Exception:
         conn.rollback()
         raise
@@ -5555,6 +5647,484 @@ def _unit_completion_valid_conn(conn, insp, unit_id):
     if _results_digest(conn, insp["id"], unit_id) != ev["results_digest"]:
         return False, "완료 이후 값이 바뀌었어요."
     return True, ""
+
+
+# ---------- NG 사건·후속조치·재검사 (TASK #150 패키지 4b-1) ----------
+# 계약: ng_events(불변 헤더)·ng_event_log(해시 체인)는 append-only — UPDATE/DELETE 금지.
+# 사건 단위 = (S/N, 검사 항목). 미종결 사건은 같은 (S/N, 항목)에 동시에 1개(_insp_begin 락 안 코드로 강제).
+# 상태는 저장하지 않고 로그에서 파생: open / special_requested / closed_retest / closed_special.
+# 모든 쓰기는 _insp_begin(BEGIN IMMEDIATE) 안에서 소속·상태·최종문서 여부를 다시 확인한다.
+
+class NgBlocked(ValueError):
+    """NG 사건 관련 거부 — blockers=[{code, item_key, name, msg}, ...]."""
+    def __init__(self, blockers):
+        self.blockers = blockers
+        super().__init__(blockers[0]["msg"] if blockers else "처리할 수 없어요.")
+
+
+_NG_ACTIONS = ("retest", "repair_retest", "reassemble", "special_request", "other")
+_NG_LOG_FIELDS = ("action_kind", "round_no", "outcome", "close_kind", "reason", "memo", "revision_id",
+                  "report_event_seq")
+
+
+def _ng_h(s):
+    return hashlib.sha256(s.encode("utf-8")).hexdigest() if s else None
+
+
+def _ng_header_hash(inspection_id, unit_id, item_key, event_no, origin_event_id, origin_round_no, opened_trigger,
+                    fail_snapshot_json, serial_at_open, lot_revision, opened_by, opened_by_user_id, opened_at):
+    """사건 헤더 해시 — 열 때 한 번 계산해 저장하고 verify가 같은 식으로 다시 계산한다."""
+    return _sha({"inspection_id": inspection_id, "unit_id": unit_id, "item_key": item_key, "event_no": event_no,
+                 "origin_event_id": origin_event_id, "origin_round_no": origin_round_no,
+                 "opened_trigger": opened_trigger, "snapshot_hash": _ng_h(fail_snapshot_json),
+                 "serial_at_open": serial_at_open, "lot_revision": lot_revision, "opened_by": opened_by,
+                 "opened_by_user_id": opened_by_user_id, "opened_at": opened_at})
+
+
+def _ng_log_hash(header_hash, ng_event_id, seq, log_type, action_kind, round_no, outcome, close_kind, reason, memo,
+                 revision_id, report_event_seq, payload_json, actor_name, actor_user_id, at, prev_hash):
+    """로그 한 줄 해시의 단일 출처 — 쓰기와 verify가 같은 식을 쓴다. header_hash를 매 줄에 넣어 헤더 변조도 잡는다."""
+    return _sha({"header_hash": header_hash, "ng_event_id": ng_event_id, "seq": seq, "log_type": log_type,
+                 "action_kind": action_kind, "round_no": round_no, "outcome": outcome, "close_kind": close_kind,
+                 "reason_hash": _ng_h(reason), "memo_hash": _ng_h(memo), "revision_id": revision_id,
+                 "report_event_seq": report_event_seq, "payload_hash": _ng_h(payload_json),
+                 "actor_name": actor_name, "actor_user_id": actor_user_id, "at": at, "prev_event_hash": prev_hash})
+
+
+def _ng_log_append(conn, ng_event_id, log_type, actor, actor_id, payload=None, **fields):
+    """사건 로그 한 줄 추가(seq·prev_hash·event_hash의 단일 출처). _insp_begin 잠금 안에서만 부를 것."""
+    bad = set(fields) - set(_NG_LOG_FIELDS)
+    if bad:
+        raise ValueError(f"알 수 없는 로그 필드: {sorted(bad)}")
+    hd = conn.execute("SELECT header_hash FROM ng_events WHERE id=?", (ng_event_id,)).fetchone()
+    if not hd:
+        raise ValueError("NG 사건을 찾을 수 없어요.")
+    last = conn.execute("SELECT seq, event_hash FROM ng_event_log WHERE ng_event_id=? ORDER BY seq DESC LIMIT 1",
+                        (ng_event_id,)).fetchone()
+    seq = (last["seq"] if last else 0) + 1
+    prev = last["event_hash"] if last else None
+    f = {k: fields.get(k) for k in _NG_LOG_FIELDS}
+    pj = _canon(payload) if payload is not None else None
+    at = _utc_now()
+    eh = _ng_log_hash(hd["header_hash"], ng_event_id, seq, log_type, f["action_kind"], f["round_no"], f["outcome"],
+                      f["close_kind"], f["reason"], f["memo"], f["revision_id"], f["report_event_seq"], pj,
+                      actor, actor_id, at, prev)
+    conn.execute(
+        "INSERT INTO ng_event_log (ng_event_id, seq, log_type, action_kind, round_no, outcome, close_kind, reason, "
+        "memo, revision_id, report_event_seq, payload_json, actor_name, actor_user_id, prev_hash, event_hash, at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (ng_event_id, seq, log_type, f["action_kind"], f["round_no"], f["outcome"], f["close_kind"], f["reason"],
+         f["memo"], f["revision_id"], f["report_event_seq"], pj, actor, actor_id, prev, eh, at))
+    return seq
+
+
+def _ng_state(logs, rev_last):
+    """로그 목록(seq 순) → 상태. 특채 종결은 그 revision의 마지막 이벤트가 approved인 동안만 유효."""
+    closed = [l for l in logs if l["log_type"] == "closed"]
+    if closed:
+        c = closed[-1]
+        if c["close_kind"] == "retest_pass":
+            return "closed_retest"
+        if c["close_kind"] == "special" and rev_last.get(c["revision_id"]) == "approved":
+            return "closed_special"
+    acts = [l for l in logs if l["log_type"] in ("action", "retest_round")]
+    if acts and acts[-1]["log_type"] == "action" and acts[-1]["action_kind"] == "special_request":
+        return "special_requested"
+    return "open"
+
+
+def _ng_events_derived(conn, inspection_id, unit_id=None):
+    """사건 목록 + 로그 + 파생 상태(쿼리 3개 고정 — 건수와 무관, N+1 없음)."""
+    w, a = "e.inspection_id=?", [inspection_id]
+    if unit_id is not None:
+        w += " AND e.unit_id=?"
+        a.append(unit_id)
+    evs = [dict(r) for r in conn.execute(f"SELECT e.* FROM ng_events e WHERE {w} ORDER BY e.unit_id, e.event_no", a)]
+    if not evs:
+        return []
+    logs = {}
+    for r in conn.execute(f"SELECT l.* FROM ng_event_log l JOIN ng_events e ON e.id=l.ng_event_id WHERE {w} "
+                          "ORDER BY l.ng_event_id, l.seq", a):
+        logs.setdefault(r["ng_event_id"], []).append(dict(r))
+    rev_ids = sorted({l["revision_id"] for ls in logs.values() for l in ls
+                      if l["log_type"] == "closed" and l["close_kind"] == "special" and l["revision_id"]})
+    rev_last = {}
+    if rev_ids:
+        ph = ",".join("?" * len(rev_ids))
+        for r in conn.execute(
+                f"SELECT e.revision_id, e.event_type FROM product_report_events e WHERE e.revision_id IN ({ph}) "
+                "AND e.seq=(SELECT MAX(x.seq) FROM product_report_events x WHERE x.revision_id=e.revision_id)",
+                rev_ids):
+            rev_last[r["revision_id"]] = r["event_type"]
+    for e in evs:
+        ls = logs.get(e["id"], [])
+        e["fail_snapshot"] = json.loads(e["fail_snapshot_json"])
+        e["logs"] = ls
+        e["round_no"] = sum(1 for l in ls if l["log_type"] == "retest_round")
+        e["state"] = _ng_state(ls, rev_last)
+    return evs
+
+
+_NG_OPEN_STATES = ("open", "special_requested")
+
+
+def _ng_cur(conn, inspection_id, unit_id):
+    cur = {}
+    for r in _slot_current(conn, inspection_id, unit_id):
+        cur.setdefault(r["item_key"], {})[r["idx"]] = r
+    return cur
+
+
+def _ng_unit_gate(conn, insp, unit_id):
+    """S/N의 NG 게이트(읽기). blockers=제출·승인을 막는 사유(ng_event_missing/ng_open/ng_unresolved),
+    pending=아직 종결 안 된 사건들(특채 요청 포함). 완제품 성적서 제출·승인(T4)과 unit_ng_gate_clear가 쓴다."""
+    items = json.loads(insp["items_json"])
+    cur = _ng_cur(conn, insp["id"], unit_id)
+    fail_keys = [it["key"] for it in items if summarize_unit_item(it, cur.get(it["key"], {})) == "fail"]
+    names = {it["key"]: it["name"] for it in items}
+    evs = _ng_events_derived(conn, insp["id"], unit_id)
+    pending = {e["item_key"]: e for e in evs if e["state"] in _NG_OPEN_STATES}
+    covered = {e["item_key"] for e in evs if e["state"] == "closed_special"}
+    blockers = []
+    for k in fail_keys:
+        e = pending.get(k)
+        if not e:
+            if k not in covered:
+                blockers.append(_blk("ng_event_missing", f"{names[k]}: NG 사건이 없어요. 먼저 NG 사건을 열어줘.", k, names[k]))
+        elif e["state"] == "open":
+            blockers.append(_blk("ng_open", f"{names[k]}: NG 후속조치(특채 요청)가 아직 없어요.", k, names[k]))
+    for k, e in pending.items():
+        if k not in fail_keys:
+            blockers.append(_blk("ng_unresolved", f"{names.get(k, k)}: 값이 정정됐지만 NG 사건이 종결되지 않았어요.", k,
+                                 names.get(k)))
+    return {"fail_items": fail_keys, "events": evs, "pending": list(pending.values()), "blockers": blockers,
+            "has_ng": bool(fail_keys or pending)}
+
+
+def unit_ng_gate_clear(conn_or_none, unit_id):
+    """(NG 때문에 막힘 없음, 사유 목록) — 5번 단계(출하 등)용 읽기 계약. 미종결 사건·사건 없는 NG가 없어야 참.
+    특채 종결은 그 성적서가 승인된 동안만 유효(회수되면 자동 해제)."""
+    own = conn_or_none is None
+    conn = get_conn() if own else conn_or_none
+    try:
+        insp = conn.execute("SELECT i.* FROM production_lot_inspections i JOIN finished_units u ON u.lot_id=i.lot_id "
+                            "WHERE u.id=?", (unit_id,)).fetchone()
+        if not insp:
+            return True, []
+        g = _ng_unit_gate(conn, insp, unit_id)
+        bl = list(g["blockers"])
+        for e in g["pending"]:
+            if e["state"] == "special_requested":
+                bl.append(_blk("ng_special_requested", "특채 승인 전이에요.", e["item_key"]))
+        return (not bl), bl
+    finally:
+        if own:
+            conn.close()
+
+
+def _ng_open_missing(conn, insp, unit_id, actor, actor_id, trigger, only_keys=None, origin=None):
+    """현재 fail인 항목 중 미종결 사건이 없는 것마다 사건을 연다(멱등 — 있으면 건너뜀) → 새 사건 id 목록.
+    _insp_begin 잠금 안에서만 부를 것. origin=(원 사건 id, 회차)."""
+    items = json.loads(insp["items_json"])
+    cur = _ng_cur(conn, insp["id"], unit_id)
+    evs = _ng_events_derived(conn, insp["id"], unit_id)
+    busy = {e["item_key"] for e in evs if e["state"] in _NG_OPEN_STATES}
+    closed_sp = {e["item_key"] for e in evs if e["state"] == "closed_special"}
+    last = conn.execute("SELECT seq, event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                        "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+    if trigger == "completion":
+        comp_seq = (last["seq"] if last else 0) + 1  # 이어서 추가될 complete 이벤트의 seq
+    else:
+        comp_seq = last["seq"] if last and last["event_type"] == "complete" else None
+    digest = _results_digest(conn, insp["id"], unit_id)
+    sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                      (unit_id,)).fetchone()
+    serial = sa["serial_raw"] if sa else None
+    lot_rev = conn.execute("SELECT lot_revision FROM production_lots WHERE id=?", (insp["lot_id"],)).fetchone()[0]
+    ids = []
+    for it in items:
+        k = it["key"]
+        c = cur.get(k, {})
+        if (only_keys is not None and k not in only_keys) or k in busy or k in closed_sp:
+            continue
+        if summarize_unit_item(it, c) != "fail":
+            continue
+        cells = [{"idx": i, "rev": c[i]["rev"], "value": c[i]["value"], "verdict": c[i]["verdict"]}
+                 for i in sorted(c) if c[i]["verdict"] == "fail"]
+        snap = _canon({"cells": cells, "digest": digest, "completion_seq": comp_seq})
+        no = conn.execute("SELECT COALESCE(MAX(event_no),0)+1 FROM ng_events WHERE inspection_id=? AND unit_id=?",
+                          (insp["id"], unit_id)).fetchone()[0]
+        at = _utc_now()
+        oe, orn = origin if origin else (None, None)
+        hh = _ng_header_hash(insp["id"], unit_id, k, no, oe, orn, trigger, snap, serial, lot_rev, actor, actor_id, at)
+        cu = conn.execute(
+            "INSERT INTO ng_events (inspection_id, unit_id, item_key, event_no, origin_event_id, origin_round_no, "
+            "opened_trigger, fail_snapshot_json, header_hash, serial_at_open, lot_revision, opened_by, "
+            "opened_by_user_id, opened_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (insp["id"], unit_id, k, no, oe, orn, trigger, snap, hh, serial, lot_rev, actor, actor_id, at))
+        ids.append(cu.lastrowid)
+        busy.add(k)
+    return ids
+
+
+def _ng_writable_event(conn, insp, unit_id, ng_event_id):
+    """NG 쓰기 공통 점검(잠금 안) → 파생된 사건 dict. 소속 LOT·active S/N·최종문서 없음·사건 소속·미종결."""
+    u = _unit_in_lot(conn, insp["lot_id"], unit_id)
+    if u["status"] != "active":
+        raise ValueError("제외된 완제품은 NG 처리를 할 수 없어요.")
+    if unit_has_final_document(unit_id, conn):
+        raise ValueError(_FINAL_DOC_UNIT_MSG)
+    ev = next((e for e in _ng_events_derived(conn, insp["id"], unit_id) if e["id"] == ng_event_id), None)
+    if not ev:
+        raise ValueError("이 S/N의 NG 사건이 아니에요.")
+    if ev["state"].startswith("closed"):
+        raise ValueError("이미 종결된 NG 사건이에요.")
+    return ev
+
+
+@_write_retry
+def open_ng_events(lot_id, unit_id, actor, actor_id):
+    """완료된 S/N에서 사건 없는 NG 항목의 사건을 수동으로 연다(레거시·예외용) → 새 사건 id 목록."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        u = _unit_in_lot(conn, lot_id, unit_id)
+        if u["status"] != "active":
+            raise ValueError("제외된 완제품은 NG 처리를 할 수 없어요.")
+        if unit_has_final_document(unit_id, conn):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
+        last = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        if not last or last["event_type"] != "complete":
+            raise ValueError("완료된 S/N에서만 NG 사건을 열 수 있어요.")
+        ids = _ng_open_missing(conn, insp, unit_id, actor, actor_id, "manual_open")
+        if not ids:
+            raise ValueError("새로 열 NG 사건이 없어요.")
+        _ng_withdraw_pending(conn, insp, unit_id, "NG 사건 수동 열기", actor, actor_id)
+        conn.commit()
+        return ids
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def add_ng_action(lot_id, unit_id, ng_event_id, action_kind, reason, memo, actor, actor_id):
+    """후속조치 기록(retest|repair_retest|reassemble|special_request|other) → 로그 seq. 특채 요청은 사유 필수."""
+    if action_kind not in _NG_ACTIONS:
+        raise ValueError("알 수 없는 후속조치예요.")
+    reason = (reason or "").strip()[:500]
+    memo = (memo or "").strip()[:500] or None
+    if action_kind == "special_request" and not reason:
+        raise ValueError("특채 요청 사유를 입력해줘.")
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        _ng_writable_event(conn, insp, unit_id, ng_event_id)
+        seq = _ng_log_append(conn, ng_event_id, "action", actor, actor_id, action_kind=action_kind,
+                             reason=reason or None, memo=memo)
+        # 승인 대기 성적서는 특채 요청이 바뀌든 다른 조치가 붙든 같은 트랜잭션에서 철회(대기가 아니면 무동작)
+        _ng_withdraw_pending(conn, insp, unit_id, f"NG 후속조치 변경({action_kind}) · 사건 #{ng_event_id}", actor, actor_id)
+        conn.commit()
+        return seq
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, seen_digest, actor, actor_id):
+    """NG 재검사 입력. entries=[{item_key, idx, raw|missing}] — 사건 항목은 '현재 fail인 칸'만, extra_item_keys에 든
+    영향 항목은 이미 값이 있는 칸 어느 것이나. 합격(재검사 칸 모두 pass AND 그 항목 모든 칸 현재 pass)이면 같은
+    트랜잭션에서 사건을 closed(retest_pass)로 닫는다. 영향 항목이 새로 fail이면 별도 사건을 연다."""
+    entries = list(entries or [])
+    extra = list(dict.fromkeys(extra_item_keys or []))
+    if not entries:
+        raise ValueError("재검사 값을 입력해줘.")
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        ev = _ng_writable_event(conn, insp, unit_id, ng_event_id)
+        items = {i["key"]: i for i in json.loads(insp["items_json"])}
+        key0 = ev["item_key"]
+        it0 = items.get(key0)
+        if not it0 or it0["input_type"] not in ("numeric", "ok_ng"):
+            raise ValueError("숫자·적합/부적합 항목만 재검사할 수 있어요.")
+        busy = {e["item_key"] for e in _ng_events_derived(conn, insp["id"], unit_id) if e["state"] in _NG_OPEN_STATES}
+        for k in extra:
+            if k == key0 or k not in items or items[k]["input_type"] not in ("numeric", "ok_ng"):
+                raise ValueError("영향 항목이 올바르지 않아요.")
+            if k in busy:
+                raise NgBlocked([_blk("ng_extra_busy", f"{items[k]['name']}: 이미 진행 중인 NG 사건이 있어요.", k,
+                                      items[k]["name"])])
+        if seen_digest != _results_digest(conn, insp["id"], unit_id):
+            raise ValueError("화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘.")
+        cur = _ng_cur(conn, insp["id"], unit_id)
+        fail_idx = {i for i, r in cur.get(key0, {}).items() if r["verdict"] == "fail"}
+        prepared, own_idx = [], []
+        for e in entries:
+            k = e.get("item_key")
+            try:
+                idx = int(e.get("idx"))
+            except (TypeError, ValueError):
+                raise SlotError("칸 번호가 올바르지 않아요.", k)
+            row = cur.get(k, {}).get(idx)
+            if k == key0:
+                if idx not in fail_idx:
+                    raise SlotError("불량이 난 칸만 재검사할 수 있어요.", k, idx)
+                own_idx.append(idx)
+            elif k in extra:
+                if not row:
+                    raise SlotError("값이 없는 칸은 재검사할 수 없어요.", k, idx)
+            else:
+                raise SlotError("이 사건의 재검사 대상이 아니에요.", k, idx)
+            prepared.append({"item_key": k, "idx": idx, "raw": e.get("raw"), "missing": bool(e.get("missing")),
+                             "base_rev": row["rev"]})
+        if not own_idx:
+            raise ValueError("불량이 난 칸의 재검사 값을 입력해줘.")
+        round_no = ev["round_no"] + 1
+        why = f"NG 재검사 {round_no}차 · 사건 #{ng_event_id}"
+        _save_results_conn(conn, lot, insp, unit_id, prepared, actor, actor_id, retest_ctx={"reason": why})
+        last = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        reopened = bool(last and last["event_type"] == "complete")
+        _ng_withdraw_pending(conn, insp, unit_id, why, actor, actor_id)  # 이미 재개된 S/N의 대기 성적서도 포함
+        if reopened:  # 값이 바뀌었으니 완료를 풀고 다시 완료하게 한다(대기 성적서 철회는 _append_unit_event 훅)
+            _append_unit_event(conn, insp, unit_id, "reopen", "system", why, actor, actor_id)
+        cur = _ng_cur(conn, insp["id"], unit_id)
+        cells0 = cur.get(key0, {})
+        passed = (all(cells0[i]["verdict"] == "pass" for i in own_idx)
+                  and summarize_unit_item(it0, cells0) == "pass")
+        new_fail = {k for k in extra if summarize_unit_item(items[k], cur.get(k, {})) == "fail"}
+        new_ids = (_ng_open_missing(conn, insp, unit_id, actor, actor_id, "retest_extra", only_keys=new_fail,
+                                    origin=(ng_event_id, round_no)) if new_fail else [])
+        rows = [{"item_key": p["item_key"], "idx": p["idx"], "rev": cur[p["item_key"]][p["idx"]]["rev"],
+                 "value": cur[p["item_key"]][p["idx"]]["value"],
+                 "verdict": cur[p["item_key"]][p["idx"]]["verdict"], "extra": p["item_key"] != key0}
+                for p in prepared]
+        digest = _results_digest(conn, insp["id"], unit_id)
+        _ng_log_append(conn, ng_event_id, "retest_round", actor, actor_id, round_no=round_no,
+                       outcome="pass" if passed else "fail",
+                       payload={"round_no": round_no, "rows": rows, "digest_after": digest, "new_event_ids": new_ids})
+        if passed:
+            _ng_log_append(conn, ng_event_id, "closed", actor, actor_id, round_no=round_no, close_kind="retest_pass",
+                           outcome="pass")
+        conn.commit()
+        return {"round_no": round_no, "passed": passed, "closed": passed, "reopened": reopened,
+                "new_event_ids": new_ids, "digest": digest}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def list_ng_events(inspection_id, unit_id):
+    """S/N의 사건 목록(헤더+로그+파생 상태+항목명) — 읽기 전용."""
+    conn = get_conn()
+    try:
+        insp = conn.execute("SELECT items_json FROM production_lot_inspections WHERE id=?", (inspection_id,)).fetchone()
+        names = {i["key"]: i["name"] for i in json.loads(insp["items_json"])} if insp else {}
+        evs = _ng_events_derived(conn, inspection_id, unit_id)
+        for e in evs:
+            e["item_name"] = names.get(e["item_key"], e["item_key"])
+        return evs
+    finally:
+        conn.close()
+
+
+def unit_ng_overview(lot_id, unit_id):
+    """S/N의 NG 현황(읽기 전용) — {fail_items, blockers, events(항목명 포함), pending}. 검사가 시작 전이면 None."""
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return None
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM production_lot_inspections WHERE id=?", (insp["id"],)).fetchone()
+        g = _ng_unit_gate(conn, row, unit_id)
+    finally:
+        conn.close()
+    names = {i["key"]: i["name"] for i in insp["items"]}
+    for e in g["events"]:
+        e["item_name"] = names.get(e["item_key"], e["item_key"])
+    return g
+
+
+def ng_states_for_inspection(inspection_id):
+    """목록 화면용 — {unit_id: [{id, item_key, state, round_no}]}. 쿼리 3개 고정(N+1 없음)."""
+    conn = get_conn()
+    try:
+        out = {}
+        for e in _ng_events_derived(conn, inspection_id):
+            out.setdefault(e["unit_id"], []).append({"id": e["id"], "item_key": e["item_key"], "state": e["state"],
+                                                     "round_no": e["round_no"]})
+        return out
+    finally:
+        conn.close()
+
+
+def _ng_check_special_close(conn, e, l):
+    """closed(special) 로그가 가리키는 성적서 승인 이벤트가 실제로 있었는지 교차 확인 → 오류 문구 목록.
+    승인이 나중에 회수(revoked)됐는지는 보지 않는다(파생 상태의 몫) — 그 승인 이벤트가 존재했는지만 본다."""
+    tag = f"사건 #{e['id']} seq {l['seq']}(특채 종결)"
+    rev = conn.execute("SELECT inspection_id, unit_id FROM product_report_revisions WHERE id=?",
+                       (l["revision_id"],)).fetchone() if l["revision_id"] is not None else None
+    if not rev:
+        return [f"{tag}: 연결된 성적서 revision이 없어요"]
+    if rev["inspection_id"] != e["inspection_id"] or rev["unit_id"] != e["unit_id"]:
+        return [f"{tag}: 연결된 성적서가 이 사건의 검사·S/N과 달라요"]
+    ae = conn.execute("SELECT event_type, reason, payload_json FROM product_report_events WHERE revision_id=? AND seq=?",
+                      (l["revision_id"], l["report_event_seq"])).fetchone() if l["report_event_seq"] is not None else None
+    if not ae or ae["event_type"] != "approved":
+        return [f"{tag}: 연결된 승인 이벤트가 없어요"]
+    errs = []
+    try:
+        ids = ((json.loads(ae["payload_json"]) if ae["payload_json"] else {}) or {}).get("special", {}).get("ng_event_ids") or []
+    except (ValueError, AttributeError):
+        ids = []
+    if e["id"] not in ids:
+        errs.append(f"{tag}: 승인 이벤트의 특채 대상 사건 목록에 이 사건이 없어요")
+    if (ae["reason"] or None) != (l["reason"] or None):
+        errs.append(f"{tag}: 승인 이벤트의 특채 사유와 종결 로그 사유가 달라요")
+    return errs
+
+
+def verify_ng_events(inspection_id, unit_id=None):
+    """저장된 컬럼에서 헤더 해시와 로그 체인을 다시 계산해 비교 → {ok, events, errors}."""
+    conn = get_conn()
+    try:
+        errors = []
+        evs = _ng_events_derived(conn, inspection_id, unit_id)
+        for e in evs:
+            hh = _ng_header_hash(e["inspection_id"], e["unit_id"], e["item_key"], e["event_no"],
+                                 e["origin_event_id"], e["origin_round_no"], e["opened_trigger"],
+                                 e["fail_snapshot_json"], e["serial_at_open"], e["lot_revision"], e["opened_by"],
+                                 e["opened_by_user_id"], e["opened_at"])
+            if hh != e["header_hash"]:
+                errors.append(f"사건 #{e['id']}: 헤더 해시 불일치")
+            prev, n = None, 0
+            for l in e["logs"]:
+                n += 1
+                eh = _ng_log_hash(e["header_hash"], e["id"], l["seq"], l["log_type"], l["action_kind"],
+                                  l["round_no"], l["outcome"], l["close_kind"], l["reason"], l["memo"],
+                                  l["revision_id"], l["report_event_seq"], l["payload_json"], l["actor_name"],
+                                  l["actor_user_id"], l["at"], l["prev_hash"])
+                if l["seq"] != n:
+                    errors.append(f"사건 #{e['id']}: seq {l['seq']} 순서 이상")
+                if l["prev_hash"] != prev:
+                    errors.append(f"사건 #{e['id']} seq {l['seq']}: 이전 해시 연결 끊김")
+                if eh != l["event_hash"]:
+                    errors.append(f"사건 #{e['id']} seq {l['seq']}: 해시 불일치")
+                prev = l["event_hash"]
+                if l["log_type"] == "closed" and l["close_kind"] == "special":
+                    errors.extend(_ng_check_special_close(conn, e, l))
+        return {"ok": not errors, "events": len(evs), "errors": errors}
+    finally:
+        conn.close()
 
 
 # ---------- 제품 성적서 제출·승인 (TASK #148 패키지 4a) ----------
@@ -5648,7 +6218,28 @@ def _snapshot_rows(rows):
     return [{"item_key": r["item_key"], "idx": r["idx"], "rev": r["rev"], "value_input": r["value_input"],
              "value": r["value"], "verdict": r["verdict"], "is_missing": r["is_missing"],
              "file_sha256": r["file_sha256"], "entered_by": r["entered_by"],
-             "entered_by_user_id": r["entered_by_user_id"], "entered_at": r["entered_at"]} for r in rows]
+             "entered_by_user_id": r["entered_by_user_id"], "entered_at": r["entered_at"],
+             "entry_type": r["entry_type"], "reason": r["reason"]} for r in rows]
+
+
+def _ng_snapshot_events(evs):
+    """제출 스냅샷(schema 2)의 NG 섹션 — 사건 헤더·로그 전체(승인자가 요청 사유와 재검사 이력을 보게)."""
+    keep = ("seq", "log_type", "action_kind", "round_no", "outcome", "close_kind", "reason", "memo",
+            "actor_name", "actor_user_id", "at", "event_hash")
+    return [{"id": e["id"], "item_key": e["item_key"], "event_no": e["event_no"], "state": e["state"],
+             "opened_trigger": e["opened_trigger"], "origin_event_id": e["origin_event_id"],
+             "header_hash": e["header_hash"], "fail_snapshot": e["fail_snapshot"],
+             "logs": [{k: l[k] for k in keep} for l in e["logs"]]} for e in evs]
+
+
+def _ng_fingerprint(evs):
+    """사건 구성이 제출 뒤 바뀌었는지 비교용 — [(사건 id, 로그 수)] (스냅샷 dict·파생 dict 둘 다 받는다)."""
+    return sorted((e["id"], len(e["logs"])) for e in evs)
+
+
+def _ng_withdraw_pending(conn, insp, unit_id, why, actor, actor_id):
+    """NG 사건에 변경이 생기면 승인 대기 성적서를 같은 트랜잭션에서 철회(대기가 아니면 아무것도 안 함)."""
+    return _withdraw_pending_report(conn, insp, unit_id, why, "ng", actor, actor_id)
 
 
 @_write_retry
@@ -5678,9 +6269,8 @@ def submit_product_report(lot_id, unit_id, actor, actor_id, expected_digest, app
         items = json.loads(insp["items_json"])
         names = {i["key"]: i["name"] for i in items}
         rows = _slot_current(conn, insp["id"], unit_id)
-        for k in sorted({r["item_key"] for r in rows if r["verdict"] == "fail"}):
-            blockers.append(_blk("ng_present", f"{names.get(k, k)}: NG(부적합) 값이 있어요. NG 사건 처리 후 승인 요청할 수 있어요.",
-                                 k, names.get(k)))
+        gate = _ng_unit_gate(conn, insp, unit_id)  # NG는 사건이 있고 전부 특채 요청된 때만 제출 허용
+        blockers.extend(gate["blockers"])
         if not _sig_ok(writer_signature):
             blockers.append(_blk("no_signature", "등록된 내 서명이 없어요. 서명을 먼저 등록해줘."))
         wp = _explicit_perms(conn, actor_id)
@@ -5710,7 +6300,7 @@ def submit_product_report(lot_id, unit_id, actor, actor_id, expected_digest, app
         hist = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
                             "ORDER BY item_key, idx, rev", (insp["id"], unit_id)).fetchall()
         snapshot = {
-            "schema": 1,
+            "schema": 2,
             "inspection": {"id": insp["id"], "snapshot_hash": insp["snapshot_hash"],
                            "item_version": insp["item_version"], "started_at": insp["started_at"], "items": items},
             "lot": json.loads(insp["lot_snapshot_json"]), "model": json.loads(insp["model_snapshot_json"]),
@@ -5721,6 +6311,7 @@ def submit_product_report(lot_id, unit_id, actor, actor_id, expected_digest, app
             "completion": {"seq": cev["seq"], "at": cev["at"], "by_name": cev["by_name"],
                            "by_user_id": cev["by_user_id"], "source": cev["source"], "results_digest": cev["results_digest"]},
             "missing_count": sum(1 for r in rows if r["is_missing"]),
+            "ng": {"events": _ng_snapshot_events(gate["events"])},
         }
         sj = _canon(snapshot)
         try:
@@ -5780,8 +6371,11 @@ def _need_designated_approver(conn, rev, actor_id):
 
 
 @_write_retry
-def approve_product_report(revision_id, actor, actor_id, approver_signature, expected_digest, photo_blockers=None):
-    """최종 승인 → {seq, doc_rev}. doc_rev=이전 approved 이벤트 수(최초 승인본 0, 정정본부터 1)."""
+def approve_product_report(revision_id, actor, actor_id, approver_signature, expected_digest, photo_blockers=None,
+                           special_reason=None):
+    """최종 승인 → {seq, doc_rev, special}. doc_rev=이전 approved 이벤트 수(최초 승인본 0, 정정본부터 1).
+    NG(특채 요청된 사건)가 있으면 special_reason(특채 사유) 필수 — 승인 이벤트 reason·payload.special에 남고,
+    같은 트랜잭션에서 그 사건들에 closed(special) 로그가 붙는다(하나라도 실패하면 전체 롤백)."""
     conn = get_conn()
     try:
         lot, insp, rev, last = _report_locked(conn, revision_id)
@@ -5796,6 +6390,15 @@ def approve_product_report(revision_id, actor, actor_id, approver_signature, exp
         if digest != rev["results_digest"] or (expected_digest is not None and expected_digest != rev["results_digest"]):
             blockers.append(_blk("stale", "제출 뒤에 값이 바뀌었어요. 새로고침해줘."))
         blockers.extend(photo_blockers or [])
+        gate = _ng_unit_gate(conn, insp, rev["unit_id"])  # 제출 뒤 NG 구성이 달라졌는지 잠금 안에서 다시 계산
+        blockers.extend(gate["blockers"])
+        snap_ng = json.loads(rev["snapshot_json"]).get("ng")
+        if snap_ng is not None and _ng_fingerprint(snap_ng["events"]) != _ng_fingerprint(gate["events"]):
+            blockers.append(_blk("stale", "제출 뒤에 NG 사건이 바뀌었어요. 새로고침해줘."))
+        special = (special_reason or "").strip()[:500]
+        special_events = [e for e in gate["pending"]] if not gate["blockers"] else []
+        if special_events and not special:
+            blockers.append(_blk("special_reason_required", "NG 특채 승인 사유를 입력해줘."))
         if not _sig_ok(approver_signature):
             blockers.append(_blk("no_signature", "등록된 내 서명이 없어요. 서명을 먼저 등록해줘."))
         if blockers:
@@ -5804,10 +6407,16 @@ def approve_product_report(revision_id, actor, actor_id, approver_signature, exp
             "SELECT COUNT(*) FROM product_report_events e JOIN product_report_revisions r ON r.id=e.revision_id "
             "WHERE r.inspection_id=? AND r.unit_id=? AND e.event_type='approved'",
             (insp["id"], rev["unit_id"])).fetchone()[0]
-        seq = _report_event_append(conn, revision_id, "approved", actor, actor_id, doc_rev=doc_rev,
-                                   payload={"signature": _sig_payload(approver_signature, "approver")})
+        pl = {"signature": _sig_payload(approver_signature, "approver")}
+        if special_events:
+            pl["special"] = {"reason": special, "ng_event_ids": sorted(e["id"] for e in special_events)}
+        seq = _report_event_append(conn, revision_id, "approved", actor, actor_id, reason=special or None,
+                                   doc_rev=doc_rev, payload=pl)
+        for e in special_events:  # 이미 닫힌 사건은 pending이 아니라 다시 닫지 않는다(재승인은 새 revision의 새 closed 줄)
+            _ng_log_append(conn, e["id"], "closed", actor, actor_id, round_no=e["round_no"], outcome="special",
+                           close_kind="special", reason=special, revision_id=revision_id, report_event_seq=seq)
         conn.commit()
-        return {"seq": seq, "doc_rev": doc_rev}
+        return {"seq": seq, "doc_rev": doc_rev, "special": bool(special_events)}
     except Exception:
         conn.rollback()
         raise

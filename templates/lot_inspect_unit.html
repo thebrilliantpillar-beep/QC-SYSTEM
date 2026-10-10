@@ -121,6 +121,15 @@
   #reportMsg:empty { display: none; }
   #reportRevokeBtn { color: #92400e; border-color: #b45309; animation: none; }
   #reportRevokeBtn:hover { background: #fef3c7; }
+  /* ---- NG 사건 배너(NG = 빨간 띠 유지) · 교착 안내(주황) ---- */
+  #ngBanner { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 14px; }
+  #ngBanner > b { font-size: 18px; line-height: 1.35; color: var(--primary-dark); }
+  #ngBanner > small { flex: 1 0 100%; font-size: 13px; line-height: 1.5; }
+  #ngBanner > div { flex: 1 0 100%; margin-top: 8px !important; }
+  #ngLink { min-width: 160px; justify-content: center; margin: 0; }
+  @media (max-width: 480px) { #ngLink { width: 100%; box-sizing: border-box; } }
+  #reportPanel > #ngDeadlockNote { font-size: 14px; color: #92400e; background: #fef3c7; padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--pending); line-height: 1.6; }
+  #ngSpecialChip { color: #92400e; }
 </style>
 <h2>{{ unit['serial_raw'] }} <small class="muted">내부 ID {{ unit['unit_id'] }}</small></h2>
 <p><a href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">← 완제품 목록 ({{ lot['lot_no'] }})</a>
@@ -174,6 +183,20 @@
   {% endif %}
 </div>
 
+{# ---- NG 사건 요약 (4b-1) — 사건 화면으로 연결 ---- #}
+{% if ng_summary or (unit['has_fail'] and stage == 'completed') %}
+<div class="card" id="ngBanner" style="border-left:4px solid var(--fail);">
+  {% if ng_summary %}
+  <b>NG 사건 {{ ng_summary['total'] }}건</b>
+  <small class="muted">미종결 {{ ng_summary['unresolved'] }}건 (후속조치 대기 {{ ng_summary['open'] }} · 특채 요청 {{ ng_summary['special'] }})</small>
+  {% else %}
+  <b>NG 값이 있어요</b> <small class="muted">아직 열린 NG 사건이 없어요. 사건 화면에서 열 수 있어요.</small>
+  {% endif %}
+  <div style="margin-top:8px;"><a class="btn secondary" id="ngLink" style="min-height:48px; display:inline-flex; align-items:center;"
+     href="{{ url_for('lot_ng_events', lot_id=lot['id'], unit_id=unit['unit_id']) }}">NG 사건 화면</a></div>
+</div>
+{% endif %}
+
 {# ---- 제품 성적서 패널 (TASK #148 패키지 4a) — 감춤은 인라인 display:none, 서버 값은 자동 이스케이프 ---- #}
 {% set state_labels = {'submitted': '승인 대기', 'approved': '승인됨', 'rejected': '반려됨', 'withdrawn': '철회됨', 'revoked': '회수됨'} %}
 {% set kind_labels = {'document_fix': '서류 수정(완료 유지)', 'quality_impact': '품질 영향(완료 취소됨)'} %}
@@ -188,7 +211,9 @@
     {% if lr and lr['was_approved'] and rp['state'] != 'approved' %}<span class="badge pending">이전 승인본 있음</span>{% endif %}
     {% if unit['has_fail'] %}<span class="badge fail">NG 포함</span>{% endif %}
     {% if rp['missing_count'] %}<span class="badge pending">결측 {{ rp['missing_count'] }}개</span>{% endif %}
+    {% if rp['ng_special_waiting'] %}<span class="badge pending" id="ngSpecialChip">특채 승인 대기</span>{% endif %}
   </h3>
+  {% if rp['ng_deadlock'] %}<p class="muted" id="ngDeadlockNote"><b>NG 사건이 교착 상태예요.</b> 사건 취소 기능(준비 중)이 필요해요.</p>{% endif %}
   {% if lr %}
   <p class="muted" style="margin:4px 0;">제출 {{ lr['submission_no'] }}회차 · 작성 {{ lr['writer_name'] or '' }} → 지정 승인자 {{ lr['approver_name'] or '' }} · {{ lr['state_at'] | datetime_korean }}
     · <a href="{{ url_for('product_report_detail', revision_id=lr['id']) }}">성적서 상세</a></p>
@@ -246,7 +271,7 @@
     <b>#{{ idx }}</b>
     {% if c %}
       <span><a class="pLink" href="{{ url_for('product_inspection_photo_file', filename=c['value']) }}" target="_blank"><img class="pThumb" loading="lazy" alt="사진 #{{ idx }}" src="{{ url_for('product_inspection_photo_file', filename=c['value']) }}" style="max-width:160px; max-height:120px;"></a></span>
-      <small class="muted pMeta">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% endif %}</small>
+      <small class="muted pMeta">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'retest' %} · 재검사: {{ c['reason'] or '' }}{% endif %}</small>
       {% if editable %}
       <button type="button" class="btn secondary pickBtn"
         {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 사진은 정정 권한이 필요해요"{% endif %}>사진 교체(정정)</button>
@@ -300,7 +325,7 @@
       <span class="{{ 'v-fail' if c['verdict'] == 'fail' else ('v-pass' if c['verdict'] == 'pass' else '') }}">
         {{ '결측' if c['is_missing'] else c['value'] }} · {{ verdict_labels.get(c['verdict'], c['verdict']) }}
       </span>
-      <small class="muted">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% endif %}</small>
+      <small class="muted">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'retest' %} · 재검사: {{ c['reason'] or '' }}{% endif %}</small>
       {% if editable %}
       <button type="button" class="btn secondary corrBtn"
         {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 값은 정정 권한이 필요해요"{% endif %}>정정</button>

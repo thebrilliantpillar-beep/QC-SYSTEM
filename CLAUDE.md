@@ -1814,3 +1814,23 @@ def _safe_add_column(cur, alter_sql):
 - 알려진 한계: process_final 단독 계정은 S/N 검사 화면(process_lot/process_input 필요)에 못 들어가고 성적서 상세에서 승인한다(메뉴 '생산 LOT' 링크는 거부됨), 서명 이미지 서빙은 login_required만(수입검사와 동일 구조), 상태 칩이 승인됨 외 모두 같은 주황(문구로만 구분), 사진 폴더는 DB 백업에 안 들어감.
 - 검증은 저장소 밖 scratchpad의 v2a.py(DB 계층 98)·v2b.py(CSRF ON 라우트 80)·v2c.py(서버 렌더 35)와 CDP 역할 전환 e2e 17건(작성자 제출→승인자 승인→승인 후 UI 숨김→회수→재제출→반려 후 자동 재개)을 썼다.
 
+## 27-4. NG 사건·후속조치·재검사·특채 종결(4b-1, 2026-10-11) — 4b-2 이후가 이어 쓸 계약
+
+- **신규 테이블 `ng_events`(불변 헤더)·`ng_event_log`(append-only 해시 체인)**, 기존 테이블 ALTER 없음(`lot_inspection_results.entry_type`에 값 'retest'만 추가 — TEXT·CHECK 없음). **두 테이블 UPDATE/DELETE 금지.**
+  `_ng_log_hash`가 로그 줄 해시의 단일 출처(매 줄에 header_hash 포함), `verify_ng_events`가 헤더·로그·seq 연속성·prev_hash를 재계산한다.
+- **사건 단위=(S/N, 검사 항목), 미종결 사건은 동시에 1개**(`_insp_begin` 락 안 코드로 강제, DB UNIQUE 안 씀). **검사 완료 요청 시 NG 항목마다 자동 생성**(`complete_unit_inspection`이 `_ng_open_missing`을 `_append_unit_event` 직전에 호출, 멱등), 레거시는 수동 열기. 상태는 저장하지 않고 로그에서 파생: open / special_requested / closed_retest / closed_special.
+- **재검사는 "불량이 난 칸만" 입력**(사용자 확정 Q2 — 일부 칸만 교체한 값으로 합격 처리하는 정책을 인정). 합격 = 이번 재검사로 입력한 칸이 모두 pass AND `summarize_unit_item`이 그 항목을 pass로 판정. **허용 결측 칸이 섞인 항목은 앱의 항목 합격 정의에 따라 결측 칸이 있어도 합격이 될 수 있다.** 합격이면 같은 트랜잭션에서 `closed(retest_pass)` 자동 종결(시스템 재개 포함, 이후 성적서 승인 때 최종결정권자가 이력까지 보고 결정). 재검사 입력은 `entry_type='retest'`, rev+1, 원본 보존. 영향 항목이 새로 fail이면 별도 사건(origin 연결).
+- **특채**: 후속조치로 특채 요청(사유 필수)을 먼저 등록 → 4a 승인 요청 제출(모든 fail 항목이 special_requested일 때만 통과) → 최종결정권자가 승인할 때 특채 사유 필수. **승인 이벤트 자체가 특채 결정**(reason=특채 사유, payload.special)이고, 같은 트랜잭션에서 미종결 사건마다 `closed(special)` 로그가 붙는다(하나라도 실패하면 전체 롤백, 승인 이벤트 해시가 특채 사유를 덮음). 승인 회수 시 마지막 closed 로그가 가리키는 revision이 approved가 아니게 되어 파생 상태가 special_requested로 복귀(옛 로그는 이력). 재승인은 새 closed 로그(이미 닫힌 사건은 다시 닫지 않음).
+- **4a 가정 보강**: 제출·승인 모두 잠금 안에서 `_ng_unit_gate`를 재계산(ng_event_missing/ng_open/ng_unresolved), 승인은 제출 digest와 **사건 구성 지문(사건 id별 로그 수)**까지 비교(stale). 대기 중 성적서는 후속조치(특채 요청 교체 포함)·재검사가 같은 트랜잭션에서 자동 철회한다. 스냅샷 schema 2(`snapshot["ng"]`), schema 1 호환.
+- **권한**: NG 후속조치·재검사·사건 열기는 `process_input` 단독(새 코드 없음), 제출·승인은 4a의 명시 권한 불변. `process_ng_cancel`은 "(준비중)" 유지.
+- **알려진 한계(사용자 확정, 4b-2 첫 작업)**: 특채 요청 후 정정으로 NG 값이 사라지면 사건이 special_requested로 남고 제출이 `ng_unresolved`로 영구 차단되는 **교착**이 있다 — 사건 취소(`process_ng_cancel`, 취소 이력 append) 없이는 풀 수 없다. 사용 금지 종결도 4b-2. **4b-2가 끝나기 전에는 추적 기능을 켜지 말 것.**
+- **append-only를 DB 트리거로 강제한다(Codex 지적 반영, TASK #153)**: `APPEND_ONLY_TABLES`(lot_inspection_results, lot_inspection_unit_events, product_report_revisions, product_report_events, ng_events, ng_event_log) 6개에
+  `_install_append_only_triggers`가 `trg_<table>_no_update`/`_no_delete`(BEFORE UPDATE/DELETE → RAISE(ABORT, "…append-only라 수정할 수 없어요"))를 init_db 한 곳에서 `CREATE TRIGGER IF NOT EXISTS`로 설치한다(기존 DB엔 트리거만 추가, 행·구조 불변, 워커 동시 부팅 안전).
+  **이 6개 테이블에 UPDATE/DELETE/INSERT OR REPLACE를 쓰는 앱 코드·운영 스크립트를 만들지 말 것**(만들면 거부됨). 앞으로 만들 '테스트 데이터 삭제' 기능은 이 트리거를 한 트랜잭션 안에서 내렸다 다시 올리며 감사 기록을 남기는 전용 경로로만 구현할 것(테스트 하네스는 `_priv_exec`처럼 변조 재현 때 트리거를 잠시 내린다).
+  **트리거의 한계**: 특권 연결(DB 파일에 직접 접근해 `DROP TRIGGER`/`DROP TABLE`)과, 기본 설정에서 DELETE 트리거를 발동시키지 않는 `INSERT OR REPLACE`는 막지 못한다(앱 코드엔 REPLACE 없음). 마지막 로그 행이 특권 경로로 지워지는 것까지 탐지하려면 마지막 해시를 따로 보관하는 head-commit(정본 4d)이 필요하다.
+- `verify_ng_events`는 `closed(special)` 로그를 성적서 이벤트와 교차 검증한다(revision 존재·같은 검사/S/N·seq가 approved 이벤트·payload.special.ng_event_ids에 사건 id·승인 이벤트 reason==로그 reason). 승인 회수(revoked)는 오류가 아니라 파생 상태의 몫이다.
+- **기존 알려진 한계(CLAUDE.md 26-1 재확인)**: 빈 새 DB를 두 프로세스가 동시에 처음 `init_db()`하면 `_safe_add_column`을 안 쓰는 오래된 ALTER(55곳 중 10곳만 안전 헬퍼)가 겹쳐 `duplicate column name`이 날 수 있다. 운영 DB는 컬럼이 이미 있어 영향이 없고, 새 DB를 처음 만들 땐 워커를 하나만 띄우거나 `_safe_add_column`으로 일괄 교체(별도 작업)할 것.
+- 5번 단계(풀 진입·출하)용 읽기 계약 `unit_ng_gate_clear`(미종결 사건 없음, 사건 없는 현재 fail 항목도 막힘, 특채 종결은 revision이 approved인 동안만 유효)와 close_kind('retest_pass'|'special') 보존. 시각은 `_utc_now()`(서버 로컬) 문자열 그대로 해시.
+- `save_unit_results`는 본문이 `_save_results_conn(..., retest_ctx=None)`으로 분리되고 공개 함수는 래퍼다(retest_ctx 없으면 원본과 동일 경로 — 회귀 11종으로 확인). 새 입력 경로는 이 함수를 복붙하지 말고 retest_ctx 방식으로 확장할 것.
+- 검증은 저장소 밖 scratchpad의 v3a(DB 136)·v3b(CSRF ON 라우트 63)·v3c(서버 렌더 37)와 CDP 역할 전환 e2e(완료→사건 자동 생성→특채 요청→제출→특채 사유 승인, 재검사 1차 불합격·2차 합격 자동 종결→일반 승인)를 썼다.
+

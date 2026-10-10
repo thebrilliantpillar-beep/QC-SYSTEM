@@ -44,6 +44,27 @@
   #rejectBtn, #revokeBtn { color: #92400e; border-color: #b45309; animation: none; }
   #rejectBtn:hover, #revokeBtn:hover { background: #fef3c7; }
   @media (max-width: 480px) { #rejectBtn, #revokeBtn { width: 100%; } }
+  /* NG 사건 섹션: 제목 줄 / 상태 칩 줄 분리, 불량 칸·사유 줄 간격 확보 */
+  #ngSection { padding: 14px; }
+  #ngSection > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 18px !important; line-height: 1.35; color: var(--primary-dark); margin-bottom: 8px; }
+  #ngSection > h3 .badge, #ngSection .ng-sec-event .badge { margin: 0; }
+  #ngSection .badge.pending { color: #92400e; }
+  #ngSection > p { margin: 0 0 8px; padding: 10px 12px; border-radius: 8px; background: #dcfce7; border-left: 4px solid var(--pass); line-height: 1.6; }
+  #ngSection .ng-sec-event { padding: 12px 0 !important; line-height: 1.7; font-size: 15px; }
+  #ngSection .ng-sec-event > b { display: inline-block; margin-right: 8px; color: var(--primary-dark); font-size: 16px; }
+  #ngSection .ng-sec-event > div { margin-top: 6px; }
+  #ngSection .ng-sec-event > div.muted { font-size: 14px; }
+  #ngSection .ng-sec-event > div:not(.muted) { padding: 9px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); color: #92400e; }
+  #ngSection .ng-sec-event > div:not(.muted) small { color: #92400e; opacity: .85; }
+  #specialApprovedChip { color: var(--pass); }
+  /* 처리 이력 서명 이미지 */
+  .card > ul > li img { height: 40px; width: auto; max-width: 100%; object-fit: contain; padding: 2px 6px; }
+  /* 특채 승인 영역: 안내 → 사유 입력 → 주 행동 */
+  #specialBox { margin-bottom: 14px; padding: 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); }
+  #specialBox p { margin: 0 0 10px !important; color: #92400e; line-height: 1.6; font-size: 15px; }
+  #specialBox p b { color: #92400e; }
+  #specialReason { width: 100%; box-sizing: border-box; margin: 0 !important; background: #fff; }
+  #decisionBox > p.muted { padding: 9px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); color: #92400e; line-height: 1.6; font-size: 14px; }
 </style>
 <h2>제품 성적서 {{ report['serial_at_submit'] or '' }}
   <span class="badge {{ 'pass' if report['state'] == 'approved' else 'pending' }}">{{ state_labels.get(report['state'], report['state']) }}</span>
@@ -51,6 +72,8 @@
 </h2>
 <p><a href="{{ url_for('product_report_list') }}">← 목록</a> |
   <a href="{{ url_for('lot_inspect_unit', lot_id=report['lot_id'], unit_id=report['unit_id']) }}">S/N 검사 화면</a></p>
+{% set ngv = ng_view %}
+{% set ng_state_labels = {'open': '후속조치 대기', 'special_requested': '특채 요청', 'closed_retest': '재검사 종결', 'closed_special': '특채 종결'} %}
 <div class="card" id="reportHeader">
   <p style="margin:0;">LOT {{ report['lot_no'] }} · 제출 {{ report['submission_no'] }}회차 · 제출 {{ report['created_at'] | datetime_korean }}</p>
   <p style="margin:4px 0;">작성 {{ report['writer_name'] or '' }} → 지정 승인자 {{ report['approver_name'] or '' }}</p>
@@ -63,6 +86,23 @@
   {% if verify['problems'] %}<ul class="muted">{% for p in verify['problems'] %}<li>{{ p }}</li>{% endfor %}</ul>{% endif %}
   <small class="muted">무결성: 이벤트 해시 체인·제출 당시 스냅샷·현재 값·사진 파일을 서버가 다시 계산해 대조한 결과예요.</small>
 </div>
+
+{% if ngv and (ngv['events'] or ngv['approved_special']) %}
+<div class="card" id="ngSection" style="border-left:4px solid var(--fail);">
+  <h3 style="margin-top:0; font-size:15px;">NG 사건 {% if ngv['approved_special'] %}<span class="badge pass" id="specialApprovedChip">특채 승인</span>{% endif %}</h3>
+  {% if ngv['approved_special'] %}<p><b>특채 승인 사유:</b> {{ ngv['approved_special']['reason'] }}</p>{% endif %}
+  {% for ne in ngv['events'] %}
+  <div class="ng-sec-event" style="padding:8px 0; border-top:1px solid var(--border);">
+    <b>#{{ ne['event_no'] }} {{ ne['item_name'] }}</b> <span class="badge pending">제출 당시 {{ ng_state_labels.get(ne['state'], ne['state']) }}</span>
+    <div class="muted">불량 칸: {% for c in ne['fail_snapshot']['cells'] %}#{{ c['idx'] }} {{ c['value'] }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    {% if ne['special_request'] %}<div><b>특채 요청 사유:</b> {{ ne['special_request']['reason'] }} <small class="muted">({{ ne['special_request']['actor_name'] or '' }}, {{ ne['special_request']['at'] | datetime_korean }})</small></div>{% endif %}
+    {% if ne['retest_rounds'] %}<div class="muted">재검사 이력: {% for rr in ne['retest_rounds'] %}{{ rr['round_no'] }}차 {{ '합격' if rr['outcome'] == 'pass' else '불합격' }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% elif ng_n and ngv and ngv['schema'] == 1 %}
+<div class="card" id="ngLegacyNote"><small class="muted">NG 사건 기능 도입 전에 제출된 성적서예요(NG 사건 정보 없음).</small></div>
+{% endif %}
 
 {% for it in snap['inspection']['items'] %}
 <div class="card item">
@@ -80,7 +120,7 @@
     {% if hist | length > 1 %}
     <details><summary>정정 이력 ({{ hist | length }}회차)</summary>
       <ul>{% for h in hist %}
-        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
+        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['entry_type'] == 'retest' %} · 재검사{% endif %}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
       {% endfor %}</ul>
     </details>
     {% endif %}
@@ -111,8 +151,13 @@
      data-approve-url="{{ url_for('product_report_approve', revision_id=report['id']) }}"
      data-reject-url="{{ url_for('product_report_reject', revision_id=report['id']) }}">
   <h3 style="margin-top:0; font-size:15px;">최종 결정</h3>
-  {% if ng_n %}<p class="muted">NG가 있는 성적서는 승인할 수 없어요.</p>{% endif %}
-  <button type="button" class="btn" id="approveBtn" style="min-height:48px;">최종 승인(내 등록 서명 사용)</button>
+  {% if ngv and ngv['needs_special_reason'] %}
+  <div id="specialBox">
+    <p style="margin-top:0;"><b>NG 특채 승인</b> — 위 NG 사건과 특채 요청 사유를 확인하고, 특채로 승인하는 사유를 입력해줘.</p>
+    <input type="text" id="specialReason" maxlength="500" placeholder="특채 승인 사유(필수)" style="min-height:48px;">
+  </div>
+  {% elif ng_n %}<p class="muted">NG 값이 있지만 특채 요청 정보가 없어요. 서버가 승인을 거부할 수 있어요.</p>{% endif %}
+  <button type="button" class="btn" id="approveBtn" style="min-height:48px;">{% if ngv and ngv['needs_special_reason'] %}최종 승인(특채){% else %}최종 승인(내 등록 서명 사용){% endif %}</button>
   <hr>
   <input type="text" id="rejectReason" placeholder="반려 사유(필수)" style="min-height:48px;">
   <select id="rejectKind" style="min-height:48px;">
@@ -149,7 +194,13 @@
   var box = document.getElementById('decisionBox');
   if (box) {
     document.getElementById('approveBtn').addEventListener('click', function () {
-      post(box.dataset.approveUrl, {seen_digest: box.dataset.digest}, this);
+      var body = {seen_digest: box.dataset.digest};
+      var sr = document.getElementById('specialReason');
+      if (sr) {
+        body.special_reason = sr.value.trim();
+        if (!body.special_reason) { msg.textContent = '특채 승인 사유를 입력해줘.'; return; }
+      }
+      post(box.dataset.approveUrl, body, this);
     });
     document.getElementById('rejectBtn').addEventListener('click', function () {
       var rs = document.getElementById('rejectReason').value.trim(), k = document.getElementById('rejectKind').value;

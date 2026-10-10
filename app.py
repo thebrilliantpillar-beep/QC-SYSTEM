@@ -10568,6 +10568,7 @@ def production_lot_detail(lot_id):
     return render_template("production_lot_detail.html", lot=lot, model=snap,
                            inspection=db.get_lot_inspection(lot_id),
                            insp_units=insp_units,
+                           ng_summary=_ng_summary_map(db.get_lot_inspection(lot_id)),
                            report_counts=_lot_report_summary(lot_id, insp_units)[1],
                            current_items=db.get_current_model_items(lot["model_id"]),
                            model_active=bool(cur_model and cur_model["is_active"]),
@@ -10762,7 +10763,7 @@ def lot_inspect_units(lot_id):
     units = db.list_inspection_units(lot_id)
     reports, counts = _lot_report_summary(lot_id, units)
     return render_template("lot_inspect_units.html", lot=lot, inspection=insp, units=units,
-                           reports=reports, report_counts=counts,
+                           reports=reports, report_counts=counts, ng_summary=_ng_summary_map(insp),
                            read_only=lot["status"] == "cancelled")
 
 
@@ -10815,7 +10816,8 @@ def lot_inspect_unit(lot_id, unit_id):
         read_only=lot["status"] == "cancelled" or unit["status"] != "active",
         cancelled=lot["status"] == "cancelled",
         can_input="process_input" in perms, can_correct_others="process_correct" in perms,
-        me=_actor_name(), me_id=g.user["id"], **_unit_report_panel(lot, unit, results, db.list_unit_events(insp["id"], unit_id)))
+        me=_actor_name(), me_id=g.user["id"], ng_summary=_ng_summary_map(insp).get(unit_id),
+        **_unit_report_panel(lot, unit, results, db.list_unit_events(insp["id"], unit_id)))
 
 
 @app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/save", methods=["POST"])
@@ -10964,6 +10966,176 @@ def lot_inspect_reopen(lot_id, unit_id):
     return jsonify({"ok": True, "state": _unit_state_json(lot_id, unit_id)})
 
 
+# ---- NG 사건·후속조치·재검사 (TASK #150 패키지 4b-1) ----
+# 쓰기 3개는 process_input 단독(두 코드를 같이 넘기면 OR이라 구멍). 읽기는 4개 권한 중 하나.
+_NG_OPEN_STATES = ("open", "special_requested")
+
+
+def _ng_summary_map(insp):
+    """{unit_id: {total, unresolved, open, special}} — ng_states_for_inspection 한 번(N+1 없음). 검사 미시작이면 {}."""
+    if not insp:
+        return {}
+    out = {}
+    for uid, lst in db.ng_states_for_inspection(insp["id"]).items():
+        out[uid] = {"total": len(lst), "unresolved": sum(1 for e in lst if e["state"] in _NG_OPEN_STATES),
+                    "open": sum(1 for e in lst if e["state"] == "open"),
+                    "special": sum(1 for e in lst if e["state"] == "special_requested")}
+    return out
+
+
+def _ng_responder(lot_id, unit_id):
+    ajax = request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def fail(msg, status=409, blockers=None, slot=None):
+        if ajax:
+            return jsonify({"ok": False, "error": msg, "blockers": blockers or [], "slot": slot}), status
+        flash(msg)
+        return redirect(url_for("lot_ng_events", lot_id=lot_id, unit_id=unit_id))
+    return ajax, fail
+
+
+def _ng_body():
+    """JSON 본문 또는 폼 → dict (폼의 entries/extra_item_keys는 JSON 문자열)."""
+    if request.is_json:
+        b = request.get_json(silent=True)
+        return b if isinstance(b, dict) else {}
+    out = dict(request.form.items())
+    for k in ("entries", "extra_item_keys"):
+        if out.get(k):
+            try:
+                out[k] = json.loads(out[k])
+            except ValueError:
+                out[k] = None
+    return out
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ng")
+@perm_required("process_lot", "process_input", "process_submit", "process_final")
+def lot_ng_events(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot, insp, resp = _inspect_lot_or_redirect(lot_id)
+    if resp:
+        return resp
+    units = db.list_inspection_units(lot_id)
+    unit = next((u for u in units if u["unit_id"] == unit_id), None)
+    if not unit:
+        flash("이 LOT의 완제품이 아니에요.")
+        return redirect(url_for("lot_inspect_units", lot_id=lot_id))
+    items = {it["key"]: dict(it, spec_text=_spec_text(it)) for it in insp["items"]}
+    results = db.get_unit_results(insp["id"], unit_id)
+    evs = db.list_ng_events(insp["id"], unit_id)
+    busy = {e["item_key"] for e in evs if e["state"] in _NG_OPEN_STATES}
+
+    def cells(key):
+        return [{"idx": i, "rev": s["current"]["rev"], "value": s["current"]["value"], "verdict": s["current"]["verdict"],
+                 "is_missing": s["current"]["is_missing"]} for i, s in sorted(results.get(key, {}).items())]
+    for e in evs:
+        e["item"] = items.get(e["item_key"])
+        c = cells(e["item_key"])
+        e["fail_cells"] = [x for x in c if x["verdict"] == "fail"]
+        e["unresolved"] = e["state"] in _NG_OPEN_STATES
+        # 교착: 미종결인데 현재 fail 칸이 없다 — 사건 취소(4b-2) 전에는 풀 수 없다
+        e["deadlock"] = e["unresolved"] and not e["fail_cells"]
+        e["can_retest"] = e["unresolved"] and bool(e["fail_cells"]) and e["item"] is not None \
+            and e["item"]["input_type"] in ("numeric", "ok_ng")
+        e["rounds"] = [json.loads(l["payload_json"]) for l in e["logs"] if l["log_type"] == "retest_round"]
+    extra_candidates = [{"item": it, "cells": cells(k)} for k, it in items.items()
+                        if it["input_type"] in ("numeric", "ok_ng") and k not in busy and results.get(k)]
+    perms = _user_perms(g.user)
+    final_doc = db.unit_has_final_document(unit_id)
+    read_only = lot["status"] == "cancelled" or unit["status"] != "active" or final_doc
+    ov = db.unit_ng_overview(lot_id, unit_id)
+    return render_template(
+        "lot_ng_events.html", lot=lot, inspection=insp, unit=unit, events=evs, items=items,
+        extra_candidates=extra_candidates, digest=db.digest_from_results(results),
+        can_write="process_input" in perms and not read_only, read_only=read_only, final_doc=final_doc,
+        cancelled=lot["status"] == "cancelled", blockers=ov["blockers"] if ov else [],
+        has_deadlock=any(e["deadlock"] for e in evs), can_open=bool(ov and unit["stage"] == "completed"
+                                                                    and any(b["code"] == "ng_event_missing" for b in ov["blockers"])),
+        action_kinds=_NG_ACTION_LABELS)
+
+
+_NG_ACTION_LABELS = {"retest": "재검사 예정", "repair_retest": "수리 후 재검사", "reassemble": "재조립",
+                     "special_request": "특채 요청", "other": "기타"}
+
+
+def _ng_run(lot_id, unit_id, fn, log_name, detail):
+    """NG 쓰기 라우트 공용: 게이트 → 쓰기 가능 확인 → fn() → 예외 매핑 → record_change(성공 시 1회) → (ajax, 결과) 응답."""
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    ajax, fail = _ng_responder(lot_id, unit_id)
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    try:
+        res = fn()
+    except db.SlotError as e:
+        return fail(str(e), 400, slot={"item_key": e.item_key, "idx": e.idx})
+    except (db.NgBlocked, db.ReportBlocked) as e:
+        return fail(str(e), 409, e.blockers)
+    except ValueError as e:
+        return fail(str(e), 409)
+    lot = db.get_production_lot(lot_id)
+    record_change(log_name, "production_lot", lot_id, f"{lot['lot_no']} / 완제품 {unit_id} / {detail(res)}")
+    return {"ajax": ajax, "res": res}
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ng/open", methods=["POST"])
+@perm_required("process_input")
+def lot_ng_open(lot_id, unit_id):
+    out = _ng_run(lot_id, unit_id, lambda: db.open_ng_events(lot_id, unit_id, _actor_name(), g.user["id"]),
+                  "제품검사 NG 사건 열기", lambda ids: f"{len(ids)}건")
+    if not isinstance(out, dict):
+        return out
+    ajax, ids = out["ajax"], out["res"]
+    if not ajax:
+        flash(f"NG 사건 {len(ids)}건을 열었어요.")
+        return redirect(url_for("lot_ng_events", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "event_ids": ids})
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ng/<int:event_id>/action", methods=["POST"])
+@perm_required("process_input")
+def lot_ng_action(lot_id, unit_id, event_id):
+    b = _ng_body()
+    out = _ng_run(lot_id, unit_id,
+                  lambda: db.add_ng_action(lot_id, unit_id, event_id, b.get("action_kind"), b.get("reason"),
+                                           b.get("memo"), _actor_name(), g.user["id"]),
+                  "제품검사 NG 후속조치", lambda seq: f"사건 #{event_id} / {b.get('action_kind')}")
+    if not isinstance(out, dict):
+        return out
+    ajax, seq = out["ajax"], out["res"]
+    if not ajax:
+        flash("후속조치를 기록했어요.")
+        return redirect(url_for("lot_ng_events", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "seq": seq})
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ng/<int:event_id>/retest", methods=["POST"])
+@perm_required("process_input")
+def lot_ng_retest(lot_id, unit_id, event_id):
+    b = _ng_body()
+    entries, extra = b.get("entries"), b.get("extra_item_keys") or []
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries) or not isinstance(extra, list):
+        return _ng_responder(lot_id, unit_id)[1]("재검사 요청 형식이 올바르지 않아요.", 400)
+    if not b.get("seen_digest"):
+        return _ng_responder(lot_id, unit_id)[1]("화면 정보가 없어요. 새로고침해줘.", 400)
+    out = _ng_run(lot_id, unit_id,
+                  lambda: db.submit_ng_retest(lot_id, unit_id, event_id, entries, extra, b.get("seen_digest"),
+                                              _actor_name(), g.user["id"]),
+                  "제품검사 NG 재검사", lambda r: f"사건 #{event_id} / {r['round_no']}차 / {'합격 종결' if r['passed'] else '불합격'}")
+    if not isinstance(out, dict):
+        return out
+    ajax, r = out["ajax"], out["res"]
+    if not ajax:
+        flash(f"{r['round_no']}차 재검사를 기록했어요." + (" 합격해서 사건이 종결됐어요. 다시 검사 완료 요청을 해줘." if r["passed"] else ""))
+        return redirect(url_for("lot_ng_events", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, **r})
+
+
 # ---- 제품검사 사진 항목 입력·정정 (TASK #142 패키지 1D-b2) ----
 PRODUCT_PHOTO_DIR = os.path.join(db.DATA_DIR, "product_inspection_photos")
 os.makedirs(PRODUCT_PHOTO_DIR, exist_ok=True)
@@ -11080,8 +11252,13 @@ def _unit_report_panel(lot, unit, results, events):
         blockers.append("제외된 완제품은 승인 요청할 수 없어요.")
     elif not valid:
         blockers.append(why if unit["stage"] == "completed" else "검사 완료 후 승인 요청할 수 있어요.")
-    if unit["has_fail"]:
-        blockers.append("NG 사건 처리 후 승인할 수 있어요.")
+    ng = db.unit_ng_overview(lot["id"], unit["unit_id"]) or {"blockers": [], "pending": [], "fail_items": []}
+    ng_msg = {"ng_event_missing": "NG 사건이 아직 없어요 — NG 사건 화면에서 열어줘",
+              "ng_open": "NG 사건 후속조치가 필요해요: 재검사/특채 요청 등",
+              "ng_unresolved": "정정으로 NG가 사라졌지만 사건이 아직 열려 있어요. 사건 취소 기능(준비 중, 다음 패치)이 필요해요"}
+    for b in ng["blockers"]:
+        blockers.append(f"{b.get('name') or b.get('item_key')}: {ng_msg.get(b['code'], b['msg'])}")
+    ng_special_waiting = bool(ng["fail_items"]) and not ng["blockers"] and bool(ng["pending"])
     if "process_submit" not in ex:
         blockers.append("승인 요청 권한(process_submit)이 계정 상세에 직접 체크되어 있지 않아요.")
     elif uid not in participants:
@@ -11095,7 +11272,9 @@ def _unit_report_panel(lot, unit, results, events):
                        "sig_url": f"/static/signatures/user_{uid}_default.png" if has_sig else None,
                        "blockers": blockers, "show_submit": "process_submit" in ex and state not in ("submitted", "approved"),
                        "can_revoke": "process_final" in ex and state == "approved",
-                       "missing_count": sum(1 for sl in slots if sl["current"]["is_missing"])}}
+                       "missing_count": sum(1 for sl in slots if sl["current"]["is_missing"]),
+                       "ng_special_waiting": ng_special_waiting,
+                       "ng_deadlock": any(b["code"] == "ng_unresolved" for b in ng["blockers"])}}
 
 
 def _report_ajax():
@@ -11150,6 +11329,26 @@ def _drop_signature_snapshot(sig):
             pass
 
 
+def _report_ng_view(report):
+    """성적서 상세용 NG 요약(읽기) — 제출 당시 스냅샷(schema 2)의 사건·특채 요청 사유·재검사 회차. schema 1이면 빈 값."""
+    snap = report["snapshot"]
+    evs = (snap.get("ng") or {}).get("events", [])
+    names = {i["key"]: i["name"] for i in snap["inspection"]["items"]}
+    out = []
+    for e in evs:
+        reqs = [l for l in e["logs"] if l["log_type"] == "action" and l["action_kind"] == "special_request"]
+        out.append({"id": e["id"], "item_key": e["item_key"], "item_name": names.get(e["item_key"], e["item_key"]),
+                    "event_no": e["event_no"], "state": e["state"], "fail_snapshot": e["fail_snapshot"],
+                    "special_request": reqs[-1] if reqs else None,
+                    "retest_rounds": [l for l in e["logs"] if l["log_type"] == "retest_round"],
+                    "logs": e["logs"]})
+    special = next((ev["payload"]["special"] for ev in report["events"]
+                    if ev["event_type"] == "approved" and ev.get("payload") and ev["payload"].get("special")), None)
+    return {"schema": snap.get("schema", 1), "events": out,
+            "needs_special_reason": any(o["state"] == "special_requested" for o in out) and report["state"] == "submitted",
+            "approved_special": special}
+
+
 def _report_request_fields(*names):
     body = request.get_json(silent=True) if request.is_json else None
     src = body if isinstance(body, dict) else request.form
@@ -11202,6 +11401,7 @@ def product_report_detail(revision_id):
         can_decide=final and report["state"] == "submitted" and uid == report["approver_user_id"]
         and uid != report["writer_user_id"],
         can_revoke=final and report["state"] == "approved",
+        ng_view=_report_ng_view(report),
         verify=db.verify_product_report(revision_id, photo_dir=PRODUCT_PHOTO_DIR))
 
 
@@ -11281,14 +11481,15 @@ def product_report_approve(revision_id):
     writable, why = db.lot_inspection_writable(lot_id)
     if not writable:
         return fail(why, 409)
-    (seen,) = _report_request_fields("seen_digest")
+    seen, special_reason = _report_request_fields("seen_digest", "special_reason")
     if not seen:
         return fail("화면 정보가 없어요. 새로고침해줘.", 400)
     sig = None
     try:
         sig = _snapshot_signature(g.user["id"])
         r = db.approve_product_report(revision_id, _actor_name(), g.user["id"], sig, seen,
-                                      photo_blockers=_photo_file_blockers(lot_id, report["unit_id"]))
+                                      photo_blockers=_photo_file_blockers(lot_id, report["unit_id"]),
+                                      special_reason=special_reason)
     except db.ReportBlocked as e:
         _drop_signature_snapshot(sig)
         return fail(str(e), 409, e.blockers)
@@ -11298,12 +11499,12 @@ def product_report_approve(revision_id):
     except Exception:
         _drop_signature_snapshot(sig)
         raise
-    record_change("제품 성적서 최종 승인", "production_lot", lot_id,
+    record_change("제품 성적서 특채 최종 승인" if r["special"] else "제품 성적서 최종 승인", "production_lot", lot_id,
                   f"{report['lot_no']} / 완제품 {report['unit_id']} / 제출 {report['submission_no']}회")
     if not ajax:
-        flash("최종 승인했어요.")
+        flash("특채로 최종 승인했어요." if r["special"] else "최종 승인했어요.")
         return redirect(url_for("product_report_detail", revision_id=revision_id))
-    return jsonify({"ok": True, "doc_rev": r["doc_rev"]})
+    return jsonify({"ok": True, "doc_rev": r["doc_rev"], "special": r["special"]})
 
 
 @app.route("/product-reports/<int:revision_id>/reject", methods=["POST"])

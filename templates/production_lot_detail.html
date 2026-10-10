@@ -25,6 +25,7 @@
     #unitTable td:nth-child(5) input { margin-bottom: 6px; min-height: 44px; }
     #unitTable td:nth-child(5) button { width: 100%; min-height: 44px; margin-top: 0; }
   }
+  #ngCounts { display: inline-block; padding: 8px 12px; border-radius: 8px; background: #ECEEF2; border-left: 4px solid var(--primary); color: var(--primary-dark); font-size: 14px; line-height: 1.5; }
 </style>
 <h2>생산 LOT: {{ lot['lot_no'] }}</h2>
 <p><a href="{{ url_for('production_lot_list') }}">← 목록으로</a></p>
@@ -62,6 +63,8 @@
   {% set n_done = act | selectattr('stage', 'equalto', 'completed') | list | length %}
   <p>검사 진행: 정상 {{ act | length }}건 중 검사 완료 {{ n_done }} · 입력 끝 {{ act | selectattr('stage', 'equalto', 'ready') | list | length }} · NG 포함 {{ act | selectattr('has_fail') | list | length }}</p>
   <p>성적서 승인 {{ report_counts['approved'] }} / 대기 {{ report_counts['pending'] }} / 전체 {{ report_counts['total'] }}</p>
+  {% set ng_vals = (ng_summary or {}).values() | list %}
+  {% if ng_vals %}<p id="ngCounts">NG 사건 {{ ng_vals | sum(attribute='total') }}건 · 미종결 {{ ng_vals | sum(attribute='unresolved') }}건 (S/N {{ ng_vals | selectattr('unresolved') | list | length }}개)</p>{% endif %}
   {% if act and n_done == act | length %}<p><b>이 LOT의 정상 완제품이 모두 검사 완료됐어요.</b></p>{% endif %}
   <p><a class="btn" style="min-height:48px; line-height:24px; font-size:16px;" href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">{{ '결과 열람' if lot['status'] == 'cancelled' else '검사 입력 화면' }}</a></p>
   <p class="muted">시작한 시점의 모델·LOT·검사 항목이 그대로 보존돼요.</p>

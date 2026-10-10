@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}NG 사건 — Chardon QMS{% endblock %}
+{% block content %}
+{% set state_labels = {'open': '후속조치 대기', 'special_requested': '특채 요청', 'closed_retest': '재검사 종결', 'closed_special': '특채 종결'} %}
+{% set trigger_labels = {'completion': '검사 완료 시 자동', 'manual_open': '수동 열기', 'retest_extra': '재검사 영향 항목'} %}
+{% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측'} %}
+{% macro entry(it, idx) %}
+<div class="ng-entry" data-item-key="{{ it['key'] }}" data-idx="{{ idx }}">
+  {% if it['input_type'] == 'ok_ng' %}
+  <input type="hidden" class="val" value="">
+  <button type="button" class="btn secondary okng" data-val="OK" style="min-height:48px;">적합</button>
+  <button type="button" class="btn secondary okng" data-val="NG" style="min-height:48px;">부적합</button>
+  {% else %}
+  <input type="text" class="val" inputmode="decimal" autocomplete="off" placeholder="재검사 값" style="min-height:48px;">
+  {% endif %}
+  {% if it['allow_missing'] %}<label><input type="checkbox" class="miss" style="width:auto;"> 결측</label>{% endif %}
+</div>
+{% endmacro %}
+<style>
+  .ng-event { border-left: 4px solid var(--border); padding: 14px; }
+  .ng-event h3 { margin: 0 0 4px; font-size: 18px; line-height: 1.35; color: var(--primary-dark); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .ng-event h3 .badge { margin: 0; }
+  .ng-event h3 .badge.pending { color: #92400e; }
+  .ng-event > small { display: block; line-height: 1.5; }
+  .ng-event > p { margin: 8px 0 0 !important; line-height: 1.9; font-size: 15px; }
+  /* 로그 타임라인 */
+  .ng-event ul.timeline { list-style: none; padding: 0; margin: 12px 0; }
+  .ng-event ul.timeline li { margin-bottom: 8px; padding: 10px 12px; border-radius: 8px; background: #F9F9F8; border-left: 4px solid var(--primary); font-size: 14px; line-height: 1.7; }
+  .ng-event ul.timeline li.muted { border-left-color: var(--border); }
+  .ng-cell { display: inline-block; margin: 2px 6px 2px 0; padding: 1px 10px; border-radius: 999px; background: #ECEEF2; color: var(--primary-dark); font-weight: 700; font-size: 14px; }
+  .ng-cell.f { color: var(--fail); background: #fee2e2; }
+  /* 입력 행: 1줄 [#번호 현재값], 2줄 [입력칸 + 결측] */
+  .ng-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #fff; border: 1px solid var(--border); }
+  .ng-row > b { color: var(--primary-dark); font-size: 15px; }
+  .ng-row > small { font-size: 13px; }
+  .ng-entry { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 0 0; }
+  .ng-entry input[type=text] { flex: 1 1 160px; min-height: 48px; font-size: 18px; margin: 0; }
+  .ng-entry .okng { flex: 1 1 120px; min-height: 52px !important; font-size: 17px; margin: 0; }
+  .ng-entry label { margin: 0; min-height: 44px; display: flex; align-items: center; gap: 6px; font-size: 15px; }
+  .ng-entry .miss { width: 22px !important; height: 22px; margin: 0; }
+  .okng.sel { background: var(--primary); color: #fff; outline: 3px solid var(--primary-dark); outline-offset: 1px; }
+  /* 폼 위계: 재검사 입력 = 주 행동(남색 띠·큰 버튼), 후속조치 기록 = 보조(흰 박스·외곽선) */
+  .ng-form { margin-top: 14px; padding: 14px; border-radius: 8px; }
+  .ng-form > b { display: block; font-size: 16px; color: var(--primary-dark); margin-bottom: 6px; }
+  .ng-form > small { display: block; line-height: 1.5; }
+  .ng-action-form { background: #fff; border: 1px solid var(--border); }
+  .ng-retest-form { background: #ECEEF2; border-left: 4px solid var(--primary); }
+  .ng-form select, .ng-form input[type=text].ngReason, .ng-form input[type=text].ngMemo { min-height: 48px; font-size: 16px; margin: 0 0 8px; width: 100%; box-sizing: border-box; }
+  .ng-form .btn { min-height: 48px; margin: 0; }
+  .ng-retest-form .ngRetestBtn { width: 100%; min-height: 52px !important; font-size: 17px; margin-top: 12px; }
+  .ng-action-form .ngActBtn { min-width: 120px; }
+  @media (max-width: 480px) { .ng-action-form .ngActBtn { width: 100%; } }
+  .ng-form details { margin-top: 10px; border-top: 1px solid var(--border); }
+  .ng-form details > summary { color: var(--primary); font-weight: 600; }
+  .ng-extra { margin-top: 4px; }
+  .ng-extra .xCells { padding-left: 4px; }
+  /* 오류·안내 문구: 빨강 대신 주황 박스 */
+  .ng-msg { color: #92400e; font-size: 14px; font-weight: 600; line-height: 1.5; margin-top: 10px; padding: 9px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); }
+  .ng-msg:empty { display: none; }
+  .ng-msg > div + div { margin-top: 4px; }
+  /* 교착·읽기 전용 안내 */
+  #ngDeadlock { background: #fef3c7; color: #92400e; line-height: 1.6; font-size: 15px; }
+  #ngDeadlock b { color: #92400e; }
+  .ng-event p.muted b { color: #92400e; }
+</style>
+<h2>NG 사건: {{ unit['serial_raw'] }}</h2>
+<p><a href="{{ url_for('lot_inspect_unit', lot_id=lot['id'], unit_id=unit['unit_id']) }}">← S/N 검사 화면</a> |
+  <a href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">S/N 목록</a></p>
+{% if cancelled %}<div class="card"><b>취소된 LOT — 열람만 가능</b></div>
+{% elif unit['status'] != 'active' %}<div class="card"><b>제외된 완제품 — 열람만 가능</b></div>
+{% elif final_doc %}<div class="card"><b>최종 승인된 성적서가 있어서 열람만 가능해요. 변경하려면 승인 회수가 먼저 필요해요.</b></div>
+{% elif not can_write %}<div class="card"><b>입력 권한(process_input)이 없어서 열람만 할 수 있어요.</b></div>{% endif %}
+{% if has_deadlock %}
+<div class="card" id="ngDeadlock" style="border-left:4px solid var(--pending);">
+  <b>교착 상태</b> — 정정으로 NG 값은 사라졌지만 사건이 아직 열려 있어요. 사건 취소 기능(준비 중)이 필요해요. 그 전까지는 이 사건을 닫을 수 없어요.
+</div>
+{% endif %}
+
+<div id="ngRoot" data-digest="{{ digest }}" data-open-url="{{ url_for('lot_ng_open', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+{% if can_open and can_write %}
+<div class="card" id="ngOpenBox">
+  <p style="margin-top:0;">NG 값이 있는데 사건이 없어요(예전에 완료된 기록). 사건을 열어야 후속조치를 할 수 있어요.</p>
+  <button type="button" class="btn" id="ngOpenBtn" style="min-height:48px;">NG 사건 열기</button>
+  <div class="ng-msg" id="ngOpenMsg"></div>
+</div>
+{% endif %}
+
+{% for e in events %}
+{% set it = e['item'] %}
+<div class="card ng-event" id="ngEvent{{ e['id'] }}" data-event-id="{{ e['id'] }}"
+     data-action-url="{{ url_for('lot_ng_action', lot_id=lot['id'], unit_id=unit['unit_id'], event_id=e['id']) }}"
+     data-retest-url="{{ url_for('lot_ng_retest', lot_id=lot['id'], unit_id=unit['unit_id'], event_id=e['id']) }}">
+  <h3>#{{ e['event_no'] }} {{ it['name'] if it else e['item_name'] }}
+    {% if e['deadlock'] %}<span class="badge pending">교착</span>
+    {% else %}<span class="badge {{ 'fail' if e['state'] == 'open' else ('pending' if e['state'] == 'special_requested' else 'pass') }}">{{ state_labels.get(e['state'], e['state']) }}</span>{% endif %}
+    {% if e['round_no'] %}<span class="badge pending">재검사 {{ e['round_no'] }}회</span>{% endif %}
+  </h3>
+  <small class="muted">{{ trigger_labels.get(e['opened_trigger'], e['opened_trigger']) }} · {{ e['opened_by'] or '' }} · {{ e['opened_at'] | datetime_korean }}
+    {% if e['origin_event_id'] %} · 사건 #{{ e['origin_event_id'] }} {{ e['origin_round_no'] }}차 재검사에서 파생{% endif %}</small>
+  {% if it %}<p class="muted" style="margin:4px 0;">규격: {{ it['spec_text'] }}</p>{% endif %}
+  <p style="margin:4px 0;">열 때 불량 칸:
+    {% for c in e['fail_snapshot']['cells'] %}<span class="ng-cell f">#{{ c['idx'] }} {{ c['value'] }}</span>{% endfor %}</p>
+  {% if e['unresolved'] %}
+  <p style="margin:4px 0;">현재 불량 칸:
+    {% for c in e['fail_cells'] %}<span class="ng-cell f">#{{ c['idx'] }} {{ c['value'] }}</span>{% else %}<span class="muted">없음</span>{% endfor %}</p>
+  {% endif %}
+
+  <ul class="timeline">
+  {% for l in e['logs'] %}
+    <li>{{ l['seq'] }}.
+      {% if l['log_type'] == 'action' %}후속조치: <b>{{ action_kinds.get(l['action_kind'], l['action_kind']) }}</b>
+      {% elif l['log_type'] == 'retest_round' %}<b>{{ l['round_no'] }}차 재검사</b> — {{ '합격' if l['outcome'] == 'pass' else '불합격' }}
+        {% if l['round_no'] and l['round_no'] <= e['rounds'] | length %}
+        {% for r in e['rounds'][l['round_no'] - 1]['rows'] %}<span class="ng-cell {{ 'f' if r['verdict'] == 'fail' else '' }}">#{{ r['idx'] }} {{ r['value'] if r['value'] is not none else '결측' }}</span>{% endfor %}
+        {% endif %}
+      {% elif l['log_type'] == 'closed' %}<b>종결</b> — {{ '재검사 합격' if l['close_kind'] == 'retest_pass' else '특채 승인' }}
+      {% else %}{{ l['log_type'] }}{% endif %}
+      · {{ l['actor_name'] or '' }} · {{ l['at'] | datetime_korean }}
+      {% if l['reason'] %} · 사유: {{ l['reason'] }}{% endif %}
+      {% if l['memo'] %} · 메모: {{ l['memo'] }}{% endif %}
+    </li>
+  {% else %}
+    <li class="muted">아직 기록이 없어요.</li>
+  {% endfor %}
+  </ul>
+
+  {% if e['deadlock'] %}
+  <p class="muted"><b>사건 취소 기능(준비 중)</b> — 이 사건은 지금 입력할 수 없어요.</p>
+  {% elif e['unresolved'] and can_write %}
+  <div class="ng-form ng-action-form">
+    <b>후속조치 기록</b>
+    <select class="ngKind">
+      {% for k, label in action_kinds.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}
+    </select>
+    <input type="text" class="ngReason" maxlength="500" placeholder="사유 (특채 요청은 필수)">
+    <input type="text" class="ngMemo" maxlength="500" placeholder="메모 (선택)">
+    <button type="button" class="btn secondary ngActBtn" style="min-height:48px;">기록</button>
+    <div class="ng-msg ngActMsg"></div>
+  </div>
+  {% if e['can_retest'] %}
+  <div class="ng-form ng-retest-form">
+    <b>재검사 입력</b> <small class="muted">불량이 난 칸만 다시 잴 수 있어요. 합격한 칸은 그대로 두고, 이 항목의 모든 칸이 합격이 되면 사건이 자동으로 종결돼요.</small>
+    {% for c in e['fail_cells'] %}
+    <div class="ng-row"><b>#{{ c['idx'] }}</b> <small class="muted">현재 {{ c['value'] }}</small>{{ entry(it, c['idx']) }}</div>
+    {% endfor %}
+    {% if extra_candidates %}
+    <details><summary style="min-height:44px; display:flex; align-items:center; cursor:pointer;">영향 항목도 같이 재검사 (선택)</summary>
+      {% for xc in extra_candidates %}
+      <div class="ng-extra" data-item-key="{{ xc['item']['key'] }}">
+        <label style="display:flex; align-items:center; gap:6px; min-height:44px;"><input type="checkbox" class="xItem" style="width:auto;"> {{ xc['item']['name'] }} <small class="muted">{{ xc['item']['spec_text'] }}</small></label>
+        <div class="xCells" style="display:none;">
+          {% for c in xc['cells'] %}<div class="ng-row"><b>#{{ c['idx'] }}</b> <small class="muted">현재 {{ c['value'] if c['value'] is not none else '결측' }}</small>{{ entry(xc['item'], c['idx']) }}</div>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    <button type="button" class="btn ngRetestBtn" style="min-height:48px;">재검사 기록</button>
+    <div class="ng-msg ngRetestMsg"></div>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% else %}
+<div class="card muted">이 S/N에는 NG 사건이 없어요.</div>
+{% endfor %}
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById('ngRoot');
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+  function post(url, body, msgEl, btn) {
+    btn.disabled = true; msgEl.textContent = '';
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf,
+                'X-Requested-With': 'XMLHttpRequest'}, body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) { location.reload(); return; }
+        btn.disabled = false;
+        var bl = d.blockers || [];
+        if (!bl.length) { msgEl.textContent = d.error || '처리하지 못했어요.'; return; }
+        bl.forEach(function (x) { var p = document.createElement('div'); p.textContent = x.msg; msgEl.appendChild(p); });
+      }).catch(function () { btn.disabled = false; msgEl.textContent = '서버와 통신하지 못했어요.'; });
+  }
+
+  function cellValue(en) {
+    var v = en.querySelector('.val').value.trim();
+    var m = en.querySelector('.miss');
+    return {raw: v, missing: !!(m && m.checked)};
+  }
+
+  root.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (t.classList.contains('okng')) {
+      var en = t.closest('.ng-entry');
+      en.querySelector('.val').value = t.dataset.val;
+      en.querySelectorAll('.okng').forEach(function (b) { b.classList.toggle('sel', b === t); });
+    } else if (t.id === 'ngOpenBtn') {
+      post(root.dataset.openUrl, {}, document.getElementById('ngOpenMsg'), t);
+    } else if (t.classList.contains('ngActBtn')) {
+      var card = t.closest('.ng-event'), f = t.closest('.ng-form');
+      var kind = f.querySelector('.ngKind').value, reason = f.querySelector('.ngReason').value.trim();
+      var msg = f.querySelector('.ngActMsg');
+      if (kind === 'special_request' && !reason) { msg.textContent = '특채 요청은 사유를 입력해야 해요.'; return; }
+      post(card.dataset.actionUrl, {action_kind: kind, reason: reason, memo: f.querySelector('.ngMemo').value.trim()}, msg, t);
+    } else if (t.classList.contains('ngRetestBtn')) {
+      var card2 = t.closest('.ng-event'), f2 = t.closest('.ng-form'), msg2 = f2.querySelector('.ngRetestMsg');
+      var entries = [], extra = [];
+      f2.querySelectorAll('.ng-row > .ng-entry').forEach(function (en) {
+        var xc = en.closest('.ng-extra');
+        if (xc && !xc.querySelector('.xItem').checked) return;
+        var cv = cellValue(en);
+        if (!cv.raw && !cv.missing) return;
+        entries.push({item_key: en.dataset.itemKey, idx: parseInt(en.dataset.idx, 10), raw: cv.raw, missing: cv.missing});
+        if (xc && extra.indexOf(en.dataset.itemKey) < 0) extra.push(en.dataset.itemKey);
+      });
+      if (!entries.length) { msg2.textContent = '재검사 값을 입력해줘.'; return; }
+      post(card2.dataset.retestUrl, {entries: entries, extra_item_keys: extra, seen_digest: root.dataset.digest}, msg2, t);
+    }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.classList.contains('xItem')) {
+      ev.target.closest('.ng-extra').querySelector('.xCells').style.display = ev.target.checked ? 'block' : 'none';
+    }
+  });
+})();
+</script>
+{% endblock %}
