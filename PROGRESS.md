@@ -8,6 +8,20 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-10 (1D-b1 제품검사 측정값 입력·정정, .collab TASK #139 스펙·#140 구현·#141 권한 수정)**:
+  시작된 LOT 검사에서 S/N·항목·표본별 측정값을 입력/정정하는 기능(숫자·적합/부적합). 신규
+  테이블 `lot_inspection_results`(append-only, 정정=회차 추가), DB 함수 12개, 라우트 4개, 화면 2개
+  (390px 카드형). 사용자 확정: 완료 요청·잠금 제외, 판정은 원값 Decimal 기준, 정정 권한 본인/타인
+  분리(사유 필수), 사진은 1D-b2로 분리, 전부 결측은 합격 아님. 검증: 격리 DB 시나리오 15개
+  (v1db1 OK141), 회귀 통과, 헤드리스 Chrome CDP 실입력 e2e 8/8, 390px 캡처, quality-watcher PASS.
+  `workflow-finalize`는 TASK #140 PARTIAL(필수 e2e 근거가 서브에이전트 역할이 아니라 메인 세션
+  실행이라 인정 안 됨, designer/developer 결과 PARTIAL). Codex 1차 검토 PARTIAL: 정정 '본인' 판정이
+  표시명 비교라 동명이인·개명 시 process_correct 없이 타인 값 정정 가능 → TASK #141에서
+  `entered_by_user_id`(계정 ID) 비교로 수정(NULL 행은 본인 불인정), 화면 힌트도 ID 기준,
+  Codex 재확인 PASS, #141 COMPLETED. 계약은 CLAUDE.md 27절. 1D-b2 잔여: 사진 입력, 사진 항목을
+  진행도·overall에 재포함(완료·승인·출력 게이트 전), 붙여넣기가 저장 전 입력칸도 빈 칸으로 세는 UX.
+  아직 push·배포 안 함(추적 기능 스위치 꺼짐).
+
 - **2026-10-10 (1D-a 제품검사 항목 설정·LOT 검사 시작 스냅샷, 커밋 d7260c5)**:
   모델별 검사 항목 버전 관리와 항목 설정 화면, LOT 검사 시작 시 모델·LOT·항목·시작 당시
   정상 S/N 목록(`units_json`)을 해시와 함께 고정하는 스냅샷을 추가했다. 시작 전 취소는
