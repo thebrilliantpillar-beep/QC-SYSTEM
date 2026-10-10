@@ -232,9 +232,9 @@ PERM_GROUPS = [
         ("approve_revoke", "결정 회수"),
     ]),
     ("제품검사", [
-        ("process_input",     "제품검사 입력 (준비중)"),
+        ("process_input",     "제품검사 입력"),
         ("process_lot",       "제품검사 LOT 관리 (준비중)"),
-        ("process_correct",   "제품검사 결과 정정 (준비중)"),
+        ("process_correct",   "제품검사 결과 정정"),
         ("process_link",      "하우징·MA 부품 연결·분리 (준비중)"),
         ("process_ng_cancel", "NG 이력 입력 취소 (준비중)"),
         ("process_review",    "제품검사 검토 (준비중)"),
@@ -10533,6 +10533,7 @@ def production_lot_detail(lot_id):
     cur_model = db.get_product_model(lot["model_id"])
     return render_template("production_lot_detail.html", lot=lot, model=snap,
                            inspection=db.get_lot_inspection(lot_id),
+                           insp_units=db.list_inspection_units(lot_id),
                            current_items=db.get_current_model_items(lot["model_id"]),
                            model_active=bool(cur_model and cur_model["is_active"]),
                            history=db.get_production_lot_history(lot_id),
@@ -10687,6 +10688,139 @@ def production_lot_inspection_start(lot_id):
         record_change("제품검사 시작", "production_lot", lot_id, lot["lot_no"])
         flash("제품검사를 시작했어요.")
     return redirect(url_for("production_lot_detail", lot_id=lot_id))
+
+
+# ---- 제품검사 측정값 (TASK #139 패키지 1D-b) ----
+# 열람은 process_lot/process_input, 저장은 process_input 단독(두 개를 같이 넘기면 OR이라 구멍).
+# 타인이 입력한 값의 정정은 process_correct가 있어야 하며 최종 검사는 DB 락 안(save_unit_results)에서 한다.
+def _spec_text(it):
+    if it["input_type"] == "ok_ng":
+        return "적합 / 부적합"
+    lo, up = it.get("lower"), it.get("upper")
+    if lo is not None and up is not None:
+        return f"{lo} ~ {up}"
+    return f"≥ {lo}" if lo is not None else f"≤ {up}"
+
+
+def _inspect_lot_or_redirect(lot_id):
+    """(lot, inspection, 응답) — 응답이 있으면 그대로 돌려준다."""
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        flash("LOT을 찾을 수 없어.")
+        return None, None, redirect(url_for("production_lot_list"))
+    insp = db.get_lot_inspection(lot_id)
+    if not insp:
+        flash("제품검사가 아직 시작되지 않았어요.")
+        return lot, None, redirect(url_for("production_lot_detail", lot_id=lot_id))
+    return lot, insp, None
+
+
+@app.route("/production-lots/<int:lot_id>/inspect")
+@perm_required("process_lot", "process_input")
+def lot_inspect_units(lot_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot, insp, resp = _inspect_lot_or_redirect(lot_id)
+    if resp:
+        return resp
+    return render_template("lot_inspect_units.html", lot=lot, inspection=insp,
+                           units=db.list_inspection_units(lot_id),
+                           read_only=lot["status"] == "cancelled")
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/find")
+@perm_required("process_lot", "process_input")
+def lot_inspect_find(lot_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot, insp, resp = _inspect_lot_or_redirect(lot_id)
+    if resp:
+        return resp
+    serial = request.args.get("serial", "")
+    r = db.resolve_unit_for_inspection(lot_id, serial)
+    if r["result"] == "ok":
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=r["unit_id"]))
+    msg = {"past_alias": f"'{serial.strip()}'은(는) 과거 S/N이에요. 현재 S/N '{r['current_serial']}'으로 찾아줘.",
+           "other_lot": "다른 LOT의 S/N이에요.",
+           "excluded": "제외된 완제품이에요. 목록에서 열람만 할 수 있어요.",
+           }.get(r["result"], "이 S/N을 찾을 수 없어요.")
+    flash(msg)
+    return redirect(url_for("lot_inspect_units", lot_id=lot_id))
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>")
+@perm_required("process_lot", "process_input")
+def lot_inspect_unit(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    lot, insp, resp = _inspect_lot_or_redirect(lot_id)
+    if resp:
+        return resp
+    units = db.list_inspection_units(lot_id)
+    pos = next((i for i, u in enumerate(units) if u["unit_id"] == unit_id), None)
+    if pos is None:
+        flash("이 LOT의 완제품이 아니에요.")
+        return redirect(url_for("lot_inspect_units", lot_id=lot_id))
+    unit = units[pos]
+    items = [dict(it, spec_text=_spec_text(it)) for it in insp["items"]]
+    perms = _user_perms(g.user)
+    return render_template(
+        "lot_inspect_unit.html", lot=lot, inspection=insp, unit=unit, items=items,
+        results=db.get_unit_results(insp["id"], unit_id),
+        prev_id=units[pos - 1]["unit_id"] if pos > 0 else None,
+        next_id=units[pos + 1]["unit_id"] if pos + 1 < len(units) else None,
+        read_only=lot["status"] == "cancelled" or unit["status"] != "active",
+        cancelled=lot["status"] == "cancelled",
+        can_input="process_input" in perms, can_correct_others="process_correct" in perms,
+        me=_actor_name(), me_id=g.user["id"])
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/save", methods=["POST"])
+@perm_required("process_input")
+def lot_inspect_save(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    ajax = request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def fail(msg, status=400, slot=None):
+        if ajax:
+            return jsonify({"ok": False, "error": msg, "slot": slot}), status
+        flash(msg)
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    try:
+        payload = request.get_json(silent=True) if request.is_json else json.loads(request.form.get("entries") or "[]")
+        entries = payload.get("entries") if isinstance(payload, dict) else payload
+    except ValueError:
+        entries = None
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        return fail("저장 요청 형식이 올바르지 않아요.")
+    user = _actor_name()
+    try:
+        n = db.save_unit_results(lot_id, unit_id, entries, user,
+                                 can_correct_others="process_correct" in _user_perms(g.user),
+                                 actor_id=g.user["id"])
+    except db.SlotError as e:
+        return fail(str(e), 400, {"item_key": e.item_key, "idx": e.idx})
+    except ValueError as e:
+        return fail(str(e), 409)
+    lot = db.get_production_lot(lot_id)
+    corrected = any(e.get("base_rev") not in (None, "") for e in entries)
+    record_change("제품검사 측정값 정정" if corrected else "제품검사 측정값 입력", "production_lot", lot_id,
+                  f"{lot['lot_no']} / 완제품 {unit_id} / {n}건")
+    if not ajax:
+        flash(f"{n}건 저장했어요.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    res = db.get_unit_results(db.get_lot_inspection(lot_id)["id"], unit_id)
+    rows = [res[e["item_key"]][int(e["idx"])]["current"] for e in entries]
+    return jsonify({"ok": True, "saved": n, "rows": rows})
 
 
 # ---- 제품검사 항목 설정 (TASK #136 패키지 1D-a) ----

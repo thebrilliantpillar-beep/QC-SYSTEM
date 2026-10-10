@@ -1743,3 +1743,32 @@ def _safe_add_column(cur, alter_sql):
 의존하는 로직(이번처럼 item_name 문자를 하드코딩해서 의미를 부여하는 마이그레이션 등)은,
 로컬DB로 사전 테스트해서 통과했더라도 **프로덕션에서 실측(Shell로 직접 조회) 후 최종
 확정할 것** — 스키마가 같다고 데이터도 같다고 가정하지 말 것.
+
+
+## 27. 제품검사 측정값(1D-b1) 계약 — 4번 단계(승인·출력)가 반드시 지킬 것 (2026-10-10)
+
+생산 LOT '제품검사 시작' 이후 S/N별 측정값을 입력·정정하는 기능(추적 기능 스위치가 꺼져 있으면
+메뉴·라우트 전부 홈으로 돌아가는 준비 단계). 스펙 정본은 .collab TASK #139/#140.
+
+- **저장은 `lot_inspection_results` append-only** — 정정은 같은 (inspection_id, unit_id,
+  item_key, idx)에 `rev`+1 행 추가, 현재값=MAX(rev). **이 테이블과 `production_lot_inspections`
+  (units_json·snapshot_hash)에 UPDATE/DELETE를 만들지 말 것**(트리거는 안 씀, 코드 규율).
+- **모든 쓰기(향후 승인·출력 포함)는 `database._insp_begin(conn, lot_id)`를 거친다** — 취소 LOT·
+  미시작을 거부하고 BEGIN IMMEDIATE로 직렬화한다. 읽기 전용 사전점검은 `lot_inspection_writable()`.
+  4번 단계의 승인·성적서 출력 함수도 이걸 재사용해야 취소 LOT 쓰기 차단이 유지된다.
+- **판정은 입력 원값(Decimal) 기준** — `display_digits` 반올림으로 판정하지 않는다(사용자 확정).
+  `parse_measure_number`: 전각·U+2212만 반각 변환(NFKC 금지), 천단위 쉼표는 `1,234.5` 형태만,
+  지수·NaN·25자 초과 거부. 단측 한계(None)와 경계값은 합격, 둘 다 None이면 `nospec`.
+- **정정 권한**: 슬롯 현재 행 입력자 본인=`process_input`, 타인=`process_correct`, 사유 항상 필수.
+  '본인' 판정은 **계정 ID(`entered_by_user_id`) 기준**이고 `entered_by`(표시명)는 감사 표시용 스냅샷일 뿐이다.
+  ID가 없거나(NULL, 구버전 행) 호출자 ID가 None이면 본인으로 보지 않고 `process_correct`를 요구한다.
+  저장 라우트는 `@perm_required("process_input")` **단독**(두 개 넘기면 OR 구멍, 23절).
+- **S/N 귀속은 `unit_id` 기준** — `resolve_unit_for_inspection`이 과거 S/N(past alias)은 조용히
+  연결하지 않고 현재 S/N을 안내한다. 시작 후 추가·시작 전 제외 후 복구 unit은 같은 검사에서
+  입력 가능(`roster_member=0`, '시작 후 합류'), 제외된 unit은 입력·정정 차단·열람만.
+- **allow_missing 항목이 전부 결측이면 합격으로 치지 않는다**(`missing_only`).
+- **photo 항목은 1D-b1에서 입력 불가라 진행도·overall에서 제외돼 있다 — 1D-b2에서 사진 입력을
+  구현하면 반드시 다시 포함시킬 것**(안 그러면 사진 미입력 unit이 '입력 완료'로 보인다).
+- 완료 요청·항목 잠금은 만들지 않았다(사용자 확정, 4번 단계 또는 1D-c).
+- 붙여넣기 버튼은 '저장 전 입력칸 전체'를 빈 칸으로 센다(이미 타이핑한 칸 포함) — 알려진 경미한 UX.
+- 검증 스크립트는 저장소 밖 scratchpad의 v1db1.py(격리 DB 시나리오 15개)와 CDP 실입력 e2e를 썼다.

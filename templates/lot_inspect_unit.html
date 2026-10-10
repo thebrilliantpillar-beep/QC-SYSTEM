@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}제품검사 입력 — Chardon QMS{% endblock %}
+{% block content %}
+{% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측'} %}
+{% macro entry(it, mode, allow_reason) %}
+<div class="entry" data-mode="{{ mode }}">
+  {% if it['input_type'] == 'ok_ng' %}
+  <input type="hidden" class="val" value="">
+  <button type="button" class="btn secondary okng" data-val="OK" style="min-height:44px;">적합</button>
+  <button type="button" class="btn secondary okng" data-val="NG" style="min-height:44px;">부적합</button>
+  {% else %}
+  <input type="text" class="val" inputmode="decimal" autocomplete="off" placeholder="측정값">
+  {% endif %}
+  {% if it['allow_missing'] %}<label><input type="checkbox" class="miss" style="width:auto;"> 결측</label>{% endif %}
+  {% if allow_reason %}<input type="text" class="reason" placeholder="정정 사유(필수)">{% endif %}
+</div>
+{% endmacro %}
+<style>
+  .v-pass { color: var(--pass); } .v-fail { color: var(--fail); }
+  /* 슬롯: 한 줄 = [#번호][값·판정][정정 버튼(우측)], 메타는 그 아래 작게 */
+  .slot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+          border: 1px solid var(--border); border-radius: 10px; background: #fff;
+          padding: 10px 12px; margin-top: 8px; }
+  .slot > b { order: 1; min-width: 30px; color: var(--primary-dark); font-size: 14px; }
+  .slot > span { order: 2; flex: 1 1 0; min-width: 0; font-size: 20px; font-weight: 700; line-height: 1.3; word-break: break-all; }
+  .slot > span.muted { font-size: 15px; font-weight: 500; }
+  .slot > .corrBtn { order: 3; margin-left: auto; min-height: 44px; min-width: 72px; padding: 8px 16px; }
+  .slot > small { order: 4; flex: 1 0 100%; font-size: 12px; line-height: 1.5; color: var(--muted); }
+  .slot > .corr { order: 5; flex: 1 0 100%; margin-top: 6px; padding: 10px; border-radius: 8px;
+                  background: #ECEEF2; border-left: 4px solid var(--primary); }
+  .slot > details { order: 6; flex: 1 0 100%; font-size: 13px; }
+  .slot > details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--primary); font-weight: 600; }
+  .slot > details ul { margin: 0 0 4px; padding-left: 18px; line-height: 1.6; color: #4b5563; }
+  .slot > .entry { order: 2; flex: 1 1 0; min-width: 0; }
+  .slot > .slot-msg { order: 8; flex: 1 0 100%; }
+  .entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .entry input[type=text] { flex: 1 1 140px; min-height: 48px; font-size: 18px; margin: 0; }
+  .entry .reason { flex: 1 0 100%; font-size: 16px; }
+  .entry label { margin: 0; min-height: 44px; display: flex; align-items: center; gap: 6px; }
+  .entry .miss { width: 22px !important; height: 22px; }
+  .entry .okng { flex: 1 1 120px; min-height: 52px !important; font-size: 17px; }
+  .okng.sel { background: var(--primary); color: #fff; outline: 3px solid var(--primary-dark); outline-offset: 1px; }
+  .item details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--primary); font-weight: 600; }
+  .item details[open] { padding: 8px; background: #F9F9F8; border-radius: 8px; border: 1px solid var(--border); }
+  .item textarea.paste { font-size: 16px; margin-bottom: 8px; }
+  .item .pasteBtn { min-height: 44px; }
+  .slot-msg { color: var(--fail); font-size: 13px; }
+  #inspectRoot { padding-bottom: 12px; }
+  #saveBar { position: sticky; bottom: 0; z-index: 20; padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+             background: var(--bg); border-top: 1px solid var(--border); box-shadow: 0 -4px 10px rgba(36,52,79,.08); }
+  #saveBar button { min-height: 52px; width: 100%; font-size: 17px; margin: 0; }
+  @media (max-width: 480px) { .slot { padding: 10px; } .slot > span { font-size: 18px; } }
+</style>
+<h2>{{ unit['serial_raw'] }} <small class="muted">내부 ID {{ unit['unit_id'] }}</small></h2>
+<p><a href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">← 완제품 목록 ({{ lot['lot_no'] }})</a>
+  {% if prev_id %} | <a href="{{ url_for('lot_inspect_unit', lot_id=lot['id'], unit_id=prev_id) }}">← 이전</a>{% endif %}
+  {% if next_id %} | <a href="{{ url_for('lot_inspect_unit', lot_id=lot['id'], unit_id=next_id) }}">다음 →</a>{% endif %}</p>
+<p>
+  {% if unit['past_serials'] %}<small class="muted">과거 S/N: {{ unit['past_serials'] | join(', ') }}</small>{% endif %}
+  {% if unit['status'] != 'active' %}<span class="badge pending">제외</span>{% endif %}
+  {% if not unit['roster_member'] %}<span class="badge pending">시작 후 합류</span>{% endif %}
+  {% if unit['model_mismatch'] %}<span class="badge pending">모델 불일치</span>{% endif %}
+</p>
+{% if cancelled %}<div class="card"><b>취소된 LOT — 열람만 가능</b></div>
+{% elif unit['status'] != 'active' %}<div class="card"><b>제외된 완제품 — 열람만 가능 (복구하면 다시 입력할 수 있어요)</b></div>
+{% elif not can_input %}<div class="card"><b>입력 권한이 없어서 열람만 할 수 있어요.</b></div>{% endif %}
+
+<div id="inspectRoot" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+{% for it in items %}
+<div class="card item" data-item-key="{{ it['key'] }}">
+  <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }} <small class="muted">{{ it['spec_text'] if it['input_type'] != 'photo' else '' }} · {{ it['required_n'] }}개</small></h3>
+  {% if it['input_type'] == 'photo' %}
+  <p class="muted">사진 입력은 다음 단계(1D-b2)에서 지원돼요.</p>
+  {% else %}
+  {% set editable = (not read_only) and can_input %}
+  {% if editable and it['input_type'] == 'numeric' and it['required_n'] > 1 %}
+  <details>
+    <summary>붙여넣기</summary>
+    <textarea class="paste" rows="2" placeholder="탭·줄바꿈·세미콜론으로 구분 (쉼표는 구분자가 아니에요)"></textarea>
+    <button type="button" class="btn secondary pasteBtn">빈 칸에 채우기</button>
+    <span class="paste-msg slot-msg"></span>
+  </details>
+  {% endif %}
+  {% for idx in range(1, it['required_n'] + 1) %}
+  {% set sl = results.get(it['key'], {}).get(idx) %}
+  {% set c = sl['current'] if sl else none %}
+  <div class="slot" data-item-key="{{ it['key'] }}" data-idx="{{ idx }}" data-base-rev="{{ c['rev'] if c else '' }}">
+    <b>#{{ idx }}</b>
+    {% if c %}
+      <span class="{{ 'v-fail' if c['verdict'] == 'fail' else ('v-pass' if c['verdict'] == 'pass' else '') }}">
+        {{ '결측' if c['is_missing'] else c['value'] }} · {{ verdict_labels.get(c['verdict'], c['verdict']) }}
+      </span>
+      <small class="muted">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% endif %}</small>
+      {% if editable %}
+      <button type="button" class="btn secondary corrBtn"
+        {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 값은 정정 권한이 필요해요"{% endif %}>정정</button>
+      <div class="corr" style="display:none;">{{ entry(it, 'corr', true) }}</div>
+      {% endif %}
+      {% if sl['history'] | length > 1 %}
+      <details><summary>이력 보기</summary>
+        <ul>{% for h in sl['history'] %}
+          <li>{{ h['rev'] }}회차: {{ '결측' if h['is_missing'] else h['value'] }} ({{ verdict_labels.get(h['verdict'], h['verdict']) }}) · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}{% if not h['roster_member'] %} · 시작 후 합류{% endif %}{% if h['serial_at_entry'] %} · 당시 S/N {{ h['serial_at_entry'] }}{% endif %}</li>
+        {% endfor %}</ul>
+      </details>
+      {% endif %}
+    {% elif editable %}
+      {{ entry(it, 'new', false) }}
+    {% else %}
+      <span class="muted">미입력</span>
+    {% endif %}
+    <div class="slot-msg"></div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endfor %}
+</div>
+
+{% if (not read_only) and can_input %}
+<div id="saveBar">
+  <div id="saveMsg" class="slot-msg"></div>
+  <button type="button" id="saveBtn">저장</button>
+</div>
+<script>
+(function () {
+  var root = document.getElementById('inspectRoot');
+  var saveBtn = document.getElementById('saveBtn'), saveMsg = document.getElementById('saveMsg');
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+  root.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (t.classList.contains('okng')) {
+      var en = t.closest('.entry');
+      en.querySelector('.val').value = t.dataset.val;
+      en.querySelectorAll('.okng').forEach(function (b) { b.classList.toggle('sel', b === t); });
+    } else if (t.classList.contains('corrBtn')) {
+      var c = t.closest('.slot').querySelector('.corr');
+      c.style.display = c.style.display === 'none' ? 'block' : 'none';
+    } else if (t.classList.contains('pasteBtn')) {
+      var card = t.closest('.item'), msg = card.querySelector('.paste-msg');
+      var toks = card.querySelector('.paste').value.split(/[\t\r\n;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      var empties = Array.prototype.slice.call(card.querySelectorAll('.entry[data-mode="new"] .val'));
+      if (toks.length !== empties.length) {
+        msg.textContent = '값 ' + toks.length + '개, 빈 칸 ' + empties.length + '개 — 개수가 달라서 채우지 않았어요.';
+        return;
+      }
+      msg.textContent = '';
+      empties.forEach(function (inp, i) { inp.value = toks[i]; });
+    }
+  });
+
+  function collect() {
+    var out = [];
+    root.querySelectorAll('.slot').forEach(function (slot) {
+      var en = slot.querySelector('.entry[data-mode="new"]');
+      if (!en) {
+        var corr = slot.querySelector('.corr');
+        if (!corr || corr.style.display === 'none') return;
+        en = corr.querySelector('.entry');
+      }
+      var val = en.querySelector('.val').value.trim();
+      var miss = en.querySelector('.miss');
+      var missing = !!(miss && miss.checked);
+      if (!val && !missing) return;
+      var r = en.querySelector('.reason');
+      out.push({item_key: slot.dataset.itemKey, idx: parseInt(slot.dataset.idx, 10), raw: val,
+                missing: missing, base_rev: slot.dataset.baseRev === '' ? null : parseInt(slot.dataset.baseRev, 10),
+                reason: r ? r.value.trim() : ''});
+    });
+    return out;
+  }
+
+  function lock(on) {  // 저장 중에는 편집을 막아 늦은 응답이 새 입력을 덮지 않게 한다
+    root.querySelectorAll('input, button, textarea').forEach(function (e) { if (!e.dataset.noperm) e.disabled = on; });
+    saveBtn.disabled = on;
+  }
+
+  saveBtn.addEventListener('click', function () {
+    root.querySelectorAll('.slot-msg').forEach(function (e) { e.textContent = ''; });
+    saveMsg.textContent = '';
+    var entries = collect();
+    if (!entries.length) { saveMsg.textContent = '저장할 입력이 없어요.'; return; }
+    lock(true); saveMsg.textContent = '저장 중…';
+    fetch(root.dataset.saveUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      body: JSON.stringify({entries: entries})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) { location.reload(); return; }
+      lock(false); saveMsg.textContent = d.error || '저장에 실패했어요.';
+      if (d.slot && d.slot.item_key) {
+        var s = root.querySelector('.slot[data-item-key="' + d.slot.item_key + '"][data-idx="' + d.slot.idx + '"] .slot-msg');
+        if (s) s.textContent = d.error;
+      }
+    }).catch(function () { lock(false); saveMsg.textContent = '서버와 통신하지 못했어요. 입력은 그대로 남아 있어요.'; });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

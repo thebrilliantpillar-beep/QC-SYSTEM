@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}제품검사 입력 — Chardon QMS{% endblock %}
+{% block content %}
+{% set overall_labels = {'fail': '불합격 있음', 'all_filled': '입력 완료', 'incomplete': '입력 중'} %}
+{% set state_labels = {'pass': '합격', 'fail': '불합격', 'incomplete': '미완료', 'missing_only': '전부 결측(확인 필요)', 'nospec': '규격 없음', 'photo_pending': '사진(다음 단계)'} %}
+<style>
+  .unit-card > p:first-child a { display: inline-block; min-height: 44px; line-height: 44px; font-size: 20px; color: var(--primary-dark); }
+  .unit-card > p { margin: 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .unit-card ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; font-size: 13px; }
+  .unit-card li { padding: 4px 0; border-top: 1px solid var(--border); }
+  .find-card form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .find-card label { flex: 1 0 100%; margin: 0; }
+  .find-card input[type=text] { flex: 1 1 200px; min-height: 48px; font-size: 17px; margin: 0; }
+  .find-card button { min-height: 48px; margin: 0; }
+</style>
+<h2>제품검사 입력: {{ lot['lot_no'] }}</h2>
+<p><a href="{{ url_for('production_lot_detail', lot_id=lot['id']) }}">← LOT 상세로</a></p>
+{% if read_only %}
+<div class="card"><b>취소된 LOT — 열람만 가능</b></div>
+{% endif %}
+
+<div class="card find-card">
+  <form method="GET" action="{{ url_for('lot_inspect_find', lot_id=lot['id']) }}">
+    <label>S/N 찾기</label>
+    <input type="text" name="serial" placeholder="S/N을 입력하거나 스캔해줘" autocomplete="off">
+    <button type="submit">찾기</button>
+  </form>
+</div>
+
+{% for u in units %}
+<div class="card unit-card">
+  <p style="margin-top:0;">
+    <a href="{{ url_for('lot_inspect_unit', lot_id=lot['id'], unit_id=u['unit_id']) }}"><b>{{ u['serial_raw'] }}</b></a>
+    {% if u['past_serials'] %}<small class="muted">(과거: {{ u['past_serials'] | join(', ') }})</small>{% endif %}
+    <small class="muted">내부 ID {{ u['unit_id'] }}</small>
+  </p>
+  <p>
+    {% if u['status'] != 'active' %}<span class="badge pending">제외</span>{% endif %}
+    {% if not u['roster_member'] %}<span class="badge pending">시작 후 합류</span>{% endif %}
+    {% if u['model_mismatch'] %}<span class="badge pending">모델 불일치</span>{% endif %}
+    <span class="badge {{ 'fail' if u['overall'] == 'fail' else ('pass' if u['overall'] == 'all_filled' else 'pending') }}">{{ overall_labels[u['overall']] }}</span>
+    {% set non_photo = u['progress'] | rejectattr('state', 'equalto', 'photo_pending') | list %}
+    항목 {{ non_photo | selectattr('state', 'in', ['pass', 'fail', 'missing_only', 'nospec']) | list | length }}/{{ non_photo | length }}
+  </p>
+  <ul class="muted" style="margin:0;">
+    {% for p in u['progress'] %}
+    <li>{{ p['name'] }}: {{ p['filled'] }}/{{ p['required'] }} · {{ state_labels[p['state']] }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% else %}
+<div class="card muted">완제품이 없어요.</div>
+{% endfor %}
+{% endblock %}

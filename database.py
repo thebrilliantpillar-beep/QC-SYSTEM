@@ -1168,6 +1168,39 @@ def init_db():
         _safe_add_column(cur, "ALTER TABLE production_lot_inspections ADD COLUMN units_json TEXT NOT NULL DEFAULT '[]'")
     # ---- 2026-10-10 신규 끝 ----
 
+    # ---- 2026-10-10 신규: 제품검사 측정값(TASK #139 패키지 1D-b1) ----
+    # lot_inspection_results는 append-only — UPDATE/DELETE 구문·함수·UI를 만들지 말 것(정정은 rev+1 새 행).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS lot_inspection_results (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES production_lot_inspections(id),
+            unit_id       INTEGER NOT NULL REFERENCES finished_units(id),
+            item_key      TEXT NOT NULL,
+            idx           INTEGER NOT NULL,
+            rev           INTEGER NOT NULL,
+            entry_type    TEXT NOT NULL,
+            value_input   TEXT,
+            value         TEXT,
+            is_missing    INTEGER NOT NULL DEFAULT 0,
+            verdict       TEXT NOT NULL,
+            reason        TEXT,
+            roster_member INTEGER NOT NULL,
+            serial_at_entry TEXT,
+            lot_revision  INTEGER NOT NULL,
+            entered_by    TEXT,
+            entered_by_user_id INTEGER,
+            entered_at    TEXT NOT NULL,
+            UNIQUE(inspection_id, unit_id, item_key, idx, rev)
+        )
+    """)
+    _lir_cols = [r[1] for r in cur.execute("PRAGMA table_info(lot_inspection_results)").fetchall()]
+    if "entered_by_user_id" not in _lir_cols:
+        _safe_add_column(cur, "ALTER TABLE lot_inspection_results ADD COLUMN entered_by_user_id INTEGER")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_lir_slot ON lot_inspection_results"
+                "(inspection_id, unit_id, item_key, idx)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_lir_unit ON lot_inspection_results(inspection_id, unit_id)")
+    # ---- 2026-10-10 신규(1D-b1) 끝 ----
+
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
     for col in ("round_no", "confirmed_by", "confirmed_at", "confirm_signature"):
@@ -4824,6 +4857,325 @@ def get_lot_inspection(lot_id):
     d["lot_snapshot"] = json.loads(d["lot_snapshot_json"])
     d["units"] = json.loads(d["units_json"] or "[]")
     return d
+
+
+# ---------- 제품검사 측정값 입력·정정 (TASK #139 패키지 1D-b1) ----------
+# 계약(승인·성적서 출력 등 이후 단계도 반드시 지킬 것)
+#  - lot_inspection_results는 append-only: 이 테이블을 고치거나 지우는 구문·함수·UI를 만들지 않는다.
+#    정정은 같은 칸(item_key, idx)에 rev+1 행을 추가하고, 현재값 = 칸의 MAX(rev).
+#  - production_lot_inspections(시작 스냅샷·units_json·snapshot_hash)는 시작 후 절대 바꾸지 않는다.
+#  - 검사 결과를 쓰는 모든 함수(입력·정정, 이후 승인·출력)는 _insp_begin()을 거쳐야 한다
+#    (잠금 + 취소 LOT 거부 + 검사 시작 여부 확인). 읽기는 취소 후에도 허용.
+#  - 판정은 정규화한 입력 원값(Decimal) 기준이고 display_digits 반올림은 쓰지 않는다.
+
+class SlotError(ValueError):
+    """칸 하나에 대한 거부 — 화면이 그 칸에 메시지를 띄울 수 있게 item_key·idx를 싣는다."""
+    def __init__(self, msg, item_key=None, idx=None):
+        super().__init__(msg)
+        self.item_key, self.idx = item_key, idx
+
+
+_MEASURE_WS = {0xA0: " ", 0x202F: " ", 0x2009: " "}
+_THOUSANDS_RE = re.compile(r"[+-]?\d{1,3}(,\d{3})+(\.\d+)?", re.ASCII)
+_NUM_RE = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)", re.ASCII)
+
+
+def parse_measure_number(raw):
+    """측정값 문자열 → 표준 십진 문자열. 전각 숫자·U+2212는 반각으로(NFKC는 쓰지 않아 ¹ ① 등은 거부),
+    NBSP류 공백은 일반 공백으로 바꿔 앞뒤만 지우고 숫자 중간 공백은 거부. 쉼표는 1,234.5 같은 천단위일 때만 허용."""
+    s = str(raw if raw is not None else "").translate(_ITEM_NUM_MAP).translate(_MEASURE_WS).strip()
+    if not s:
+        raise ValueError("값을 입력해줘.")
+    if re.search(r"\s", s):
+        raise ValueError("숫자 중간에 공백이 있어요. 공백 없이 입력해줘.")
+    if "," in s:
+        if not _THOUSANDS_RE.fullmatch(s):
+            raise ValueError("모호한 입력이야. 소수점은 점(.)으로 다시 입력해줘.")
+        s = s.replace(",", "")
+    if len(s) > 24 or not _NUM_RE.fullmatch(s):
+        raise ValueError("숫자로 입력해줘. (24자 이하, 지수 표기·문자는 쓸 수 없어요)")
+    x = _Dec(s)
+    return "0" if x == 0 else format(x.normalize(), "f")
+
+
+def judge_measure(item, value):
+    """'pass'/'fail'/'nospec'. 숫자: 한계는 None 허용(단측), 경계값은 합격. 적합/부적합: OK→pass, NG→fail."""
+    if item["input_type"] == "ok_ng":
+        return "pass" if value == "OK" else "fail"
+    lo, up = item.get("lower"), item.get("upper")
+    if lo is None and up is None:
+        return "nospec"
+    v = _Dec(value)
+    if lo is not None and v < _Dec(lo):
+        return "fail"
+    if up is not None and v > _Dec(up):
+        return "fail"
+    return "pass"
+
+
+def summarize_unit_item(item, cur):
+    """한 완제품·한 항목의 현재 상태. cur = {idx: 현재 행}. 저장하지 않고 조회 때 계산한다.
+    fail / incomplete(빈 칸 있음) / missing_only(전부 결측 — 합격 아님) / nospec / pass."""
+    rows = [cur[i] for i in range(1, item["required_n"] + 1) if i in cur]
+    if any(r["verdict"] == "fail" for r in rows):
+        return "fail"
+    if len(rows) < item["required_n"]:
+        return "incomplete"
+    if all(r["is_missing"] for r in rows):
+        return "missing_only"
+    if any(r["verdict"] == "nospec" for r in rows):
+        return "nospec"
+    return "pass"
+
+
+def _slot_current(conn, inspection_id, unit_id=None):
+    """칸별 현재(최신 rev) 행 목록."""
+    sql = ("SELECT r.* FROM lot_inspection_results r WHERE r.inspection_id=? "
+           + ("AND r.unit_id=? " if unit_id is not None else "")
+           + "AND r.rev = (SELECT MAX(x.rev) FROM lot_inspection_results x WHERE "
+             "x.inspection_id=r.inspection_id AND x.unit_id=r.unit_id AND x.item_key=r.item_key "
+             "AND x.idx=r.idx)")
+    args = (inspection_id,) if unit_id is None else (inspection_id, unit_id)
+    return conn.execute(sql, args).fetchall()
+
+
+def _insp_begin(conn, lot_id):
+    """검사 결과를 쓰는 모든 함수의 시작점 — 잠금 후 취소 LOT·검사 미시작 거부. (LOT행, 검사시작행)."""
+    lot = _pl_lock(conn, lot_id)
+    if lot["status"] == "cancelled":
+        raise ValueError("취소된 LOT은 열람만 할 수 있어요.")
+    insp = conn.execute("SELECT * FROM production_lot_inspections WHERE lot_id=?", (lot_id,)).fetchone()
+    if not insp:
+        raise ValueError("제품검사가 아직 시작되지 않았어요.")
+    return lot, insp
+
+
+def lot_inspection_writable(lot_id):
+    """(쓸 수 있나, 안 되는 이유) — 화면·라우트의 사전 점검용(읽기 전용, 진짜 방어선은 _insp_begin)."""
+    lot = get_production_lot(lot_id)
+    if not lot:
+        return False, "LOT을 찾을 수 없어요."
+    if lot["status"] == "cancelled":
+        return False, "취소된 LOT은 열람만 할 수 있어요."
+    if not lot_has_started_inspection(lot_id):
+        return False, "제품검사가 아직 시작되지 않았어요."
+    return True, ""
+
+
+def resolve_unit_for_inspection(lot_id, serial_text):
+    """S/N → 완제품. result: ok / past_alias(과거 S/N — 조용히 연결하지 않고 현재 S/N 안내) /
+    other_lot / not_found / excluded. 읽기 전용."""
+    key = normalize_serial_key(serial_text)
+    out = {"result": "not_found", "unit_id": None, "current_serial": None, "matched_serial": None}
+    conn = get_conn()
+    try:
+        a = conn.execute("SELECT a.unit_id, a.kind, a.serial_raw, u.lot_id, u.status FROM unit_serial_aliases a "
+                         "JOIN finished_units u ON u.id=a.unit_id WHERE a.serial_key=?", (key,)).fetchone() if key else None
+        if not a:
+            return out
+        cs = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                          (a["unit_id"],)).fetchone()
+        out.update(unit_id=a["unit_id"], matched_serial=a["serial_raw"],
+                   current_serial=cs["serial_raw"] if cs else None)
+        if a["lot_id"] != lot_id:
+            out["result"] = "other_lot"
+        elif a["kind"] == "past":
+            out["result"] = "past_alias"
+        elif a["status"] != "active":
+            out["result"] = "excluded"
+        else:
+            out["result"] = "ok"
+        return out
+    finally:
+        conn.close()
+
+
+def _roster_ids(insp):
+    return {u["unit_id"] for u in json.loads(insp["units_json"] or "[]")}
+
+
+def list_inspection_units(lot_id):
+    """LOT 완제품마다 시작 시 포함 여부와 항목별 진행·전체 판정을 계산해서 돌려준다(검사 시작 전이면 [])."""
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return []
+    items = insp["items"]
+    roster = {u["unit_id"] for u in insp["units"]}
+    conn = get_conn()
+    try:
+        cur = {}
+        for r in _slot_current(conn, insp["id"]):
+            cur.setdefault(r["unit_id"], {}).setdefault(r["item_key"], {})[r["idx"]] = r
+    finally:
+        conn.close()
+    out = []
+    for u in get_production_lot_units(lot_id):
+        prog = []
+        for it in items:
+            c = cur.get(u["id"], {}).get(it["key"], {})
+            if it["input_type"] == "photo":
+                prog.append({"key": it["key"], "name": it["name"], "filled": 0,
+                             "required": it["required_n"], "state": "photo_pending"})
+                continue
+            prog.append({"key": it["key"], "name": it["name"], "filled": len(c),
+                         "required": it["required_n"], "state": summarize_unit_item(it, c)})
+        states = [p["state"] for p in prog if p["state"] != "photo_pending"]
+        overall = ("fail" if "fail" in states else
+                   "incomplete" if (not states or "incomplete" in states) else "all_filled")
+        out.append({"unit_id": u["id"], "serial_raw": u["serial_raw"], "past_serials": u["past_serials"],
+                    "status": u["status"], "model_mismatch": bool(u["model_mismatch"]),
+                    "roster_member": u["id"] in roster, "progress": prog, "overall": overall})
+    return out
+
+
+def get_unit_results(inspection_id, unit_id):
+    """{item_key: {idx: {"current": 행, "history": [rev 오름차순 전체 행]}}}"""
+    conn = get_conn()
+    try:
+        rows = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY item_key, idx, rev", (inspection_id, unit_id)).fetchall()
+    finally:
+        conn.close()
+    out = {}
+    for r in rows:
+        slot = out.setdefault(r["item_key"], {}).setdefault(r["idx"], {"current": None, "history": []})
+        slot["history"].append(dict(r))
+        slot["current"] = dict(r)
+    return out
+
+
+@_write_retry
+def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False, actor_id=None):
+    """측정값 최초 입력·정정 저장 → 저장 행 수. 한 칸이라도 거부되면 전체 rollback.
+    actor=표시명(감사용 스냅샷), actor_id=계정 id("본인" 판정 기준; None이면 본인 불인정).
+    entries=[{item_key, idx, raw, base_rev(None=최초 입력), reason, missing}]."""
+    if not entries:
+        raise ValueError("저장할 내용이 없어요.")
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        u = conn.execute("SELECT lot_id, status FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+        if not u or u["lot_id"] != lot_id:
+            raise ValueError("이 LOT의 완제품이 아니에요.")
+        if u["status"] != "active":
+            raise ValueError("제외된 완제품은 입력/정정할 수 없어요.")
+        items = {i["key"]: i for i in json.loads(insp["items_json"])}
+        roster = 1 if unit_id in _roster_ids(insp) else 0
+        sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                          (unit_id,)).fetchone()
+        serial = sa["serial_raw"] if sa else None
+        seen = set()
+        for e in entries:
+            key = e.get("item_key")
+            try:
+                idx = int(e.get("idx"))
+            except (TypeError, ValueError):
+                raise SlotError("칸 번호가 올바르지 않아요.", key)
+            it = items.get(key)
+            if not it:
+                raise SlotError("알 수 없는 검사 항목이에요.", key, idx)
+            if it["input_type"] == "photo":
+                raise SlotError("사진 입력은 다음 단계(1D-b2)에서 지원돼요.", key, idx)
+            if not 1 <= idx <= it["required_n"]:
+                raise SlotError("칸 번호가 범위를 벗어났어요.", key, idx)
+            if (key, idx) in seen:
+                raise SlotError("같은 칸이 한 번에 두 번 들어왔어요.", key, idx)
+            seen.add((key, idx))
+            base = e.get("base_rev")
+            base = None if base in (None, "") else base
+            if base is not None:
+                try:
+                    base = int(base)
+                except (TypeError, ValueError):
+                    raise SlotError("회차 정보가 올바르지 않아요.", key, idx)
+            cur = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
+                               "AND item_key=? AND idx=? ORDER BY rev DESC LIMIT 1",
+                               (insp["id"], unit_id, key, idx)).fetchone()
+            reason = (e.get("reason") or "").strip() or None
+            if base is None:
+                if cur:
+                    raise SlotError("다른 사람이 이미 입력했어요. 정정으로 다시 입력해줘.", key, idx)
+                rev, etype, reason = 1, "initial", None
+            else:
+                if not cur:
+                    raise SlotError("정정할 기존 값이 없어요.", key, idx)
+                if base != cur["rev"]:
+                    raise SlotError(f"그 사이에 정정됐어요(현재 {cur['rev']}회차). 새로고침해줘.", key, idx)
+                if not reason:
+                    raise SlotError("정정 사유를 입력해줘.", key, idx)
+                is_own = actor_id is not None and cur["entered_by_user_id"] == actor_id
+                if not is_own and not can_correct_others:
+                    raise SlotError("다른 사람이 입력한 값은 정정 권한이 있어야 고칠 수 있어요.", key, idx)
+                rev, etype = cur["rev"] + 1, "correction"
+            try:
+                if e.get("missing"):
+                    if not it["allow_missing"]:
+                        raise ValueError("이 항목은 결측으로 입력할 수 없어요.")
+                    vin = val = None
+                    miss, verdict = 1, "missing"
+                else:
+                    vin = str(e.get("raw") if e.get("raw") is not None else "").strip()
+                    if it["input_type"] == "ok_ng":
+                        val = vin.upper()
+                        if val not in ("OK", "NG"):
+                            raise ValueError("적합 또는 부적합을 선택해줘.")
+                    else:
+                        val = parse_measure_number(vin)
+                    miss, verdict = 0, judge_measure(it, val)
+            except SlotError:
+                raise
+            except ValueError as ve:
+                raise SlotError(str(ve), key, idx)
+            if cur and cur["is_missing"] == miss and cur["value"] == val:
+                raise SlotError("변경 없음 — 현재 값과 같아요.", key, idx)
+            try:
+                conn.execute(
+                    "INSERT INTO lot_inspection_results (inspection_id, unit_id, item_key, idx, rev, "
+                    "entry_type, value_input, value, is_missing, verdict, reason, roster_member, "
+                    "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (insp["id"], unit_id, key, idx, rev, etype, vin, val, miss, verdict, reason,
+                     roster, serial, lot["lot_revision"], actor, actor_id, _utc_now()))
+            except sqlite3.IntegrityError as ie:
+                if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
+                    raise
+                raise SlotError("다른 사람이 먼저 입력했어요. 새로고침해줘.", key, idx)
+        conn.commit()
+        return len(entries)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def verify_lot_inspection_snapshot(lot_id):
+    """저장된 컬럼에서 시작 스냅샷 해시를 다시 계산해 snapshot_hash와 비교(시작 후 불변 확인)."""
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return {"ok": False, "error": "검사가 시작되지 않았어요."}
+    h = _sha({"lot_id": lot_id, "started_by": insp["started_by"], "started_at": insp["started_at"],
+              "model": insp["model_snapshot"], "lot": insp["lot_snapshot"],
+              "item_version_id": insp["item_version_id"], "item_version": insp["item_version"],
+              "items": insp["items"], "units": insp["units"]})
+    return {"ok": h == insp["snapshot_hash"], "expected": insp["snapshot_hash"], "actual": h}
+
+
+def list_post_start_units(lot_id):
+    """시작 후 합류한 완제품(시작 명단에 없는 것)과 시작 이후의 추가·복구 이력."""
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return {"units": [], "events": []}
+    roster = {u["unit_id"] for u in insp["units"]}
+    units = [u for u in get_production_lot_units(lot_id) if u["id"] not in roster]
+    conn = get_conn()
+    try:
+        ev = [dict(r) for r in conn.execute(
+            "SELECT * FROM finished_unit_history WHERE lot_id=? AND change_type IN ('add','restore') "
+            "AND changed_at >= ? ORDER BY id", (lot_id, insp["started_at"]))]
+    finally:
+        conn.close()
+    return {"units": units, "events": ev}
 
 
 # ---------- 완제품 내부 ID와 S/N (TASK #66 패키지 1C-b) ----------
