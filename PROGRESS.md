@@ -8,6 +8,17 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-11 (1D-c1 제품검사 완료 요청·재개, .collab TASK #145 스펙·#146 구현·#147 보완)**:
+  unit별 검사 완료/재개를 append-only 이벤트(`lot_inspection_unit_events`)로 저장. 완료 요청은 서버가 한 트랜잭션으로
+  재검증(표본·사진 장수·digest·사진 파일 해시·취소/제외)하고 통과해야만 이벤트 생성. 사용자 확정: NG 포함도 완료 허용(완료≠합격),
+  완료 후 정정은 process_correct만+저장 시 자동 재개, 항목 잠금(c2)은 나중·충돌 화면은 별도 패키지, 잠금 해제 권한 process_correct.
+  검증: v1dc1 113건(CSRF ON)+회귀 4종, CDP 실제 입력 e2e 12/12, 390px 캡처, quality-watcher PASS. 계약은 CLAUDE.md 27-2절.
+  시스템 메모리 부족으로 백그라운드 작업이 한 번 중단돼 회귀·e2e를 하나씩 다시 돌려 재현. 아직 push·배포 안 함.
+  Codex 1차 검토 PARTIAL: `unit_completion_valid()`가 digest만 확인해 완료 후 제외·LOT 취소에도 유효 반환 → TASK #147에서
+  LOT 취소·S/N active 확인 추가(읽기 전용, 이벤트·digest 불변), v1dc1 OK123·회귀 4종 통과, #147 COMPLETED.
+  Codex 재확인 PASS(1D-c1 커밋 가능). 4번 단계는 승인·출력 직전에 unit_completion_valid와 사진 file_sha256 재계산을 실제로 호출해야 함.
+  다음: 1D-c2(항목 잠금) 또는 4번 단계(승인·출력). 아직 push·배포 안 함(1D-c1은 새 테이블 1개만 추가).
+
 - **2026-10-10 (1D-b2 제품검사 사진 입력·정정, .collab TASK #142 스펙·#143 구현·#144 본문 크기 제한)**:
   photo 항목 입력·정정(미리보기 후 등록, 사진 1장=슬롯 1개, 정정=새 회차+새 파일, 구 파일 보존),
   `file_sha256` 컬럼, 업로드/서빙 라우트(경로 이탈 방어), 진행도·overall에 사진 재포함(`recorded`),
