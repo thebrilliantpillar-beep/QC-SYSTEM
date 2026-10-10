@@ -2,7 +2,7 @@
 {% block title %}제품검사 입력 — Chardon QMS{% endblock %}
 {% block content %}
 {% set overall_labels = {'fail': '불합격 있음', 'all_filled': '입력 완료', 'incomplete': '입력 중'} %}
-{% set state_labels = {'pass': '합격', 'fail': '불합격', 'incomplete': '미완료', 'missing_only': '전부 결측(확인 필요)', 'nospec': '규격 없음', 'photo_pending': '사진(다음 단계)'} %}
+{% set state_labels = {'pass': '합격', 'fail': '불합격', 'incomplete': '미완료', 'missing_only': '전부 결측(확인 필요)', 'nospec': '규격 없음', 'recorded': '사진 등록 완료'} %}
 <style>
   .unit-card > p:first-child a { display: inline-block; min-height: 44px; line-height: 44px; font-size: 20px; color: var(--primary-dark); }
   .unit-card > p { margin: 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
@@ -39,8 +39,7 @@
     {% if not u['roster_member'] %}<span class="badge pending">시작 후 합류</span>{% endif %}
     {% if u['model_mismatch'] %}<span class="badge pending">모델 불일치</span>{% endif %}
     <span class="badge {{ 'fail' if u['overall'] == 'fail' else ('pass' if u['overall'] == 'all_filled' else 'pending') }}">{{ overall_labels[u['overall']] }}</span>
-    {% set non_photo = u['progress'] | rejectattr('state', 'equalto', 'photo_pending') | list %}
-    항목 {{ non_photo | selectattr('state', 'in', ['pass', 'fail', 'missing_only', 'nospec']) | list | length }}/{{ non_photo | length }}
+    항목 {{ u['progress'] | selectattr('state', 'in', ['pass', 'fail', 'missing_only', 'nospec', 'recorded']) | list | length }}/{{ u['progress'] | length }}
   </p>
   <ul class="muted" style="margin:0;">
     {% for p in u['progress'] %}

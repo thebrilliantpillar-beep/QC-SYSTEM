@@ -33,12 +33,13 @@ def _check_license():
 _check_license()
 # ──────────────────────────────────────────────
 
-import json, os, base64, io, time, shutil, re, zipfile, tempfile, uuid, sys
+import json, os, base64, io, time, shutil, re, zipfile, tempfile, uuid, sys, hashlib
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify
+from flask import Flask, Request, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify, abort
 from flask_wtf.csrf import CSRFProtect, CSRFError
+from werkzeug.exceptions import RequestEntityTooLarge
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import database as db
@@ -172,6 +173,25 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # 로컬(HTTP)에서 Secure를 켜면 브라우저가 쿠키를 안 보내 로그인이 깨진다 —
 # 반드시 _is_production일 때만 True.
 app.config["SESSION_COOKIE_SECURE"] = _is_production
+
+
+class _AppRequest(Request):
+    """제품검사 사진 업로드 경로에만 요청 크기 한도를 건다. CSRFProtect(before_request)가 라우트보다 먼저
+    request.form을 파싱하므로 라우트 안에서 한도를 걸면 늦다 — 요청 객체 자체가 한도를 알고 있어야 한다."""
+    _PHOTO_PATH = re.compile(r"^/production-lots/\d+/inspect/units/\d+/photo$")
+
+    @property
+    def max_content_length(self):
+        if self.method == "POST" and self._PHOTO_PATH.match(self.path):
+            return _PHOTO_REQUEST_MAX
+        return super().max_content_length
+
+    @max_content_length.setter
+    def max_content_length(self, value):
+        self._max_content_length = value
+
+
+app.request_class = _AppRequest
 csrf = CSRFProtect(app)
 limiter = Limiter(key_func=get_remote_address, app=app, default_limits=[], storage_uri="memory://")
 
@@ -187,6 +207,18 @@ def handle_csrf_error(error):
     if not hasattr(g, "user"):
         g.user = None
     return render_template("csrf_error.html", message=message), 400
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(error):
+    """사진 업로드 경로의 한도 초과만 한국어 응답으로 바꾼다. 그 외 경로의 413은 기본 응답 그대로."""
+    va = request.view_args or {}
+    if not (request.method == "POST" and _AppRequest._PHOTO_PATH.match(request.path)):
+        return error
+    msg = "10MB 이하 사진만 올릴 수 있어요"
+    if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": False, "error": msg}), 413
+    flash(msg)
+    return redirect(url_for("lot_inspect_unit", lot_id=va.get("lot_id"), unit_id=va.get("unit_id")))
 
 SIGNATURE_DIR = os.path.join(db.DATA_DIR, "signatures")
 os.makedirs(SIGNATURE_DIR, exist_ok=True)
@@ -10821,6 +10853,155 @@ def lot_inspect_save(lot_id, unit_id):
     res = db.get_unit_results(db.get_lot_inspection(lot_id)["id"], unit_id)
     rows = [res[e["item_key"]][int(e["idx"])]["current"] for e in entries]
     return jsonify({"ok": True, "saved": n, "rows": rows})
+
+
+# ---- 제품검사 사진 항목 입력·정정 (TASK #142 패키지 1D-b2) ----
+PRODUCT_PHOTO_DIR = os.path.join(db.DATA_DIR, "product_inspection_photos")
+os.makedirs(PRODUCT_PHOTO_DIR, exist_ok=True)
+
+_PHOTO_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+_PHOTO_MAX_PIXELS = 80_000_000
+_PHOTO_REQUEST_MAX = _PHOTO_MAX_BYTES + 1024 * 1024  # 파일 10MB + 폼 필드 여유 1MB
+
+
+class _PhotoTooLarge(ValueError):
+    pass
+
+
+def _save_inspection_photo(file_storage, dest_dir, base_name):
+    """제품검사 사진 저장 → (파일명, sha256). 이미지가 아니거나 너무 크면 한국어 ValueError.
+    _save_ncr_photo는 변환 실패 시 원본 바이트를 .jpg로 저장하는 폴백이 있어서, 저장 뒤 다시 열어 검증한다."""
+    from PIL import Image as _PILImg
+    ext = os.path.splitext(file_storage.filename or "")[1].lower()
+    if ext and ext not in _PHOTO_EXTS:
+        raise ValueError("사진 파일(jpg, png, gif, webp)만 올릴 수 있어요.")
+    st = file_storage.stream
+    st.seek(0, 2)
+    size = st.tell()
+    st.seek(0)
+    if size == 0:
+        raise ValueError("빈 파일이에요.")
+    if size > _PHOTO_MAX_BYTES:
+        raise _PhotoTooLarge("10MB 이하 사진만 올릴 수 있어요.")
+    try:
+        with _PILImg.open(st) as im:
+            if im.size[0] * im.size[1] > _PHOTO_MAX_PIXELS:
+                raise ValueError("사진 해상도가 너무 커요.")
+            im.load()  # 잘린 파일은 여기서 걸린다(verify()는 잘린 JPEG를 통과시킴)
+    except ValueError:
+        raise
+    except Exception:
+        raise ValueError("올바른 사진 파일이 아니에요.")
+    st.seek(0)
+    fname = _save_ncr_photo(file_storage, dest_dir, base_name, max_px=1280, quality=80, optimize=False)
+    path = os.path.join(dest_dir, fname)
+    try:
+        with _PILImg.open(path) as im:
+            im.load()
+        with open(path, "rb") as f:
+            return fname, hashlib.sha256(f.read()).hexdigest()
+    except Exception:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise ValueError("올바른 사진 파일이 아니에요.")
+
+
+def _clean_photo_name(name):
+    name = os.path.basename((name or "").replace("\\", "/"))
+    name = "".join(ch for ch in name if ch.isprintable())[:80].strip()
+    return name or "photo.jpg"
+
+
+@app.route("/static/product_inspection_photos/<filename>")
+@perm_required("process_lot", "process_input")
+def product_inspection_photo_file(filename):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    if not db.is_product_photo_name(filename):
+        abort(404)
+    return send_from_directory(PRODUCT_PHOTO_DIR, filename)
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/photo", methods=["POST"])
+@perm_required("process_input")
+def lot_inspect_photo_save(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    ajax = request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    key = idx_raw = ""
+
+    def fail(msg, status=400):
+        if ajax:
+            return jsonify({"ok": False, "error": msg, "slot": {"item_key": key, "idx": idx_raw}}), status
+        flash(msg)
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+
+    # 본문(form/files)을 건드리기 전에 크기부터 차단 — werkzeug가 큰 본문을 파싱하며 메모리를 쓰기 전에 거부한다
+    too_big = "10MB 이하 사진만 올릴 수 있어요"
+    if request.content_length is None or request.content_length > _PHOTO_REQUEST_MAX:  # chunked(길이 없음)도 거부
+        return fail(too_big, 413)
+    try:
+        key = request.form.get("item_key", "")
+        idx_raw = request.form.get("idx", "")
+        f = request.files.get("photo")
+    except RequestEntityTooLarge:
+        return fail(too_big, 413)
+
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    insp = db.get_lot_inspection(lot_id)
+    it = next((i for i in insp["items"] if i["key"] == key), None)
+    try:
+        idx = int(idx_raw)
+    except ValueError:
+        idx = 0
+    if not it or it["input_type"] != "photo" or not 1 <= idx <= it["required_n"]:
+        return fail("사진 항목과 칸 번호를 확인해줘.")
+    if not f or not f.filename:
+        return fail("사진 파일을 선택해줘.")
+    try:
+        fname, sha = _save_inspection_photo(f, PRODUCT_PHOTO_DIR, db.product_photo_base(insp["id"], unit_id, key, idx))
+    except _PhotoTooLarge as e:
+        return fail(str(e), 413)
+    except ValueError as e:
+        return fail(str(e))
+    except OSError:
+        return fail("사진을 저장하지 못했어요. 다시 시도해줘.", 500)
+    ok = False
+    try:
+        db.save_unit_results(
+            lot_id, unit_id,
+            [{"item_key": key, "idx": idx, "base_rev": request.form.get("base_rev"),
+              "reason": request.form.get("reason")}],
+            _actor_name(), can_correct_others="process_correct" in _user_perms(g.user),
+            actor_id=g.user["id"], photo_files={(key, idx): (fname, _clean_photo_name(f.filename), sha)})
+        ok = True
+    except db.SlotError as e:
+        return fail(str(e), 400)
+    except ValueError as e:
+        return fail(str(e), 409)
+    finally:
+        if not ok:  # 새 파일만 정리 — 기존 사진 파일은 정정 후에도 보존
+            try:
+                os.remove(os.path.join(PRODUCT_PHOTO_DIR, fname))
+            except OSError:
+                pass
+    lot = db.get_production_lot(lot_id)
+    corrected = request.form.get("base_rev") not in (None, "")
+    record_change("제품검사 사진 정정" if corrected else "제품검사 사진 입력", "production_lot", lot_id,
+                  f"{lot['lot_no']} / 완제품 {unit_id} / {key}#{idx}")
+    row = db.get_unit_results(insp["id"], unit_id)[key][idx]["current"]
+    url = url_for("product_inspection_photo_file", filename=fname)
+    if not ajax:
+        flash("사진을 등록했어요.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "row": row, "url": url})
 
 
 # ---- 제품검사 항목 설정 (TASK #136 패키지 1D-a) ----

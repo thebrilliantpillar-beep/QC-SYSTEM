@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}제품검사 입력 — Chardon QMS{% endblock %}
 {% block content %}
-{% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측'} %}
+{% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측', 'recorded': '등록됨'} %}
 {% macro entry(it, mode, allow_reason) %}
 <div class="entry" data-mode="{{ mode }}">
   {% if it['input_type'] == 'ok_ng' %}
@@ -45,6 +45,24 @@
   .item textarea.paste { font-size: 16px; margin-bottom: 8px; }
   .item .pasteBtn { min-height: 44px; }
   .slot-msg { color: var(--fail); font-size: 13px; }
+  /* 사진 슬롯: 숫자 슬롯과 같은 골격(번호·본문·우측 버튼·메타·펼침 패널) */
+  .slot > .pickBtn { order: 3; margin-left: auto; min-height: 44px; min-width: 72px; padding: 8px 16px; }
+  .photo-slot > span { font-size: 15px; }
+  .photo-slot .pLink { display: inline-block; line-height: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: #ECEEF2; }
+  .photo-slot .pThumb { display: block; width: auto; height: auto; max-width: min(100%, 220px) !important; max-height: 165px !important; object-fit: contain; }
+  .photo-slot .pPick, .photo-slot .pPrev { margin-top: 6px; padding: 10px; border-radius: 8px;
+                                           background: #ECEEF2; border-left: 4px solid var(--primary); box-sizing: border-box; }
+  .photo-slot .pPick label.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+                                 min-height: 52px; min-width: 150px; margin: 0 8px 0 0; font-size: 16px; box-sizing: border-box; }
+  .photo-slot .pPrevImg { display: block; max-width: min(100%, 260px); max-height: 195px !important; margin-bottom: 10px;
+                          border-radius: 8px; border: 1px solid var(--border); background: #fff; object-fit: contain; }
+  .photo-slot .pReason { display: block; width: 100%; min-height: 48px; font-size: 16px; margin: 0 0 10px; box-sizing: border-box; }
+  .photo-slot .pPrev .btn { min-height: 48px; min-width: 88px; margin: 0 8px 0 0; font-size: 16px; }
+  @media (max-width: 480px) {
+    .photo-slot .pPick label.btn { flex: 1 1 100%; width: 100%; margin: 0 0 8px; }
+    .photo-slot .pPick label.btn:last-child { margin-bottom: 0; }
+    .photo-slot .pThumb { max-width: min(100%, 180px) !important; max-height: 135px !important; }
+  }
   #inspectRoot { padding-bottom: 12px; }
   #saveBar { position: sticky; bottom: 0; z-index: 20; padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
              background: var(--bg); border-top: 1px solid var(--border); box-shadow: 0 -4px 10px rgba(36,52,79,.08); }
@@ -68,11 +86,53 @@
 <div id="inspectRoot" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
 {% for it in items %}
 <div class="card item" data-item-key="{{ it['key'] }}">
-  <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }} <small class="muted">{{ it['spec_text'] if it['input_type'] != 'photo' else '' }} · {{ it['required_n'] }}개</small></h3>
-  {% if it['input_type'] == 'photo' %}
-  <p class="muted">사진 입력은 다음 단계(1D-b2)에서 지원돼요.</p>
-  {% else %}
+  <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }} <small class="muted">{{ it['spec_text'] if it['input_type'] != 'photo' else '' }} · {% if it['input_type'] == 'photo' %}필요 {{ it['required_n'] }}장{% else %}{{ it['required_n'] }}개{% endif %}</small></h3>
   {% set editable = (not read_only) and can_input %}
+  {% if it['input_type'] == 'photo' %}
+  {% for idx in range(1, it['required_n'] + 1) %}
+  {% set sl = results.get(it['key'], {}).get(idx) %}
+  {% set c = sl['current'] if sl else none %}
+  <div class="slot photo-slot" data-item-key="{{ it['key'] }}" data-idx="{{ idx }}" data-base-rev="{{ c['rev'] if c else '' }}">
+    <b>#{{ idx }}</b>
+    {% if c %}
+      <span><a class="pLink" href="{{ url_for('product_inspection_photo_file', filename=c['value']) }}" target="_blank"><img class="pThumb" loading="lazy" alt="사진 #{{ idx }}" src="{{ url_for('product_inspection_photo_file', filename=c['value']) }}" style="max-width:160px; max-height:120px;"></a></span>
+      <small class="muted pMeta">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% endif %}</small>
+      {% if editable %}
+      <button type="button" class="btn secondary pickBtn"
+        {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 사진은 정정 권한이 필요해요"{% endif %}>사진 교체(정정)</button>
+      {% endif %}
+      {% if sl['history'] | length > 1 %}
+      <details class="pHist"><summary>이력 보기</summary>
+        <ul>{% for h in sl['history'] %}
+          <li>{{ h['rev'] }}회차: <a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a> · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
+        {% endfor %}</ul>
+      </details>
+      {% endif %}
+    {% elif editable %}
+      <span class="muted">미등록</span>
+      <button type="button" class="btn secondary pickBtn">사진 올리기</button>
+    {% else %}
+      <span class="muted">미입력</span>
+    {% endif %}
+    {% if editable %}
+    <div class="pPick" style="display:none; flex:1 0 100%; order:5;">
+      <label class="btn secondary" style="cursor:pointer;">📸 카메라로 촬영
+        <input type="file" class="pFile" accept="image/*" capture="environment" style="display:none;"></label>
+      <label class="btn secondary" style="cursor:pointer;">🖼️ 갤러리에서 선택
+        <input type="file" class="pFile" accept="image/*" style="display:none;"></label>
+    </div>
+    <div class="pPrev" style="display:none; flex:1 0 100%; order:5;">
+      <img class="pPrevImg" alt="미리보기" style="max-width:160px; max-height:120px;">
+      {% if c %}<input type="text" class="pReason" placeholder="정정 사유(필수)">{% endif %}
+      <button type="button" class="btn pGo">등록</button>
+      <button type="button" class="btn secondary pCancel">취소</button>
+      <button type="button" class="btn secondary pRetry" style="display:none;">다시 시도</button>
+    </div>
+    {% endif %}
+    <div class="slot-msg"></div>
+  </div>
+  {% endfor %}
+  {% else %}
   {% if editable and it['input_type'] == 'numeric' and it['required_n'] > 1 %}
   <details>
     <summary>붙여넣기</summary>
@@ -117,6 +177,7 @@
 </div>
 
 {% if (not read_only) and can_input %}
+<script src="{{ url_for('static', filename='photo_resize.js') }}"></script>
 <div id="saveBar">
   <div id="saveMsg" class="slot-msg"></div>
   <button type="button" id="saveBtn">저장</button>
@@ -139,7 +200,11 @@
     } else if (t.classList.contains('pasteBtn')) {
       var card = t.closest('.item'), msg = card.querySelector('.paste-msg');
       var toks = card.querySelector('.paste').value.split(/[\t\r\n;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
-      var empties = Array.prototype.slice.call(card.querySelectorAll('.entry[data-mode="new"] .val'));
+      var empties = Array.prototype.slice.call(card.querySelectorAll('.entry[data-mode="new"]')).filter(function (en) {
+        var m = en.querySelector('.miss');
+        return en.querySelector('.val').value.trim() === '' && !(m && m.checked);
+      }).map(function (en) { return en.querySelector('.val'); });
+      if (!empties.length) { msg.textContent = '채울 빈 칸이 없어요.'; return; }
       if (toks.length !== empties.length) {
         msg.textContent = '값 ' + toks.length + '개, 빈 칸 ' + empties.length + '개 — 개수가 달라서 채우지 않았어요.';
         return;
@@ -151,7 +216,7 @@
 
   function collect() {
     var out = [];
-    root.querySelectorAll('.slot').forEach(function (slot) {
+    root.querySelectorAll('.slot:not(.photo-slot)').forEach(function (slot) {
       var en = slot.querySelector('.entry[data-mode="new"]');
       if (!en) {
         var corr = slot.querySelector('.corr');
@@ -194,6 +259,84 @@
       }
     }).catch(function () { lock(false); saveMsg.textContent = '서버와 통신하지 못했어요. 입력은 그대로 남아 있어요.'; });
   });
+
+  // ---- 사진 슬롯: 선택 → 로컬 미리보기 → 등록 버튼을 눌러야 업로드 ----
+  var photoUrl = {{ url_for('lot_inspect_photo_save', lot_id=lot['id'], unit_id=unit['unit_id']) | tojson }};
+  var picked = new WeakMap(), busy = new WeakSet();
+  function pslot(el) { return el.closest('.photo-slot'); }
+  function pmsg(slot, t) { slot.querySelector('.slot-msg').textContent = t; }
+  root.addEventListener('click', function (ev) {
+    var t = ev.target, slot = pslot(t);
+    if (!slot) return;
+    if (t.classList.contains('pickBtn')) {
+      var pk = slot.querySelector('.pPick'); pk.style.display = pk.style.display === 'none' ? 'block' : 'none';
+    } else if (t.classList.contains('pCancel')) {
+      if (busy.has(slot)) return;
+      picked.delete(slot); slot.querySelector('.pPrev').style.display = 'none'; pmsg(slot, '');
+    } else if (t.classList.contains('pGo') || t.classList.contains('pRetry')) {
+      upload(slot);
+    }
+  });
+  root.addEventListener('change', function (ev) {
+    var t = ev.target, slot = pslot(t);
+    if (!slot || !t.classList.contains('pFile') || !t.files[0]) return;
+    var f = t.files[0]; t.value = '';
+    window.PhotoResize.resizeFile(f).then(function (rf) {
+      picked.set(slot, rf);
+      var pi = slot.querySelector('.pPrevImg'); if (pi.dataset.blob) URL.revokeObjectURL(pi.dataset.blob);
+      pi.dataset.blob = URL.createObjectURL(rf); pi.src = pi.dataset.blob;  // 이전 미리보기 URL 해제(누적 방지)
+      slot.querySelector('.pPrev').style.display = 'block';
+      slot.querySelector('.pPick').style.display = 'none';
+      slot.querySelector('.pRetry').style.display = 'none';
+      pmsg(slot, '');
+    });
+  });
+  function upload(slot) {
+    var f = picked.get(slot);
+    if (!f || busy.has(slot)) return;
+    var base = slot.dataset.baseRev, rs = slot.querySelector('.pReason');
+    var reason = rs ? rs.value.trim() : '';
+    if (base !== '' && !reason) { pmsg(slot, '정정 사유를 입력해줘.'); return; }
+    var fd = new FormData();
+    fd.append('item_key', slot.dataset.itemKey); fd.append('idx', slot.dataset.idx);
+    fd.append('base_rev', base); fd.append('reason', reason);
+    fd.append('photo', f, f.name || 'photo.jpg'); fd.append('csrf_token', csrf);
+    busy.add(slot);
+    var go = slot.querySelector('.pGo'); go.disabled = true; go.textContent = '업로드 중…';
+    slot.querySelector('.pRetry').style.display = 'none'; pmsg(slot, '');
+    function done() { busy.delete(slot); go.disabled = false; go.textContent = '등록'; }
+    fetch(photoUrl, {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd})
+      .then(function (r) { return r.json().then(function (d) { return {s: r.status, d: d}; }); })
+      .then(function (x) {
+        done();
+        if (x.d && x.d.ok) { applyRow(slot, x.d.row, x.d.url); return; }
+        var m = x.s === 413 ? '10MB 이하 사진만 올릴 수 있어요.' : ((x.d && x.d.error) || '업로드에 실패했어요.');
+        pmsg(slot, m);
+        if (x.s === 409) saveMsg.textContent = m;
+      }).catch(function () {
+        done(); pmsg(slot, '서버와 통신하지 못했어요.'); slot.querySelector('.pRetry').style.display = 'inline-block';
+      });
+  }
+  function applyRow(slot, row, url) {
+    slot.dataset.baseRev = row.rev;
+    var sp = slot.querySelector(':scope > span');
+    sp.className = '';
+    sp.innerHTML = '<a class="pLink" target="_blank"><img class="pThumb" alt="" style="max-width:160px; max-height:120px;"></a>';
+    sp.querySelector('a').href = url; sp.querySelector('img').src = url;
+    var meta = slot.querySelector('.pMeta');
+    if (!meta) { meta = document.createElement('small'); meta.className = 'muted pMeta'; sp.after(meta); }
+    meta.textContent = row.rev + '회차 · ' + (row.entered_by || '') + (row.reason ? ' · 정정: ' + row.reason : '') + ' · 새로고침하면 이력이 보여요';
+    var pb = slot.querySelector('.pickBtn');
+    if (!pb) { pb = document.createElement('button'); pb.type = 'button'; pb.className = 'btn secondary pickBtn'; meta.after(pb); }
+    pb.textContent = '사진 교체(정정)';
+    var pv = slot.querySelector('.pPrev'); pv.style.display = 'none';
+    if (!pv.querySelector('.pReason')) {
+      var ri = document.createElement('input'); ri.type = 'text'; ri.className = 'pReason'; ri.placeholder = '정정 사유(필수)';
+      pv.querySelector('.pPrevImg').after(ri);
+    }
+    pv.querySelector('.pReason').value = '';
+    picked.delete(slot); slot.querySelector('.pPick').style.display = 'none';
+  }
 })();
 </script>
 {% endif %}

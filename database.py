@@ -2,7 +2,7 @@
 # Copyright (c) 2026 윤주호. All rights reserved.
 # 무단 복제·배포·수정을 금합니다.
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
-import functools, hashlib, json, re, sqlite3, os, time
+import functools, hashlib, json, re, sqlite3, os, time, uuid
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 from decimal import Decimal as _Dec, InvalidOperation as _DecInvalid
 
@@ -1190,12 +1190,15 @@ def init_db():
             entered_by    TEXT,
             entered_by_user_id INTEGER,
             entered_at    TEXT NOT NULL,
+            file_sha256   TEXT,
             UNIQUE(inspection_id, unit_id, item_key, idx, rev)
         )
     """)
     _lir_cols = [r[1] for r in cur.execute("PRAGMA table_info(lot_inspection_results)").fetchall()]
     if "entered_by_user_id" not in _lir_cols:
         _safe_add_column(cur, "ALTER TABLE lot_inspection_results ADD COLUMN entered_by_user_id INTEGER")
+    if "file_sha256" not in _lir_cols:
+        _safe_add_column(cur, "ALTER TABLE lot_inspection_results ADD COLUMN file_sha256 TEXT")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_lir_slot ON lot_inspection_results"
                 "(inspection_id, unit_id, item_key, idx)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_lir_unit ON lot_inspection_results(inspection_id, unit_id)")
@@ -4917,6 +4920,8 @@ def summarize_unit_item(item, cur):
     """한 완제품·한 항목의 현재 상태. cur = {idx: 현재 행}. 저장하지 않고 조회 때 계산한다.
     fail / incomplete(빈 칸 있음) / missing_only(전부 결측 — 합격 아님) / nospec / pass."""
     rows = [cur[i] for i in range(1, item["required_n"] + 1) if i in cur]
+    if item["input_type"] == "photo":  # 합격이 아니라 "필요 장수 모두 등록됨"일 뿐
+        return "recorded" if len(rows) >= item["required_n"] else "incomplete"
     if any(r["verdict"] == "fail" for r in rows):
         return "fail"
     if len(rows) < item["required_n"]:
@@ -4926,6 +4931,15 @@ def summarize_unit_item(item, cur):
     if any(r["verdict"] == "nospec" for r in rows):
         return "nospec"
     return "pass"
+
+
+def product_photo_base(inspection_id, unit_id, item_key, idx):
+    """제품검사 사진 저장 파일명 base(확장자 없음) — 파일명 규칙의 단일 출처."""
+    return f"pi{inspection_id}_{unit_id}_{item_key}_{idx}_{uuid.uuid4().hex[:8]}"
+
+
+def is_product_photo_name(name):
+    return bool(re.fullmatch(r"pi\d+_\d+_[A-Za-z0-9_]{1,40}_\d+_[0-9a-f]{8}\.jpg", name or ""))
 
 
 def _slot_current(conn, inspection_id, unit_id=None):
@@ -5013,13 +5027,9 @@ def list_inspection_units(lot_id):
         prog = []
         for it in items:
             c = cur.get(u["id"], {}).get(it["key"], {})
-            if it["input_type"] == "photo":
-                prog.append({"key": it["key"], "name": it["name"], "filled": 0,
-                             "required": it["required_n"], "state": "photo_pending"})
-                continue
             prog.append({"key": it["key"], "name": it["name"], "filled": len(c),
                          "required": it["required_n"], "state": summarize_unit_item(it, c)})
-        states = [p["state"] for p in prog if p["state"] != "photo_pending"]
+        states = [p["state"] for p in prog]
         overall = ("fail" if "fail" in states else
                    "incomplete" if (not states or "incomplete" in states) else "all_filled")
         out.append({"unit_id": u["id"], "serial_raw": u["serial_raw"], "past_serials": u["past_serials"],
@@ -5045,10 +5055,14 @@ def get_unit_results(inspection_id, unit_id):
 
 
 @_write_retry
-def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False, actor_id=None):
+def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False, actor_id=None,
+                      photo_files=None):
     """측정값 최초 입력·정정 저장 → 저장 행 수. 한 칸이라도 거부되면 전체 rollback.
     actor=표시명(감사용 스냅샷), actor_id=계정 id("본인" 판정 기준; None이면 본인 불인정).
-    entries=[{item_key, idx, raw, base_rev(None=최초 입력), reason, missing}]."""
+    entries=[{item_key, idx, raw, base_rev(None=최초 입력), reason, missing}].
+    photo_files={(item_key, idx): (저장파일명, 원본파일명, sha256)} — 사진 업로드 라우트만 넘긴다
+    (일괄 저장 라우트는 안 넘기므로 photo 칸은 거부 → 클라이언트가 임의 파일명을 끼워 넣을 수 없다)."""
+    photo_files = photo_files or {}
     if not entries:
         raise ValueError("저장할 내용이 없어요.")
     conn = get_conn()
@@ -5074,8 +5088,11 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
             it = items.get(key)
             if not it:
                 raise SlotError("알 수 없는 검사 항목이에요.", key, idx)
-            if it["input_type"] == "photo":
-                raise SlotError("사진 입력은 다음 단계(1D-b2)에서 지원돼요.", key, idx)
+            is_photo = it["input_type"] == "photo"
+            if is_photo and (key, idx) not in photo_files:
+                raise SlotError("사진은 사진 업로드 버튼으로만 등록할 수 있어요.", key, idx)
+            if not is_photo and (key, idx) in photo_files:
+                raise SlotError("사진 항목이 아니에요.", key, idx)
             if not 1 <= idx <= it["required_n"]:
                 raise SlotError("칸 번호가 범위를 벗어났어요.", key, idx)
             if (key, idx) in seen:
@@ -5107,8 +5124,16 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
                 if not is_own and not can_correct_others:
                     raise SlotError("다른 사람이 입력한 값은 정정 권한이 있어야 고칠 수 있어요.", key, idx)
                 rev, etype = cur["rev"] + 1, "correction"
+            sha = None
             try:
-                if e.get("missing"):
+                if is_photo:
+                    if e.get("missing"):
+                        raise ValueError("사진은 결측으로 입력할 수 없어요.")
+                    val, vin, sha = photo_files[(key, idx)]
+                    if not re.fullmatch(rf"pi{insp['id']}_{unit_id}_{re.escape(key)}_{idx}_[0-9a-f]{{8}}\.jpg", val or ""):
+                        raise ValueError("사진 파일 정보가 올바르지 않아요.")
+                    miss, verdict = 0, "recorded"
+                elif e.get("missing"):
                     if not it["allow_missing"]:
                         raise ValueError("이 항목은 결측으로 입력할 수 없어요.")
                     vin = val = None
@@ -5126,16 +5151,16 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
                 raise
             except ValueError as ve:
                 raise SlotError(str(ve), key, idx)
-            if cur and cur["is_missing"] == miss and cur["value"] == val:
+            if not is_photo and cur and cur["is_missing"] == miss and cur["value"] == val:
                 raise SlotError("변경 없음 — 현재 값과 같아요.", key, idx)
             try:
                 conn.execute(
                     "INSERT INTO lot_inspection_results (inspection_id, unit_id, item_key, idx, rev, "
                     "entry_type, value_input, value, is_missing, verdict, reason, roster_member, "
-                    "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at, file_sha256) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (insp["id"], unit_id, key, idx, rev, etype, vin, val, miss, verdict, reason,
-                     roster, serial, lot["lot_revision"], actor, actor_id, _utc_now()))
+                     roster, serial, lot["lot_revision"], actor, actor_id, _utc_now(), sha))
             except sqlite3.IntegrityError as ie:
                 if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
                     raise

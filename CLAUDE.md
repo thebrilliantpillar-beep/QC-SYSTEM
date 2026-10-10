@@ -1767,8 +1767,21 @@ def _safe_add_column(cur, alter_sql):
   연결하지 않고 현재 S/N을 안내한다. 시작 후 추가·시작 전 제외 후 복구 unit은 같은 검사에서
   입력 가능(`roster_member=0`, '시작 후 합류'), 제외된 unit은 입력·정정 차단·열람만.
 - **allow_missing 항목이 전부 결측이면 합격으로 치지 않는다**(`missing_only`).
-- **photo 항목은 1D-b1에서 입력 불가라 진행도·overall에서 제외돼 있다 — 1D-b2에서 사진 입력을
-  구현하면 반드시 다시 포함시킬 것**(안 그러면 사진 미입력 unit이 '입력 완료'로 보인다).
 - 완료 요청·항목 잠금은 만들지 않았다(사용자 확정, 4번 단계 또는 1D-c).
-- 붙여넣기 버튼은 '저장 전 입력칸 전체'를 빈 칸으로 센다(이미 타이핑한 칸 포함) — 알려진 경미한 UX.
 - 검증 스크립트는 저장소 밖 scratchpad의 v1db1.py(격리 DB 시나리오 15개)와 CDP 실입력 e2e를 썼다.
+
+### 27-1. 사진 항목(1D-b2, 2026-10-10)
+- 사진 한 장=슬롯(item_key, idx) 하나. `value`=서버가 만든 파일명(`pi{inspection_id}_{unit_id}_{item_key}_{idx}_{uuid8}.jpg`,
+  규칙의 단일 출처는 `database.product_photo_base()`/`is_product_photo_name()`), `value_input`=정제한 원본명(표시용, 저장 파일명엔 절대 안 씀),
+  `verdict='recorded'`, `file_sha256`=저장 파일 해시(4번 단계는 현재 행 `value`로 파일을 찾고 이 해시로 무결성을 확인할 것).
+- **정정=새 rev 행+새 파일, 구 파일은 영구 보존·삭제 기능 없음**. 업로드는 `lot_inspect_photo_save` 하나뿐이고(`@perm_required("process_input")` 단독),
+  숫자 일괄 저장 `lot_inspect_save`는 photo entry를 계속 거부한다(`save_unit_results(photo_files=...)`는 업로드 라우트만 넘김 — 임의 파일명 우회 차단).
+  저장 파일명은 `pi{insp.id}_{unit}_{key}_{idx}_` 접두 검사로 다른 슬롯·unit 파일을 끼워 넣을 수 없다.
+- 업로드 UX는 '선택 → 로컬 미리보기 → 등록 버튼'(선택 즉시 업로드 금지, 사용자 확정). 파일 저장은 DB 락 밖에서 하고, 저장 후 DB 쓰기가 실패하면 **새 파일만** 지운다.
+  `_save_ncr_photo`는 어떤 예외든 원본 바이트를 .jpg로 저장하는 폴백이 있어서 앞단 `_save_inspection_photo`가 `im.load()`(전체 디코드, `verify()`는 잘린 JPEG를 통과시킴)로 선검증한다.
+  1280px/JPEG 80%, 10MB·80M픽셀 제한, 확장자 jpg/jpeg/png/gif/webp.
+- **진행도에서 photo 재포함 완료**: 필요 장수가 다 등록되면 `recorded`, 아니면 `incomplete`. **`recorded`는 합격이 아니라 '등록 완료'다 — 4번 단계 승인 게이트는 완료 근거로만 쓰고 합격 근거로 쓰지 말 것.**
+- **한계(사용자 확정, Q4)**: 사진 폴더(`DATA_DIR/product_inspection_photos`)는 `backups/` DB 스냅샷에 포함되지 않는다(디스크 장애 시 DB는 남아도 사진 소실 가능).
+  `data_migrate` 폴더 목록에도 이 폴더와 `outbound_photos`가 없다. Render 디스크 실제 한도는 50GB(2026-10-10 Render 대시보드 Metrics 캡처로 확인, render.yaml의 1GB 표기와 다름)이고 당시 사용량은 거의 0%, 인스턴스 메모리 한도 512MB·CPU 0.5(그래서 업로드 본문 크기는 파싱 전에 차단해야 함). 고아 파일 자동 정리·용량 제한 없음.
+- **업로드 본문 크기는 요청 클래스에서 파싱 전에 제한한다**(Codex 지적, TASK #144). `CSRFProtect`의 before_request가 라우트보다 먼저 `request.form`을 읽어 큰 multipart 본문 전체를 파싱하므로, 라우트 안에서 한도를 걸면 이미 늦다. `_AppRequest`(Request 서브클래스)의 `max_content_length`가 사진 업로드 경로 POST에만 11MB를 돌려주고, `RequestEntityTooLarge` 전용 errorhandler가 JSON/flash 413으로 바꾼다(다른 업로드엔 한도 없음). **보안·요청 처리 테스트는 반드시 `WTF_CSRF_ENABLED=True`로 할 것 — CSRF를 꺼둔 테스트는 이 경로를 아예 안 타서 무효 수정이 통과했었다.** chunked(Content-Length 없음)는 약 11MB까지 읽은 뒤 413.
+- 검증은 저장소 밖 scratchpad의 v1db2.py(격리 DB 129건, CSRF ON 섹션 포함)와 CDP 실제 파일 주입 e2e(업로드·정정·가짜 이미지 거부), 붙여넣기 실입력을 썼다. 실제 폰 카메라(`capture`)는 검증하지 못했다.
