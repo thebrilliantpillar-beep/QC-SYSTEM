@@ -63,6 +63,28 @@
     .photo-slot .pPick label.btn:last-child { margin-bottom: 0; }
     .photo-slot .pThumb { max-width: min(100%, 180px) !important; max-height: 135px !important; }
   }
+  /* 단계 배너: 제목(+배지) 한 줄, 시각·완료자 문구는 아래 줄, 동작 영역은 전체 폭 */
+  #stageBanner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+                 border-left: 4px solid var(--primary); padding: 14px 14px; }
+  #stageBanner > b { font-size: 18px; line-height: 1.35; color: var(--primary-dark); }
+  #stageBanner > small { flex: 1 0 100%; font-size: 13px; line-height: 1.5; }
+  #stageBanner > .badge { margin: 0; }
+  #stageBanner > div:not(#blockerList) { flex: 1 0 100%; margin-top: 6px !important; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  #completeBtn { flex: 1 1 100%; min-height: 52px !important; font-size: 17px; margin: 0; }
+  #completeBtn:disabled { opacity: .5; cursor: not-allowed; }
+  #completeHint { flex: 1 0 100%; font-size: 13px; line-height: 1.5; color: var(--primary-dark); }
+  #completeHint:empty { display: none; }
+  #reopenReason { flex: 1 1 220px; min-width: 0; min-height: 48px !important; font-size: 16px; margin: 0; }
+  #reopenBtn { flex: 0 0 auto; min-height: 48px !important; min-width: 120px; margin: 0; }
+  #blockerList { flex: 1 0 100%; color: var(--text); font-size: 15px; }
+  #blockerList:empty { display: none; }
+  #blockerList a { display: flex; align-items: center; min-height: 44px; margin-top: 6px; padding: 8px 12px;
+                   border-radius: 8px; background: #ECEEF2; border-left: 4px solid var(--primary);
+                   color: var(--primary-dark); font-weight: 600; text-decoration: none; line-height: 1.4; }
+  #stageBanner > details { flex: 1 0 100%; font-size: 13px; border-top: 1px solid var(--border); margin-top: 4px; }
+  #stageBanner > details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--primary); font-weight: 600; }
+  #stageBanner > details ul { margin: 0 0 6px; padding-left: 18px; line-height: 1.7; color: #4b5563; }
+  @media (max-width: 480px) { #reopenBtn { flex: 1 1 100%; } #stageBanner > b { font-size: 17px; } }
   #inspectRoot { padding-bottom: 12px; }
   #saveBar { position: sticky; bottom: 0; z-index: 20; padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
              background: var(--bg); border-top: 1px solid var(--border); box-shadow: 0 -4px 10px rgba(36,52,79,.08); }
@@ -83,11 +105,49 @@
 {% elif unit['status'] != 'active' %}<div class="card"><b>제외된 완제품 — 열람만 가능 (복구하면 다시 입력할 수 있어요)</b></div>
 {% elif not can_input %}<div class="card"><b>입력 권한이 없어서 열람만 할 수 있어요.</b></div>{% endif %}
 
-<div id="inspectRoot" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+{% set stage = unit['stage'] %}
+{% set comp = unit['completion'] %}
+{% set can_write = (not read_only) and can_input and (not is_done or can_correct_others) %}
+<div class="card" id="stageBanner" data-digest="{{ digest }}"
+     data-complete-url="{{ url_for('lot_inspect_complete', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
+     data-reopen-url="{{ url_for('lot_inspect_reopen', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+  {% if stage == 'completed' %}
+  <b>검사 완료(입력 끝)</b>
+  {% if unit['has_fail'] %}<span class="badge fail">NG 포함</span>{% endif %}
+  <small class="muted">{{ comp['at'] | datetime_korean }} · {{ comp['by_name'] or '' }} · 완료는 합격 판정이 아니에요</small>
+  {% elif stage == 'ready' %}<b>입력 끝 — 검사 완료를 요청할 수 있어요</b>{% if unit['has_fail'] %} <span class="badge fail">NG 포함</span>{% endif %}
+  {% elif stage == 'in_progress' %}<b>입력 중</b>
+  {% else %}<b>미시작</b>{% endif %}
+  {% if comp and comp['reopened'] and stage != 'completed' %}
+  <span class="badge pending">재개됨</span> <small class="muted">{{ comp['reason'] or '' }} ({{ comp['by_name'] or '' }}, {{ comp['at'] | datetime_korean }})</small>
+  {% endif %}
+  {% if (not read_only) and can_input and stage == 'ready' %}
+  <div style="margin-top:8px;">
+    <button type="button" class="btn" id="completeBtn" style="min-height:48px;">검사 완료 요청</button>
+    <small class="muted" id="completeHint"></small>
+  </div>
+  {% endif %}
+  {% if (not read_only) and can_reopen and stage == 'completed' %}
+  <div style="margin-top:8px;">
+    <input type="text" id="reopenReason" placeholder="완료 취소 사유(필수)" style="min-height:48px;">
+    <button type="button" class="btn secondary" id="reopenBtn" style="min-height:48px;">완료 취소(재개)</button>
+  </div>
+  {% endif %}
+  <div id="blockerList" class="slot-msg"></div>
+  {% if events %}
+  <details><summary>완료 이력 ({{ events | length }}건)</summary>
+    <ul>{% for ev in events %}
+      <li>{{ ev['seq'] }}. {{ '완료' if ev['event_type'] == 'complete' else '재개' }}{% if ev['source'] == 'correction' %}(값 정정){% endif %} · {{ ev['by_name'] or '' }} · {{ ev['at'] | datetime_korean }}{% if ev['reason'] %} · 사유: {{ ev['reason'] }}{% endif %}</li>
+    {% endfor %}</ul>
+  </details>
+  {% endif %}
+</div>
+
+<div id="inspectRoot" data-done="{{ 1 if is_done else 0 }}" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
 {% for it in items %}
 <div class="card item" data-item-key="{{ it['key'] }}">
   <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }} <small class="muted">{{ it['spec_text'] if it['input_type'] != 'photo' else '' }} · {% if it['input_type'] == 'photo' %}필요 {{ it['required_n'] }}장{% else %}{{ it['required_n'] }}개{% endif %}</small></h3>
-  {% set editable = (not read_only) and can_input %}
+  {% set editable = can_write %}
   {% if it['input_type'] == 'photo' %}
   {% for idx in range(1, it['required_n'] + 1) %}
   {% set sl = results.get(it['key'], {}).get(idx) %}
@@ -108,7 +168,7 @@
         {% endfor %}</ul>
       </details>
       {% endif %}
-    {% elif editable %}
+    {% elif editable and not is_done %}
       <span class="muted">미등록</span>
       <button type="button" class="btn secondary pickBtn">사진 올리기</button>
     {% else %}
@@ -163,7 +223,7 @@
         {% endfor %}</ul>
       </details>
       {% endif %}
-    {% elif editable %}
+    {% elif editable and not is_done %}
       {{ entry(it, 'new', false) }}
     {% else %}
       <span class="muted">미입력</span>
@@ -176,7 +236,7 @@
 {% endfor %}
 </div>
 
-{% if (not read_only) and can_input %}
+{% if can_write %}
 <script src="{{ url_for('static', filename='photo_resize.js') }}"></script>
 <div id="saveBar">
   <div id="saveMsg" class="slot-msg"></div>
@@ -336,7 +396,63 @@
     }
     pv.querySelector('.pReason').value = '';
     picked.delete(slot); slot.querySelector('.pPick').style.display = 'none';
+    // 사진이 저장되면 서버 digest가 바뀐다 — 완료 unit이면 재개 상태를 보이도록 새로고침, 아니면 완료 버튼만 막는다
+    if (root.dataset.done === '1') { location.reload(); return; }
+    if (window.inspectMarkChanged) window.inspectMarkChanged(true);
   }
+})();
+</script>
+{% endif %}
+{% if (not read_only) and (can_input or can_reopen) %}
+<script>
+(function () {
+  var banner = document.getElementById('stageBanner'), root = document.getElementById('inspectRoot');
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  var cb = document.getElementById('completeBtn'), hint = document.getElementById('completeHint');
+  var list = document.getElementById('blockerList');
+  var dirty = false, stale = false;
+  function refresh() {
+    if (!cb) return;
+    cb.disabled = dirty || stale;
+    hint.textContent = dirty ? ' 저장하지 않은 입력이 있어요. 저장 먼저 해줘.' : (stale ? ' 사진이 바뀌었어요. 새로고침 후 요청해줘.' : '');
+  }
+  window.inspectMarkChanged = function (isStale) { if (isStale) stale = true; refresh(); };
+  root.addEventListener('input', function (ev) {
+    if (ev.target.closest('.entry')) { dirty = true; refresh(); }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.closest('.entry')) { dirty = true; refresh(); }
+  });
+  root.addEventListener('click', function (ev) {
+    if (ev.target.classList.contains('okng')) { dirty = true; refresh(); }
+  });
+  function post(url, body, btn) {
+    btn.disabled = true; list.textContent = '';
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf,
+                'X-Requested-With': 'XMLHttpRequest'}, body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) { location.reload(); return; }
+        btn.disabled = false; refresh();
+        var bl = d.blockers || [];
+        if (!bl.length) { list.textContent = d.error || '처리하지 못했어요.'; return; }
+        bl.forEach(function (b) {
+          var a = document.createElement('a'); a.href = '#'; a.textContent = b.msg; a.style.display = 'block';
+          a.addEventListener('click', function (e) {
+            e.preventDefault();
+            var c = b.item_key && root.querySelector('.item[data-item-key="' + b.item_key + '"]');
+            if (c) c.scrollIntoView({behavior: 'smooth', block: 'center'});
+          });
+          list.appendChild(a);
+        });
+      }).catch(function () { btn.disabled = false; refresh(); list.textContent = '서버와 통신하지 못했어요. 입력은 그대로 남아 있어요.'; });
+  }
+  if (cb) cb.addEventListener('click', function () { post(banner.dataset.completeUrl, {seen_digest: banner.dataset.digest}, cb); });
+  var rb = document.getElementById('reopenBtn');
+  if (rb) rb.addEventListener('click', function () {
+    var rs = document.getElementById('reopenReason').value.trim();
+    if (!rs) { list.textContent = '완료 취소 사유를 입력해줘.'; return; }
+    post(banner.dataset.reopenUrl, {reason: rs}, rb);
+  });
 })();
 </script>
 {% endif %}

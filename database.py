@@ -1204,6 +1204,32 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_lir_unit ON lot_inspection_results(inspection_id, unit_id)")
     # ---- 2026-10-10 신규(1D-b1) 끝 ----
 
+    # ---- 2026-10-11 신규: 제품검사 완료·재개 (TASK #145 패키지 1D-c1) ----
+    # lot_inspection_unit_events는 append-only — UPDATE/DELETE 구문·함수·UI를 만들지 말 것.
+    # 현재 상태 = unit별 MAX(seq) 행의 event_type.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS lot_inspection_unit_events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES production_lot_inspections(id),
+            unit_id       INTEGER NOT NULL REFERENCES finished_units(id),
+            seq           INTEGER NOT NULL,
+            event_type    TEXT NOT NULL,
+            source        TEXT NOT NULL,
+            reason        TEXT,
+            results_digest TEXT NOT NULL,
+            summary_json  TEXT,
+            roster_member INTEGER NOT NULL,
+            serial_at_event TEXT,
+            lot_revision  INTEGER NOT NULL,
+            by_name       TEXT,
+            by_user_id    INTEGER,
+            at            TEXT NOT NULL,
+            UNIQUE(inspection_id, unit_id, seq)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_liue_unit ON lot_inspection_unit_events(inspection_id, unit_id)")
+    # ---- 2026-10-11 신규(1D-c1) 끝 ----
+
     # ---- 2026-09-15 확장: 차수(=배치) 계획 ----
     existing_ob_cols = [row[1] for row in cur.execute("PRAGMA table_info(outbound_batches)").fetchall()]
     for col in ("round_no", "confirmed_by", "confirmed_at", "confirm_signature"):
@@ -5020,21 +5046,41 @@ def list_inspection_units(lot_id):
         cur = {}
         for r in _slot_current(conn, insp["id"]):
             cur.setdefault(r["unit_id"], {}).setdefault(r["item_key"], {})[r["idx"]] = r
+        latest = _unit_events_latest(conn, insp["id"])
     finally:
         conn.close()
     out = []
     for u in get_production_lot_units(lot_id):
+        ucur = cur.get(u["id"], {})
         prog = []
         for it in items:
-            c = cur.get(u["id"], {}).get(it["key"], {})
+            c = ucur.get(it["key"], {})
             prog.append({"key": it["key"], "name": it["name"], "filled": len(c),
                          "required": it["required_n"], "state": summarize_unit_item(it, c)})
         states = [p["state"] for p in prog]
         overall = ("fail" if "fail" in states else
                    "incomplete" if (not states or "incomplete" in states) else "all_filled")
+        ev = latest.get(u["id"])
+        # ready = 모든 항목의 칸이 다 찼음(fail이 있어도 칸이 차 있으면 입력 끝)
+        all_filled = bool(items) and all(p["filled"] >= p["required"] for p in prog)
+        if ev and ev["event_type"] == "complete":
+            stage = "completed"
+        elif all_filled:
+            stage = "ready"
+        elif ev or ucur:
+            stage = "in_progress"
+        else:
+            stage = "not_started"
+        has_fail = "fail" in states
+        completion = None
+        if ev:
+            completion = {"event_type": ev["event_type"], "source": ev["source"], "reason": ev["reason"],
+                          "at": ev["at"], "by_name": ev["by_name"], "seq": ev["seq"],
+                          "results_digest": ev["results_digest"], "reopened": ev["event_type"] == "reopen"}
         out.append({"unit_id": u["id"], "serial_raw": u["serial_raw"], "past_serials": u["past_serials"],
                     "status": u["status"], "model_mismatch": bool(u["model_mismatch"]),
-                    "roster_member": u["id"] in roster, "progress": prog, "overall": overall})
+                    "roster_member": u["id"] in roster, "progress": prog, "overall": overall,
+                    "stage": stage, "completion": completion, "has_fail": has_fail})
     return out
 
 
@@ -5056,7 +5102,7 @@ def get_unit_results(inspection_id, unit_id):
 
 @_write_retry
 def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False, actor_id=None,
-                      photo_files=None):
+                      photo_files=None, can_correct_completed=False):
     """측정값 최초 입력·정정 저장 → 저장 행 수. 한 칸이라도 거부되면 전체 rollback.
     actor=표시명(감사용 스냅샷), actor_id=계정 id("본인" 판정 기준; None이면 본인 불인정).
     entries=[{item_key, idx, raw, base_rev(None=최초 입력), reason, missing}].
@@ -5073,6 +5119,14 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
             raise ValueError("이 LOT의 완제품이 아니에요.")
         if u["status"] != "active":
             raise ValueError("제외된 완제품은 입력/정정할 수 없어요.")
+        last_ev = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? "
+                               "AND unit_id=? ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        was_done = bool(last_ev and last_ev["event_type"] == "complete")
+        if was_done:  # 완료된 S/N은 정정 권한자만, 정정하면 같은 트랜잭션에서 자동 재개
+            if unit_has_final_document(unit_id):
+                raise ValueError(_FINAL_DOC_UNIT_MSG)
+            if not can_correct_completed:
+                raise ValueError("완료된 S/N이에요. 값을 고치려면 정정 권한이 필요해요.")
         items = {i["key"]: i for i in json.loads(insp["items_json"])}
         roster = 1 if unit_id in _roster_ids(insp) else 0
         sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
@@ -5105,6 +5159,8 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
                     base = int(base)
                 except (TypeError, ValueError):
                     raise SlotError("회차 정보가 올바르지 않아요.", key, idx)
+            if was_done and base is None:
+                raise SlotError("완료된 S/N은 새로 입력할 수 없어요. 먼저 완료를 취소(재개)해줘.", key, idx)
             cur = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
                                "AND item_key=? AND idx=? ORDER BY rev DESC LIMIT 1",
                                (insp["id"], unit_id, key, idx)).fetchone()
@@ -5165,6 +5221,10 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
                 if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
                     raise
                 raise SlotError("다른 사람이 먼저 입력했어요. 새로고침해줘.", key, idx)
+        if was_done:
+            reasons = list(dict.fromkeys((e.get("reason") or "").strip() for e in entries))
+            why = "; ".join(r for r in reasons if r)[:200] or "값 정정"
+            _append_unit_event(conn, insp, unit_id, "reopen", "correction", why, actor, actor_id)
         conn.commit()
         return len(entries)
     except Exception:
@@ -5201,6 +5261,230 @@ def list_post_start_units(lot_id):
     finally:
         conn.close()
     return {"units": units, "events": ev}
+
+
+# ---------- 제품검사 S/N 완료·재개 (TASK #145 패키지 1D-c1) ----------
+# 계약: lot_inspection_unit_events는 append-only(UPDATE/DELETE 금지). 완료 = "검사 입력 끝"이지 합격이 아니다.
+# 완료 요청은 '대기'를 저장하지 않고 한 트랜잭션에서 전 조건을 다시 검증해 성공하면 complete 이벤트만 만든다.
+
+class CompletionBlocked(ValueError):
+    """완료 거부 — blockers=[{code, item_key, name, msg}, ...]."""
+    def __init__(self, blockers):
+        self.blockers = blockers
+        super().__init__(blockers[0]["msg"] if blockers else "완료할 수 없어요.")
+
+
+def _blk(code, msg, item_key=None, name=None):
+    return {"code": code, "item_key": item_key, "name": name, "msg": msg}
+
+
+def _digest_rows(rows):
+    """현재 결과 행 목록 → digest (슬롯 정렬 후 sha256). 완료 이벤트·4번 단계가 같은 값을 쓴다."""
+    lst = sorted(([r["item_key"], r["idx"], r["rev"], r["value"], r["is_missing"], r["file_sha256"]]
+                  for r in rows), key=lambda x: (x[0], x[1]))
+    return _sha(lst)
+
+
+def _results_digest(conn, inspection_id, unit_id):
+    return _digest_rows(_slot_current(conn, inspection_id, unit_id))
+
+
+def digest_from_results(results):
+    """get_unit_results()가 돌려준 값(화면에 그린 것)에서 같은 digest를 계산 — 화면과 digest가 어긋나지 않게."""
+    return _digest_rows([s["current"] for slots in results.values() for s in slots.values()])
+
+
+def unit_results_digest(lot_id, unit_id):
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return None
+    conn = get_conn()
+    try:
+        return _results_digest(conn, insp["id"], unit_id)
+    finally:
+        conn.close()
+
+
+def _unit_events_latest(conn, inspection_id):
+    """{unit_id: 최신(MAX seq) 이벤트 행}"""
+    rows = conn.execute(
+        "SELECT e.* FROM lot_inspection_unit_events e WHERE e.inspection_id=? AND e.seq = "
+        "(SELECT MAX(x.seq) FROM lot_inspection_unit_events x WHERE x.inspection_id=e.inspection_id "
+        "AND x.unit_id=e.unit_id)", (inspection_id,)).fetchall()
+    return {r["unit_id"]: r for r in rows}
+
+
+def unit_completion_state(lot_id, unit_id):
+    """list_inspection_units 한 건(stage·completion·has_fail 포함). 없으면 None."""
+    return next((u for u in list_inspection_units(lot_id) if u["unit_id"] == unit_id), None)
+
+
+def list_unit_events(inspection_id, unit_id):
+    conn = get_conn()
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? ORDER BY seq",
+            (inspection_id, unit_id))]
+    finally:
+        conn.close()
+
+
+def unit_photo_rows(lot_id, unit_id):
+    """현재 사진 행 [{item_key, name, idx, value, file_sha256}] — 완료 요청 전 파일 확인용(읽기)."""
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return []
+    photo = {i["key"]: i["name"] for i in insp["items"] if i["input_type"] == "photo"}
+    conn = get_conn()
+    try:
+        rows = _slot_current(conn, insp["id"], unit_id)
+    finally:
+        conn.close()
+    return [{"item_key": r["item_key"], "name": photo[r["item_key"]], "idx": r["idx"], "value": r["value"],
+             "file_sha256": r["file_sha256"]} for r in rows if r["item_key"] in photo]
+
+
+def _unit_progress(items, cur):
+    """항목별 {key,name,filled,required,state,fail_count,missing_count}. cur={item_key:{idx:행}}."""
+    out = []
+    for it in items:
+        c = cur.get(it["key"], {})
+        rows = [c[i] for i in range(1, it["required_n"] + 1) if i in c]
+        out.append({"key": it["key"], "name": it["name"], "filled": len(rows), "required": it["required_n"],
+                    "state": summarize_unit_item(it, c),
+                    "fail_count": sum(1 for r in rows if r["verdict"] == "fail"),
+                    "missing_count": sum(1 for r in rows if r["is_missing"])})
+    return out
+
+
+def _append_unit_event(conn, insp, unit_id, event_type, source, reason, actor, actor_id, summary=None):
+    """이벤트 한 줄 추가. 이미 _insp_begin으로 잠긴 트랜잭션 안에서만 부를 것(commit은 호출한 쪽)."""
+    seq = conn.execute("SELECT COALESCE(MAX(seq),0)+1 FROM lot_inspection_unit_events WHERE inspection_id=? "
+                       "AND unit_id=?", (insp["id"], unit_id)).fetchone()[0]
+    lot = conn.execute("SELECT lot_revision FROM production_lots WHERE id=?", (insp["lot_id"],)).fetchone()
+    sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                      (unit_id,)).fetchone()
+    conn.execute(
+        "INSERT INTO lot_inspection_unit_events (inspection_id, unit_id, seq, event_type, source, reason, "
+        "results_digest, summary_json, roster_member, serial_at_event, lot_revision, by_name, by_user_id, at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (insp["id"], unit_id, seq, event_type, source, reason, _results_digest(conn, insp["id"], unit_id),
+         _canon(summary) if summary is not None else None, 1 if unit_id in _roster_ids(insp) else 0,
+         sa["serial_raw"] if sa else None, lot["lot_revision"], actor, actor_id, _utc_now()))
+    return seq
+
+
+def _unit_in_lot(conn, lot_id, unit_id):
+    u = conn.execute("SELECT lot_id, status, model_mismatch FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+    if not u or u["lot_id"] != lot_id:
+        raise ValueError("이 LOT의 완제품이 아니에요.")
+    return u
+
+
+@_write_retry
+def complete_unit_inspection(lot_id, unit_id, actor, actor_id, expected_digest, photo_blockers=None):
+    """S/N 검사 완료(=입력 끝) 기록. 차단 사유가 하나라도 있으면 CompletionBlocked(.blockers) — 입력은 그대로.
+    NG(fail)·전부 결측·모델 불일치는 차단하지 않고 summary에만 남긴다. photo_blockers=라우트가 락 밖에서 확인한 파일 문제."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        u = _unit_in_lot(conn, lot_id, unit_id)
+        if u["status"] != "active":
+            raise CompletionBlocked([_blk("unit_excluded", "제외된 완제품은 완료할 수 없어요.")])
+        last = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        if last and last["event_type"] == "complete":
+            raise CompletionBlocked([_blk("already_completed", "이미 완료됐어요.")])
+        cur = {}
+        for r in _slot_current(conn, insp["id"], unit_id):
+            cur.setdefault(r["item_key"], {})[r["idx"]] = r
+        items = json.loads(insp["items_json"])
+        prog = _unit_progress(items, cur)
+        blockers = []
+        for it, p in zip(items, prog):
+            if p["filled"] < p["required"]:
+                unit_word = "장" if it["input_type"] == "photo" else "개"
+                blockers.append(_blk("incomplete", f"{p['name']}: {p['required']}{unit_word} 중 {p['filled']}{unit_word}만 "
+                                     "입력됐어요.", p["key"], p["name"]))
+            elif p["state"] == "nospec":
+                blockers.append(_blk("nospec", f"{p['name']}: 규격이 없어서 완료할 수 없어요.", p["key"], p["name"]))
+        digest = _results_digest(conn, insp["id"], unit_id)
+        if expected_digest != digest:
+            blockers.insert(0, _blk("stale", "화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘."))
+        blockers.extend(photo_blockers or [])
+        # locked_by_other: 항목 잠금(1D-c2)에서 추가 예정
+        if blockers:
+            raise CompletionBlocked(blockers)
+        summary = {"items": prog,
+                   "has_fail": any(p["state"] == "fail" for p in prog),
+                   "fail_items": [p["key"] for p in prog if p["fail_count"]],
+                   "missing_only_items": [p["key"] for p in prog if p["state"] == "missing_only"],
+                   "model_mismatch": bool(u["model_mismatch"])}
+        try:
+            seq = _append_unit_event(conn, insp, unit_id, "complete", "user", None, actor, actor_id, summary)
+        except sqlite3.IntegrityError as ie:
+            if "lot_inspection_unit_events" not in str(ie) or "UNIQUE" not in str(ie):
+                raise
+            raise ValueError("다른 사람이 먼저 처리했어요. 새로고침해줘.")
+        conn.commit()
+        return {"seq": seq, "digest": digest, "has_fail": summary["has_fail"], "summary": summary}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def reopen_unit_completion(lot_id, unit_id, reason, actor, actor_id, source="user"):
+    """완료 취소(재개) — 사유 필수. 값 정정에 따른 자동 재개(source='correction')는 save_unit_results가 한다."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("완료를 취소하는 사유를 입력해줘.")
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        u = _unit_in_lot(conn, lot_id, unit_id)
+        if u["status"] != "active":
+            raise ValueError("제외된 완제품은 완료를 취소할 수 없어요.")
+        last = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        if not last or last["event_type"] != "complete":
+            raise ValueError("완료된 S/N이 아니에요.")
+        if unit_has_final_document(unit_id):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
+        seq = _append_unit_event(conn, insp, unit_id, "reopen", source, reason[:200], actor, actor_id)
+        conn.commit()
+        return seq
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def unit_completion_valid(lot_id, unit_id):
+    """(유효한가, 이유) — LOT이 취소되지 않았고, S/N이 active이며, 최신 이벤트가 complete이고 현재 digest가 그 이벤트의 digest와 같을 때만 참(4번 단계 안전망).
+    제외·LOT 취소는 이벤트·digest를 바꾸지 않으므로 여기서 따로 확인한다(제외 중엔 무효, 복구하면 기존 완료가 다시 유효)."""
+    insp = get_lot_inspection(lot_id)
+    if not insp:
+        return False, "제품검사가 시작되지 않았어요."
+    conn = get_conn()
+    try:
+        lot = conn.execute("SELECT status FROM production_lots WHERE id=?", (lot_id,)).fetchone()
+        if not lot or lot["status"] == "cancelled":
+            return False, "LOT이 취소됐어요."
+        u = conn.execute("SELECT status FROM finished_units WHERE id=? AND lot_id=?", (unit_id, lot_id)).fetchone()
+        if not u or u["status"] != "active":
+            return False, "제외된 S/N이에요."
+        ev = _unit_events_latest(conn, insp["id"]).get(unit_id)
+        if not ev or ev["event_type"] != "complete":
+            return False, "완료되지 않은 S/N이에요."
+        if _results_digest(conn, insp["id"], unit_id) != ev["results_digest"]:
+            return False, "완료 이후 값이 바뀌었어요."
+        return True, ""
+    finally:
+        conn.close()
 
 
 # ---------- 완제품 내부 ID와 S/N (TASK #66 패키지 1C-b) ----------

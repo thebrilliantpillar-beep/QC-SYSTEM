@@ -1785,3 +1785,17 @@ def _safe_add_column(cur, alter_sql):
   `data_migrate` 폴더 목록에도 이 폴더와 `outbound_photos`가 없다. Render 디스크 실제 한도는 50GB(2026-10-10 Render 대시보드 Metrics 캡처로 확인, render.yaml의 1GB 표기와 다름)이고 당시 사용량은 거의 0%, 인스턴스 메모리 한도 512MB·CPU 0.5(그래서 업로드 본문 크기는 파싱 전에 차단해야 함). 고아 파일 자동 정리·용량 제한 없음.
 - **업로드 본문 크기는 요청 클래스에서 파싱 전에 제한한다**(Codex 지적, TASK #144). `CSRFProtect`의 before_request가 라우트보다 먼저 `request.form`을 읽어 큰 multipart 본문 전체를 파싱하므로, 라우트 안에서 한도를 걸면 이미 늦다. `_AppRequest`(Request 서브클래스)의 `max_content_length`가 사진 업로드 경로 POST에만 11MB를 돌려주고, `RequestEntityTooLarge` 전용 errorhandler가 JSON/flash 413으로 바꾼다(다른 업로드엔 한도 없음). **보안·요청 처리 테스트는 반드시 `WTF_CSRF_ENABLED=True`로 할 것 — CSRF를 꺼둔 테스트는 이 경로를 아예 안 타서 무효 수정이 통과했었다.** chunked(Content-Length 없음)는 약 11MB까지 읽은 뒤 413.
 - 검증은 저장소 밖 scratchpad의 v1db2.py(격리 DB 129건, CSRF ON 섹션 포함)와 CDP 실제 파일 주입 e2e(업로드·정정·가짜 이미지 거부), 붙여넣기 실입력을 썼다. 실제 폰 카메라(`capture`)는 검증하지 못했다.
+
+## 27-2. 제품검사 완료·재개(1D-c1, 2026-10-11) — 4번 단계(승인·출력)가 소비하는 계약
+
+- **완료는 unit별 append-only 이벤트**: `lot_inspection_unit_events`(event_type 'complete'|'reopen', source 'user'|'correction'|'system', seq는 unit별 1부터).
+  현재 상태 = unit별 MAX(seq) 행. **UPDATE/DELETE 금지.** 완료 요청은 '대기'를 저장하지 않고, 서버가 한 트랜잭션(`_insp_begin` 안)에서 재검증해 통과해야만 이벤트가 생긴다.
+- **완료 요청 재검증(모두 서버에서 재계산, 409)**: 필요 표본·사진 장수 미달(incomplete), 화면이 본 `results_digest`와 현재 값이 다름(stale), 사진 파일 없음·sha256 불일치(photo_file, 파일 확인은 라우트에서 락 밖), 제외 unit, 이미 완료, 취소 LOT·미시작. NG(fail)·missing_only·model_mismatch는 차단하지 않고 `summary_json`에 기록(**NG 포함도 완료 가능, 완료≠합격** — 사용자 확정).
+- **`results_digest`**: 현재 결과 행(슬롯별 MAX rev)을 (item_key, idx) 정렬해 [item_key, idx, rev, value, is_missing, file_sha256]을 `_canon→_sha`. 단일 출처 `_results_digest()`. 4번 단계는 `unit_completion_valid(lot_id, unit_id)`(LOT이 취소되지 않았고 S/N이 active이며, 최신 이벤트=complete이고 현재 digest가 이벤트 digest와 같은지 — 제외·LOT 취소는 이벤트·digest를 안 바꾸므로 함수가 따로 확인, 제외 중엔 무효·복구하면 기존 완료가 다시 유효)를 승인·출력 직전에 반드시 호출하고, 사진은 현재 행 `value`로 파일을 찾아 `file_sha256`을 재계산해 일치를 확인한다.
+- **권한**: 완료 요청 `process_input` 단독, 재개(완료 취소) `process_correct` 단독(사유 필수), 완료 후 값 정정도 `process_correct`만(본인 값이어도), 정정 저장 시 **같은 트랜잭션에서 자동 재개(source='correction')** → 재완료해야 승인 가능. 완료 후 최초 입력(base_rev 없음)은 거부(먼저 재개).
+- **`unit_has_final_document` 스텁**: 4번 단계가 구현하면 `save_unit_results`·`reopen_unit_completion`이 이미 호출 중이라 승인 후엔 완료 후 정정·재개가 자동 차단된다(승인 회수 후에만 재개).
+- 시스템 재개(source='system')는 3단계(하우징 분리)·4번이 `_append_unit_event`를 같은 트랜잭션 안에서 쓴다(지금 사용처 없음). `record_change`는 완료·재개 요청당 1회만(호출마다 DB 전체 백업 복사).
+- **미구현(1D-c2 이후)**: 항목 잠금(정본의 '공정'=현재 '검사 항목', 15분 무활동 자동 해제, `process_correct`가 사유 남기고 강제 해제 — 사용자 확정), 동시 수정 충돌 선택 화면(별도 패키지). 완료 요청 결과의 `locked_by_other` 자리는 주석으로만 있다.
+- 알려진 한계: 완료 요청마다 현재 사진 파일을 통째로 읽어 sha256을 재계산(사진이 많으면 느릴 수 있음, Render CPU 0.5). 목록 카드에 overall 칩과 stage 칩이 중복 표시됨(경미).
+- 검증은 저장소 밖 scratchpad의 v1dc1.py(격리 DB 113건, CSRF ON)와 CDP 실제 입력 e2e 12건을 썼다.
+

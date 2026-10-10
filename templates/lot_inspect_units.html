@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 {% block title %}제품검사 입력 — Chardon QMS{% endblock %}
 {% block content %}
-{% set overall_labels = {'fail': '불합격 있음', 'all_filled': '입력 완료', 'incomplete': '입력 중'} %}
+{% set overall_labels = {'fail': '불합격 있음', 'all_filled': '입력 끝(완료 요청 가능)', 'incomplete': '입력 중'} %}
+{% set stage_labels = {'completed': '검사 완료', 'ready': '입력 끝', 'in_progress': '입력 중', 'not_started': '미시작'} %}
+{% set act = units | selectattr('status', 'equalto', 'active') | list %}
 {% set state_labels = {'pass': '합격', 'fail': '불합격', 'incomplete': '미완료', 'missing_only': '전부 결측(확인 필요)', 'nospec': '규격 없음', 'recorded': '사진 등록 완료'} %}
 <style>
   .unit-card > p:first-child a { display: inline-block; min-height: 44px; line-height: 44px; font-size: 20px; color: var(--primary-dark); }
   .unit-card > p { margin: 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
   .unit-card ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; font-size: 13px; }
   .unit-card li { padding: 4px 0; border-top: 1px solid var(--border); }
+  .unit-card > p .badge { margin: 0; }
+  .unit-card { border-left: 4px solid var(--border); }
+  h2 + p + p, h2 + p + .card + p { font-size: 17px; font-weight: 700; color: var(--primary-dark); }
   .find-card form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .find-card label { flex: 1 0 100%; margin: 0; }
   .find-card input[type=text] { flex: 1 1 200px; min-height: 48px; font-size: 17px; margin: 0; }
@@ -18,6 +23,8 @@
 {% if read_only %}
 <div class="card"><b>취소된 LOT — 열람만 가능</b></div>
 {% endif %}
+
+<p>완료 {{ act | selectattr('stage', 'equalto', 'completed') | list | length }} / 전체 {{ act | length }}</p>
 
 <div class="card find-card">
   <form method="GET" action="{{ url_for('lot_inspect_find', lot_id=lot['id']) }}">
@@ -39,6 +46,9 @@
     {% if not u['roster_member'] %}<span class="badge pending">시작 후 합류</span>{% endif %}
     {% if u['model_mismatch'] %}<span class="badge pending">모델 불일치</span>{% endif %}
     <span class="badge {{ 'fail' if u['overall'] == 'fail' else ('pass' if u['overall'] == 'all_filled' else 'pending') }}">{{ overall_labels[u['overall']] }}</span>
+    <span class="badge {{ 'pass' if u['stage'] == 'completed' else 'pending' }}">{{ stage_labels[u['stage']] }}</span>
+    {% if u['has_fail'] and u['stage'] in ('ready', 'completed') %}<span class="badge fail">NG 포함</span>{% endif %}
+    {% if u['completion'] and u['completion']['reopened'] %}<span class="badge pending">재개됨</span>{% endif %}
     항목 {{ u['progress'] | selectattr('state', 'in', ['pass', 'fail', 'missing_only', 'nospec', 'recorded']) | list | length }}/{{ u['progress'] | length }}
   </p>
   <ul class="muted" style="margin:0;">

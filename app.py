@@ -264,9 +264,9 @@ PERM_GROUPS = [
         ("approve_revoke", "결정 회수"),
     ]),
     ("제품검사", [
-        ("process_input",     "제품검사 입력"),
+        ("process_input",     "제품검사 입력(S/N 검사 완료 요청 포함)"),
         ("process_lot",       "제품검사 LOT 관리 (준비중)"),
-        ("process_correct",   "제품검사 결과 정정"),
+        ("process_correct",   "제품검사 결과 정정·완료 취소"),
         ("process_link",      "하우징·MA 부품 연결·분리 (준비중)"),
         ("process_ng_cancel", "NG 이력 입력 취소 (준비중)"),
         ("process_review",    "제품검사 검토 (준비중)"),
@@ -10799,9 +10799,12 @@ def lot_inspect_unit(lot_id, unit_id):
     unit = units[pos]
     items = [dict(it, spec_text=_spec_text(it)) for it in insp["items"]]
     perms = _user_perms(g.user)
+    results = db.get_unit_results(insp["id"], unit_id)
     return render_template(
         "lot_inspect_unit.html", lot=lot, inspection=insp, unit=unit, items=items,
-        results=db.get_unit_results(insp["id"], unit_id),
+        results=results, digest=db.digest_from_results(results),
+        events=db.list_unit_events(insp["id"], unit_id), is_done=unit["stage"] == "completed",
+        can_reopen="process_correct" in perms,
         prev_id=units[pos - 1]["unit_id"] if pos > 0 else None,
         next_id=units[pos + 1]["unit_id"] if pos + 1 < len(units) else None,
         read_only=lot["status"] == "cancelled" or unit["status"] != "active",
@@ -10838,7 +10841,8 @@ def lot_inspect_save(lot_id, unit_id):
     try:
         n = db.save_unit_results(lot_id, unit_id, entries, user,
                                  can_correct_others="process_correct" in _user_perms(g.user),
-                                 actor_id=g.user["id"])
+                                 actor_id=g.user["id"],
+                                 can_correct_completed="process_correct" in _user_perms(g.user))
     except db.SlotError as e:
         return fail(str(e), 400, {"item_key": e.item_key, "idx": e.idx})
     except ValueError as e:
@@ -10853,6 +10857,106 @@ def lot_inspect_save(lot_id, unit_id):
     res = db.get_unit_results(db.get_lot_inspection(lot_id)["id"], unit_id)
     rows = [res[e["item_key"]][int(e["idx"])]["current"] for e in entries]
     return jsonify({"ok": True, "saved": n, "rows": rows})
+
+
+# ---- 제품검사 S/N 완료·재개 (TASK #145 패키지 1D-c1) ----
+# 완료는 process_input 단독, 재개는 process_correct 단독(두 코드를 같이 넘기면 OR이라 구멍).
+def _inspect_action_json_or_flash(lot_id, unit_id):
+    """(ajax 여부, 실패 응답 함수) — 완료·재개 라우트 공용(lot_inspect_save와 같은 응답 모양)."""
+    ajax = request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def fail(msg, status=409, blockers=None):
+        if ajax:
+            return jsonify({"ok": False, "error": msg, "blockers": blockers or []}), status
+        flash(msg)
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return ajax, fail
+
+
+def _unit_state_json(lot_id, unit_id):
+    u = db.unit_completion_state(lot_id, unit_id)
+    return {"stage": u["stage"], "has_fail": u["has_fail"], "completion": u["completion"]} if u else None
+
+
+def _photo_file_blockers(lot_id, unit_id):
+    """현재 사진 행의 파일이 없거나 해시가 다르면 photo_file 차단 사유 목록(락 밖에서 확인)."""
+    out = []
+    for r in db.unit_photo_rows(lot_id, unit_id):
+        msg = None
+        path = os.path.join(PRODUCT_PHOTO_DIR, r["value"] or "")
+        if not db.is_product_photo_name(r["value"]) or not os.path.isfile(path):
+            msg = f"{r['name']} #{r['idx']}: 사진 파일이 없어요. 사진을 다시 등록해줘."
+        else:
+            try:
+                with open(path, "rb") as fh:
+                    same = hashlib.sha256(fh.read()).hexdigest() == r["file_sha256"]
+            except OSError:
+                same = False
+            if not same:
+                msg = f"{r['name']} #{r['idx']}: 사진 파일이 바뀌었거나 읽을 수 없어요. 사진을 다시 등록해줘."
+        if msg:
+            out.append({"code": "photo_file", "item_key": r["item_key"], "name": r["name"], "msg": msg})
+    return out
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/complete", methods=["POST"])
+@perm_required("process_input")
+def lot_inspect_complete(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    ajax, fail = _inspect_action_json_or_flash(lot_id, unit_id)
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    body = request.get_json(silent=True) if request.is_json else None
+    seen = (body or {}).get("seen_digest") if isinstance(body, dict) else request.form.get("seen_digest")
+    if not seen:
+        return fail("화면 정보가 없어요. 새로고침해줘.", 400)
+    try:
+        # 파일 확인은 락 밖에서 — digest가 같으면 파일도 같다는 전제(append-only)
+        if db.unit_results_digest(lot_id, unit_id) != seen:
+            return fail("화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘.", 409,
+                        [{"code": "stale", "item_key": None, "name": None,
+                          "msg": "화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘."}])
+        db.complete_unit_inspection(lot_id, unit_id, _actor_name(), g.user["id"], seen,
+                                    photo_blockers=_photo_file_blockers(lot_id, unit_id))
+    except db.CompletionBlocked as e:
+        return fail(str(e), 409, e.blockers)
+    except ValueError as e:
+        return fail(str(e), 409)
+    lot = db.get_production_lot(lot_id)
+    record_change("제품검사 S/N 검사 완료", "production_lot", lot_id, f"{lot['lot_no']} / 완제품 {unit_id}")
+    if not ajax:
+        flash("검사 완료로 기록했어요.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "state": _unit_state_json(lot_id, unit_id)})
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/reopen", methods=["POST"])
+@perm_required("process_correct")
+def lot_inspect_reopen(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    ajax, fail = _inspect_action_json_or_flash(lot_id, unit_id)
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return fail(why, 409)
+    body = request.get_json(silent=True) if request.is_json else None
+    reason = ((body or {}).get("reason") if isinstance(body, dict) else request.form.get("reason")) or ""
+    if not str(reason).strip():
+        return fail("완료를 취소하는 사유를 입력해줘.", 400)
+    try:
+        db.reopen_unit_completion(lot_id, unit_id, str(reason), _actor_name(), g.user["id"])
+    except ValueError as e:
+        return fail(str(e), 409)
+    lot = db.get_production_lot(lot_id)
+    record_change("제품검사 S/N 완료 취소", "production_lot", lot_id, f"{lot['lot_no']} / 완제품 {unit_id}")
+    if not ajax:
+        flash("완료를 취소했어요. 값을 고치고 다시 완료 요청해줘.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "state": _unit_state_json(lot_id, unit_id)})
 
 
 # ---- 제품검사 사진 항목 입력·정정 (TASK #142 패키지 1D-b2) ----
@@ -10980,7 +11084,8 @@ def lot_inspect_photo_save(lot_id, unit_id):
             [{"item_key": key, "idx": idx, "base_rev": request.form.get("base_rev"),
               "reason": request.form.get("reason")}],
             _actor_name(), can_correct_others="process_correct" in _user_perms(g.user),
-            actor_id=g.user["id"], photo_files={(key, idx): (fname, _clean_photo_name(f.filename), sha)})
+            actor_id=g.user["id"], photo_files={(key, idx): (fname, _clean_photo_name(f.filename), sha)},
+            can_correct_completed="process_correct" in _user_perms(g.user))
         ok = True
     except db.SlotError as e:
         return fail(str(e), 400)
