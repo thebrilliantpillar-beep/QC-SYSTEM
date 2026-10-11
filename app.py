@@ -265,7 +265,7 @@ PERM_GROUPS = [
     ]),
     ("제품검사", [
         ("process_input",     "제품검사 입력(S/N 검사 완료 요청 포함)"),
-        ("process_lot",       "제품검사 LOT 관리 (준비중)"),
+        ("process_lot",       "제품검사 LOT 관리 (생산 LOT 발급·확정·S/N 추가·제외·취소)"),
         ("process_correct",   "제품검사 결과 정정·완료 취소"),
         ("process_link",      "하우징·MA 부품 연결·분리 (준비중)"),
         ("process_ng_cancel", "NG 사건 취소 (값이 합격으로 정정된 사건만, 사유 필수 · 직접 체크한 계정만)"),
