@@ -33,11 +33,11 @@ def _check_license():
 _check_license()
 # ──────────────────────────────────────────────
 
-import json, os, base64, io, time, shutil, re, zipfile, tempfile, uuid, sys, hashlib
+import json, os, base64, io, threading, time, shutil, re, zipfile, tempfile, uuid, sys, hashlib
 from datetime import datetime as _dt
 from functools import wraps
 from datetime import timedelta
-from flask import Flask, Request, render_template, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify, abort
+from flask import Flask, Request, render_template, get_template_attribute, request, redirect, url_for, flash, session, g, send_file, send_from_directory, jsonify, abort
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.exceptions import RequestEntityTooLarge
 from flask_limiter import Limiter
@@ -495,11 +495,11 @@ def ensure_material_category_import_20260907():
                      "material_category", None, detail)
 
 
-def record_change(action, target_type=None, target_id=None, detail=None):
+def record_change(action, target_type=None, target_id=None, detail=None, backup=True):
     """
     데이터가 새로 생기거나 수정될 때마다 호출:
     1) activity_log 테이블에 기록 (users 권한 보유자만 /logs에서 조회 가능)
-    2) iqc.db 전체를 backups/ 밑에 타임스탬프 붙여 복사
+    2) iqc.db 전체를 backups/ 밑에 타임스탬프 붙여 복사 (backup=False면 복사만 생략, 로그는 그대로)
     3) backups/README.txt에 사람이 읽을 수 있는 상세 로그 한 줄 추가
     """
     user_id = g.user["id"] if g.user else None
@@ -512,10 +512,13 @@ def record_change(action, target_type=None, target_id=None, detail=None):
     ts = now.strftime("%Y%m%d_%H%M%S")
     backup_name = f"iqc_{ts}_{log_id}.db"
     backup_path = os.path.join(BACKUP_DIR, backup_name)
-    try:
-        shutil.copy(db.DB_PATH, backup_path)
-    except Exception:
-        backup_name = "(백업 실패)"
+    if not backup:
+        backup_name = "(복사 생략)"
+    else:
+        try:
+            shutil.copy(db.DB_PATH, backup_path)
+        except Exception:
+            backup_name = "(백업 실패)"
 
     line = (f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] "
             f"사용자: {username} | "
@@ -528,6 +531,23 @@ def record_change(action, target_type=None, target_id=None, detail=None):
         pass
 
     prune_backups()
+
+
+# 제품검사 자동 저장은 칸마다 저장 요청이 오므로 DB 전체 복사는 마지막 복사 후 10분이 지났을 때만 한다(활동 로그는 매번).
+# 프로세스 전역 시각이다(워커가 여럿이면 워커마다 따로). 테스트는 _auto_backup_clock을 바꿔 끼운다.
+AUTO_SAVE_BACKUP_INTERVAL = 600
+_auto_backup_clock = time.time
+_auto_backup_state = {"last": None, "lock": threading.Lock()}
+
+
+def _auto_save_backup_due():
+    with _auto_backup_state["lock"]:
+        now = _auto_backup_clock()
+        last = _auto_backup_state["last"]
+        if last is not None and now - last < AUTO_SAVE_BACKUP_INTERVAL:
+            return False
+        _auto_backup_state["last"] = now
+        return True
 
 
 # 백업 보관 정책 — 변경이 잦아서 그냥 두면 폴더가 무한정 커진다(수동 정리는 안 하게 됨).
@@ -10819,21 +10839,17 @@ def lot_inspect_unit(lot_id, unit_id):
         flash("이 LOT의 완제품이 아니에요.")
         return redirect(url_for("lot_inspect_units", lot_id=lot_id))
     unit = units[pos]
-    items = [dict(it, spec_text=_spec_text(it)) for it in insp["items"]]
     perms = _user_perms(g.user)
     results = db.get_unit_results(insp["id"], unit_id)
-    by_key = {it["key"]: it for it in items}
-    derived_wait = {  # 파생 칸별 "원천 입력 k/n칸" — 값이 아직 없는 파생 칸에 보여줄 대기 문구용
-        it["key"]: {i: "%d/%d" % (sum(1 for j in range(1, by_key[src]["required_n"] + 1)
-                                      if (results.get(src, {}).get(j) or {}).get("current")),
-                                  by_key[src]["required_n"])
-                    for i, src in enumerate(it["derived"]["from"], 1)}
-        for it in items if it.get("derived")}
+    events = db.list_unit_events(insp["id"], unit_id)
+    rp = _unit_report_panel(lot, unit, results, events)
+    slot_ctx = _slot_view_ctx(lot, insp, unit, results, report_final=rp["report_final"])
+    items = slot_ctx["items"]
     return render_template(
-        "lot_inspect_unit.html", lot=lot, inspection=insp, unit=unit, items=items,
-        step_groups=db.group_items_by_step(items, results), derived_wait=derived_wait,
+        "lot_inspect_unit.html", lot=lot, inspection=insp, unit=unit, items=items, slot_ctx=slot_ctx,
+        step_groups=db.group_items_by_step(items, results),
         results=results, digest=db.digest_from_results(results),
-        events=db.list_unit_events(insp["id"], unit_id), is_done=unit["stage"] == "completed",
+        events=events, is_done=unit["stage"] == "completed",
         can_reopen="process_correct" in perms,
         prev_id=units[pos - 1]["unit_id"] if pos > 0 else None,
         next_id=units[pos + 1]["unit_id"] if pos + 1 < len(units) else None,
@@ -10843,7 +10859,91 @@ def lot_inspect_unit(lot_id, unit_id):
         can_link="process_link" in perms, ma_links=db.unit_ma_links(unit_id),
         is_155v=bool(insp["model_snapshot"].get("pcode")),
         me=_actor_name(), me_id=g.user["id"], ng_summary=_ng_summary_map(insp).get(unit_id),
-        **_unit_report_panel(lot, unit, results, db.list_unit_events(insp["id"], unit_id)))
+        **rp)
+
+
+_VERDICT_LABELS = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측', 'recorded': '등록됨'}
+
+
+def _slot_view_ctx(lot, insp, unit, results, report_final=None):
+    """숫자 칸 슬롯(templates/_lot_inspect_slots.html)을 그리는 데 필요한 컨텍스트 — S/N 화면과 저장 응답 조각이 같이 쓴다.
+    unit은 list_inspection_units의 한 행. report_final을 넘기지 않으면 승인본 여부를 직접 확인한다."""
+    perms = _user_perms(g.user)
+    items = [dict(it, spec_text=_spec_text(it)) for it in insp["items"]]
+    by_key = {it["key"]: it for it in items}
+    derived_wait = {  # 파생 칸별 "원천 입력 k/n칸" — 값이 아직 없는 파생 칸에 보여줄 대기 문구용
+        it["key"]: {i: "%d/%d" % (sum(1 for j in range(1, by_key[src]["required_n"] + 1)
+                                      if (results.get(src, {}).get(j) or {}).get("current")),
+                                  by_key[src]["required_n"])
+                    for i, src in enumerate(it["derived"]["from"], 1)}
+        for it in items if it.get("derived")}
+    if report_final is None:
+        report_final = db.unit_has_final_document(unit["unit_id"])
+    is_done = unit["stage"] == "completed"
+    read_only = lot["status"] == "cancelled" or unit["status"] != "active"
+    can_correct_others = "process_correct" in perms
+    editable = (not read_only) and "process_input" in perms and (not is_done or can_correct_others) and (not report_final)
+    return {"results": results, "editable": editable, "is_done": is_done, "me_id": g.user["id"],
+            "can_correct_others": can_correct_others, "derived_wait": derived_wait,
+            "verdict_labels": _VERDICT_LABELS, "items": items}
+
+
+def _slot_view_payload(lot, insp, unit, results, keys):
+    """저장 응답(view:true)·읽기 전용 GET이 같이 쓰는 화면 조각 — keys는 [(item_key, idx)].
+    slots는 숫자 칸 HTML 조각(원천 칸이면 그 항목을 쓰는 파생 칸 전부 포함), steps는 단계 요약(단계 없는 모델이면 None)."""
+    ctx = _slot_view_ctx(lot, insp, unit, results)
+    numeric_slot = get_template_attribute("_lot_inspect_slots.html", "numeric_slot")
+    step_summary = get_template_attribute("_lot_inspect_slots.html", "step_summary")
+    by_key = {it["key"]: it for it in ctx["items"]}
+    want = set(keys)
+    for k in {k for k, _ in keys}:  # 이 항목을 원천으로 쓰는 파생 항목은 전 칸을 다시 그린다(멱등)
+        for it in ctx["items"]:
+            if it.get("derived") and k in it["derived"]["from"]:
+                want.update((it["key"], i) for i in range(1, it["required_n"] + 1))
+    slots = {}
+    for k, i in sorted(want):
+        it = by_key.get(k)
+        if it and it["input_type"] not in ("photo", "ma_link"):
+            slots["%s:%d" % (k, i)] = str(numeric_slot(it, i, ctx))
+    groups = db.group_items_by_step(ctx["items"], results)
+    steps = None if groups is None else {
+        str(grp["no"]): {"html": str(step_summary(grp)), "filled": grp["filled"], "required": grp["required"],
+                         "fail_cells": grp["fail_cells"], "state": grp["state"]} for grp in groups}
+    return {"slots": slots, "steps": steps, "digest": db.digest_from_results(results),
+            "stage": unit["stage"], "has_fail": unit["has_fail"]}
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/slots")
+@perm_required("process_lot", "process_input")
+def lot_inspect_slots(lot_id, unit_id):
+    """읽기 전용 — 저장 충돌·결과 불명 뒤 칸의 실제 상태를 서버 조각으로 읽는다(쓰기·로그 없음). AJAX 전용이라 오류는 JSON."""
+    def err(msg, status=400):
+        return jsonify({"ok": False, "error": msg}), status
+
+    if not db.traceability_enabled():
+        return err("추적 기능이 아직 꺼져 있어요.", 409)
+    lot = db.get_production_lot(lot_id)
+    if not lot:
+        return err("LOT을 찾을 수 없어요.", 404)
+    insp = db.get_lot_inspection(lot_id)
+    if not insp:
+        return err("제품검사가 아직 시작되지 않았어요.", 409)
+    unit = next((u for u in db.list_inspection_units(lot_id) if u["unit_id"] == unit_id), None)
+    if unit is None:
+        return err("이 LOT의 완제품이 아니에요.", 404)
+    raw = [x.strip() for x in (request.args.get("keys") or "").split(",") if x.strip()]
+    if not raw or len(raw) > 30:
+        return err("칸은 1~30개까지 읽을 수 있어요.")
+    by_key = {it["key"]: it for it in insp["items"]}
+    keys = []
+    for x in raw:
+        k, _, i = x.rpartition(":")
+        it = by_key.get(k)
+        if not it or not i.isdigit() or not 1 <= int(i) <= it["required_n"] or it["input_type"] in ("photo", "ma_link"):
+            return err("읽을 수 없는 칸이에요: %s" % x)
+        keys.append((k, int(i)))
+    results = db.get_unit_results(insp["id"], unit_id)
+    return jsonify(dict(ok=True, **_slot_view_payload(lot, insp, unit, results, keys)))
 
 
 @app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/save", methods=["POST"])
@@ -10882,14 +10982,22 @@ def lot_inspect_save(lot_id, unit_id):
         return fail(str(e), 409)
     lot = db.get_production_lot(lot_id)
     corrected = any(e.get("base_rev") not in (None, "") for e in entries)
+    opts = payload if isinstance(payload, dict) else {}
+    # 자동 저장(auto)은 DB 복사를 10분에 한 번만 한다. 정정은 자동 저장이 아니므로 항상 복사한다.
+    backup = corrected or opts.get("auto") is not True or _auto_save_backup_due()
     record_change("제품검사 측정값 정정" if corrected else "제품검사 측정값 입력", "production_lot", lot_id,
-                  f"{lot['lot_no']} / 완제품 {unit_id} / {n}건")
+                  f"{lot['lot_no']} / 완제품 {unit_id} / {n}건", backup=backup)
     if not ajax:
         flash(f"{n}건 저장했어요.")
         return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
-    res = db.get_unit_results(db.get_lot_inspection(lot_id)["id"], unit_id)
+    insp = db.get_lot_inspection(lot_id)
+    res = db.get_unit_results(insp["id"], unit_id)
     rows = [res[e["item_key"]][int(e["idx"])]["current"] for e in entries]
-    return jsonify({"ok": True, "saved": n, "rows": rows})
+    out = {"ok": True, "saved": n, "rows": rows}
+    if opts.get("view") is True:
+        unit = next(u for u in db.list_inspection_units(lot_id) if u["unit_id"] == unit_id)
+        out.update(_slot_view_payload(lot, insp, unit, res, [(e["item_key"], int(e["idx"])) for e in entries]))
+    return jsonify(out)
 
 
 # ---- 제품검사 MA 연결·회수 (TASK #155 T5) ----

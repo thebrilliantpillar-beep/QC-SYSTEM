@@ -1,20 +1,7 @@
 {% extends "base.html" %}
 {% block title %}제품검사 입력 — Chardon QMS{% endblock %}
 {% block content %}
-{% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측', 'recorded': '등록됨'} %}
-{% macro entry(it, mode, allow_reason) %}
-<div class="entry" data-mode="{{ mode }}">
-  {% if it['input_type'] == 'ok_ng' %}
-  <input type="hidden" class="val" value="">
-  <button type="button" class="btn secondary okng" data-val="OK" style="min-height:44px;">적합</button>
-  <button type="button" class="btn secondary okng" data-val="NG" style="min-height:44px;">부적합</button>
-  {% else %}
-  <input type="text" class="val" inputmode="decimal" autocomplete="off" placeholder="측정값">
-  {% endif %}
-  {% if it['allow_missing'] %}<label><input type="checkbox" class="miss" style="width:auto;"> 결측</label>{% endif %}
-  {% if allow_reason %}<input type="text" class="reason" placeholder="정정 사유(필수)">{% endif %}
-</div>
-{% endmacro %}
+{% from "_lot_inspect_slots.html" import numeric_slot, step_summary with context %}
 <style>
   .v-pass { color: var(--pass); } .v-fail { color: var(--fail); }
   /* 슬롯: 한 줄 = [#번호][값·판정][정정 버튼(우측)], 메타는 그 아래 작게 */
@@ -39,13 +26,34 @@
   .entry .reason { flex: 1 0 100%; font-size: 16px; }
   .entry label { margin: 0; min-height: 44px; display: flex; align-items: center; gap: 6px; }
   .entry .miss { width: 22px !important; height: 22px; }
-  .entry .okng { flex: 1 1 120px; min-height: 52px !important; font-size: 17px; }
+  .entry .okng { flex: 1 1 0; min-width: 0; min-height: 52px !important; font-size: 17px; }
   .okng.sel { background: var(--primary); color: #fff; outline: 3px solid var(--primary-dark); outline-offset: 1px; }
   .item details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--primary); font-weight: 600; }
   .item details[open] { padding: 8px; background: #F9F9F8; border-radius: 8px; border: 1px solid var(--border); }
   .item textarea.paste { font-size: 16px; margin-bottom: 8px; }
   .item .pasteBtn { min-height: 44px; }
   .slot-msg { color: var(--fail); font-size: 13px; }
+  /* 칸 상태 줄: 항상 값·메타 아래 전폭 한 줄. 18px를 예약해 '저장됨'이 떴다 사라져도 레이아웃이 안 움직임 */
+  .slot > .slot-state { order: 7; flex: 1 0 100%; min-height: 18px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center;
+                        gap: 6px 10px; font-size: 13px; line-height: 1.4; color: var(--primary-dark); overflow-anchor: none; }
+  .slot-state[data-kind="saved"] { color: #166534; font-size: 12px; }
+  .slot-state[data-kind="error"] { color: #92400e; background: #fef3c7; border-left: 4px solid #b45309; border-radius: 8px;
+                                   padding: 8px 10px; margin-top: 4px; font-weight: 600; }
+  /* 오류 줄: 문구는 한 블록, [다시 저장]은 그 아래 전폭 48px */
+  .slot-state .retryBtn { flex: 1 0 100%; min-height: 48px; font-size: 16px; color: #92400e; border-color: #b45309; background: #fff; }
+  /* 저장 중: 테두리·바탕으로 구분하고 입력값은 그대로 읽힘 */
+  .slot[aria-busy="true"] { border-color: var(--primary); background: #F9F9F8; }
+  .slot[aria-busy="true"] .entry input[readonly] { background: #ECEEF2; color: var(--text); border-style: dashed; }
+  .slot[aria-busy="true"] .slot-state[data-kind="saving"]::before { content: ""; width: 12px; height: 12px; border-radius: 50%;
+        border: 2px solid var(--border); border-top-color: var(--primary); animation: slotspin .9s linear infinite; }
+  @keyframes slotspin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .slot[aria-busy="true"] .slot-state[data-kind="saving"]::before { animation: none; } }
+  /* 정정 영역: 값·사유 전폭, 저장(주)·취소(보조) 한 줄 균등 48px */
+  .corr .entry input[type=text] { flex: 1 0 100%; }
+  .corr .entry .corrSave, .corr .entry .corrCancel { flex: 1 1 0; min-width: 0; min-height: 48px; font-size: 16px; }
+  .corr .entry .corrSave { background: var(--primary); color: #fff; border-color: var(--primary); }
+  /* 단계 카드 summary 칩이 칸 수 뒤에서 자연스럽게 줄바꿈 */
+  details.step > summary { row-gap: 4px; }
   /* 사진 슬롯: 숫자 슬롯과 같은 골격(번호·본문·우측 버튼·메타·펼침 패널) */
   .slot > .pickBtn { order: 3; margin-left: auto; min-height: 44px; min-width: 72px; padding: 8px 16px; }
   .photo-slot > span { font-size: 15px; }
@@ -184,8 +192,8 @@
 
 {% set stage = unit['stage'] %}
 {% set comp = unit['completion'] %}
-{% set can_write = (not read_only) and can_input and (not is_done or can_correct_others) and (not report_final) %}
-<div class="card" id="stageBanner" data-digest="{{ digest }}"
+{% set can_write = slot_ctx['editable'] %}
+<div class="card" id="stageBanner" data-digest="{{ digest }}" data-stage="{{ stage }}" data-has-fail="{{ 1 if unit['has_fail'] else 0 }}"
      data-complete-url="{{ url_for('lot_inspect_complete', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
      data-reopen-url="{{ url_for('lot_inspect_reopen', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
   {% if stage == 'completed' %}
@@ -301,10 +309,7 @@
      data-unlink-url="{{ url_for('lot_inspect_ma_unlink', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
 {% for grp in (step_groups or [none]) %}
 {% if grp %}<details class="step" data-step-no="{{ grp['no'] }}" {{ 'open' if grp['open'] else '' }}>
-  <summary><span>{{ grp['name'] }}</span> <small class="muted">입력 {{ grp['filled'] }}/{{ grp['required'] }}칸</small>
-    {% if grp['fail_cells'] %}<span class="badge fail">⚠ 불합격 {{ grp['fail_cells'] }}칸</span>{% endif %}
-    {% if grp['filled'] < grp['required'] %}<span class="badge pending">● 미입력 {{ grp['required'] - grp['filled'] }}칸 남음</span>
-    {% elif not grp['fail_cells'] %}<span class="badge pass">✓ 입력 완료</span>{% endif %}</summary>
+  <summary>{{ step_summary(grp) }}</summary>
 {% endif %}
 {% for it in (grp['items'] if grp else items) %}
 <div class="card item" data-item-key="{{ it['key'] }}">
@@ -401,45 +406,7 @@
   </details>
   {% endif %}
   {% for idx in range(1, it['required_n'] + 1) %}
-  {% set sl = results.get(it['key'], {}).get(idx) %}
-  {% set c = sl['current'] if sl else none %}
-  <div class="slot" data-item-key="{{ it['key'] }}" data-idx="{{ idx }}" data-base-rev="{{ c['rev'] if c else '' }}">
-    <b>{{ slot_label(it, idx) }}</b>
-    {% if c %}
-      <span class="{{ 'v-fail' if c['verdict'] == 'fail' else ('v-pass' if c['verdict'] == 'pass' else '') }}">
-        {{ '결측' if c['is_missing'] else c['value'] }} · {{ '기록됨' if c['verdict'] == 'recorded' else verdict_labels.get(c['verdict'], c['verdict']) }}
-      </span>
-      <small class="muted">{{ c['rev'] }}회차 · {% if c['entry_type'] == 'derived' %}자동 계산: {{ c['value_input'] or '' }}{% else %}{{ c['entered_by'] or '' }}{% endif %} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'retest' %} · 재검사: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'link' %} · MA 연결{% endif %}</small>
-      {% if editable and not it.get('derived') %}
-      <button type="button" class="btn secondary corrBtn"
-        {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 값은 정정 권한이 필요해요"{% endif %}>정정</button>
-      <div class="corr" style="display:none;">{{ entry(it, 'corr', true) }}</div>
-      {% endif %}
-      {% if sl['history'] | length > 1 %}
-      <details><summary>이력 보기</summary>
-        <ul>{% for h in sl['history'] %}
-          <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}{{ '결측' if h['is_missing'] else h['value'] }} ({{ '기록됨' if h['verdict'] == 'recorded' else verdict_labels.get(h['verdict'], h['verdict']) }}){% if h['entry_type'] == 'link' %} · MA 연결{% endif %}{% endif %}{% if h['entry_type'] == 'derived' %} · 자동 계산: {{ h['value_input'] or '' }}{% else %} · {{ h['entered_by'] or '' }}{% endif %} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] and h['entry_type'] != 'unlink' %} · 사유: {{ h['reason'] }}{% endif %}{% if not h['roster_member'] %} · 시작 후 합류{% endif %}{% if h['serial_at_entry'] %} · 당시 S/N {{ h['serial_at_entry'] }}{% endif %}</li>
-        {% endfor %}</ul>
-      </details>
-      {% endif %}
-    {% elif it.get('derived') %}
-      <span class="muted">원천 값이 모두 입력되면 자동으로 계산돼요 ({{ (derived_wait.get(it['key']) or {}).get(idx, '') }}칸 입력)</span>
-    {% elif it.get('source') == 'speed' %}
-      <span class="muted">MA 번호를 연결하면 자동으로 채워져요</span>
-    {% elif editable and not is_done %}
-      {{ entry(it, 'new', false) }}
-    {% else %}
-      <span class="muted">미입력</span>
-    {% endif %}
-    {% if not c and sl and sl['history'] %}
-    <details><summary>이력 보기</summary>
-      <ul>{% for h in sl['history'] %}
-        <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}{{ h['value'] }}{% if h['entry_type'] == 'link' %} · MA 연결{% endif %}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}</li>
-      {% endfor %}</ul>
-    </details>
-    {% endif %}
-    <div class="slot-msg"></div>
-  </div>
+  {{ numeric_slot(it, idx, slot_ctx) }}
   {% endfor %}
   {% endif %}
 </div>
@@ -456,19 +423,380 @@
 </div>
 <script>
 (function () {
-  var root = document.getElementById('inspectRoot');
+  var root = document.getElementById('inspectRoot'), banner = document.getElementById('stageBanner');
   var saveBtn = document.getElementById('saveBtn'), saveMsg = document.getElementById('saveMsg');
   var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  var saveUrl = root.dataset.saveUrl, slotsUrl = saveUrl.replace(/\/save$/, '/slots');
+  var GRACE = 1500, TIMEOUT = 20000, SLOT = '.slot:not(.photo-slot):not(.ma-slot)';
+  var queue = [], inflight = null, paused = false, stageChanged = false, reloading = false, allowLeave = false;
+  var timers = {}, sent = {}, retryOnline = [];
 
+  // ---- 칸 읽기·상태 표시 ----
+  function keyOf(slot) { return slot.dataset.itemKey + ':' + slot.dataset.idx; }
+  function slotOf(key) {
+    var i = key.lastIndexOf(':');
+    return root.querySelector('.slot[data-item-key="' + key.slice(0, i) + '"][data-idx="' + key.slice(i + 1) + '"]');
+  }
+  function newEn(slot) { return slot && slot.querySelector('.entry[data-mode="new"]'); }
+  function corrEn(slot) { return slot && slot.querySelector('.corr .entry'); }
+  function rd(en) {
+    var m = en.querySelector('.miss'), miss = !!(m && m.checked);
+    return {raw: miss ? '' : en.querySelector('.val').value.trim(), missing: miss};
+  }
+  function hasVal(en) { var r = rd(en); return r.raw !== '' || r.missing; }
+  function num(s) { return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : null; }
+  function sameVal(a, b) { return a === b || (num(a) !== null && num(a) === num(b)); }
+  function notify() { root.dispatchEvent(new CustomEvent('inspect:savestate')); }
+  function unsaved() {  // 서버 저장이 확인 안 된 새 입력 칸 + 정정 영역에 값이 있는 칸 (저장되면 칸이 서버 조각으로 바뀌어 입력창이 사라진다)
+    var n = 0;
+    root.querySelectorAll(SLOT).forEach(function (s) {
+      var en = newEn(s);
+      if (en) { if (hasVal(en)) n++; return; }
+      var ce = corrEn(s);
+      if (ce && hasVal(ce)) n++;
+    });
+    return n;
+  }
+  function saving() { return !!inflight || queue.length > 0 || Object.keys(timers).length > 0; }
+  function setState(slot, kind, text, retry) {
+    var el = slot && slot.querySelector('.slot-state');
+    if (!el) return;
+    el.textContent = text || ''; el.dataset.kind = kind || '';
+    if (retry) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn secondary retryBtn'; b.textContent = '다시 저장'; b.style.minHeight = '48px';
+      el.appendChild(b);
+    }
+  }
+  function showErr(key, msg, retry) {
+    var slot = slotOf(key);
+    if (!slot) return;
+    setState(slot, 'error', '⚠ 저장 안 됨 — ' + msg, retry !== false);
+    var sd = slot.closest('details.step'); if (sd) sd.open = true;
+    var c = slot.querySelector('.corr'); if (c && corrEn(slot) && hasVal(corrEn(slot))) c.style.display = 'block';
+  }
+  function markSaved(key) {
+    delete sent[key];
+    var slot = slotOf(key);
+    setState(slot, 'saved', '✓ 저장됨');
+    setTimeout(function () {
+      var s = slotOf(key), el = s && s.querySelector('.slot-state');
+      if (el && el.dataset.kind === 'saved') setState(s, '', '');
+    }, 3000);
+  }
+  function syncMiss(en) {
+    var m = en.querySelector('.miss'), v = en.querySelector('.val');
+    if (m && v.type === 'text') v.disabled = m.checked;
+  }
+  function lockCell(en, on) {  // 비행 중인 칸만 잠근다(다른 칸은 계속 입력 가능)
+    var v = en.querySelector('.val');
+    if (v.type === 'text') v.readOnly = on;
+    en.querySelectorAll('.okng, .miss, .corrSave, .corrCancel').forEach(function (e) { e.disabled = on; });
+    var rs = en.querySelector('.reason'); if (rs) rs.readOnly = on;
+    en.closest('.slot').setAttribute('aria-busy', on ? 'true' : 'false');
+  }
+
+  // ---- 서버 조각 반영 ----
+  function applyView(d, savedKeys) {
+    Object.keys(d.slots || {}).forEach(function (k) {
+      var el = slotOf(k);
+      if (!el) return;
+      var t = document.createElement('template'); t.innerHTML = d.slots[k].trim();  // 서버가 이스케이프해서 렌더한 조각만 넣는다
+      var ne = t.content.firstElementChild;
+      if (!ne) return;
+      el.replaceWith(ne);
+      if (savedKeys.indexOf(k) >= 0) markSaved(k);
+    });
+    if (d.steps) Object.keys(d.steps).forEach(function (no) {
+      var sm = root.querySelector('details.step[data-step-no="' + no + '"] > summary');
+      if (sm) sm.innerHTML = d.steps[no].html;  // 열림 상태는 details가 그대로 가진다
+    });
+    if (d.digest) banner.dataset.digest = d.digest;
+    stageCheck(d);
+    notify();
+  }
+  function isKeyStage(s) { return s === 'ready' || s === 'completed'; }
+  function stageCheck(d) {
+    var nf = d.has_fail ? '1' : '0';
+    if (d.stage !== banner.dataset.stage || nf !== banner.dataset.hasFail) {
+      // 미시작→입력 중 같은 변화는 배너 글자만 다르므로 다시 불러오지 않는다
+      if (isKeyStage(banner.dataset.stage) || isKeyStage(d.stage)) stageChanged = true;
+      else { banner.dataset.stage = d.stage; banner.dataset.hasFail = nf; }
+    }
+    maybeReload();
+  }
+  function reloadPage() { allowLeave = true; location.reload(); }
+  function maybeReload() {
+    if (!stageChanged || reloading) return;
+    var n = document.getElementById('stateNotice');
+    if (!n) {
+      n = document.createElement('div'); n.id = 'stateNotice'; n.style.color = '#92400e'; n.style.fontSize = '14px';
+      saveMsg.parentNode.insertBefore(n, saveMsg);
+    }
+    n.textContent = '';
+    if (!saving() && unsaved() === 0) {
+      reloading = true; n.textContent = '화면을 새로 고쳐요…';
+      setTimeout(reloadPage, 700);
+    } else {
+      n.textContent = '검사 상태가 바뀌었어요. 화면을 갱신해줘. ';
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'btn secondary'; b.textContent = '화면 갱신'; b.style.minHeight = '48px';
+      b.addEventListener('click', reloadPage);
+      n.appendChild(b);
+    }
+  }
+
+  // ---- 전송 ----
+  function request(url, opts) {
+    var ac = new AbortController(), t = setTimeout(function () { ac.abort(); }, TIMEOUT);
+    opts.signal = ac.signal;
+    return fetch(url, opts).then(function (r) {
+      clearTimeout(t);
+      return r.text().then(function (tx) { var d = null; try { d = JSON.parse(tx); } catch (e) {} return {s: r.status, d: d}; });
+    }, function (e) { clearTimeout(t); throw e; });
+  }
+  function enqueue(keys, corr) {
+    keys = keys.filter(function (k) {
+      return !queue.some(function (j) { return j.corr === !!corr && j.keys.indexOf(k) >= 0; })
+        && !(inflight && inflight.corr === !!corr && inflight.keys.indexOf(k) >= 0);
+    });
+    if (!keys.length) return;
+    queue.push({keys: keys, corr: !!corr});
+    keys.forEach(function (k) {
+      setState(slotOf(k), 'saving', paused ? '앞 칸 저장이 끝나면 저장돼요' : '… 저장 중');
+    });
+    pump();
+  }
+  function clearQueue(msg) {
+    var q = queue; queue = [];
+    q.forEach(function (j) { j.keys.forEach(function (k) { delete sent[k]; showErr(k, msg, false); }); });
+  }
+  function pump() {
+    if (inflight || paused) return;
+    var job = queue.shift();
+    if (!job) { notify(); maybeReload(); return; }
+    var entries = [], keys = [];
+    job.keys.forEach(function (k) {
+      var slot = slotOf(k), en = slot && (job.corr ? corrEn(slot) : newEn(slot));
+      if (!en) return;
+      var r = rd(en), rs = en.querySelector('.reason');
+      if (r.raw === '' && !r.missing) { if (!job.corr) setState(slot, '', ''); return; }
+      entries.push({item_key: slot.dataset.itemKey, idx: parseInt(slot.dataset.idx, 10), raw: r.raw, missing: r.missing,
+                    base_rev: slot.dataset.baseRev === '' ? null : parseInt(slot.dataset.baseRev, 10), reason: rs ? rs.value.trim() : ''});
+      keys.push(k);
+      if (!job.corr) sent[k] = r.raw;
+    });
+    if (!entries.length) { pump(); return; }
+    job.keys = keys; job.entries = entries; inflight = job;
+    keys.forEach(function (k) {
+      var s = slotOf(k); lockCell(job.corr ? corrEn(s) : newEn(s), true); setState(s, 'saving', '… 저장 중');
+    });
+    notify();
+    request(saveUrl, {method: 'POST', keepalive: true,
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      body: JSON.stringify({entries: entries, view: true, auto: true})
+    }).then(function (x) { onResponse(job, x); }, function () { onUnknown(job); })
+      .catch(function (e) { if (window.console) console.error(e); finish(job); });
+  }
+  function unlockJob(job) {
+    job.keys.forEach(function (k) {
+      var s = slotOf(k), en = s && (job.corr ? corrEn(s) : newEn(s));
+      if (en) { lockCell(en, false); syncMiss(en); }
+    });
+  }
+  function finish(job) {
+    if (inflight === job) inflight = null;
+    notify();
+    pump();
+  }
+  function myValue(job, key) {
+    var e = job.entries.filter(function (x) { return x.item_key + ':' + x.idx === key; })[0];
+    return e ? (e.missing ? '결측' : e.raw) : '';
+  }
+  function onResponse(job, x) {
+    if (x.d && x.d.ok) {
+      unlockJob(job);
+      applyView(x.d, job.keys);
+      finish(job);
+    } else if (!x.d) {
+      if (x.s >= 500) { onUnknown(job); return; }
+      hardFail(job, '서버 응답을 읽지 못했어요. 화면을 새로고침해줘.');
+    } else if (x.s >= 500) {
+      onUnknown(job);
+    } else if (x.s === 409) {
+      hardFail(job, x.d.error || '저장하지 못했어요.');
+    } else {
+      slotErr(job, x.d);
+    }
+  }
+  function hardFail(job, msg) {  // LOT 취소·사용 금지·승인본·권한 부족 등: 입력은 남기고 대기 전송은 멈춘다
+    unlockJob(job);
+    job.keys.forEach(function (k) { delete sent[k]; showErr(k, msg); });
+    saveMsg.textContent = msg;
+    clearQueue('앞 칸 저장이 막혀서 저장하지 못했어요.');
+    finish(job);
+  }
+  function slotErr(job, d) {
+    var msg = d.error || '저장하지 못했어요.';
+    var bad = d.slot && d.slot.item_key ? d.slot.item_key + ':' + d.slot.idx : null;
+    unlockJob(job);
+    if (!bad || job.keys.indexOf(bad) < 0) {
+      job.keys.forEach(function (k) { delete sent[k]; showErr(k, msg); });
+      saveMsg.textContent = msg;
+      finish(job); return;
+    }
+    var mine = myValue(job, bad), others = job.keys.length > 1 ? job.keys.filter(function (k) { return k !== bad; }) : [];
+    delete sent[bad];
+    others.forEach(function (k) { delete sent[k]; });
+    function done() { others.forEach(function (k) { enqueue([k], job.corr); }); finish(job); }
+    if (/완료된 S\/N/.test(msg)) {
+      showErr(bad, msg); saveMsg.textContent = msg;
+      clearQueue('완료된 S/N이라서 저장하지 못했어요.'); done(); return;
+    }
+    if (/변경 없음/.test(msg)) { syncKeys([bad], function (ok) { if (!ok) showErr(bad, msg); }, true, done); return; }
+    if (/이미 입력|먼저 입력|그 사이에 정정/.test(msg)) {
+      var note = msg + (job.corr ? ' 내가 고치려던 값: ' : ' 내가 입력한 값: ') + mine;
+      syncKeys([bad], function (ok) { if (ok) showErr(bad, note, false); else showErr(bad, note); }, false, done); return;
+    }
+    showErr(bad, msg);
+    done();
+  }
+  function syncKeys(keys, after, markOk, done) {  // 읽기 전용 GET으로 칸의 실제 상태를 가져와 서버 조각으로 맞춘다
+    request(slotsUrl + '?keys=' + encodeURIComponent(keys.join(',')), {method: 'GET', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (x) {
+        if (x.d && x.d.ok) { applyView(x.d, markOk ? keys : []); after(true); } else after(false);
+        done();
+      }, function () { after(false); done(); });
+  }
+  function onUnknown(job) {  // 네트워크 오류·시간 초과·5xx: 서버가 이미 저장했을 수 있어 바로 재전송하지 않고 실제 상태부터 읽는다
+    request(slotsUrl + '?keys=' + encodeURIComponent(job.keys.join(',')), {method: 'GET', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (x) {
+        if (!(x.d && x.d.ok)) { offline(job, job.keys); return; }
+        var saved = [], conflict = [], none = [];
+        job.keys.forEach(function (k) {
+          var t = document.createElement('template'); t.innerHTML = (x.d.slots[k] || '').trim();
+          var el = t.content.firstElementChild, e = job.entries.filter(function (z) { return z.item_key + ':' + z.idx === k; })[0];
+          var rev = el ? el.dataset.baseRev : '', cur = el ? (el.dataset.curValue || '') : '';
+          var same = e.missing ? cur === '' : (cur !== '' && sameVal(cur, e.raw));
+          if (rev === '' || (job.corr && parseInt(rev, 10) <= e.base_rev)) none.push(k);
+          else if (same) saved.push(k); else conflict.push(k);
+        });
+        unlockJob(job);
+        var show = {slots: {}, steps: x.d.steps, digest: x.d.digest, stage: x.d.stage, has_fail: x.d.has_fail};
+        saved.concat(conflict).forEach(function (k) { show.slots[k] = x.d.slots[k]; });
+        applyView(show, saved);
+        conflict.forEach(function (k) {
+          showErr(k, '다른 사람이 먼저 입력했어요. ' + (job.corr ? '내가 고치려던 값: ' : '내가 입력한 값: ') + myValue(job, k), false);
+        });
+        if (none.length) offline(job, none, true);
+        else finish(job);
+      }, function () { offline(job, job.keys); })
+      .catch(function (e) { if (window.console) console.error(e); finish(job); });
+  }
+  function offline(job, keys, unlocked) {
+    if (!unlocked) unlockJob(job);
+    paused = true;
+    keys.forEach(function (k) {
+      delete sent[k];
+      showErr(k, '인터넷이 불안정해요. 입력은 남아 있어요.');
+      retryOnline.push({key: k, corr: job.corr});
+    });
+    queue.forEach(function (j) { j.keys.forEach(function (k) { setState(slotOf(k), 'saving', '앞 칸 저장이 끝나면 저장돼요'); }); });
+    saveMsg.textContent = '인터넷이 불안정해서 저장하지 못했어요. 입력은 남아 있어요. 다시 저장해줘.';
+    if (inflight === job) inflight = null;
+    notify();
+  }
+  function resume(items) {
+    paused = false; saveMsg.textContent = '';
+    items.forEach(function (it) { enqueue([it.key], it.corr); });
+    pump();
+  }
+  window.addEventListener('online', function () {
+    if (!retryOnline.length) return;
+    var items = retryOnline; retryOnline = [];
+    resume(items);
+  });
+
+  // ---- ok_ng·결측: 1.5초 유예 뒤 저장 ----
+  function schedule(slot) {
+    var k = keyOf(slot);
+    if (timers[k]) clearTimeout(timers[k]);
+    setState(slot, 'pending', '● 곧 저장돼요 · 다른 쪽을 누르면 바꿔요');
+    timers[k] = setTimeout(function () { flush(k); }, GRACE);
+    notify();
+  }
+  function flush(k) {
+    if (!timers[k]) return;
+    clearTimeout(timers[k]); delete timers[k];
+    var s = slotOf(k);
+    if (s && newEn(s) && hasVal(newEn(s))) enqueue([k], false); else setState(s, '', '');
+    notify();
+  }
+  function flushAll() { Object.keys(timers).forEach(flush); }
+  function selectOkng(btn) {
+    var en = btn.closest('.entry');
+    en.querySelector('.val').value = btn.dataset.val;
+    en.querySelectorAll('.okng').forEach(function (b) { b.classList.toggle('sel', b === btn); });
+    if (en.dataset.mode === 'new') schedule(en.closest('.slot'));
+  }
+  function focusNext(slot) {
+    var all = Array.prototype.slice.call(root.querySelectorAll(SLOT)), i = all.indexOf(slot);
+    for (var j = i + 1; j < all.length; j++) {
+      var en = newEn(all[j]);
+      if (!en || hasVal(en)) continue;
+      var v = en.querySelector('.val'), tgt = v.type === 'text' ? v : en.querySelector('.okng');
+      if (!tgt || tgt.disabled || tgt.readOnly) continue;
+      var sd = all[j].closest('details.step'); if (sd && !sd.open) sd.open = true;
+      tgt.focus(); return;
+    }
+  }
+
+  // ---- 정정 ----
+  function openCorr(slot) {
+    var c = slot.querySelector('.corr'), b = slot.querySelector('.corrBtn');
+    if (!c) return;
+    c.style.display = 'block'; if (b) b.setAttribute('aria-expanded', 'true');
+    var v = c.querySelector('.val'), f = v.type === 'text' ? v : c.querySelector('.okng');
+    if (f) f.focus();
+  }
+  function closeCorr(slot) {
+    var c = slot.querySelector('.corr'), b = slot.querySelector('.corrBtn');
+    if (!c) return;
+    c.style.display = 'none'; if (b) b.setAttribute('aria-expanded', 'false');
+    var en = corrEn(slot), v = en.querySelector('.val'), m = en.querySelector('.miss'), rs = en.querySelector('.reason');
+    v.value = ''; if (m) m.checked = false; if (rs) rs.value = '';
+    en.querySelectorAll('.okng').forEach(function (o) { o.classList.remove('sel'); });
+    syncMiss(en); setState(slot, '', ''); notify();
+  }
+  function corrMsg(slot, text, focusEl) {
+    setState(slot, 'error', '⚠ ' + text, false);
+    if (focusEl) focusEl.focus();
+  }
+  function submitCorr(slot) {
+    var en = corrEn(slot), r = rd(en), rsEl = en.querySelector('.reason'), cur = slot.dataset.curValue || '';
+    if (r.raw === '' && !r.missing) { corrMsg(slot, '값을 입력해줘.', en.querySelector('.val')); return; }
+    if (r.missing ? cur === '' : sameVal(cur, r.raw)) { corrMsg(slot, '현재 값과 같아요.'); return; }
+    if (!rsEl.value.trim()) { corrMsg(slot, '정정 사유를 입력해줘.', rsEl); return; }
+    setState(slot, '', '');
+    enqueue([keyOf(slot)], true);
+  }
+
+  // ---- 이벤트 ----
   root.addEventListener('click', function (ev) {
     var t = ev.target;
+    if (t.closest('summary')) flushAll();  // 단계를 옮기기 전에 대기 중인 저장을 바로 보낸다
     if (t.classList.contains('okng')) {
-      var en = t.closest('.entry');
-      en.querySelector('.val').value = t.dataset.val;
-      en.querySelectorAll('.okng').forEach(function (b) { b.classList.toggle('sel', b === t); });
+      selectOkng(t);
     } else if (t.classList.contains('corrBtn')) {
-      var c = t.closest('.slot').querySelector('.corr');
-      c.style.display = c.style.display === 'none' ? 'block' : 'none';
+      openCorr(t.closest('.slot'));
+    } else if (t.classList.contains('corrSave')) {
+      submitCorr(t.closest('.slot'));
+    } else if (t.classList.contains('corrCancel')) {
+      closeCorr(t.closest('.slot'));
+    } else if (t.classList.contains('retryBtn')) {
+      var s = t.closest('.slot'), k = keyOf(s), isCorr = !newEn(s);
+      retryOnline = retryOnline.filter(function (x) { return x.key !== k; });
+      setState(s, '', '');
+      resume([{key: k, corr: isCorr}]);
     } else if (t.classList.contains('pasteBtn')) {
       var card = t.closest('.item'), msg = card.querySelector('.paste-msg');
       var toks = card.querySelector('.paste').value.split(/[\t\r\n;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
@@ -483,18 +811,68 @@
       }
       msg.textContent = '';
       empties.forEach(function (inp, i) { inp.value = toks[i]; });
+      enqueue(empties.map(function (inp) { return keyOf(inp.closest('.slot')); }), false);  // 채운 칸 전부를 한 요청으로
     }
   });
+  root.addEventListener('change', function (ev) {
+    var t = ev.target, en = t.closest && t.closest('.entry');
+    if (!en) return;
+    var slot = en.closest('.slot');
+    if (t.classList.contains('miss')) {
+      syncMiss(en);
+      if (en.dataset.mode !== 'new') return;
+      if (t.checked) schedule(slot);
+      else { var k = keyOf(slot); if (timers[k]) { clearTimeout(timers[k]); delete timers[k]; } setState(slot, '', ''); }
+    } else if (t.classList.contains('val') && t.type === 'text' && en.dataset.mode === 'new') {
+      var r = rd(en), key = keyOf(slot);
+      if (r.missing) return;
+      if (r.raw === '') { setState(slot, '', ''); return; }
+      if (sent[key] === r.raw) return;
+      enqueue([key], false);
+    }
+  });
+  root.addEventListener('focusout', function (ev) {
+    var en = ev.target.closest && ev.target.closest('.entry[data-mode="new"]');
+    if (!en || (ev.relatedTarget && en.contains(ev.relatedTarget))) return;
+    flush(keyOf(en.closest('.slot')));
+  });
+  root.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' || ev.isComposing || ev.keyCode === 229) return;
+    var t = ev.target, en = t.closest && t.closest('.entry');
+    if (!en) return;
+    var slot = en.closest('.slot'), isText = t.classList.contains('val') && t.type === 'text';
+    if (en.dataset.mode === 'corr') {
+      if (isText) { ev.preventDefault(); var rs = en.querySelector('.reason'); if (!rs.value.trim()) rs.focus(); else submitCorr(slot); }
+      else if (t.classList.contains('reason')) { ev.preventDefault(); submitCorr(slot); }
+      return;
+    }
+    if (isText) {
+      ev.preventDefault();
+      var r = rd(en), k = keyOf(slot);
+      if (!hasVal(en)) return;
+      if (timers[k]) flush(k); else if (!r.missing && sent[k] !== r.raw) enqueue([k], false);
+      focusNext(slot);
+    } else if (t.classList.contains('okng')) {
+      ev.preventDefault(); selectOkng(t); flush(keyOf(slot)); focusNext(slot);
+    }
+  });
+  window.addEventListener('beforeunload', function (ev) {
+    if (allowLeave) return;
+    if (unsaved() > 0 || saving()) { ev.preventDefault(); ev.returnValue = ''; }
+  });
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushAll(); });
+  window.addEventListener('pagehide', flushAll);
+  root.addEventListener('input', notify);
+  root.addEventListener('change', notify);
+  root.addEventListener('click', notify);
+  window.InspectSave = {unsaved: unsaved, saving: saving};
 
+  // ---- 하단 [저장]: 저장 안 된 입력 전부를 한 요청으로 (성공하면 새로고침) ----
   function collect() {
     var out = [];
-    root.querySelectorAll('.slot:not(.photo-slot):not(.ma-slot)').forEach(function (slot) {
-      var en = slot.querySelector('.entry[data-mode="new"]');
-      if (!en) {
-        var corr = slot.querySelector('.corr');
-        if (!corr || corr.style.display === 'none') return;
-        en = corr.querySelector('.entry');
-      }
+    root.querySelectorAll(SLOT).forEach(function (slot) {
+      var en = newEn(slot) || corrEn(slot);  // 정정 영역은 닫혀 있어도 값이 있으면 포함
+      if (!en) return;
       var val = en.querySelector('.val').value.trim();
       var miss = en.querySelector('.miss');
       var missing = !!(miss && miss.checked);
@@ -507,27 +885,36 @@
     return out;
   }
 
-  function lock(on) {  // 저장 중에는 편집을 막아 늦은 응답이 새 입력을 덮지 않게 한다
+  function lock(on) {  // 명시 저장 중에는 편집을 막아 늦은 응답이 새 입력을 덮지 않게 한다
     root.querySelectorAll('input, button, textarea').forEach(function (e) { if (!e.dataset.noperm) e.disabled = on; });
     saveBtn.disabled = on;
+    if (!on) root.querySelectorAll('.entry').forEach(syncMiss);
   }
 
   saveBtn.addEventListener('click', function () {
+    flushAll();
     root.querySelectorAll('.slot-msg').forEach(function (e) { e.textContent = ''; });
     saveMsg.textContent = '';
+    if (inflight) { saveMsg.textContent = '저장 중이에요. 잠시만 기다려줘.'; return; }
+    queue = [];  // 대기 중인 칸은 아래 collect()가 함께 모은다
     var entries = collect();
-    if (!entries.length) { saveMsg.textContent = '저장할 입력이 없어요.'; return; }
+    if (!entries.length) { saveMsg.textContent = '저장할 입력이 없어요. 이미 저장된 칸의 값을 고치려면 그 칸의 \'정정\'을 눌러줘.'; return; }
     lock(true); saveMsg.textContent = '저장 중…';
-    fetch(root.dataset.saveUrl, {
+    fetch(saveUrl, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
       body: JSON.stringify({entries: entries})
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d.ok) { location.reload(); return; }
+      if (d.ok) { reloadPage(); return; }
       lock(false); saveMsg.textContent = d.error || '저장에 실패했어요.';
       if (d.slot && d.slot.item_key) {
-        var s = root.querySelector('.slot[data-item-key="' + d.slot.item_key + '"][data-idx="' + d.slot.idx + '"] .slot-msg');
-        if (s) { s.textContent = d.error; var sd = s.closest('details.step'); if (sd) sd.open = true; }
+        var sl = root.querySelector('.slot[data-item-key="' + d.slot.item_key + '"][data-idx="' + d.slot.idx + '"]');
+        var s = sl && sl.querySelector('.slot-msg');
+        if (s) {
+          s.textContent = d.error;
+          var sd = s.closest('details.step'); if (sd) sd.open = true;
+          var c = sl.querySelector('.corr'); if (c && corrEn(sl) && hasVal(corrEn(sl))) c.style.display = 'block';  // 닫힌 정정 영역의 오류도 보이게 연다
+        }
       }
     }).catch(function () { lock(false); saveMsg.textContent = '서버와 통신하지 못했어요. 입력은 그대로 남아 있어요.'; });
   });
@@ -609,7 +996,7 @@
     pv.querySelector('.pReason').value = '';
     picked.delete(slot); slot.querySelector('.pPick').style.display = 'none';
     // 사진이 저장되면 서버 digest가 바뀐다 — 완료 unit이면 재개 상태를 보이도록 새로고침, 아니면 완료 버튼만 막는다
-    if (root.dataset.done === '1') { location.reload(); return; }
+    if (root.dataset.done === '1') { reloadPage(); return; }
     if (window.inspectMarkChanged) window.inspectMarkChanged(true);
   }
 })();
@@ -622,22 +1009,17 @@
   var csrf = document.querySelector('meta[name="csrf-token"]').content;
   var cb = document.getElementById('completeBtn'), hint = document.getElementById('completeHint');
   var list = document.getElementById('blockerList');
-  var dirty = false, stale = false;
+  var stale = false;
+  function IS() { return window.InspectSave; }  // 저장 모듈은 입력 권한이 있을 때만 있다
   function refresh() {
     if (!cb) return;
-    cb.disabled = dirty || stale;
-    hint.textContent = dirty ? ' 저장하지 않은 입력이 있어요. 저장 먼저 해줘.' : (stale ? ' 사진이 바뀌었어요. 새로고침 후 요청해줘.' : '');
+    var busy = !!(IS() && IS().saving()), dirty = !!(IS() && IS().unsaved() > 0);
+    cb.disabled = busy || dirty || stale;
+    hint.textContent = busy ? ' 저장 중이에요. 잠시만 기다려줘.' : (dirty ? ' 저장하지 않은 입력이 있어요. 저장 먼저 해줘.' : (stale ? ' 사진이 바뀌었어요. 새로고침 후 요청해줘.' : ''));
   }
   window.inspectMarkChanged = function (isStale) { if (isStale) stale = true; refresh(); };
-  root.addEventListener('input', function (ev) {
-    if (ev.target.closest('.entry')) { dirty = true; refresh(); }
-  });
-  root.addEventListener('change', function (ev) {
-    if (ev.target.closest('.entry')) { dirty = true; refresh(); }
-  });
-  root.addEventListener('click', function (ev) {
-    if (ev.target.classList.contains('okng')) { dirty = true; refresh(); }
-  });
+  root.addEventListener('inspect:savestate', refresh);
+  refresh();
   function post(url, body, btn) {
     btn.disabled = true; list.textContent = '';
     fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf,
@@ -678,7 +1060,7 @@
   var csrf = document.querySelector('meta[name="csrf-token"]').content;
   function post(slot, url, body, btn) {
     var msg = slot.querySelector('.slot-msg'); msg.textContent = '';
-    if (root.querySelector('.entry .val') && Array.prototype.some.call(root.querySelectorAll('.entry .val'), function (v) { return v.value.trim() !== ''; })
+    if (window.InspectSave && window.InspectSave.unsaved() > 0
         && !confirm('저장하지 않은 입력이 있어요. 연결/회수하면 화면이 새로고침돼서 사라져요. 계속할까?')) return;
     btn.disabled = true;
     fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
@@ -734,15 +1116,14 @@
   var btn = document.getElementById('submitReportBtn'), hint = document.getElementById('reportHint');
   var sel = document.getElementById('approverSelect');
   var root = document.getElementById('inspectRoot'), banner = document.getElementById('stageBanner');
-  var dirty = false, stale = false;
+  var stale = false;
   function refresh() {
     if (!btn) return;
-    btn.disabled = btn.dataset.blocked === '1' || dirty || stale;
-    hint.textContent = dirty ? '저장하지 않은 입력이 있어요. 저장 먼저 해줘.' : (stale ? '사진이 바뀌었어요. 새로고침 후 요청해줘.' : '');
+    var IS = window.InspectSave, busy = !!(IS && IS.saving()), dirty = !!(IS && IS.unsaved() > 0);
+    btn.disabled = btn.dataset.blocked === '1' || busy || dirty || stale;
+    hint.textContent = busy ? '저장 중이에요. 잠시만 기다려줘.' : (dirty ? '저장하지 않은 입력이 있어요. 저장 먼저 해줘.' : (stale ? '사진이 바뀌었어요. 새로고침 후 요청해줘.' : ''));
   }
-  root.addEventListener('input', function (ev) { if (ev.target.closest('.entry')) { dirty = true; refresh(); } });
-  root.addEventListener('change', function (ev) { if (ev.target.closest('.entry')) { dirty = true; refresh(); } });
-  root.addEventListener('click', function (ev) { if (ev.target.classList.contains('okng')) { dirty = true; refresh(); } });
+  root.addEventListener('inspect:savestate', refresh);
   var prev = window.inspectMarkChanged;
   window.inspectMarkChanged = function (s) { if (s) stale = true; refresh(); if (prev) prev(s); };
   function post(url, body, b, isForm) {

@@ -1,0 +1,69 @@
+{# 제품검사 S/N 입력 화면의 슬롯·단계 요약 조각 — 전체 페이지(lot_inspect_unit.html)와 저장 응답 조각(app.py _slot_view_ctx)이 같은 마크업을 쓴다.
+   ctx 키: results, editable, is_done, me_id, can_correct_others, derived_wait, verdict_labels #}
+{% macro entry(it, mode, allow_reason) %}
+<div class="entry" data-mode="{{ mode }}">
+  {% if it['input_type'] == 'ok_ng' %}
+  <input type="hidden" class="val" value="">
+  <button type="button" class="btn secondary okng" data-val="OK" style="min-height:44px;">적합</button>
+  <button type="button" class="btn secondary okng" data-val="NG" style="min-height:44px;">부적합</button>
+  {% else %}
+  <input type="text" class="val" inputmode="decimal" autocomplete="off" placeholder="측정값">
+  {% endif %}
+  {% if it['allow_missing'] %}<label><input type="checkbox" class="miss" style="width:auto;"> 결측</label>{% endif %}
+  {% if allow_reason %}<input type="text" class="reason" placeholder="정정 사유(필수)">{% endif %}
+  {% if mode == 'corr' %}<button type="button" class="btn corrSave" style="min-height:48px;">정정 저장</button>
+  <button type="button" class="btn secondary corrCancel" style="min-height:48px;">취소</button>{% endif %}
+</div>
+{% endmacro %}
+{% macro step_summary(grp) %}<span>{{ grp['name'] }}</span> <small class="muted">입력 {{ grp['filled'] }}/{{ grp['required'] }}칸</small>
+    {% if grp['fail_cells'] %}<span class="badge fail">⚠ 불합격 {{ grp['fail_cells'] }}칸</span>{% endif %}
+    {% if grp['filled'] < grp['required'] %}<span class="badge pending">● 미입력 {{ grp['required'] - grp['filled'] }}칸 남음</span>
+    {% elif not grp['fail_cells'] %}<span class="badge pass">✓ 입력 완료</span>{% endif %}{% endmacro %}
+{% macro numeric_slot(it, idx, ctx) %}
+  {% set results = ctx['results'] %}
+  {% set editable = ctx['editable'] %}
+  {% set is_done = ctx['is_done'] %}
+  {% set me_id = ctx['me_id'] %}
+  {% set can_correct_others = ctx['can_correct_others'] %}
+  {% set verdict_labels = ctx['verdict_labels'] %}
+  {% set sl = results.get(it['key'], {}).get(idx) %}
+  {% set c = sl['current'] if sl else none %}
+  <div class="slot" data-item-key="{{ it['key'] }}" data-idx="{{ idx }}" data-base-rev="{{ c['rev'] if c else '' }}" data-cur-value="{{ '' if (not c or c['is_missing']) else c['value'] }}">
+    <b>{{ slot_label(it, idx) }}</b>
+    {% if c %}
+      <span class="{{ 'v-fail' if c['verdict'] == 'fail' else ('v-pass' if c['verdict'] == 'pass' else '') }}">
+        {{ '결측' if c['is_missing'] else c['value'] }} · {{ '기록됨' if c['verdict'] == 'recorded' else verdict_labels.get(c['verdict'], c['verdict']) }}
+      </span>
+      <small class="muted">{{ c['rev'] }}회차 · {% if c['entry_type'] == 'derived' %}자동 계산: {{ c['value_input'] or '' }}{% else %}{{ c['entered_by'] or '' }}{% endif %} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'retest' %} · 재검사: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'link' %} · MA 연결{% endif %}</small>
+      {% if editable and not it.get('derived') %}
+      <button type="button" class="btn secondary corrBtn" aria-expanded="false"
+        {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 값은 정정 권한이 필요해요"{% endif %}>정정</button>
+      <div class="corr" style="display:none;">{{ entry(it, 'corr', true) }}</div>
+      {% endif %}
+      {% if sl['history'] | length > 1 %}
+      <details><summary>이력 보기</summary>
+        <ul>{% for h in sl['history'] %}
+          <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}{{ '결측' if h['is_missing'] else h['value'] }} ({{ '기록됨' if h['verdict'] == 'recorded' else verdict_labels.get(h['verdict'], h['verdict']) }}){% if h['entry_type'] == 'link' %} · MA 연결{% endif %}{% endif %}{% if h['entry_type'] == 'derived' %} · 자동 계산: {{ h['value_input'] or '' }}{% else %} · {{ h['entered_by'] or '' }}{% endif %} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] and h['entry_type'] != 'unlink' %} · 사유: {{ h['reason'] }}{% endif %}{% if not h['roster_member'] %} · 시작 후 합류{% endif %}{% if h['serial_at_entry'] %} · 당시 S/N {{ h['serial_at_entry'] }}{% endif %}</li>
+        {% endfor %}</ul>
+      </details>
+      {% endif %}
+    {% elif it.get('derived') %}
+      <span class="muted">원천 값이 모두 입력되면 자동으로 계산돼요 ({{ (ctx['derived_wait'].get(it['key']) or {}).get(idx, '') }}칸 입력)</span>
+    {% elif it.get('source') == 'speed' %}
+      <span class="muted">MA 번호를 연결하면 자동으로 채워져요</span>
+    {% elif editable and not is_done %}
+      {{ entry(it, 'new', false) }}
+    {% else %}
+      <span class="muted">미입력</span>
+    {% endif %}
+    {% if not c and sl and sl['history'] %}
+    <details><summary>이력 보기</summary>
+      <ul>{% for h in sl['history'] %}
+        <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}{{ h['value'] }}{% if h['entry_type'] == 'link' %} · MA 연결{% endif %}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}</li>
+      {% endfor %}</ul>
+    </details>
+    {% endif %}
+    <small class="slot-state" role="status" aria-live="polite"></small>
+    <div class="slot-msg"></div>
+  </div>
+{% endmacro %}
