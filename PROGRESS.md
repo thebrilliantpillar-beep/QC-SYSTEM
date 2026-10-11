@@ -8,6 +8,14 @@
 
 ## 최근 작업 이력 (최신순)
 
+- **2026-10-11 (4b-2 NG 사건 취소·S/N 사용 금지, .collab TASK #154)**:
+  특채 요청 후 정정으로 NG가 사라져 제출이 영구 차단되던 **교착을 해소**. 사건 취소(`process_ng_cancel` 명시 보유자, 그 항목에 불합격 칸이 없을 때만, 사유 필수, `ng_event_log`에 cancelled 줄 append)와 S/N 사용 금지(`process_final` 명시 보유자, 사유+서명 스냅샷, 미종결 NG 사건 있어야 결정, 승인본이 있으면 승인 회수 먼저, 회수는 사유만)를 추가.
+  신규 테이블 `unit_disposal_events`(append-only 해시 체인, 트리거 12→14개), ALTER 없음. 사용 금지 차단 8곳(입력·정정, 완료, 재개, NG 후속조치·재검사·취소, 사건 열기, 승인 요청·승인, `unit_ng_gate_clear`, 목록). 대기 성적서는 취소·사용 금지 시 같은 트랜잭션에서 자동 철회.
+  라우트 3개(lot_ng_cancel, lot_unit_unusable, lot_unit_unusable_revoke), `lot_ng_events` 열람 권한에 process_ng_cancel 추가(사용자 결정), 화면 마크업+designer CSS.
+  검증: v4a 87·v4b 52(CSRF ON)·v4c 20, 회귀 v1da~v3d 전부 통과, 헤드리스 크롬+CDP 실입력 e2e 16건(390px·1200px), quality-watcher 이상 없음. e2e로 찾아 고친 것: 취소됨 배지가 합격색(초록)으로 나오던 분기, 사용 금지 화면 안내 중복.
+  사용자 확정: 취소=값이 합격으로 바뀐 사건(불합격 칸 없음)만, 취소 권한 새 코드 명시 보유자만, 사용 금지=S/N 단위·최종결정권자·서명, 대기 성적서 자동 철회, 승인본은 회수 후에만, 사용 금지는 미종결 사건 필요, 직무 분리 없음(회수는 process_final 누구나), 읽기 권한에 process_ng_cancel 추가.
+  Codex 검토 PARTIAL→(README 보완 후 커밋 가능): 코드·권한·서버 차단·트리거·해시 통과, README.txt에 제품검사 추적 기능(NG 사건 취소·사용 금지, 꺼진 상태) 안내를 추가해 해소. 경계 명시: 기본 `recursive_triggers=0`에서는 `INSERT OR REPLACE`가 DELETE 거부 트리거를 통과(앱 코드엔 REPLACE 없음, 특권 접근자만 가능) — CLAUDE.md 27-5절에 기록, head-commit(4d) 또는 위험 수용 전까지 추적 기능 활성화 금지.
+  **추적 기능 켜기 전 남은 것**: 운영 DB admin의 permissions 컬럼 확인(process_final·process_submit 자동 체크 여부)과 승인 자격자 지정·서명 등록, 모델 시드·자재/분류 연결, Codex 권고(4d head-commit 또는 위험 수용 명시). 알려진 한계: 취소 후 재오픈 버튼 없음(새 사건 자동 생성), 사용 금지 중에도 제외·S/N 정정·LOT 취소는 허용, 사진 폴더 DB 백업 미포함.
 - **2026-10-11 (4b-1 NG 사건·후속조치·재검사·특채 종결, .collab TASK #150 스펙·#151 구현·#153 트리거 보완)**:
   검사 완료 요청 시 NG 항목마다 사건 자동 생성, 후속조치 5종, 재검사(불량 칸만)로 자동 종결, 특채 요청→성적서 제출→승인 시 특채 사유 입력으로 특채 종결(승인 이벤트+사건 종결 한 트랜잭션).
   신규 테이블 `ng_events`·`ng_event_log`(append-only 해시 체인), 기존 테이블 ALTER 없음, 4a 제출·승인 보강·자동 철회 확장·스냅샷 schema 2, `save_unit_results` 분리(retest_ctx).
