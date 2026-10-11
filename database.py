@@ -166,7 +166,7 @@ class DbBusyError(ValueError):
 
 
 APPEND_ONLY_TABLES = ("lot_inspection_results", "lot_inspection_unit_events", "product_report_revisions",
-                      "product_report_events", "ng_events", "ng_event_log")
+                      "product_report_events", "ng_events", "ng_event_log", "unit_disposal_events")
 
 
 def _install_append_only_triggers(cur, tables):
@@ -1337,7 +1337,31 @@ def init_db():
     """)
     # ---- 2026-10-11 신규(4b-1) 끝 ----
 
-    # ---- 2026-10-11 신규: 증거성 테이블 6개 append-only DB 트리거 (TASK #153) ----
+    # ---- 2026-10-11 신규: S/N 사용 금지 결정 이력 (TASK #154 패키지 4b-2) ----
+    # S/N 단위 append-only 해시 체인. event_type 'unusable'|'unusable_revoked'(CHECK 없음). 트리거 설치보다 먼저 만들 것.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS unit_disposal_events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES production_lot_inspections(id),
+            unit_id       INTEGER NOT NULL REFERENCES finished_units(id),
+            seq           INTEGER NOT NULL,
+            event_type    TEXT NOT NULL,
+            reason        TEXT NOT NULL,
+            payload_json  TEXT,
+            serial_at_event TEXT,
+            lot_revision  INTEGER,
+            actor_name    TEXT,
+            actor_user_id INTEGER,
+            prev_hash     TEXT,
+            event_hash    TEXT NOT NULL,
+            at            TEXT NOT NULL,
+            UNIQUE(inspection_id, unit_id, seq)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ude_unit ON unit_disposal_events(unit_id, seq)")
+    # ---- 2026-10-11 신규(4b-2) 끝 ----
+
+    # ---- 2026-10-11 신규: 증거성 테이블 7개 append-only DB 트리거 (TASK #153) ----
     _install_append_only_triggers(cur, APPEND_ONLY_TABLES)
     # ---- 2026-10-11 신규(트리거) 끝 ----
 
@@ -4700,6 +4724,20 @@ def unit_has_final_document(unit_id, conn=None):
 
 
 _FINAL_DOC_UNIT_MSG = "이 S/N의 성적서가 이미 최종 승인 또는 출력되어 제외/정정할 수 없어요. 승인 회수가 먼저 필요해요."
+_UNUSABLE_UNIT_MSG = "이 S/N은 사용 금지로 결정돼서 입력·정정·승인 요청을 할 수 없어요. 사용 금지를 되돌린 뒤에 할 수 있어요."
+
+
+def unit_is_unusable(unit_id, conn=None):
+    """S/N의 마지막 사용 금지 이벤트가 unusable이면 참(회수되면 거짓). 쓰기 트랜잭션 안에서는 자기 conn을 넘길 것."""
+    own = conn is None
+    c = get_conn() if own else conn
+    try:
+        r = c.execute("SELECT event_type FROM unit_disposal_events WHERE unit_id=? ORDER BY seq DESC LIMIT 1",
+                      (unit_id,)).fetchone()
+        return bool(r and r["event_type"] == "unusable")
+    finally:
+        if own:
+            c.close()
 
 
 @_write_retry
@@ -5176,6 +5214,7 @@ def list_inspection_units(lot_id):
         for r in _slot_current(conn, insp["id"]):
             cur.setdefault(r["unit_id"], {}).setdefault(r["item_key"], {})[r["idx"]] = r
         latest = _unit_events_latest(conn, insp["id"])
+        disposal = _unit_disposal_latest(conn, insp["id"])
     finally:
         conn.close()
     out = []
@@ -5209,7 +5248,8 @@ def list_inspection_units(lot_id):
         out.append({"unit_id": u["id"], "serial_raw": u["serial_raw"], "past_serials": u["past_serials"],
                     "status": u["status"], "model_mismatch": bool(u["model_mismatch"]),
                     "roster_member": u["id"] in roster, "progress": prog, "overall": overall,
-                    "stage": stage, "completion": completion, "has_fail": has_fail})
+                    "stage": stage, "completion": completion, "has_fail": has_fail,
+                    "unusable": bool(disposal.get(u["id"]) and disposal[u["id"]]["event_type"] == "unusable")})
     return out
 
 
@@ -5266,7 +5306,9 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
         raise ValueError("이 LOT의 완제품이 아니에요.")
     if u["status"] != "active":
         raise ValueError("제외된 완제품은 입력/정정할 수 없어요.")
-    last_ev = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? "
+    if unit_is_unusable(unit_id, conn):
+        raise ValueError(_UNUSABLE_UNIT_MSG)
+    last_ev =conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? "
                            "AND unit_id=? ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
     was_done = bool(last_ev and last_ev["event_type"] == "complete")
     if retest_ctx:  # 재검사는 완료 S/N도 받는다(재개는 호출자) — 단, 최종 승인된 S/N은 불가
@@ -5545,7 +5587,9 @@ def complete_unit_inspection(lot_id, unit_id, actor, actor_id, expected_digest, 
         u = _unit_in_lot(conn, lot_id, unit_id)
         if u["status"] != "active":
             raise CompletionBlocked([_blk("unit_excluded", "제외된 완제품은 완료할 수 없어요.")])
-        last = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+        if unit_is_unusable(unit_id, conn):
+            raise CompletionBlocked([_blk("unit_unusable", _UNUSABLE_UNIT_MSG)])
+        last =conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
                             "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
         if last and last["event_type"] == "complete":
             raise CompletionBlocked([_blk("already_completed", "이미 완료됐어요.")])
@@ -5609,6 +5653,8 @@ def reopen_unit_completion(lot_id, unit_id, reason, actor, actor_id, source="use
             raise ValueError("완료된 S/N이 아니에요.")
         if unit_has_final_document(unit_id, conn):
             raise ValueError(_FINAL_DOC_UNIT_MSG)
+        if unit_is_unusable(unit_id, conn):
+            raise ValueError(_UNUSABLE_UNIT_MSG)
         seq = _append_unit_event(conn, insp, unit_id, "reopen", source, reason[:200], actor, actor_id)
         conn.commit()
         return seq
@@ -5641,6 +5687,8 @@ def _unit_completion_valid_conn(conn, insp, unit_id):
     u = conn.execute("SELECT status FROM finished_units WHERE id=? AND lot_id=?", (unit_id, lot_id)).fetchone()
     if not u or u["status"] != "active":
         return False, "제외된 S/N이에요."
+    if unit_is_unusable(unit_id, conn):
+        return False, "사용 금지로 결정된 S/N이에요."
     ev = _unit_events_latest(conn, insp["id"]).get(unit_id)
     if not ev or ev["event_type"] != "complete":
         return False, "완료되지 않은 S/N이에요."
@@ -5719,7 +5767,10 @@ def _ng_log_append(conn, ng_event_id, log_type, actor, actor_id, payload=None, *
 
 
 def _ng_state(logs, rev_last):
-    """로그 목록(seq 순) → 상태. 특채 종결은 그 revision의 마지막 이벤트가 approved인 동안만 유효."""
+    """로그 목록(seq 순) → 상태. 특채 종결은 그 revision의 마지막 이벤트가 approved인 동안만 유효.
+    취소(cancelled)는 마지막 줄일 때만 — 취소 뒤엔 쓰기가 막혀 항상 마지막 줄이다."""
+    if logs and logs[-1]["log_type"] == "cancelled":
+        return "cancelled"
     closed = [l for l in logs if l["log_type"] == "closed"]
     if closed:
         c = closed[-1]
@@ -5811,6 +5862,8 @@ def unit_ng_gate_clear(conn_or_none, unit_id):
                             "WHERE u.id=?", (unit_id,)).fetchone()
         if not insp:
             return True, []
+        if unit_is_unusable(unit_id, conn):
+            return False, [_blk("unit_unusable", "사용 금지로 결정된 S/N이에요.")]
         g = _ng_unit_gate(conn, insp, unit_id)
         bl = list(g["blockers"])
         for e in g["pending"]:
@@ -5874,11 +5927,13 @@ def _ng_writable_event(conn, insp, unit_id, ng_event_id):
         raise ValueError("제외된 완제품은 NG 처리를 할 수 없어요.")
     if unit_has_final_document(unit_id, conn):
         raise ValueError(_FINAL_DOC_UNIT_MSG)
+    if unit_is_unusable(unit_id, conn):
+        raise ValueError(_UNUSABLE_UNIT_MSG)
     ev = next((e for e in _ng_events_derived(conn, insp["id"], unit_id) if e["id"] == ng_event_id), None)
     if not ev:
         raise ValueError("이 S/N의 NG 사건이 아니에요.")
-    if ev["state"].startswith("closed"):
-        raise ValueError("이미 종결된 NG 사건이에요.")
+    if ev["state"].startswith("closed") or ev["state"] == "cancelled":
+        raise ValueError("이미 종결되거나 취소된 NG 사건이에요.")
     return ev
 
 
@@ -5893,6 +5948,8 @@ def open_ng_events(lot_id, unit_id, actor, actor_id):
             raise ValueError("제외된 완제품은 NG 처리를 할 수 없어요.")
         if unit_has_final_document(unit_id, conn):
             raise ValueError(_FINAL_DOC_UNIT_MSG)
+        if unit_is_unusable(unit_id, conn):
+            raise ValueError(_UNUSABLE_UNIT_MSG)
         last = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
                             "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
         if not last or last["event_type"] != "complete":
@@ -6027,11 +6084,12 @@ def list_ng_events(inspection_id, unit_id):
     """S/N의 사건 목록(헤더+로그+파생 상태+항목명) — 읽기 전용."""
     conn = get_conn()
     try:
-        insp = conn.execute("SELECT items_json FROM production_lot_inspections WHERE id=?", (inspection_id,)).fetchone()
+        insp = conn.execute("SELECT * FROM production_lot_inspections WHERE id=?", (inspection_id,)).fetchone()
         names = {i["key"]: i["name"] for i in json.loads(insp["items_json"])} if insp else {}
         evs = _ng_events_derived(conn, inspection_id, unit_id)
         for e in evs:
             e["item_name"] = names.get(e["item_key"], e["item_key"])
+            e["cancel_blocked"] = _ng_cancel_blockers(conn, insp, e["unit_id"], e) if insp else []
         return evs
     finally:
         conn.close()
@@ -6240,6 +6298,239 @@ def _ng_fingerprint(evs):
 def _ng_withdraw_pending(conn, insp, unit_id, why, actor, actor_id):
     """NG 사건에 변경이 생기면 승인 대기 성적서를 같은 트랜잭션에서 철회(대기가 아니면 아무것도 안 함)."""
     return _withdraw_pending_report(conn, insp, unit_id, why, "ng", actor, actor_id)
+
+
+# ---------- NG 사건 취소 · S/N 사용 금지 (TASK #154 패키지 4b-2) ----------
+# 사건 취소는 ng_event_log에 log_type='cancelled' 한 줄만 추가한다(컬럼 변경 없음, 취소된 사건은 재오픈 안 함).
+# 사용 금지는 S/N 단위라 별도 해시 체인 unit_disposal_events(append-only)에 쓴다 — UPDATE/DELETE 금지.
+
+_NG_CANCEL_STILL_FAIL_MSG = ("이 항목에 아직 불합격 칸이 있어요. 값이 합격으로 정정된 사건만 취소할 수 있어요. "
+                             "불량이 맞다면 재검사나 특채 요청을 진행해줘.")
+
+
+def _ng_cancel_blockers(conn, insp, unit_id, ev):
+    """사건 취소를 막는 사유 목록(빈 목록=취소 가능) — 쓰기 함수와 화면이 같이 쓰는 단일 출처.
+    취소 가능 = 미종결 + 승인본 없음 + 사용 금지 아님 + 그 사건 항목의 현재 값에 불합격 칸이 없음(fail 아님이면 허용)."""
+    bl = []
+    if ev["state"] not in _NG_OPEN_STATES:
+        bl.append(_blk("ng_closed", "이미 종결되거나 취소된 NG 사건이에요.", ev["item_key"]))
+    if unit_has_final_document(unit_id, conn):
+        bl.append(_blk("final_document", _FINAL_DOC_UNIT_MSG, ev["item_key"]))
+    if unit_is_unusable(unit_id, conn):
+        bl.append(_blk("unit_unusable", _UNUSABLE_UNIT_MSG, ev["item_key"]))
+    it = next((i for i in json.loads(insp["items_json"]) if i["key"] == ev["item_key"]), None)
+    if it and summarize_unit_item(it, _ng_cur(conn, insp["id"], unit_id).get(it["key"], {})) == "fail":
+        bl.append(_blk("ng_cancel_still_fail", _NG_CANCEL_STILL_FAIL_MSG, ev["item_key"]))
+    return bl
+
+
+@_write_retry
+def cancel_ng_event(lot_id, unit_id, ng_event_id, reason, actor, actor_id):
+    """NG 사건 취소(값이 합격 쪽으로 정정돼 불량이 사라진 사건) → 로그 seq. 권한은 process_ng_cancel 명시 보유자만."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        ev = _ng_writable_event(conn, insp, unit_id, ng_event_id)
+        if "process_ng_cancel" not in _explicit_perms(conn, actor_id):
+            raise NgBlocked([_blk("no_cancel_perm", "NG 사건 취소 권한(process_ng_cancel)이 이 계정에 직접 체크되어 있지 않아요. "
+                                  "관리자 계정도 계정 상세에서 직접 체크해야 해요.", ev["item_key"])])
+        reason = (reason or "").strip()[:500]
+        if not reason:
+            raise NgBlocked([_blk("reason_required", "취소 사유를 입력해줘.", ev["item_key"])])
+        bl = _ng_cancel_blockers(conn, insp, unit_id, ev)
+        if bl:
+            raise NgBlocked(bl)
+        c = _ng_cur(conn, insp["id"], unit_id).get(ev["item_key"], {})
+        it = next(i for i in json.loads(insp["items_json"]) if i["key"] == ev["item_key"])
+        payload = {"item_key": ev["item_key"], "item_verdict": summarize_unit_item(it, c),
+                   "snapshot_cells": ev["fail_snapshot"].get("cells", []),
+                   "cells_now": [{"idx": i, "rev": c[i]["rev"], "value": c[i]["value"], "verdict": c[i]["verdict"]}
+                                 for i in sorted(c)],
+                   "digest": _results_digest(conn, insp["id"], unit_id)}
+        seq = _ng_log_append(conn, ng_event_id, "cancelled", actor, actor_id, payload=payload, outcome="cancelled",
+                             reason=reason)
+        _ng_withdraw_pending(conn, insp, unit_id, f"NG 사건 취소 · 사건 #{ng_event_id}", actor, actor_id)
+        conn.commit()
+        return seq
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _disposal_event_hash(inspection_id, unit_id, seq, event_type, reason, payload_json, serial_at_event,
+                         lot_revision, actor_name, actor_user_id, at, prev_hash):
+    """사용 금지 이벤트 해시의 단일 출처 — 쓰기와 verify가 같은 식을 쓴다."""
+    return _sha({"inspection_id": inspection_id, "unit_id": unit_id, "seq": seq, "event_type": event_type,
+                 "reason_hash": _ng_h(reason), "payload_hash": _ng_h(payload_json),
+                 "serial_at_event": serial_at_event, "lot_revision": lot_revision, "actor_name": actor_name,
+                 "actor_user_id": actor_user_id, "at": at, "prev_event_hash": prev_hash})
+
+
+def _disposal_append(conn, insp, unit_id, event_type, reason, payload, actor, actor_id):
+    """사용 금지 이벤트 한 줄 추가 → seq. _insp_begin 잠금 안에서만 부를 것."""
+    last = conn.execute("SELECT seq, event_hash FROM unit_disposal_events WHERE inspection_id=? AND unit_id=? "
+                        "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+    seq = (last["seq"] if last else 0) + 1
+    prev = last["event_hash"] if last else None
+    sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                      (unit_id,)).fetchone()
+    serial = sa["serial_raw"] if sa else None
+    lot_rev = conn.execute("SELECT lot_revision FROM production_lots WHERE id=?", (insp["lot_id"],)).fetchone()[0]
+    pj = _canon(payload) if payload is not None else None
+    at = _utc_now()
+    eh = _disposal_event_hash(insp["id"], unit_id, seq, event_type, reason, pj, serial, lot_rev, actor, actor_id,
+                              at, prev)
+    conn.execute(
+        "INSERT INTO unit_disposal_events (inspection_id, unit_id, seq, event_type, reason, payload_json, "
+        "serial_at_event, lot_revision, actor_name, actor_user_id, prev_hash, event_hash, at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (insp["id"], unit_id, seq, event_type, reason, pj, serial, lot_rev, actor, actor_id, prev, eh, at))
+    return seq
+
+
+def _unit_disposal_latest(conn, inspection_id):
+    """{unit_id: 마지막(MAX seq) 사용 금지 이벤트 행} — 쿼리 1회(N+1 없음)."""
+    rows = conn.execute(
+        "SELECT e.* FROM unit_disposal_events e WHERE e.inspection_id=? AND e.seq = "
+        "(SELECT MAX(x.seq) FROM unit_disposal_events x WHERE x.inspection_id=e.inspection_id "
+        "AND x.unit_id=e.unit_id)", (inspection_id,)).fetchall()
+    return {r["unit_id"]: r for r in rows}
+
+
+@_write_retry
+def decide_unit_unusable(lot_id, unit_id, reason, actor, actor_id, signature, expected_digest):
+    """S/N 사용 금지 결정 → {seq, withdrew_report}. process_final 명시 보유자만, 사유+서명 필수,
+    미종결 NG 사건이 1건 이상 있어야 하며 승인본이 있으면 거부. 대기 성적서는 같은 트랜잭션에서 철회."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        u = _unit_in_lot(conn, lot_id, unit_id)
+        if u["status"] != "active":
+            raise ValueError("제외된 완제품은 사용 금지를 결정할 수 없어요.")
+        if "process_final" not in _explicit_perms(conn, actor_id):
+            raise NgBlocked([_blk("no_final_perm", "제품검사 최종결정 권한(process_final)이 필요해요.")])
+        if unit_is_unusable(unit_id, conn):
+            raise ValueError("이미 사용 금지된 S/N이에요.")
+        if unit_has_final_document(unit_id, conn):
+            raise ValueError("이 S/N의 성적서가 최종 승인돼 있어서 사용 금지를 결정할 수 없어요. 승인 회수가 먼저 필요해요.")
+        reason = (reason or "").strip()[:500]
+        if not reason:
+            raise NgBlocked([_blk("reason_required", "사용 금지 사유를 입력해줘.")])
+        if not _sig_ok(signature):
+            raise NgBlocked([_blk("no_signature", "등록된 내 서명이 없어요. 서명을 먼저 등록해줘.")])
+        digest = _results_digest(conn, insp["id"], unit_id)
+        if expected_digest != digest:
+            raise ValueError("화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘.")
+        pend = [e for e in _ng_events_derived(conn, insp["id"], unit_id) if e["state"] in _NG_OPEN_STATES]
+        if not pend:
+            raise NgBlocked([_blk("no_open_ng", "열려 있는 NG 사건이 있어야 사용 금지로 결정할 수 있어요. 먼저 NG 사건을 열어줘.")])
+        withdrew = _report_state(conn, insp["id"], unit_id)["state"] == "submitted"
+        seq = _disposal_append(
+            conn, insp, unit_id, "unusable", reason,
+            {"signature": _sig_payload(signature, "decider"),
+             "ng_events": [{"id": e["id"], "item_key": e["item_key"], "state": e["state"], "round_no": e["round_no"],
+                            "log_count": len(e["logs"])} for e in pend],
+             "digest": digest, "withdrew_report": withdrew}, actor, actor_id)
+        if withdrew:
+            _withdraw_pending_report(conn, insp, unit_id, "S/N 사용 금지 결정", "unusable", actor, actor_id)
+        conn.commit()
+        return {"seq": seq, "withdrew_report": withdrew}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def revoke_unit_unusable(lot_id, unit_id, reason, actor, actor_id):
+    """사용 금지 회수 → seq. process_final 명시 보유자 누구나, 사유 필수, 서명 없음. 제외된 S/N도 허용.
+    회수해도 NG 사건·완료 상태는 금지 전 그대로다(건드리지 않는다)."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        _unit_in_lot(conn, lot_id, unit_id)
+        if "process_final" not in _explicit_perms(conn, actor_id):
+            raise NgBlocked([_blk("no_final_perm", "제품검사 최종결정 권한(process_final)이 필요해요.")])
+        reason = (reason or "").strip()[:500]
+        if not reason:
+            raise NgBlocked([_blk("reason_required", "회수 사유를 입력해줘.")])
+        last = conn.execute("SELECT seq, event_type FROM unit_disposal_events WHERE inspection_id=? AND unit_id=? "
+                            "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+        if not last or last["event_type"] != "unusable":
+            raise ValueError("사용 금지 상태가 아니에요. 새로고침해줘.")
+        seq = _disposal_append(conn, insp, unit_id, "unusable_revoked", reason, {"ref_seq": last["seq"]},
+                               actor, actor_id)
+        conn.commit()
+        return seq
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def list_unit_disposal(inspection_id, unit_id):
+    """S/N의 사용 금지 이력(seq 순, payload 파싱) — 읽기 전용."""
+    conn = get_conn()
+    try:
+        out = []
+        for r in conn.execute("SELECT * FROM unit_disposal_events WHERE inspection_id=? AND unit_id=? ORDER BY seq",
+                              (inspection_id, unit_id)):
+            d = dict(r)
+            d["payload"] = json.loads(d["payload_json"]) if d["payload_json"] else {}
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def verify_unit_disposal(inspection_id, unit_id=None):
+    """저장된 컬럼에서 사용 금지 체인을 다시 계산해 비교 → {ok, events, errors}.
+    seq 연속·prev_hash·해시·유형 순서(unusable ↔ unusable_revoked 번갈아)·ref_seq·payload.ng_events 소속을 확인."""
+    conn = get_conn()
+    try:
+        w, a = "inspection_id=?", [inspection_id]
+        if unit_id is not None:
+            w += " AND unit_id=?"
+            a.append(unit_id)
+        rows = [dict(r) for r in conn.execute(f"SELECT * FROM unit_disposal_events WHERE {w} ORDER BY unit_id, seq", a)]
+        errors, by_unit = [], {}
+        for r in rows:
+            by_unit.setdefault(r["unit_id"], []).append(r)
+        for uid, evs in by_unit.items():
+            prev, prev_type, prev_seq = None, None, None
+            for n, r in enumerate(evs, 1):
+                tag = f"S/N unit {uid} seq {r['seq']}"
+                if r["seq"] != n:
+                    errors.append(f"{tag}: seq 순서 이상")
+                if r["prev_hash"] != prev:
+                    errors.append(f"{tag}: 이전 해시 연결 끊김")
+                eh = _disposal_event_hash(r["inspection_id"], uid, r["seq"], r["event_type"], r["reason"],
+                                          r["payload_json"], r["serial_at_event"], r["lot_revision"], r["actor_name"],
+                                          r["actor_user_id"], r["at"], r["prev_hash"])
+                if eh != r["event_hash"]:
+                    errors.append(f"{tag}: 해시 불일치")
+                want = "unusable" if prev_type in (None, "unusable_revoked") else "unusable_revoked"
+                if r["event_type"] != want:
+                    errors.append(f"{tag}: 이벤트 순서 이상({r['event_type']})")
+                try:
+                    pl = json.loads(r["payload_json"]) if r["payload_json"] else {}
+                except ValueError:
+                    pl, _ = {}, errors.append(f"{tag}: payload를 읽을 수 없어요")
+                if r["event_type"] == "unusable_revoked" and pl.get("ref_seq") != prev_seq:
+                    errors.append(f"{tag}: 회수가 직전 사용 금지를 가리키지 않아요")
+                for ne in pl.get("ng_events") or []:
+                    ok = conn.execute("SELECT 1 FROM ng_events WHERE id=? AND inspection_id=? AND unit_id=?",
+                                      (ne.get("id"), inspection_id, uid)).fetchone()
+                    if not ok:
+                        errors.append(f"{tag}: NG 사건 #{ne.get('id')}이 이 S/N 소속이 아니에요")
+                prev, prev_type, prev_seq = r["event_hash"], r["event_type"], r["seq"]
+        return {"ok": not errors, "events": len(rows), "errors": errors}
+    finally:
+        conn.close()
 
 
 @_write_retry

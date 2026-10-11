@@ -73,7 +73,7 @@
 <p><a href="{{ url_for('product_report_list') }}">← 목록</a> |
   <a href="{{ url_for('lot_inspect_unit', lot_id=report['lot_id'], unit_id=report['unit_id']) }}">S/N 검사 화면</a></p>
 {% set ngv = ng_view %}
-{% set ng_state_labels = {'open': '후속조치 대기', 'special_requested': '특채 요청', 'closed_retest': '재검사 종결', 'closed_special': '특채 종결'} %}
+{% set ng_state_labels = {'open': '후속조치 대기', 'special_requested': '특채 요청', 'closed_retest': '재검사 종결', 'closed_special': '특채 종결', 'cancelled': '취소됨'} %}
 <div class="card" id="reportHeader">
   <p style="margin:0;">LOT {{ report['lot_no'] }} · 제출 {{ report['submission_no'] }}회차 · 제출 {{ report['created_at'] | datetime_korean }}</p>
   <p style="margin:4px 0;">작성 {{ report['writer_name'] or '' }} → 지정 승인자 {{ report['approver_name'] or '' }}</p>

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}NG 사건 — Chardon QMS{% endblock %}
 {% block content %}
-{% set state_labels = {'open': '후속조치 대기', 'special_requested': '특채 요청', 'closed_retest': '재검사 종결', 'closed_special': '특채 종결'} %}
+{% set state_labels = {'open': '후속조치 대기', 'special_requested': '특채 요청', 'closed_retest': '재검사 종결', 'closed_special': '특채 종결', 'cancelled': '취소됨'} %}
 {% set trigger_labels = {'completion': '검사 완료 시 자동', 'manual_open': '수동 열기', 'retest_extra': '재검사 영향 항목'} %}
 {% set verdict_labels = {'pass': '합격', 'fail': '불합격', 'nospec': '규격 없음', 'missing': '결측'} %}
 {% macro entry(it, idx) %}
@@ -62,6 +62,20 @@
   #ngDeadlock { background: #fef3c7; color: #92400e; line-height: 1.6; font-size: 15px; }
   #ngDeadlock b { color: #92400e; }
   .ng-event p.muted b { color: #92400e; }
+  /* S/N 사용 금지(위험 확정 결정): 빨강(NG 전용) 대신 진한 남색 띠 + 굵은 라벨로 NG 사건과 구분 */
+  #unusableCard { border-left: 6px solid var(--primary-dark); padding: 14px; }
+  #unusableCard > b:first-child { display: block; font-size: 17px; color: var(--primary-dark); margin-bottom: 6px; }
+  #unusableCard ul.timeline { list-style: none; padding: 0; margin: 10px 0; }
+  #unusableCard ul.timeline li { margin-bottom: 8px; padding: 10px 12px; border-radius: 8px; background: #F9F9F8; border-left: 4px solid var(--primary-dark); font-size: 14px; line-height: 1.7; }
+  #unusableCard .ng-form { margin-top: 12px; padding: 14px; border-radius: 8px; }
+  #unusableCard .ng-form > b { display: block; font-size: 16px; color: var(--primary-dark); margin-bottom: 6px; }
+  #unusableCard .ng-form > small { display: block; line-height: 1.5; margin-bottom: 8px; }
+  #unusableCard .ng-form input[type=text] { min-height: 48px; font-size: 16px; margin: 0 0 8px; width: 100%; box-sizing: border-box; }
+  #unusableDecideBtn { background: var(--primary-dark); color: #fff; border: 2px solid var(--primary-dark); font-weight: 700; min-height: 48px; }
+  @media (max-width: 480px) { #unusableDecideBtn, #unusableRevokeBtn { width: 100%; } }
+  #unusableBanner { border-left: 6px solid var(--primary-dark); background: #ECEEF2; color: var(--text); line-height: 1.6; }
+  #unusableBanner b { color: var(--primary-dark); }
+  #unusableDecideBtn:focus-visible, #unusableRevokeBtn:focus-visible, .ngCancelBtn:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 </style>
 <h2>NG 사건: {{ unit['serial_raw'] }}</h2>
 <p><a href="{{ url_for('lot_inspect_unit', lot_id=lot['id'], unit_id=unit['unit_id']) }}">← S/N 검사 화면</a> |
@@ -70,13 +84,43 @@
 {% elif unit['status'] != 'active' %}<div class="card"><b>제외된 완제품 — 열람만 가능</b></div>
 {% elif final_doc %}<div class="card"><b>최종 승인된 성적서가 있어서 열람만 가능해요. 변경하려면 승인 회수가 먼저 필요해요.</b></div>
 {% elif not can_write %}<div class="card"><b>입력 권한(process_input)이 없어서 열람만 할 수 있어요.</b></div>{% endif %}
+{% if unusable %}<div class="card" id="unusableBanner"><b>사용 금지로 결정된 S/N이에요.</b> 입력·정정·승인 요청을 할 수 없어요. 사용 금지를 회수하면 다시 할 수 있어요.</div>{% endif %}
 {% if has_deadlock %}
 <div class="card" id="ngDeadlock" style="border-left:4px solid var(--pending);">
-  <b>교착 상태</b> — 정정으로 NG 값은 사라졌지만 사건이 아직 열려 있어요. 사건 취소 기능(준비 중)이 필요해요. 그 전까지는 이 사건을 닫을 수 없어요.
+  <b>교착 상태</b> — 정정으로 NG 값은 사라졌지만 사건이 아직 열려 있어요. 아래 사건에서 사건을 취소할 수 있어요(NG 사건 취소 권한 필요).
 </div>
 {% endif %}
 
 <div id="ngRoot" data-digest="{{ digest }}" data-open-url="{{ url_for('lot_ng_open', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+<div class="card" id="unusableCard" data-decide-url="{{ url_for('lot_unit_unusable', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
+     data-revoke-url="{{ url_for('lot_unit_unusable_revoke', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+  <b>S/N 사용 금지</b> — 현재: {{ '사용 금지' if unusable else '해당 없음' }}
+  {% if disposal %}
+  <ul class="timeline">
+    {% for d in disposal %}<li>{{ d['seq'] }}. <b>{{ '사용 금지 결정' if d['event_type'] == 'unusable' else '사용 금지 회수' }}</b>
+      · {{ d['actor_name'] or '' }} · {{ d['at'] | datetime_korean }} · 사유: {{ d['reason'] }}
+      {% if d['event_type'] == 'unusable' and d['payload'].get('withdrew_report') %} · 승인 대기 성적서 철회됨{% endif %}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if can_decide_unusable %}
+  <div class="ng-form ng-action-form">
+    <b>사용 금지 결정</b> <small class="muted">열려 있는 NG 사건이 있는 S/N만 결정할 수 있어요. 결정하면 내 등록 서명이 기록돼요.</small>
+    {% if not has_sig %}<div class="ng-msg">등록된 내 서명이 없어요. 서명을 먼저 등록해줘.</div>{% endif %}
+    <input type="text" class="ngReason" id="unusableReason" maxlength="500" placeholder="사용 금지 사유 (필수)">
+    <button type="button" class="btn secondary" id="unusableDecideBtn" style="min-height:48px;">사용 금지로 결정</button>
+    <div class="ng-msg" id="unusableDecideMsg"></div>
+  </div>
+  {% endif %}
+  {% if can_revoke_unusable %}
+  <div class="ng-form ng-action-form">
+    <b>사용 금지 회수</b>
+    <input type="text" class="ngReason" id="revokeReason" maxlength="500" placeholder="회수 사유 (필수)">
+    <button type="button" class="btn secondary" id="unusableRevokeBtn" style="min-height:48px;">사용 금지 회수</button>
+    <div class="ng-msg" id="unusableRevokeMsg"></div>
+  </div>
+  {% endif %}
+</div>
+
 {% if can_open and can_write %}
 <div class="card" id="ngOpenBox">
   <p style="margin-top:0;">NG 값이 있는데 사건이 없어요(예전에 완료된 기록). 사건을 열어야 후속조치를 할 수 있어요.</p>
@@ -89,10 +133,11 @@
 {% set it = e['item'] %}
 <div class="card ng-event" id="ngEvent{{ e['id'] }}" data-event-id="{{ e['id'] }}"
      data-action-url="{{ url_for('lot_ng_action', lot_id=lot['id'], unit_id=unit['unit_id'], event_id=e['id']) }}"
-     data-retest-url="{{ url_for('lot_ng_retest', lot_id=lot['id'], unit_id=unit['unit_id'], event_id=e['id']) }}">
+     data-retest-url="{{ url_for('lot_ng_retest', lot_id=lot['id'], unit_id=unit['unit_id'], event_id=e['id']) }}"
+     data-cancel-url="{{ url_for('lot_ng_cancel', lot_id=lot['id'], unit_id=unit['unit_id'], event_id=e['id']) }}">
   <h3>#{{ e['event_no'] }} {{ it['name'] if it else e['item_name'] }}
     {% if e['deadlock'] %}<span class="badge pending">교착</span>
-    {% else %}<span class="badge {{ 'fail' if e['state'] == 'open' else ('pending' if e['state'] == 'special_requested' else 'pass') }}">{{ state_labels.get(e['state'], e['state']) }}</span>{% endif %}
+    {% else %}<span class="badge {{ 'fail' if e['state'] == 'open' else ('pending' if e['state'] == 'special_requested' else ('muted' if e['state'] == 'cancelled' else 'pass')) }}">{{ state_labels.get(e['state'], e['state']) }}</span>{% endif %}
     {% if e['round_no'] %}<span class="badge pending">재검사 {{ e['round_no'] }}회</span>{% endif %}
   </h3>
   <small class="muted">{{ trigger_labels.get(e['opened_trigger'], e['opened_trigger']) }} · {{ e['opened_by'] or '' }} · {{ e['opened_at'] | datetime_korean }}
@@ -113,6 +158,7 @@
         {% if l['round_no'] and l['round_no'] <= e['rounds'] | length %}
         {% for r in e['rounds'][l['round_no'] - 1]['rows'] %}<span class="ng-cell {{ 'f' if r['verdict'] == 'fail' else '' }}">#{{ r['idx'] }} {{ r['value'] if r['value'] is not none else '결측' }}</span>{% endfor %}
         {% endif %}
+      {% elif l['log_type'] == 'cancelled' %}<b>사건 취소</b>
       {% elif l['log_type'] == 'closed' %}<b>종결</b> — {{ '재검사 합격' if l['close_kind'] == 'retest_pass' else '특채 승인' }}
       {% else %}{{ l['log_type'] }}{% endif %}
       · {{ l['actor_name'] or '' }} · {{ l['at'] | datetime_korean }}
@@ -125,8 +171,21 @@
   </ul>
 
   {% if e['deadlock'] %}
-  <p class="muted"><b>사건 취소 기능(준비 중)</b> — 이 사건은 지금 입력할 수 없어요.</p>
-  {% elif e['unresolved'] and can_write %}
+  <p class="muted"><b>교착 상태</b> — 값이 정정돼 NG가 사라져서 후속조치·재검사를 입력할 수 없어요. 사건을 취소하면 풀려요.</p>
+  {% endif %}
+  {% if e['unresolved'] and can_cancel_perm %}
+    {% if e['can_cancel'] %}
+    <div class="ng-form ng-action-form">
+      <b>사건 취소</b> <small class="muted">값이 합격으로 정정돼서 불량이 사라진 사건만 취소할 수 있어요. 사유는 필수예요.</small>
+      <input type="text" class="ngReason ngCancelReason" maxlength="500" placeholder="취소 사유 (필수)">
+      <button type="button" class="btn secondary ngCancelBtn" style="min-height:48px;">사건 취소</button>
+      <div class="ng-msg ngCancelMsg"></div>
+    </div>
+    {% else %}
+    <p class="muted">사건 취소 불가: {% for b in e['cancel_blocked'] %}{{ b['msg'] }} {% endfor %}</p>
+    {% endif %}
+  {% endif %}
+  {% if e['unresolved'] and can_write and not e['deadlock'] %}
   <div class="ng-form ng-action-form">
     <b>후속조치 기록</b>
     <select class="ngKind">
@@ -204,6 +263,19 @@
       var msg = f.querySelector('.ngActMsg');
       if (kind === 'special_request' && !reason) { msg.textContent = '특채 요청은 사유를 입력해야 해요.'; return; }
       post(card.dataset.actionUrl, {action_kind: kind, reason: reason, memo: f.querySelector('.ngMemo').value.trim()}, msg, t);
+    } else if (t.classList.contains('ngCancelBtn')) {
+      var card3 = t.closest('.ng-event'), f3 = t.closest('.ng-form'), msg3 = f3.querySelector('.ngCancelMsg');
+      var r3 = f3.querySelector('.ngCancelReason').value.trim();
+      if (!r3) { msg3.textContent = '취소 사유를 입력해줘.'; return; }
+      post(card3.dataset.cancelUrl, {reason: r3}, msg3, t);
+    } else if (t.id === 'unusableDecideBtn') {
+      var r4 = document.getElementById('unusableReason').value.trim(), m4 = document.getElementById('unusableDecideMsg');
+      if (!r4) { m4.textContent = '사용 금지 사유를 입력해줘.'; return; }
+      post(document.getElementById('unusableCard').dataset.decideUrl, {reason: r4, seen_digest: root.dataset.digest}, m4, t);
+    } else if (t.id === 'unusableRevokeBtn') {
+      var r5 = document.getElementById('revokeReason').value.trim(), m5 = document.getElementById('unusableRevokeMsg');
+      if (!r5) { m5.textContent = '회수 사유를 입력해줘.'; return; }
+      post(document.getElementById('unusableCard').dataset.revokeUrl, {reason: r5}, m5, t);
     } else if (t.classList.contains('ngRetestBtn')) {
       var card2 = t.closest('.ng-event'), f2 = t.closest('.ng-form'), msg2 = f2.querySelector('.ngRetestMsg');
       var entries = [], extra = [];

@@ -130,6 +130,9 @@
   @media (max-width: 480px) { #ngLink { width: 100%; box-sizing: border-box; } }
   #reportPanel > #ngDeadlockNote { font-size: 14px; color: #92400e; background: #fef3c7; padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--pending); line-height: 1.6; }
   #ngSpecialChip { color: #92400e; }
+  /* 사용 금지 안내: 빨강 대신 진한 남색 띠(NG 빨강과 구분) */
+  #reportPanel > #unusableNote { font-size: 14px; color: var(--text); background: #ECEEF2; padding: 10px 12px; border-radius: 8px; border-left: 6px solid var(--primary-dark); line-height: 1.6; }
+  #unusableNote b { color: var(--primary-dark); }
 </style>
 <h2>{{ unit['serial_raw'] }} <small class="muted">내부 ID {{ unit['unit_id'] }}</small></h2>
 <p><a href="{{ url_for('lot_inspect_units', lot_id=lot['id']) }}">← 완제품 목록 ({{ lot['lot_no'] }})</a>
@@ -213,7 +216,8 @@
     {% if rp['missing_count'] %}<span class="badge pending">결측 {{ rp['missing_count'] }}개</span>{% endif %}
     {% if rp['ng_special_waiting'] %}<span class="badge pending" id="ngSpecialChip">특채 승인 대기</span>{% endif %}
   </h3>
-  {% if rp['ng_deadlock'] %}<p class="muted" id="ngDeadlockNote"><b>NG 사건이 교착 상태예요.</b> 사건 취소 기능(준비 중)이 필요해요.</p>{% endif %}
+  {% if rp['unusable'] %}<p class="muted" id="unusableNote"><b>사용 금지로 결정된 S/N이에요.</b> 입력·정정·승인 요청을 할 수 없어요. NG 사건 화면에서 회수할 수 있어요(최종결정 권한 필요).</p>{% endif %}
+  {% if rp['ng_deadlock'] %}<p class="muted" id="ngDeadlockNote"><b>NG 사건이 교착 상태예요.</b> NG 사건 화면에서 사건을 취소할 수 있어요(취소 권한 필요).</p>{% endif %}
   {% if lr %}
   <p class="muted" style="margin:4px 0;">제출 {{ lr['submission_no'] }}회차 · 작성 {{ lr['writer_name'] or '' }} → 지정 승인자 {{ lr['approver_name'] or '' }} · {{ lr['state_at'] | datetime_korean }}
     · <a href="{{ url_for('product_report_detail', revision_id=lr['id']) }}">성적서 상세</a></p>

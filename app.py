@@ -268,10 +268,10 @@ PERM_GROUPS = [
         ("process_lot",       "제품검사 LOT 관리 (준비중)"),
         ("process_correct",   "제품검사 결과 정정·완료 취소"),
         ("process_link",      "하우징·MA 부품 연결·분리 (준비중)"),
-        ("process_ng_cancel", "NG 이력 입력 취소 (준비중)"),
+        ("process_ng_cancel", "NG 사건 취소 (값이 합격으로 정정된 사건만, 사유 필수 · 직접 체크한 계정만)"),
         ("process_review",    "제품검사 검토 (준비중)"),
         ("process_submit",    "제품검사 승인 요청(성적서 제출)"),
-        ("process_final",     "제품검사 최종결정 (성적서 최종승인·반려·회수)"),
+        ("process_final",     "제품검사 최종결정 (성적서 최종승인·반려·회수 · S/N 사용 금지 결정·회수)"),
         ("test_data_delete",  "테스트 데이터 삭제 (준비중)"),
     ]),
     ("출하검사", [
@@ -10882,7 +10882,8 @@ def _inspect_action_json_or_flash(lot_id, unit_id):
 
 def _unit_state_json(lot_id, unit_id):
     u = db.unit_completion_state(lot_id, unit_id)
-    return {"stage": u["stage"], "has_fail": u["has_fail"], "completion": u["completion"]} if u else None
+    return {"stage": u["stage"], "has_fail": u["has_fail"], "completion": u["completion"],
+            "unusable": u["unusable"]} if u else None
 
 
 def _photo_file_blockers(lot_id, unit_id):
@@ -11010,7 +11011,7 @@ def _ng_body():
 
 
 @app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ng")
-@perm_required("process_lot", "process_input", "process_submit", "process_final")
+@perm_required("process_lot", "process_input", "process_submit", "process_final", "process_ng_cancel")
 def lot_ng_events(lot_id, unit_id):
     guard = _traceability_gate()
     if guard:
@@ -11045,7 +11046,14 @@ def lot_ng_events(lot_id, unit_id):
                         if it["input_type"] in ("numeric", "ok_ng") and k not in busy and results.get(k)]
     perms = _user_perms(g.user)
     final_doc = db.unit_has_final_document(unit_id)
-    read_only = lot["status"] == "cancelled" or unit["status"] != "active" or final_doc
+    unusable = bool(unit["unusable"])
+    read_only = lot["status"] == "cancelled" or unit["status"] != "active" or final_doc or unusable
+    ex = _explicit_perms_of(g.user)
+    for e in evs:
+        # 취소 버튼: 권한 보유 + 읽기 전용 아님 + 취소 가능 판정(cancel_blocked)이 비어 있을 때만
+        e["can_cancel"] = "process_ng_cancel" in ex and e["unresolved"] and not read_only and not e["cancel_blocked"]
+    pending = any(e["unresolved"] for e in evs)
+    live = lot["status"] != "cancelled"
     ov = db.unit_ng_overview(lot_id, unit_id)
     return render_template(
         "lot_ng_events.html", lot=lot, inspection=insp, unit=unit, events=evs, items=items,
@@ -11054,7 +11062,12 @@ def lot_ng_events(lot_id, unit_id):
         cancelled=lot["status"] == "cancelled", blockers=ov["blockers"] if ov else [],
         has_deadlock=any(e["deadlock"] for e in evs), can_open=bool(ov and unit["stage"] == "completed"
                                                                     and any(b["code"] == "ng_event_missing" for b in ov["blockers"])),
-        action_kinds=_NG_ACTION_LABELS)
+        action_kinds=_NG_ACTION_LABELS, unusable=unusable, disposal=db.list_unit_disposal(insp["id"], unit_id),
+        can_cancel_perm="process_ng_cancel" in ex,
+        can_decide_unusable="process_final" in ex and live and unit["status"] == "active" and not final_doc
+        and not unusable and pending,
+        can_revoke_unusable="process_final" in ex and live and unusable,
+        has_sig=os.path.isfile(os.path.join(SIGNATURE_DIR, f"user_{g.user['id']}_default.png")))
 
 
 _NG_ACTION_LABELS = {"retest": "재검사 예정", "repair_retest": "수리 후 재검사", "reassemble": "재조립",
@@ -11229,6 +11242,7 @@ def _lot_report_summary(lot_id, units):
     act = [u["unit_id"] for u in units if u["status"] == "active"]
     return latest, {"approved": sum(1 for i in act if latest.get(i, {}).get("state") == "approved"),
                     "pending": sum(1 for i in act if latest.get(i, {}).get("state") == "submitted"),
+                    "unusable": sum(1 for u in units if u["status"] == "active" and u.get("unusable")),
                     "total": len(act)}
 
 
@@ -11250,12 +11264,14 @@ def _unit_report_panel(lot, unit, results, events):
         blockers.append("취소된 LOT은 열람만 할 수 있어요.")
     elif unit["status"] != "active":
         blockers.append("제외된 완제품은 승인 요청할 수 없어요.")
+    elif unit.get("unusable"):
+        blockers.append("사용 금지로 결정된 S/N이에요. 승인 요청을 할 수 없어요.")
     elif not valid:
         blockers.append(why if unit["stage"] == "completed" else "검사 완료 후 승인 요청할 수 있어요.")
     ng = db.unit_ng_overview(lot["id"], unit["unit_id"]) or {"blockers": [], "pending": [], "fail_items": []}
     ng_msg = {"ng_event_missing": "NG 사건이 아직 없어요 — NG 사건 화면에서 열어줘",
               "ng_open": "NG 사건 후속조치가 필요해요: 재검사/특채 요청 등",
-              "ng_unresolved": "정정으로 NG가 사라졌지만 사건이 아직 열려 있어요. 사건 취소 기능(준비 중, 다음 패치)이 필요해요"}
+              "ng_unresolved": "정정으로 NG가 사라졌지만 사건이 아직 열려 있어요. NG 사건 화면에서 사건을 취소할 수 있어요(취소 권한 필요)."}
     for b in ng["blockers"]:
         blockers.append(f"{b.get('name') or b.get('item_key')}: {ng_msg.get(b['code'], b['msg'])}")
     ng_special_waiting = bool(ng["fail_items"]) and not ng["blockers"] and bool(ng["pending"])
@@ -11267,6 +11283,9 @@ def _unit_report_panel(lot, unit, results, events):
         blockers.append("관리자에게 최종결정권자 지정 필요")
     if not has_sig:
         blockers.append("등록된 내 서명이 없어요. 아래에서 서명을 등록해줘.")
+    unusable_active = bool(unit.get("unusable")) and lot["status"] != "cancelled" and unit["status"] == "active"
+    if unusable_active:  # 사용 금지면 다른 안내(NG 후속조치·권한 등)는 의미가 없어서 한 줄만 보여준다
+        blockers = ["사용 금지 상태라서 승인 요청이 막혀 있어요."]
     return {"report_final": state == "approved",
             "report": {"latest": latest, "state": state, "candidates": cands, "has_sig": has_sig,
                        "sig_url": f"/static/signatures/user_{uid}_default.png" if has_sig else None,
@@ -11274,7 +11293,8 @@ def _unit_report_panel(lot, unit, results, events):
                        "can_revoke": "process_final" in ex and state == "approved",
                        "missing_count": sum(1 for sl in slots if sl["current"]["is_missing"]),
                        "ng_special_waiting": ng_special_waiting,
-                       "ng_deadlock": any(b["code"] == "ng_unresolved" for b in ng["blockers"])}}
+                       "unusable": bool(unit.get("unusable")),
+                       "ng_deadlock": not unusable_active and any(b["code"] == "ng_unresolved" for b in ng["blockers"])}}
 
 
 def _report_ajax():
@@ -11563,6 +11583,64 @@ def product_report_revoke(revision_id):
         flash("승인을 회수했어요.")
         return redirect(url_for("product_report_detail", revision_id=revision_id))
     return jsonify({"ok": True})
+
+
+# ---- NG 사건 취소 · S/N 사용 금지 (TASK #154 패키지 4b-2) ----
+# 이 구역은 _explicit_perm_required 정의 뒤여야 한다(앞이면 NameError). 권한 코드는 데코레이터마다 하나씩.
+def _ng_done(lot_id, unit_id, out, msg, **extra):
+    """_ng_run 결과(dict 또는 응답)를 ajax JSON / flash+리다이렉트 응답으로 마무리."""
+    if not isinstance(out, dict):
+        return out
+    if not out["ajax"]:
+        flash(msg)
+        return redirect(url_for("lot_ng_events", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, **extra})
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ng/<int:event_id>/cancel", methods=["POST"])
+@perm_required("process_ng_cancel")
+@_explicit_perm_required("process_ng_cancel")
+def lot_ng_cancel(lot_id, unit_id, event_id):
+    b = _ng_body()
+    out = _ng_run(lot_id, unit_id,
+                  lambda: db.cancel_ng_event(lot_id, unit_id, event_id, b.get("reason"), _actor_name(), g.user["id"]),
+                  "제품검사 NG 사건 취소", lambda seq: f"사건 #{event_id}")
+    return _ng_done(lot_id, unit_id, out, "NG 사건을 취소했어요.", seq=out.get("res") if isinstance(out, dict) else None)
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/unusable", methods=["POST"])
+@perm_required("process_final")
+@_explicit_perm_required("process_final")
+def lot_unit_unusable(lot_id, unit_id):
+    b = _ng_body()
+    if not b.get("seen_digest"):
+        return _ng_responder(lot_id, unit_id)[1]("화면 정보가 없어요. 새로고침해줘.", 400)
+    sigs = []
+
+    def run():
+        sig = _snapshot_signature(g.user["id"])  # 서명 복사는 DB 락 밖
+        sigs.append(sig)
+        try:
+            return db.decide_unit_unusable(lot_id, unit_id, b.get("reason"), _actor_name(), g.user["id"], sig,
+                                           b.get("seen_digest"))
+        except Exception:
+            _drop_signature_snapshot(sig)
+            raise
+    out = _ng_run(lot_id, unit_id, run, "제품검사 S/N 사용 금지", lambda r: "사용 금지 결정")
+    r = out.get("res") if isinstance(out, dict) else None
+    return _ng_done(lot_id, unit_id, out, "사용 금지로 결정했어요." + (" 승인 대기 중이던 성적서는 철회됐어요." if r and r["withdrew_report"] else ""),
+                    **(r or {}))
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/unusable/revoke", methods=["POST"])
+@perm_required("process_final")
+@_explicit_perm_required("process_final")
+def lot_unit_unusable_revoke(lot_id, unit_id):
+    b = _ng_body()
+    out = _ng_run(lot_id, unit_id,
+                  lambda: db.revoke_unit_unusable(lot_id, unit_id, b.get("reason"), _actor_name(), g.user["id"]),
+                  "제품검사 S/N 사용 금지 회수", lambda seq: "회수")
+    return _ng_done(lot_id, unit_id, out, "사용 금지를 회수했어요.", seq=out.get("res") if isinstance(out, dict) else None)
 
 
 @app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/photo", methods=["POST"])

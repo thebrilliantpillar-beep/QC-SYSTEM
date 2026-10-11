@@ -20,6 +20,8 @@
   .find-card button { min-height: 48px; margin: 0; }
   .ngChip { margin: 0 4px 0 0; }
   .ngChip.pending { color: #92400e; }
+  /* 사용 금지 칩: 빨강(NG) 대신 진한 남색 반전 칩 + 글자 */
+  .unit-card .badge.unusableChip { color: #fff; background: var(--primary-dark); border: 1px solid var(--primary-dark); letter-spacing: .02em; }
 </style>
 <h2>제품검사 입력: {{ lot['lot_no'] }}</h2>
 <p><a href="{{ url_for('production_lot_detail', lot_id=lot['id']) }}">← LOT 상세로</a></p>
@@ -28,7 +30,7 @@
 {% endif %}
 
 <p>완료 {{ act | selectattr('stage', 'equalto', 'completed') | list | length }} / 전체 {{ act | length }}</p>
-<p class="muted" id="reportCounts">성적서 승인 {{ report_counts['approved'] }} / 대기 {{ report_counts['pending'] }} / 전체 {{ report_counts['total'] }}</p>
+<p class="muted" id="reportCounts">성적서 승인 {{ report_counts['approved'] }} / 대기 {{ report_counts['pending'] }} / 전체 {{ report_counts['total'] }}{% if report_counts['unusable'] %} / 사용 금지 {{ report_counts['unusable'] }}{% endif %}</p>
 {% set rstate_labels = {'submitted': '승인 대기', 'approved': '승인됨', 'rejected': '반려됨', 'withdrawn': '철회됨', 'revoked': '회수됨'} %}
 
 <div class="card find-card">
@@ -56,6 +58,7 @@
     {% set ng = (ng_summary or {}).get(u['unit_id']) %}
     {% if ng %}<span class="badge {{ 'fail' if ng['open'] else 'pending' }} ngChip">NG 사건 {{ ng['total'] }}{% if ng['unresolved'] %} · 미종결 {{ ng['unresolved'] }}{% endif %}</span>{% endif %}
     {% if u['completion'] and u['completion']['reopened'] %}<span class="badge pending">재개됨</span>{% endif %}
+    {% if u['unusable'] %}<span class="badge fail unusableChip">사용 금지</span>{% endif %}
     {% set rr = reports.get(u['unit_id']) %}
     <span class="badge {{ 'pass' if rr and rr['state'] == 'approved' else 'pending' }}">성적서 {{ rstate_labels.get(rr['state'], '미제출') if rr else '미제출' }}</span>
     항목 {{ u['progress'] | selectattr('state', 'in', ['pass', 'fail', 'missing_only', 'nospec', 'recorded']) | list | length }}/{{ u['progress'] | length }}
