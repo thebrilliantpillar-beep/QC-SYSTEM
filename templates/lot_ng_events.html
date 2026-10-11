@@ -144,10 +144,10 @@
     {% if e['origin_event_id'] %} · 사건 #{{ e['origin_event_id'] }} {{ e['origin_round_no'] }}차 재검사에서 파생{% endif %}</small>
   {% if it %}<p class="muted" style="margin:4px 0;">규격: {{ it['spec_text'] }}</p>{% endif %}
   <p style="margin:4px 0;">열 때 불량 칸:
-    {% for c in e['fail_snapshot']['cells'] %}<span class="ng-cell f">#{{ c['idx'] }} {{ c['value'] }}</span>{% endfor %}</p>
+    {% for c in e['fail_snapshot']['cells'] %}<span class="ng-cell f">{{ slot_label(it, c['idx']) }} {{ c['value'] }}</span>{% endfor %}</p>
   {% if e['unresolved'] %}
   <p style="margin:4px 0;">현재 불량 칸:
-    {% for c in e['fail_cells'] %}<span class="ng-cell f">#{{ c['idx'] }} {{ c['value'] }}</span>{% else %}<span class="muted">없음</span>{% endfor %}</p>
+    {% for c in e['fail_cells'] %}<span class="ng-cell f">{{ slot_label(it, c['idx']) }} {{ c['value'] }}</span>{% else %}<span class="muted">없음</span>{% endfor %}</p>
   {% endif %}
 
   <ul class="timeline">
@@ -156,7 +156,7 @@
       {% if l['log_type'] == 'action' %}후속조치: <b>{{ action_kinds.get(l['action_kind'], l['action_kind']) }}</b>
       {% elif l['log_type'] == 'retest_round' %}<b>{{ l['round_no'] }}차 재검사</b> — {{ '합격' if l['outcome'] == 'pass' else '불합격' }}
         {% if l['round_no'] and l['round_no'] <= e['rounds'] | length %}
-        {% for r in e['rounds'][l['round_no'] - 1]['rows'] %}<span class="ng-cell {{ 'f' if r['verdict'] == 'fail' else '' }}">#{{ r['idx'] }} {{ r['value'] if r['value'] is not none else '결측' }}</span>{% endfor %}
+        {% for r in e['rounds'][l['round_no'] - 1]['rows'] %}<span class="ng-cell {{ 'f' if r['verdict'] == 'fail' else '' }}">{{ slot_label(items[r['item_key']], r['idx']) if r['item_key'] in items else '#' ~ r['idx'] }} {{ r['value'] if r['value'] is not none else '결측' }}</span>{% endfor %}
         {% endif %}
       {% elif l['log_type'] == 'cancelled' %}<b>사건 취소</b>
       {% elif l['log_type'] == 'closed' %}<b>종결</b> — {{ '재검사 합격' if l['close_kind'] == 'retest_pass' else '특채 승인' }}
@@ -199,8 +199,9 @@
   {% if e['can_retest'] %}
   <div class="ng-form ng-retest-form">
     <b>재검사 입력</b> <small class="muted">불량이 난 칸만 다시 잴 수 있어요. 합격한 칸은 그대로 두고, 이 항목의 모든 칸이 합격이 되면 사건이 자동으로 종결돼요.</small>
-    {% for c in e['fail_cells'] %}
-    <div class="ng-row"><b>#{{ c['idx'] }}</b> <small class="muted">현재 {{ c['value'] }}</small>{{ entry(it, c['idx']) }}</div>
+    {% if it['derived'] %}<small class="muted">자동 계산된 값이에요. 원천 값을 다시 측정해 입력해줘.</small>{% endif %}
+    {% for c in e['retest_cells'] %}
+    <div class="ng-row"><b>{{ c['label'] }}</b> <small class="muted">현재 {{ c['value'] }}</small>{{ entry(c['item'], c['idx']) }}</div>
     {% endfor %}
     {% if extra_candidates %}
     <details><summary style="min-height:44px; display:flex; align-items:center; cursor:pointer;">영향 항목도 같이 재검사 (선택)</summary>
@@ -208,7 +209,7 @@
       <div class="ng-extra" data-item-key="{{ xc['item']['key'] }}">
         <label style="display:flex; align-items:center; gap:6px; min-height:44px;"><input type="checkbox" class="xItem" style="width:auto;"> {{ xc['item']['name'] }} <small class="muted">{{ xc['item']['spec_text'] }}</small></label>
         <div class="xCells" style="display:none;">
-          {% for c in xc['cells'] %}<div class="ng-row"><b>#{{ c['idx'] }}</b> <small class="muted">현재 {{ c['value'] if c['value'] is not none else '결측' }}</small>{{ entry(xc['item'], c['idx']) }}</div>{% endfor %}
+          {% for c in xc['cells'] %}<div class="ng-row"><b>{{ slot_label(xc['item'], c['idx']) }}</b> <small class="muted">현재 {{ c['value'] if c['value'] is not none else '결측' }}</small>{{ entry(xc['item'], c['idx']) }}</div>{% endfor %}
         </div>
       </div>
       {% endfor %}

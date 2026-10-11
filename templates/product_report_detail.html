@@ -15,7 +15,7 @@
   #reportHeader > ul li { margin-top: 6px; padding: 8px 12px; border-radius: 8px; background: #fef3c7; border-left: 4px solid var(--pending); color: #92400e; font-size: 14px; }
   /* 항목 카드: 슬롯 = [#번호][값 또는 썸네일] / 메타는 그 아래 한 줄 */
   .item .slot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-  .item .slot > b { min-width: 30px; color: var(--primary-dark); }
+  .item .slot > b { flex: 0 1 auto; min-width: 44px; max-width: 48%; color: var(--primary-dark); line-height: 1.3; overflow-wrap: anywhere; }
   .item .slot > span { flex: 1 1 0; min-width: 0; font-size: 18px; font-weight: 700; word-break: break-all; }
   .item .slot > a { display: inline-block; line-height: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: #ECEEF2; }
   .item .slot > a img { display: block; object-fit: contain; }
@@ -94,7 +94,7 @@
   {% for ne in ngv['events'] %}
   <div class="ng-sec-event" style="padding:8px 0; border-top:1px solid var(--border);">
     <b>#{{ ne['event_no'] }} {{ ne['item_name'] }}</b> <span class="badge pending">제출 당시 {{ ng_state_labels.get(ne['state'], ne['state']) }}</span>
-    <div class="muted">불량 칸: {% for c in ne['fail_snapshot']['cells'] %}#{{ c['idx'] }} {{ c['value'] }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    <div class="muted">불량 칸: {% set ngit = snap['inspection']['items'] | selectattr('key', 'equalto', ne['item_key']) | first %}{% for c in ne['fail_snapshot']['cells'] %}{{ slot_label(ngit, c['idx']) }} {{ c['value'] }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
     {% if ne['special_request'] %}<div><b>특채 요청 사유:</b> {{ ne['special_request']['reason'] }} <small class="muted">({{ ne['special_request']['actor_name'] or '' }}, {{ ne['special_request']['at'] | datetime_korean }})</small></div>{% endif %}
     {% if ne['retest_rounds'] %}<div class="muted">재검사 이력: {% for rr in ne['retest_rounds'] %}{{ rr['round_no'] }}차 {{ '합격' if rr['outcome'] == 'pass' else '불합격' }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
   </div>
@@ -125,9 +125,9 @@
   <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }}</h3>
   {% for s in snap['slots'] if s['item_key'] == it['key'] %}
   <div class="slot" style="padding:8px 0; border-top:1px solid var(--border);">
-    <b>#{{ s['idx'] }}</b>
+    <b>{{ slot_label(it, s['idx']) }}</b>
     {% if it['input_type'] == 'photo' %}
-      <a href="{{ url_for('product_inspection_photo_file', filename=s['value']) }}" target="_blank"><img alt="사진 #{{ s['idx'] }}" loading="lazy" src="{{ url_for('product_inspection_photo_file', filename=s['value']) }}" style="max-width:160px; max-height:120px;"></a>
+      <a href="{{ url_for('product_inspection_photo_file', filename=s['value']) }}" target="_blank"><img alt="사진 {{ slot_label(it, s['idx']) }}" loading="lazy" src="{{ url_for('product_inspection_photo_file', filename=s['value']) }}" style="max-width:160px; max-height:120px;"></a>
     {% else %}
       <span {% if s['verdict'] == 'fail' %}style="color:var(--fail);"{% endif %}>{{ '결측' if s['is_missing'] else s['value'] }} · {{ verdict_labels.get(s['verdict'], s['verdict']) }}</span>
     {% endif %}
@@ -136,7 +136,7 @@
     {% if hist | length > 1 %}
     <details><summary>정정 이력 ({{ hist | length }}회차)</summary>
       <ul>{% for h in hist %}
-        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% elif h['entry_type'] == 'unlink' %}회수{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['entry_type'] == 'retest' %} · 재검사{% elif h['entry_type'] == 'link' %} · 연결{% elif h['entry_type'] == 'unlink' %} · 연결 회수{% endif %}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
+        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% elif h['entry_type'] == 'unlink' %}회수{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['entry_type'] == 'retest' %} · 재검사{% elif h['entry_type'] == 'derived' %} · 자동 계산{% elif h['entry_type'] == 'link' %} · 연결{% elif h['entry_type'] == 'unlink' %} · 연결 회수{% endif %}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
       {% endfor %}</ul>
     </details>
     {% endif %}

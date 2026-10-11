@@ -70,7 +70,7 @@
   <p class="muted">시작한 시점의 모델·LOT·검사 항목이 그대로 보존돼요.</p>
   <ul>
     {% for it in inspection['items'] %}
-    <li>{{ it['name'] }} ({{ {'numeric':'숫자','ok_ng':'적합/부적합','photo':'사진','angle':'각도','record_num':'기록용 숫자','ma_link':'MA 번호'}.get(it['input_type'], it['input_type']) }}{% if it['input_type'] in ('numeric', 'angle') %}, {{ it['lower'] if it['lower'] is not none else '-' }} ~ {{ it['upper'] if it['upper'] is not none else '-' }}{% endif %})</li>
+    <li>{{ it['name'] }} ({{ {'numeric':'숫자','ok_ng':'적합/부적합','photo':'사진','angle':'각도','record_num':'기록용 숫자','ma_link':'MA 번호'}.get(it['input_type'], it['input_type']) }}{% if it['input_type'] in ('numeric', 'angle') %}, {{ it['lower'] if it['lower'] is not none else '-' }} ~ {{ it['upper'] if it['upper'] is not none else '-' }}{% endif %}{% if it['derived'] %}, 자동 계산{% endif %})</li>
     {% endfor %}
   </ul>
   {% elif lot['status'] == 'cancelled' %}

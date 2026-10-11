@@ -150,6 +150,7 @@ def outbound_batch_done(b):
 
 # Jinja2 필터 등록
 app.jinja_env.filters['aql_display'] = format_aql_display
+app.jinja_env.globals['slot_label'] = db.slot_label
 app.jinja_env.filters['date_korean'] = format_date_korean
 app.jinja_env.filters['datetime_korean'] = format_datetime_korean
 app.jinja_env.filters['outbound_progress'] = format_outbound_progress
@@ -10730,6 +10731,11 @@ def production_lot_inspection_start(lot_id):
 # 열람은 process_lot/process_input, 저장은 process_input 단독(두 개를 같이 넘기면 OR이라 구멍).
 # 타인이 입력한 값의 정정은 process_correct가 있어야 하며 최종 검사는 DB 락 안(save_unit_results)에서 한다.
 def _spec_text(it):
+    t = _spec_text_base(it)
+    return t + " · 자동 계산: 평균(소수점 버림)" if it.get("derived") else t
+
+
+def _spec_text_base(it):
     if it["input_type"] == "ok_ng":
         return "적합 / 부적합"
     if it["input_type"] == "record_num":
@@ -10816,8 +10822,16 @@ def lot_inspect_unit(lot_id, unit_id):
     items = [dict(it, spec_text=_spec_text(it)) for it in insp["items"]]
     perms = _user_perms(g.user)
     results = db.get_unit_results(insp["id"], unit_id)
+    by_key = {it["key"]: it for it in items}
+    derived_wait = {  # 파생 칸별 "원천 입력 k/n칸" — 값이 아직 없는 파생 칸에 보여줄 대기 문구용
+        it["key"]: {i: "%d/%d" % (sum(1 for j in range(1, by_key[src]["required_n"] + 1)
+                                      if (results.get(src, {}).get(j) or {}).get("current")),
+                                  by_key[src]["required_n"])
+                    for i, src in enumerate(it["derived"]["from"], 1)}
+        for it in items if it.get("derived")}
     return render_template(
         "lot_inspect_unit.html", lot=lot, inspection=insp, unit=unit, items=items,
+        step_groups=db.group_items_by_step(items, results), derived_wait=derived_wait,
         results=results, digest=db.digest_from_results(results),
         events=db.list_unit_events(insp["id"], unit_id), is_done=unit["stage"] == "completed",
         can_reopen="process_correct" in perms,
@@ -11114,9 +11128,23 @@ def lot_ng_events(lot_id, unit_id):
         e["deadlock"] = e["unresolved"] and not e["fail_cells"]
         e["can_retest"] = e["unresolved"] and bool(e["fail_cells"]) and e["item"] is not None \
             and e["item"]["input_type"] in db.JUDGED_TYPES
+        # 재검사 입력 칸: 일반 항목은 불량 칸, 자동 계산 항목은 불량 칸의 원천 항목 칸(파생 칸은 직접 못 고친다)
+        e["retest_cells"] = []
+        for c in e["fail_cells"]:
+            it = e["item"]
+            if it and it.get("derived"):
+                sit = items.get(it["derived"]["from"][c["idx"] - 1])
+                if sit:
+                    e["retest_cells"] += [{"item": sit, "idx": s["idx"], "value": s["value"],
+                                           "label": f"{db.slot_label(it, c['idx'])} · {db.slot_label(sit, s['idx'])}"}
+                                          for s in cells(sit["key"])]
+            else:
+                e["retest_cells"].append({"item": it, "idx": c["idx"], "value": c["value"],
+                                          "label": db.slot_label(it, c["idx"])})
         e["rounds"] = [json.loads(l["payload_json"]) for l in e["logs"] if l["log_type"] == "retest_round"]
     extra_candidates = [{"item": it, "cells": cells(k)} for k, it in items.items()
-                        if it["input_type"] in db.JUDGED_TYPES and k not in busy and results.get(k)]
+                        if it["input_type"] in db.JUDGED_TYPES and not it.get("derived") and k not in busy
+                        and results.get(k)]
     perms = _user_perms(g.user)
     final_doc = db.unit_has_final_document(unit_id)
     unusable = bool(unit["unusable"])
@@ -11797,7 +11825,8 @@ def lot_inspect_photo_save(lot_id, unit_id):
 
 # ---- 제품검사 항목 설정 (TASK #136 패키지 1D-a) ----
 _ITEM_FORM_FIELDS = ("key", "name", "input_type", "lower", "upper", "display_digits",
-                     "required_n", "allow_missing", "speed_field")
+                     "required_n", "allow_missing", "speed_field", "slot_labels", "step",
+                     "derived_op", "derived_from")
 _ITEM_TYPE_LABELS = {"numeric": "숫자", "ok_ng": "적합/부적합", "photo": "사진",
                      "angle": "각도(범위, 0도 걸침 가능)", "record_num": "기록용 숫자(판정 없음)",
                      "ma_link": "MA 번호(스피드 연결)"}
@@ -11809,8 +11838,15 @@ def _items_from_form(form):
     """폼의 필드별 배열(key[], name[] ...)을 항목 dict 리스트로 합친다."""
     cols = {f: form.getlist(f) for f in _ITEM_FORM_FIELDS}
     n = len(cols["name"])
-    return [{f: (cols[f][i] if i < len(cols[f]) else "") for f in _ITEM_FORM_FIELDS}
-            for i in range(n)]
+    out = []
+    for i in range(n):
+        it = {f: (cols[f][i] if i < len(cols[f]) else "") for f in _ITEM_FORM_FIELDS}
+        op, frm = (it.pop("derived_op") or "").strip(), it.pop("derived_from") or ""
+        keys = [k for k in re.split(r"[,，\s]+", frm) if k]
+        if op or keys:  # op가 비고 from만 있으면 op=""로 넘겨 _norm_items가 거부한다
+            it["derived"] = {"op": op, "from": keys}
+        out.append(it)
+    return out
 
 
 def _render_model_items(model, items, copied_from=None):

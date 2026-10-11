@@ -4,7 +4,8 @@
 """DB 초기화 및 데이터 접근 — SQLite (파일 하나 = DB 전체)"""
 import functools, hashlib, json, re, sqlite3, os, time, uuid
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-from decimal import Decimal as _Dec, InvalidOperation as _DecInvalid
+from decimal import Decimal as _Dec, InvalidOperation as _DecInvalid, ROUND_HALF_UP as _HALF_UP
+from fractions import Fraction as _Frac
 
 # 검사자 비고의 표준 불량 문구 파싱 — app.py의 parse_defect_counts와 동일 패턴
 _DEFECT_RE = re.compile(r"검사\s*수량\s*(\d+)\s*개\s*중\s*(\d+)\s*개\s*불량")
@@ -4894,6 +4895,8 @@ _ITEM_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,40}$")
 _ITEM_TYPES = ("numeric", "ok_ng", "photo", "record_num", "angle", "ma_link")
 JUDGED_TYPES = ("numeric", "ok_ng", "angle")  # 합격/불합격 판정이 있는 유형 — NG 사건·재검사 대상
 _SPEED_FIELDS = ("open_ms", "open_skew_ms", "close_ms", "close_skew_ms", "primary_gap")
+_DERIVED_OPS = ("avg_floor",)  # 파생 연산 확장 지점 — 여기와 _derived_eval의 op 분기 한 곳
+DERIVED_ACTOR = "자동 계산"    # 파생 행의 entered_by (계정 id는 NULL)
 _ITEM_KEYS = ("key", "name", "input_type", "lower", "upper", "display_digits",
               "required_n", "allow_missing", "sort_order")
 
@@ -5024,8 +5027,157 @@ def _norm_items(items):
             if any(o.get("speed_field") == sf for o in out):
                 raise ValueError(f"{pos}번째 항목: 같은 스피드 값을 두 항목에 연결할 수 없어.")
             d["source"], d["speed_field"] = "speed", sf
+        # 새 정의 키 3종 — 값이 비면 키 자체를 넣지 않는다(기존 버전 content_hash 불변)
+        labels = _norm_slot_labels(raw.get("slot_labels"), itype, rn, pos)
+        if labels:
+            d["slot_labels"] = labels
+        st = raw.get("step")
+        st = st.strip() if isinstance(st, str) else ""
+        if len(st) > 30:
+            raise ValueError(f"{pos}번째 항목: 단계 이름은 30자 이하로 적어줘.")
+        if st:
+            d["step"] = st
+        dv = _norm_derived(raw.get("derived"), itype, rn, d, pos)
+        if dv:
+            d["derived"] = dv
+            d["allow_missing"] = 0
         out.append(d)
+    by_key = {o["key"]: o for o in out}
+    for o in out:  # 파생 2차 검사 — 원천 항목은 정의 전체가 정해진 뒤에야 확인할 수 있다
+        for k in (o.get("derived") or {}).get("from", []):
+            src = by_key.get(k)
+            pos = o["sort_order"]
+            if not src:
+                raise ValueError(f"{pos}번째 항목: 자동 계산 원천 '{k}'를 찾을 수 없어요. 항목 키 칸에 적은 키를 정확히 써줘.")
+            if k == o["key"] or src.get("derived"):
+                raise ValueError(f"{pos}번째 항목: 자동 계산 원천이 자기 자신이거나 다른 자동 계산 항목이에요.")
+            if src["input_type"] not in ("numeric", "record_num"):
+                raise ValueError(f"{pos}번째 항목: 자동 계산 원천 '{k}'는 숫자 또는 기록용 숫자 항목이어야 해요.")
+            if src["allow_missing"]:
+                raise ValueError(f"{pos}번째 항목: 자동 계산 원천 '{k}'는 '없음 허용'을 켤 수 없어요. 평균을 낼 값이 비면 안 돼요.")
+            if src.get("source"):
+                raise ValueError(f"{pos}번째 항목: 자동 계산 원천 '{k}'에는 스피드 값을 연결할 수 없어요.")
     return out
+
+
+def _norm_slot_labels(v, itype, rn, pos):
+    """칸 이름 → 문자열 리스트(없으면 None). 리스트 또는 쉼표(,，)·줄바꿈 구분 문자열."""
+    if isinstance(v, str):
+        parts = re.split(r"\r\n|[,，\r\n]", v)
+    elif isinstance(v, (list, tuple)):
+        parts = ["" if x is None else str(x) for x in v]
+    else:
+        return None
+    parts = [p.strip() for p in parts]
+    while parts and not parts[-1]:  # 끝에 남은 빈 칸(쉼표 하나 더 찍은 것)은 무시
+        parts.pop()
+    if not parts:
+        return None
+    if itype == "ma_link":
+        raise ValueError(f"{pos}번째 항목: MA 번호 항목은 칸 이름을 정할 수 없어요. A·B·C상으로 고정이에요.")
+    if len(parts) != rn:
+        raise ValueError(f"{pos}번째 항목: 칸 이름은 {rn}개가 필요해요 (지금 {len(parts)}개). 쉼표로 구분해서 칸 수만큼 적어줘.")
+    if not all(parts):
+        raise ValueError(f"{pos}번째 항목: 칸 이름 중에 비어 있는 게 있어요.")
+    if any(len(p) > 12 for p in parts):
+        raise ValueError(f"{pos}번째 항목: 칸 이름은 12자 이하로 적어줘.")
+    for i, p in enumerate(parts):
+        if p in parts[:i]:
+            raise ValueError(f"{pos}번째 항목: 칸 이름이 겹쳐요: '{p}'.")
+    return parts
+
+
+def _norm_derived(v, itype, rn, d, pos):
+    """파생 정의 1차 검사(항목 단위) → {"op","from"} 또는 None. 원천 항목 검사는 _norm_items 끝에서 한다."""
+    if not v:
+        return None
+    if not isinstance(v, dict):
+        raise ValueError(f"{pos}번째 항목: 자동 계산 방식을 다시 선택해줘.")
+    op = (v.get("op") or "").strip() if isinstance(v.get("op"), str) else ""
+    frm = v.get("from")
+    if isinstance(frm, str):
+        frm = [x for x in re.split(r"[,，\s]+", frm) if x]
+    elif isinstance(frm, (list, tuple)):
+        frm = [str(x).strip() for x in frm if x is not None and str(x).strip()]
+    else:
+        frm = []
+    if not op and not frm:
+        return None
+    if op not in _DERIVED_OPS:
+        raise ValueError(f"{pos}번째 항목: 자동 계산 방식을 다시 선택해줘.")
+    if itype not in ("numeric", "record_num"):
+        raise ValueError(f"{pos}번째 항목: 자동 계산 항목은 숫자 또는 기록용 숫자 항목이어야 해요.")
+    if len(frm) != rn:
+        raise ValueError(f"{pos}번째 항목: 자동 계산 원천 항목은 칸 수({rn}개)만큼 필요해요 (지금 {len(frm)}개). 항목 키를 쉼표로 적어줘.")
+    if len(set(frm)) != len(frm):
+        raise ValueError(f"{pos}번째 항목: 같은 원천 항목을 두 번 쓸 수 없어요.")
+    if d.get("source"):
+        raise ValueError(f"{pos}번째 항목: 자동 계산 항목에는 스피드 값을 연결할 수 없어요.")
+    return {"op": op, "from": frm}
+
+
+def slot_label(item, idx):
+    """칸 표시 이름의 단일 출처 — 칸 이름이 있으면 그것, 없거나 범위 밖이면 '#idx'."""
+    sl = (item or {}).get("slot_labels")
+    return sl[idx - 1] if sl and 1 <= idx <= len(sl) else f"#{idx}"
+
+
+def _derived_eval(item, source_values):
+    """파생 칸 하나 계산 → (value, value_input, verdict). source_values=원천 값 문자열 목록(표준 십진).
+    Fraction으로 정확히 평균을 내고 value는 0쪽으로 소수점을 버린 자연수 문자열(55.67→'55', -55.67→'-55').
+    판정은 버린 자연수(value)를 하한/상한과 비교한다(경계 포함, 사용자 확정). 기록용(record_num)은 'recorded'."""
+    if item["derived"]["op"] not in _DERIVED_OPS:
+        raise ValueError("알 수 없는 자동 계산 방식이에요.")
+    fr = [_Frac(s) for s in source_values]
+    mean = sum(fr, _Frac(0)) / len(fr)
+    iv = int(mean)  # int()는 0쪽 절삭
+    value = str(iv)
+    q = (abs(mean) * 10000 + _Frac(1, 2)).__floor__()  # 소수 4자리 HALF_UP(0에서 먼 쪽)
+    shown = _Dec(q) / 10000
+    shown = -shown if mean < 0 else shown
+    shown = "0" if shown == 0 else format(shown.normalize(), "f")
+    vin = f"{', '.join(source_values)} → 평균 {shown}"
+    if item["input_type"] == "record_num":
+        return value, vin, "recorded"
+    lo, up = item.get("lower"), item.get("upper")
+    if lo is None and up is None:
+        return value, vin, "nospec"
+    v = _Frac(iv)
+    if (lo is not None and v < _Frac(lo)) or (up is not None and v > _Frac(up)):
+        return value, vin, "fail"
+    return value, vin, "pass"
+
+
+def group_items_by_step(items, results):
+    """항목을 연속 구간의 단계(step)별 카드로 묶는다 → [{name,no,items,filled,required,fail_cells,state,open}] 또는
+    단계가 하나도 없으면 None. results={item_key:{idx: 슬롯}} — 슬롯은 get_unit_results의 {"current":행,...}이거나 행 자체.
+    filled는 1..required_n 범위의 현재 칸 수, state는 fail > incomplete(0칸이면 empty) > done."""
+    if not any(it.get("step") for it in items):
+        return None
+    groups = []
+    for it in items:
+        name = it.get("step") or "기타"
+        if not groups or groups[-1]["name"] != name:
+            groups.append({"name": name, "no": len(groups) + 1, "items": [], "filled": 0, "required": 0,
+                           "fail_cells": 0})
+        g = groups[-1]
+        g["items"].append(it)
+        g["required"] += it["required_n"]
+        for i in range(1, it["required_n"] + 1):
+            s = (results.get(it["key"]) or {}).get(i)
+            row = s.get("current") if isinstance(s, dict) and "history" in s else s
+            if row:
+                g["filled"] += 1
+                if row["verdict"] == "fail":
+                    g["fail_cells"] += 1
+    for g in groups:
+        g["state"] = ("fail" if g["fail_cells"] else
+                      ("empty" if g["filled"] == 0 else "incomplete") if g["filled"] < g["required"] else "done")
+        g["open"] = False
+    pick = (next((g for g in groups if g["state"] in ("empty", "incomplete")), None)
+            or next((g for g in groups if g["state"] == "fail"), None) or groups[0])
+    pick["open"] = True
+    return groups
 
 
 def validate_items_for_model(items, model_row):
@@ -5501,7 +5653,11 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
             raise SlotError("알 수 없는 검사 항목이에요.", key, idx)
         if it["input_type"] == "ma_link":
             raise SlotError("MA 번호는 연결 버튼으로만 입력할 수 있어요.", key, idx)
-        is_photo = it["input_type"] == "photo"
+        if it.get("derived"):  # 자동 계산 칸 — 최초·정정·재검사 모두 직접 쓰기 불가(원천 값이 바뀌면 훅이 다시 계산)
+            names = "·".join(items[k]["name"] for k in it["derived"]["from"] if k in items)
+            raise SlotError(f"자동 계산되는 값이라 직접 입력할 수 없어요. 원천 항목({names})의 값을 입력하거나 정정해줘.",
+                            key, idx)
+        is_photo =it["input_type"] == "photo"
         if is_photo and (key, idx) not in photo_files:
             raise SlotError("사진은 사진 업로드 버튼으로만 등록할 수 있어요.", key, idx)
         if not is_photo and (key, idx) in photo_files:
@@ -5588,11 +5744,38 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
             if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
                 raise
             raise SlotError("다른 사람이 먼저 입력했어요. 새로고침해줘.", key, idx)
+    # 파생 재계산은 재개 이벤트보다 먼저 — 이벤트의 results_digest가 파생 행까지 포함한 최종 상태여야 한다
+    _derived_recompute(conn, lot, insp, unit_id, list(items.values()), {e.get("item_key") for e in entries},
+                       roster, serial)
     if was_done:
-        reasons = list(dict.fromkeys((e.get("reason") or "").strip() for e in entries))
+        reasons =list(dict.fromkeys((e.get("reason") or "").strip() for e in entries))
         why = "; ".join(r for r in reasons if r)[:200] or "값 정정"
         _append_unit_event(conn, insp, unit_id, "reopen", "correction", why, actor, actor_id)
     return len(entries)
+
+
+def _derived_recompute(conn, lot, insp, unit_id, items_list, touched_keys, roster, serial):
+    """원천 항목이 바뀐 파생 칸을 다시 계산해 새 rev 행(entry_type='derived')으로 쓴다. 파생 항목이 없으면 즉시 반환.
+    칸 i의 원천 = from[i-1] 항목의 모든 칸 — 하나라도 비었거나 결측이면 쓰지 않고, 결과가 현재 행과 같아도 쓰지 않는다.
+    _insp_begin으로 잠긴 트랜잭션 안(_save_results_conn)에서만 부를 것."""
+    targets = [it for it in items_list if it.get("derived") and touched_keys & set(it["derived"]["from"])]
+    if not targets:
+        return
+    by_key = {it["key"]: it for it in items_list}
+    cur = _ng_cur(conn, insp["id"], unit_id)
+    for it in targets:
+        for i in range(1, it["required_n"] + 1):
+            sk = it["derived"]["from"][i - 1]
+            sit = by_key[sk]
+            rows = [cur.get(sk, {}).get(j) for j in range(1, sit["required_n"] + 1)]
+            if any(r is None or r["is_missing"] or r["value"] is None for r in rows):
+                continue
+            value, vin, verdict = _derived_eval(it, [r["value"] for r in rows])
+            old = cur.get(it["key"], {}).get(i)
+            if old and (old["value"], old["verdict"], old["value_input"]) == (value, verdict, vin):
+                continue
+            _insert_result_row(conn, insp["id"], unit_id, it["key"], i, None, "derived", vin, value, 0, verdict,
+                               "원천 값 변경으로 자동 재계산", roster, serial, lot["lot_revision"], DERIVED_ACTOR, None)
 
 
 # ---------- S/N 부품 연결·회수 (TASK #155 T5) ----------
@@ -6218,7 +6401,10 @@ def complete_unit_inspection(lot_id, unit_id, actor, actor_id, expected_digest, 
         prog = _unit_progress(items, cur)
         blockers = []
         for it, p in zip(items, prog):
-            if p["filled"] < p["required"]:
+            if p["filled"] < p["required"] and it.get("derived"):
+                blockers.append(_blk("incomplete", f"{p['name']}: 원천 값이 모두 입력돼야 자동 계산돼요 "
+                                     f"({p['filled']}/{p['required']}칸 계산됨).", p["key"], p["name"]))
+            elif p["filled"] < p["required"]:
                 unit_word = "장" if it["input_type"] == "photo" else "개"
                 blockers.append(_blk("incomplete", f"{p['name']}: {p['required']}{unit_word} 중 {p['filled']}{unit_word}만 "
                                      "입력됐어요.", p["key"], p["name"]))
@@ -6631,6 +6817,8 @@ def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, see
             raise ValueError("숫자·각도·적합/부적합 항목만 재검사할 수 있어요.")
         busy = {e["item_key"] for e in _ng_events_derived(conn, insp["id"], unit_id) if e["state"] in _NG_OPEN_STATES}
         for k in extra:
+            if k in items and items[k].get("derived"):
+                raise ValueError("자동 계산 항목은 영향 항목으로 고를 수 없어요.")
             if k == key0 or k not in items or items[k]["input_type"] not in JUDGED_TYPES:
                 raise ValueError("영향 항목이 올바르지 않아요.")
             if k in busy:
@@ -6640,6 +6828,10 @@ def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, see
             raise ValueError("화면을 본 뒤에 값이 바뀌었어요. 새로고침해서 다시 확인해줘.")
         cur = _ng_cur(conn, insp["id"], unit_id)
         fail_idx = {i for i, r in cur.get(key0, {}).items() if r["verdict"] == "fail"}
+        derived = it0.get("derived")
+        # 파생 사건: 불량 칸 i의 재검사 대상은 그 칸의 원천(from[i-1]) 항목에서 값이 있는 칸이다
+        allowed = ({(derived["from"][i - 1], j): i for i in fail_idx
+                    for j in cur.get(derived["from"][i - 1], {})} if derived else {})
         prepared, own_idx = [], []
         for e in entries:
             k = e.get("item_key")
@@ -6648,7 +6840,11 @@ def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, see
             except (TypeError, ValueError):
                 raise SlotError("칸 번호가 올바르지 않아요.", k)
             row = cur.get(k, {}).get(idx)
-            if k == key0:
+            if derived and k == key0:
+                raise SlotError("자동 계산된 값이에요. 원천 값을 다시 측정해 입력해줘.", k, idx)
+            if derived and (k, idx) in allowed:
+                own_idx.append(allowed[(k, idx)])
+            elif k == key0:
                 if idx not in fail_idx:
                     raise SlotError("불량이 난 칸만 재검사할 수 있어요.", k, idx)
                 own_idx.append(idx)
@@ -6672,6 +6868,7 @@ def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, see
             _append_unit_event(conn, insp, unit_id, "reopen", "system", why, actor, actor_id)
         cur = _ng_cur(conn, insp["id"], unit_id)
         cells0 = cur.get(key0, {})
+        own_idx = sorted(set(own_idx))
         passed = (all(cells0[i]["verdict"] == "pass" for i in own_idx)
                   and summarize_unit_item(it0, cells0) == "pass")
         new_fail = {k for k in extra if summarize_unit_item(items[k], cur.get(k, {})) == "fail"}
@@ -6681,6 +6878,9 @@ def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, see
                  "value": cur[p["item_key"]][p["idx"]]["value"],
                  "verdict": cur[p["item_key"]][p["idx"]]["verdict"], "extra": p["item_key"] != key0}
                 for p in prepared]
+        if derived:  # 입력한 원천 행(extra)에 더해 재계산된 파생 행도 같은 회차에 남긴다
+            rows += [{"item_key": key0, "idx": i, "rev": cells0[i]["rev"], "value": cells0[i]["value"],
+                      "verdict": cells0[i]["verdict"], "extra": False} for i in own_idx]
         digest = _results_digest(conn, insp["id"], unit_id)
         _ng_log_append(conn, ng_event_id, "retest_round", actor, actor_id, round_no=round_no,
                        outcome="pass" if passed else "fail",
@@ -7623,7 +7823,7 @@ def verify_product_report(revision_id, photo_dir=None):
     photo_dir를 주면 스냅샷 사진 파일의 존재·sha256도 확인한다(None이면 photo_ok=None).
     live_digest_ok는 승인 대기·승인 상태일 때만 의미가 있어 그 외엔 None."""
     out = {"ok": False, "chain_ok": False, "content_ok": False, "live_digest_ok": None, "photo_ok": None,
-           "links_ok": None, "problems": []}
+           "links_ok": None, "derived_ok": None, "problems": []}
     conn = get_conn()
     try:
         rev = conn.execute("SELECT r.*, i.lot_id FROM product_report_revisions r JOIN production_lot_inspections i "
@@ -7680,8 +7880,24 @@ def verify_product_report(revision_id, photo_dir=None):
             if state in ("submitted", "approved") and _links_snapshot(conn, rev["unit_id"]) != snap.get("links"):
                 out["links_ok"] = False
                 out["problems"].append("현재 MA 연결이 제출 당시와 달라요.")
+        d_items = [i for i in snap["inspection"]["items"] if i.get("derived")]
+        if d_items:  # 자동 계산 칸: 스냅샷의 원천 값에서 같은 _derived_eval로 다시 계산해 대조
+            out["derived_ok"] = True
+            cell = {(x["item_key"], x["idx"]): x for x in snap["slots"]}
+            for it in d_items:
+                for i in range(1, it["required_n"] + 1):
+                    src_key = it["derived"]["from"][i - 1]
+                    src = next((x for x in snap["inspection"]["items"] if x["key"] == src_key), None)
+                    vals = [cell.get((src_key, j)) for j in range(1, (src or {"required_n": 0})["required_n"] + 1)]
+                    if not src or any(v is None or v["is_missing"] or v["value"] is None for v in vals):
+                        continue
+                    want = _derived_eval(it, [v["value"] for v in vals])
+                    got = cell.get((it["key"], i))
+                    if not got or (got["value"], got["verdict"]) != (want[0], want[2]):
+                        out["derived_ok"] = False
+                        out["problems"].append(f"자동 계산 값이 원천 값과 맞지 않아요: {it['name']}-{i}")
         out["ok"] = (chain and content and out["live_digest_ok"] is not False and out["photo_ok"] is not False
-                     and out.get("links_ok") is not False)
+                     and out.get("links_ok") is not False and out.get("derived_ok") is not False)
         return out
     finally:
         conn.close()

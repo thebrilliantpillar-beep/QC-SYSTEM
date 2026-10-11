@@ -12,8 +12,11 @@
     #itemRows td:nth-child(5) input, #itemRows td:nth-child(6) input { min-width: 48px; }
     #itemRows td:nth-child(7) select { min-width: 72px; }
     #itemRows td:nth-child(8) select { min-width: 96px; }
-    #itemRows td:nth-child(9) { white-space: nowrap; }
-    #itemRows td:nth-child(9) button { white-space: nowrap; padding: 8px 10px; }
+    #itemRows td:nth-child(9) input { min-width: 110px; }
+    #itemRows td:nth-child(10) input { min-width: 90px; }
+    #itemRows td:nth-child(11) select, #itemRows td:nth-child(11) input { min-width: 120px; }
+    #itemRows td:nth-child(12) { white-space: nowrap; }
+    #itemRows td:nth-child(12) button { white-space: nowrap; padding: 8px 10px; }
   }
   /* 좁은 폭: 항목 행을 카드형(라벨+입력)으로. 라벨은 CSS nth-child로 붙여 마크업 불변 */
   @media (max-width: 640px) {
@@ -24,7 +27,7 @@
       background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
     #itemRows td { display: block; border: 0; padding: 0; text-align: left; min-width: 0; }
     #itemRows td::before { display: block; font-size: 12px; font-weight: 700; color: #4b5563; margin-bottom: 4px; }
-    #itemRows td:nth-child(1)::before { content: "항목 이름"; }
+    #itemRows td:nth-child(1)::before { content: "항목 이름 / 항목 키"; }
     #itemRows td:nth-child(2)::before { content: "입력 방식"; }
     #itemRows td:nth-child(3)::before { content: "하한"; }
     #itemRows td:nth-child(4)::before { content: "상한"; }
@@ -32,10 +35,18 @@
     #itemRows td:nth-child(6)::before { content: "필요 개수"; }
     #itemRows td:nth-child(7)::before { content: "없음 허용"; }
     #itemRows td:nth-child(8)::before { content: "스피드 값"; }
-    #itemRows td:nth-child(1), #itemRows td:nth-child(2), #itemRows td:nth-child(7), #itemRows td:nth-child(8), #itemRows td:nth-child(9) { grid-column: 1 / -1; }
-    #itemRows td:nth-child(9)::before { content: none; }
-    #itemRows td:nth-child(9) button { width: 100%; min-height: 44px; }
+    #itemRows td:nth-child(9)::before { content: "칸 이름(쉼표로 구분)"; }
+    #itemRows td:nth-child(10)::before { content: "단계"; }
+    #itemRows td:nth-child(11)::before { content: "자동 계산"; }
+    #itemRows td:nth-child(1), #itemRows td:nth-child(2), #itemRows td:nth-child(7), #itemRows td:nth-child(8), #itemRows td:nth-child(9),
+    #itemRows td:nth-child(10), #itemRows td:nth-child(11), #itemRows td:nth-child(12) { grid-column: 1 / -1; }
+    #itemRows td:nth-child(12)::before { content: none; }
+    #itemRows td:nth-child(12) button { width: 100%; min-height: 44px; }
     #itemRows input, #itemRows select { min-height: 44px; }
+    #itemRows td::before { font-size: 13px; }
+    #itemRows td:nth-child(1) input + input, #itemRows td:nth-child(11) select + input { margin-top: 6px; }
+    /* 새 3칸(칸 이름·단계·자동 계산)은 위쪽 구분선으로 묶어 읽기 쉽게 */
+    #itemRows td:nth-child(9) { margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--border); }
   }
 </style>
 <h2>제품검사 항목: {{ model['model_no'] }}</h2>
@@ -44,7 +55,7 @@
 {% macro item_row(it, disabled) %}
 <tr>
   <td><input type="text" name="name" value="{{ it.get('name') or '' }}" maxlength="60" required {{ 'disabled' if disabled else '' }}>
-    <input type="hidden" name="key" value="{{ it.get('key') or '' }}" {{ 'disabled' if disabled else '' }}></td>
+    <input type="text" name="key" value="{{ it.get('key') or '' }}" maxlength="40" placeholder="항목 키(영문·숫자·_)" {{ 'disabled' if disabled else '' }}></td>
   <td><select name="input_type" {{ 'disabled' if disabled else '' }}>
     {% for k, label in type_labels.items() %}<option value="{{ k }}" {{ 'selected' if it.get('input_type') == k else '' }}>{{ label }}</option>{% endfor %}
   </select></td>
@@ -59,6 +70,14 @@
   <td><select name="speed_field" {{ 'disabled' if disabled else '' }}>
     {% for k, label in speed_labels.items() %}<option value="{{ k }}" {{ 'selected' if (it.get('speed_field') or '') == k else '' }}>{{ label }}</option>{% endfor %}
   </select></td>
+  {% set sl = it.get('slot_labels') %}{% set dv = it.get('derived') or {} %}
+  <td><input type="text" name="slot_labels" value="{{ sl | join(', ') if sl is not string and sl else (sl or '') }}" placeholder="A-r, B-s, C-t" {{ 'disabled' if disabled else '' }}></td>
+  <td><input type="text" name="step" value="{{ it.get('step') or '' }}" maxlength="30" {{ 'disabled' if disabled else '' }}></td>
+  <td><select name="derived_op" {{ 'disabled' if disabled else '' }}>
+    <option value="" {{ '' if dv.get('op') else 'selected' }}>없음</option>
+    <option value="avg_floor" {{ 'selected' if dv.get('op') == 'avg_floor' else '' }}>평균(소수점 버림)</option>
+  </select>
+    <input type="text" name="derived_from" value="{{ dv.get('from') | join(', ') if dv.get('from') else '' }}" placeholder="원천 항목 키, 쉼표로" {{ 'disabled' if disabled else '' }}></td>
   {% if not disabled %}<td><button type="button" class="btn secondary" style="margin-top:0;" onclick="this.closest('tr').remove();">삭제</button></td>{% endif %}
 </tr>
 {% endmacro %}
@@ -69,10 +88,12 @@
   {% if not editable %}<p class="muted">항목 설정은 admin 계정만 바꿀 수 있어요.</p>{% endif %}
   <p class="muted">숫자 항목은 하한·상한 중 하나 이상이 필요해요. 필요 개수는 측정 횟수(사진 항목은 필요한 사진 수)예요.</p>
   <p class="muted">각도 항목은 하한이 상한보다 커도 돼요. 예: 357 ~ 3은 0도를 지나가는 범위예요. 기록용 숫자와 MA 번호 항목은 하한·상한이 쓰이지 않아요. 스피드 값은 MA 번호에 연결된 스피드 검사 기록에서 자동으로 채울 항목에만 골라요.</p>
+  <p class="muted">단계: 같은 단계 이름이 이어지는 항목끼리 S/N 검사 화면에서 한 카드로 묶여요. 비워 두면 단계 없이 한 줄로 보여요. 칸 이름: 쉼표로 구분해 필요 개수만큼 적어요(예: A-r, B-s, C-t). 비우면 #1, #2로 보여요.</p>
+  <p class="muted">자동 계산(평균, 소수점 버림): 칸마다 원천 항목 1개의 모든 값을 평균내요. 원천 항목 키를 칸 수만큼 쉼표로 적어요(항목 키 칸에 적은 키 그대로). 원천은 숫자 또는 기록용 숫자 항목이고 없음 허용을 켤 수 없어요. 판정은 소수점을 버린 값으로 해요. 항목 키를 비우면 자동으로 정해져요.</p>
   <form method="POST" action="{{ url_for('product_model_items', model_id=model['id']) }}">
     <div style="overflow-x:auto;">
       <table id="itemTable">
-        <thead><tr><th>항목 이름</th><th>입력 방식</th><th>하한</th><th>상한</th><th>소수 자릿수</th><th>필요 개수</th><th>없음 허용</th><th>스피드 값</th>{% if editable %}<th></th>{% endif %}</tr></thead>
+        <thead><tr><th>항목 이름</th><th>입력 방식</th><th>하한</th><th>상한</th><th>소수 자릿수</th><th>필요 개수</th><th>없음 허용</th><th>스피드 값</th><th>칸 이름</th><th>단계</th><th>자동 계산</th>{% if editable %}<th></th>{% endif %}</tr></thead>
         <tbody id="itemRows">
           {% for it in items %}{{ item_row(it, not editable) }}{% endfor %}
         </tbody>
