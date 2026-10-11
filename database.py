@@ -166,7 +166,8 @@ class DbBusyError(ValueError):
 
 
 APPEND_ONLY_TABLES = ("lot_inspection_results", "lot_inspection_unit_events", "product_report_revisions",
-                      "product_report_events", "ng_events", "ng_event_log", "unit_disposal_events")
+                      "product_report_events", "ng_events", "ng_event_log", "unit_disposal_events",
+                      "speed_records", "speed_record_revisions", "unit_component_events")
 
 
 def _install_append_only_triggers(cur, tables):
@@ -1360,6 +1361,67 @@ def init_db():
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ude_unit ON unit_disposal_events(unit_id, seq)")
     # ---- 2026-10-11 신규(4b-2) 끝 ----
+
+    # ---- 2026-10-11 신규: 스피드 기록·S/N 부품 연결 (TASK #155 T4) — 3개 모두 append-only, 트리거 설치보다 먼저 만들 것 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS speed_records (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            ma_raw             TEXT NOT NULL,
+            ma_key             TEXT NOT NULL UNIQUE,
+            created_by         TEXT,
+            created_by_user_id INTEGER,
+            created_at         TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS speed_record_revisions (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id      INTEGER NOT NULL REFERENCES speed_records(id),
+            rev            INTEGER NOT NULL,
+            model_id       INTEGER NOT NULL REFERENCES product_models(id),
+            phase          TEXT NOT NULL,
+            open_ms        TEXT NOT NULL,
+            open_skew_ms   TEXT NOT NULL,
+            close_ms       TEXT NOT NULL,
+            close_skew_ms  TEXT NOT NULL,
+            primary_gap    TEXT NOT NULL,
+            verdicts_json  TEXT NOT NULL,
+            limits_json    TEXT NOT NULL,
+            reason         TEXT,
+            entered_by     TEXT,
+            entered_by_user_id INTEGER,
+            entered_at     TEXT NOT NULL,
+            content_hash   TEXT NOT NULL,
+            UNIQUE(record_id, rev)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS unit_component_events (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id           INTEGER NOT NULL REFERENCES finished_units(id),
+            inspection_id     INTEGER REFERENCES production_lot_inspections(id),
+            kind              TEXT NOT NULL,
+            phase             TEXT NOT NULL,
+            event_type        TEXT NOT NULL,
+            comp_raw          TEXT NOT NULL,
+            comp_key          TEXT NOT NULL,
+            speed_revision_id INTEGER REFERENCES speed_record_revisions(id),
+            ref_event_id      INTEGER,
+            copied_json       TEXT,
+            reason            TEXT,
+            serial_at_event   TEXT,
+            lot_revision      INTEGER,
+            by_name           TEXT,
+            by_user_id        INTEGER,
+            at                TEXT NOT NULL,
+            frozen            INTEGER NOT NULL DEFAULT 0   -- unlink 전용: 1=동결 회수(결과 마커 없음), 0=일반
+        )
+    """)
+    if "frozen" not in [r[1] for r in cur.execute("PRAGMA table_info(unit_component_events)").fetchall()]:
+        _safe_add_column(cur, "ALTER TABLE unit_component_events ADD COLUMN frozen INTEGER NOT NULL DEFAULT 0")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_uce_comp ON unit_component_events(kind, comp_key, id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_uce_slot ON unit_component_events(unit_id, kind, phase, id)")
+    # ---- 2026-10-11 신규(스피드 T4) 끝 ----
 
     # ---- 2026-10-11 신규: 증거성 테이블 7개 append-only DB 트리거 (TASK #153) ----
     _install_append_only_triggers(cur, APPEND_ONLY_TABLES)
@@ -4510,6 +4572,14 @@ def update_product_model(model_id, data, user, reason):
         if ident_changed and conn.execute("SELECT 1 FROM production_lots WHERE model_id=? LIMIT 1",
                                           (model_id,)).fetchone():
             raise ValueError("이미 LOT에서 쓰는 모델은 식별 정보를 바꿀 수 없어. 새 모델로 등록해줘.")
+        if ident_changed:  # 새 P코드·상 수가 현재 항목 설정과 모순이면 거부
+            cv = conn.execute("SELECT items_json FROM product_model_item_versions WHERE model_id=? "
+                              "ORDER BY version DESC LIMIT 1", (model_id,)).fetchone()
+            if cv:
+                try:
+                    validate_items_for_model(json.loads(cv["items_json"]), after)
+                except ValueError:
+                    raise ValueError("P코드를 바꾸면 현재 항목 설정과 맞지 않아요. 항목 설정을 먼저 고쳐줘.")
         rev = row["revision"] + (1 if ident_changed else 0)
         full_before = _pm_full(conn, model_id)
         conn.execute(
@@ -4821,7 +4891,9 @@ def get_production_lot_history(lot_id):
 # ---------- 제품검사 항목 버전 · LOT 검사 시작 (TASK #136 패키지 1D-a) ----------
 
 _ITEM_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,40}$")
-_ITEM_TYPES = ("numeric", "ok_ng", "photo")
+_ITEM_TYPES = ("numeric", "ok_ng", "photo", "record_num", "angle", "ma_link")
+JUDGED_TYPES = ("numeric", "ok_ng", "angle")  # 합격/불합격 판정이 있는 유형 — NG 사건·재검사 대상
+_SPEED_FIELDS = ("open_ms", "open_skew_ms", "close_ms", "close_skew_ms", "primary_gap")
 _ITEM_KEYS = ("key", "name", "input_type", "lower", "upper", "display_digits",
               "required_n", "allow_missing", "sort_order")
 
@@ -4906,7 +4978,7 @@ def _norm_items(items):
         used.add(key)
         itype = (raw.get("input_type") or "").strip()
         if itype not in _ITEM_TYPES:
-            raise ValueError(f"{pos}번째 항목: 입력 방식은 숫자·적합/부적합·사진 중 하나여야 해.")
+            raise ValueError(f"{pos}번째 항목: 입력 방식을 다시 선택해줘.")
         lower = upper = digits = None
         if itype == "numeric":
             lower = _item_num(raw.get("lower"), "하한", pos)
@@ -4916,13 +4988,60 @@ def _norm_items(items):
             if lower is not None and upper is not None and _Dec(lower) > _Dec(upper):
                 raise ValueError(f"{pos}번째 항목: 하한이 상한보다 클 수 없어.")
             digits = _item_int(raw.get("display_digits"), "표시 소수 자릿수", pos, 0, 6, 2)
+        elif itype == "angle":  # 하한>상한 허용(0도 걸침), 360은 0으로 정규화
+            lower = _item_num(raw.get("lower"), "하한", pos)
+            upper = _item_num(raw.get("upper"), "상한", pos)
+            if lower is None or upper is None:
+                raise ValueError(f"{pos}번째 항목: 각도 항목은 시작과 끝 각도가 둘 다 필요해요.")
+            if not (0 <= _Dec(lower) <= 360 and 0 <= _Dec(upper) <= 360):
+                raise ValueError(f"{pos}번째 항목: 각도 한계는 0 이상 360 이하로 입력해줘.")
+            lower = "0" if _Dec(lower) == 360 else lower
+            upper = "0" if _Dec(upper) == 360 else upper
+            digits = _item_int(raw.get("display_digits"), "표시 소수 자릿수", pos, 0, 6, 2)
+        elif itype == "record_num":  # 판정 없는 기록용 — 하한/상한은 무시
+            digits = _item_int(raw.get("display_digits"), "표시 소수 자릿수", pos, 0, 6, 2)
         am = raw.get("allow_missing")
-        out.append({"key": key, "name": name, "input_type": itype, "lower": lower, "upper": upper,
-                    "display_digits": digits,
-                    "required_n": _item_int(raw.get("required_n"), "필요 개수", pos, 1, 50, 1),
-                    "allow_missing": 1 if am in (1, True, "1", "on", "true") else 0,
-                    "sort_order": pos})
+        rn = _item_int(raw.get("required_n"), "필요 개수", pos, 1, 50, 1)
+        allow_missing = 1 if am in (1, True, "1", "on", "true") else 0
+        if itype == "ma_link":
+            if rn > 3:
+                raise ValueError(f"{pos}번째 항목: MA 번호 항목의 필요 개수는 1~3이야.")
+            if any(o["input_type"] == "ma_link" for o in out):
+                raise ValueError(f"{pos}번째 항목: MA 번호 항목은 한 버전에 하나만 둘 수 있어.")
+            allow_missing = 0
+        d = {"key": key, "name": name, "input_type": itype, "lower": lower, "upper": upper,
+             "display_digits": digits, "required_n": rn, "allow_missing": allow_missing,
+             "sort_order": pos}
+        sf = (raw.get("speed_field") or "").strip()
+        src = (raw.get("source") or "").strip() or ("speed" if sf else "")
+        if src or sf:  # 비어 있으면 키 자체를 넣지 않는다 — 기존 버전 content_hash 불변
+            if src != "speed" or sf not in _SPEED_FIELDS:
+                raise ValueError(f"{pos}번째 항목: 스피드 값을 다시 선택해줘.")
+            if sf == "primary_gap" and itype != "record_num":
+                raise ValueError(f"{pos}번째 항목: 1차 극간은 기록용 숫자 항목에만 연결할 수 있어.")
+            if sf != "primary_gap" and itype != "numeric":
+                raise ValueError(f"{pos}번째 항목: 이 스피드 값은 숫자 항목에만 연결할 수 있어.")
+            if any(o.get("speed_field") == sf for o in out):
+                raise ValueError(f"{pos}번째 항목: 같은 스피드 값을 두 항목에 연결할 수 없어.")
+            d["source"], d["speed_field"] = "speed", sf
+        out.append(d)
     return out
+
+
+def validate_items_for_model(items, model_row):
+    """정규화된 항목 목록과 모델(pcode·housing_required_qty) 교차 검증 — 위반하면 한국어 ValueError."""
+    qty = model_row["housing_required_qty"]
+    is155 = bool(model_row["pcode"])
+    src = [i for i in items if i.get("source") == "speed"]
+    for i in items:
+        if (i["input_type"] == "ma_link" or i.get("source") == "speed") and i["required_n"] != qty:
+            raise ValueError("MA 번호와 스피드 연결 항목은 이 모델의 상 수(단상 1, 3상 3)만큼 칸이 필요해요.")
+    if src and is155:
+        raise ValueError("155V 모델에는 스피드 연결 항목을 둘 수 없어요. 155V는 스피드 검사 단계가 없어요.")
+    if src and not any(i["input_type"] == "ma_link" for i in items):
+        raise ValueError("스피드 항목을 쓰려면 MA 번호 항목이 먼저 있어야 해요.")
+    if src and {i["speed_field"] for i in src} != set(_SPEED_FIELDS):
+        raise ValueError("스피드 항목이 부족해요. 개방시간, 개방 괴리차, 투입시간, 투입 괴리차, 1차 극간이 모두 필요해요.")
 
 
 def _miv_dict(row):
@@ -4965,8 +5084,11 @@ def save_model_items(model_id, items, reason, actor):
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        if not conn.execute("SELECT 1 FROM product_models WHERE id=?", (model_id,)).fetchone():
+        mrow = conn.execute("SELECT pcode, housing_required_qty FROM product_models WHERE id=?",
+                            (model_id,)).fetchone()
+        if not mrow:
             raise ValueError("모델을 찾을 수 없어.")
+        validate_items_for_model(norm, mrow)
         cur = conn.execute("SELECT version, content_hash FROM product_model_item_versions "
                            "WHERE model_id=? ORDER BY version DESC LIMIT 1", (model_id,)).fetchone()
         h = _sha(norm)
@@ -5009,6 +5131,10 @@ def start_lot_inspection(lot_id, actor):
                          "ORDER BY version DESC LIMIT 1", (row["model_id"],)).fetchone()
         if not v:
             raise ValueError("모델의 검사 항목이 설정되어 있지 않아요.")
+        try:  # 모델 설정(P코드·상)이 항목 저장 뒤에 바뀌었는지 스냅샷 전에 다시 확인
+            validate_items_for_model(json.loads(v["items_json"]), _pm_full(conn, row["model_id"]))
+        except ValueError:
+            raise ValueError("모델 설정이 바뀌어 항목을 다시 저장해야 해요.")
         model_snap = _pm_full(conn, row["model_id"])
         lot_snap = _pl_full(conn, lot_id)
         # 시작 당시 정상 S/N 목록 — unit_id 오름차순으로 동결(이후 추가·제외·정정과 분리된 검사 대상 기준)
@@ -5094,11 +5220,32 @@ def parse_measure_number(raw):
     return "0" if x == 0 else format(x.normalize(), "f")
 
 
+def parse_angle_number(raw):
+    """각도 입력 → 표준 십진 문자열. 0 이상 360 이하만 받는다(몰래 보정하면 3600·-3 같은 오타가 숨는다)."""
+    s = parse_measure_number(raw)
+    if not 0 <= _Dec(s) <= 360:
+        raise ValueError("각도는 0 이상 360 이하로 입력해줘. 음수나 360을 넘는 값은 받지 않아요.")
+    return s
+
+
+def _angle_ok(lo, up, v):
+    """각도 범위 판정(경계 포함). lo>up이면 0도를 지나는 범위(v>=lo 또는 v<=up). 360은 0과 같다."""
+    lo, up, v = _Dec(lo) % 360, _Dec(up) % 360, _Dec(v) % 360
+    return (lo <= v <= up) if lo <= up else (v >= lo or v <= up)
+
+
 def judge_measure(item, value):
-    """'pass'/'fail'/'nospec'. 숫자: 한계는 None 허용(단측), 경계값은 합격. 적합/부적합: OK→pass, NG→fail."""
+    """'pass'/'fail'/'nospec'. 숫자: 한계는 None 허용(단측), 경계값은 합격. 적합/부적합: OK→pass, NG→fail.
+    각도: 0도 걸침 범위. 기록용·MA 연결·사진은 판정이 없어 'recorded'."""
+    if item["input_type"] in ("record_num", "ma_link", "photo"):
+        return "recorded"
     if item["input_type"] == "ok_ng":
         return "pass" if value == "OK" else "fail"
     lo, up = item.get("lower"), item.get("upper")
+    if item["input_type"] == "angle":
+        if lo is None or up is None:
+            return "nospec"
+        return "pass" if _angle_ok(lo, up, value) else "fail"
     if lo is None and up is None:
         return "nospec"
     v = _Dec(value)
@@ -5113,7 +5260,7 @@ def summarize_unit_item(item, cur):
     """한 완제품·한 항목의 현재 상태. cur = {idx: 현재 행}. 저장하지 않고 조회 때 계산한다.
     fail / incomplete(빈 칸 있음) / missing_only(전부 결측 — 합격 아님) / nospec / pass."""
     rows = [cur[i] for i in range(1, item["required_n"] + 1) if i in cur]
-    if item["input_type"] == "photo":  # 합격이 아니라 "필요 장수 모두 등록됨"일 뿐
+    if item["input_type"] in ("photo", "record_num", "ma_link"):  # 합격이 아니라 "필요 칸 모두 등록됨"일 뿐
         return "recorded" if len(rows) >= item["required_n"] else "incomplete"
     if any(r["verdict"] == "fail" for r in rows):
         return "fail"
@@ -5136,12 +5283,12 @@ def is_product_photo_name(name):
 
 
 def _slot_current(conn, inspection_id, unit_id=None):
-    """칸별 현재(최신 rev) 행 목록."""
+    """칸별 현재(최신 rev) 행 목록. 최신 행이 연결 회수 마커(entry_type='unlink')인 칸은 제외한다 — 현재값의 단일 출처."""
     sql = ("SELECT r.* FROM lot_inspection_results r WHERE r.inspection_id=? "
            + ("AND r.unit_id=? " if unit_id is not None else "")
            + "AND r.rev = (SELECT MAX(x.rev) FROM lot_inspection_results x WHERE "
              "x.inspection_id=r.inspection_id AND x.unit_id=r.unit_id AND x.item_key=r.item_key "
-             "AND x.idx=r.idx)")
+             "AND x.idx=r.idx) AND r.entry_type != 'unlink'")  # 연결 회수 마커가 최신인 칸은 "현재값 없음"
     args = (inspection_id,) if unit_id is None else (inspection_id, unit_id)
     return conn.execute(sql, args).fetchall()
 
@@ -5265,7 +5412,7 @@ def get_unit_results(inspection_id, unit_id):
     for r in rows:
         slot = out.setdefault(r["item_key"], {}).setdefault(r["idx"], {"current": None, "history": []})
         slot["history"].append(dict(r))
-        slot["current"] = dict(r)
+        slot["current"] = None if r["entry_type"] == "unlink" else dict(r)  # 회수 마커 = 현재값 없음(이력엔 남음)
     return out
 
 
@@ -5292,6 +5439,23 @@ def save_unit_results(lot_id, unit_id, entries, actor, can_correct_others=False,
         raise
     finally:
         conn.close()
+
+
+def _insert_result_row(conn, inspection_id, unit_id, key, idx, rev, etype, vin, val, miss, verdict,
+                       reason, roster, serial, lot_revision, actor, actor_id, sha=None):
+    """lot_inspection_results 한 행 추가 — 입력·정정·재검사(이후 연결·회수)가 같은 컬럼 목록을 쓰는 단일 출처.
+    rev=None이면 칸의 MAX(rev)+1."""
+    if rev is None:
+        rev = conn.execute("SELECT COALESCE(MAX(rev),0)+1 FROM lot_inspection_results WHERE inspection_id=? "
+                           "AND unit_id=? AND item_key=? AND idx=?", (inspection_id, unit_id, key, idx)).fetchone()[0]
+    conn.execute(
+        "INSERT INTO lot_inspection_results (inspection_id, unit_id, item_key, idx, rev, "
+        "entry_type, value_input, value, is_missing, verdict, reason, roster_member, "
+        "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at, file_sha256) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (inspection_id, unit_id, key, idx, rev, etype, vin, val, miss, verdict, reason,
+         roster, serial, lot_revision, actor, actor_id, _utc_now(), sha))
+    return rev
 
 
 def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_correct_others=False,
@@ -5335,6 +5499,8 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
         it = items.get(key)
         if not it:
             raise SlotError("알 수 없는 검사 항목이에요.", key, idx)
+        if it["input_type"] == "ma_link":
+            raise SlotError("MA 번호는 연결 버튼으로만 입력할 수 있어요.", key, idx)
         is_photo = it["input_type"] == "photo"
         if is_photo and (key, idx) not in photo_files:
             raise SlotError("사진은 사진 업로드 버튼으로만 등록할 수 있어요.", key, idx)
@@ -5362,6 +5528,10 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
                            "AND item_key=? AND idx=? ORDER BY rev DESC LIMIT 1",
                            (insp["id"], unit_id, key, idx)).fetchone()
         reason = (e.get("reason") or "").strip() or None
+        if cur and cur["entry_type"] == "unlink":  # 연결 회수 마커 — 입력·정정 모두 거부
+            raise SlotError("MA 연결을 회수한 칸이에요. 다시 연결하면 채워져요.", key, idx)
+        if base is None and it.get("source") == "speed":
+            raise SlotError("MA 번호를 연결하면 자동으로 채워져요.", key, idx)
         if base is None:
             if cur:
                 raise SlotError("다른 사람이 이미 입력했어요. 정정으로 다시 입력해줘.", key, idx)
@@ -5400,6 +5570,8 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
                     val = vin.upper()
                     if val not in ("OK", "NG"):
                         raise ValueError("적합 또는 부적합을 선택해줘.")
+                elif it["input_type"] == "angle":
+                    val = parse_angle_number(vin)
                 else:
                     val = parse_measure_number(vin)
                 miss, verdict = 0, judge_measure(it, val)
@@ -5410,13 +5582,8 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
         if not retest_ctx and not is_photo and cur and cur["is_missing"] == miss and cur["value"] == val:
             raise SlotError("변경 없음 — 현재 값과 같아요.", key, idx)
         try:
-            conn.execute(
-                "INSERT INTO lot_inspection_results (inspection_id, unit_id, item_key, idx, rev, "
-                "entry_type, value_input, value, is_missing, verdict, reason, roster_member, "
-                "serial_at_entry, lot_revision, entered_by, entered_by_user_id, entered_at, file_sha256) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (insp["id"], unit_id, key, idx, rev, etype, vin, val, miss, verdict, reason,
-                 roster, serial, lot["lot_revision"], actor, actor_id, _utc_now(), sha))
+            _insert_result_row(conn, insp["id"], unit_id, key, idx, rev, etype, vin, val, miss, verdict,
+                               reason, roster, serial, lot["lot_revision"], actor, actor_id, sha)
         except sqlite3.IntegrityError as ie:
             if "lot_inspection_results" not in str(ie) or "UNIQUE" not in str(ie):
                 raise
@@ -5426,6 +5593,211 @@ def _save_results_conn(conn, lot, insp, unit_id, entries, actor, actor_id, can_c
         why = "; ".join(r for r in reasons if r)[:200] or "값 정정"
         _append_unit_event(conn, insp, unit_id, "reopen", "correction", why, actor, actor_id)
     return len(entries)
+
+
+# ---------- S/N 부품 연결·회수 (TASK #155 T5) ----------
+# 연결 이벤트(unit_component_events)는 append-only. 범용 골격(_link_guard/_link_event)은 kind별(ma, 3단계 housing)로 공유하고
+# MA 전용 어댑터(_link_ma_conn)가 스피드 값 복사를 맡는다. 활성 연결 판정은 DB UNIQUE가 아니라 쓰기 잠금 안 코드로 한다.
+_PHASES = ("A", "B", "C")
+_COMPLETED_LINK_MSG = "완료된 S/N이에요. 먼저 완료를 취소(재개)한 뒤에 MA를 연결하거나 회수할 수 있어요."
+
+
+def _unit_roster_serial(conn, insp, unit_id):
+    sa = conn.execute("SELECT serial_raw FROM unit_serial_aliases WHERE unit_id=? AND kind='current'",
+                      (unit_id,)).fetchone()
+    return (1 if unit_id in _roster_ids(insp) else 0), (sa["serial_raw"] if sa else None)
+
+
+def _unit_is_completed(conn, insp, unit_id):
+    r = conn.execute("SELECT event_type FROM lot_inspection_unit_events WHERE inspection_id=? AND unit_id=? "
+                     "ORDER BY seq DESC LIMIT 1", (insp["id"], unit_id)).fetchone()
+    return bool(r and r["event_type"] == "complete")
+
+
+def _link_event(conn, insp, lot, unit_id, kind, phase, event_type, comp_raw, comp_key, speed_revision_id,
+                ref_event_id, copied, reason, actor, actor_id, frozen=0):
+    _, serial = _unit_roster_serial(conn, insp, unit_id)
+    cur = conn.execute(
+        "INSERT INTO unit_component_events (unit_id, inspection_id, kind, phase, event_type, comp_raw, comp_key, "
+        "speed_revision_id, ref_event_id, copied_json, reason, serial_at_event, lot_revision, by_name, by_user_id, at, frozen) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (unit_id, insp["id"], kind, phase, event_type, comp_raw, comp_key, speed_revision_id, ref_event_id,
+         _canon(copied) if copied is not None else None, reason, serial, lot["lot_revision"], actor, actor_id,
+         _utc_now(), 1 if frozen else 0))
+    return cur.lastrowid
+
+
+def _link_guard(conn, lot, insp, unit_id, kind, phase, comp_key):
+    """범용 연결 가드(잠금 안): S/N 소속·정상·사용 금지/승인본/완료 아님, 칸이 비어 있음, 부품이 다른 곳에 안 쓰임."""
+    u = conn.execute("SELECT lot_id, status FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+    if not u or u["lot_id"] != lot["id"]:
+        raise ValueError("이 LOT의 완제품이 아니에요.")
+    if u["status"] != "active":
+        raise ValueError("제외된 완제품은 입력/정정할 수 없어요.")
+    if unit_is_unusable(unit_id, conn):
+        raise ValueError(_UNUSABLE_UNIT_MSG)
+    if unit_has_final_document(unit_id, conn):
+        raise ValueError(_FINAL_DOC_UNIT_MSG)
+    if _unit_is_completed(conn, insp, unit_id):
+        raise ValueError(_COMPLETED_LINK_MSG)
+    here = _active_link_by_slot(conn, unit_id, kind, phase)
+    if here:
+        raise ValueError(f"이 칸은 이미 연결돼 있어요 ({ma_display(here['comp_key']) if kind == 'ma' else here['comp_raw']}). "
+                         "바꾸려면 먼저 연결을 회수해줘.")
+    used = _active_link_by_comp(conn, kind, comp_key)
+    if used:
+        w = _link_where(conn, used)
+        if used["unit_id"] == unit_id:
+            raise ValueError(f"이 MA 번호는 이 S/N의 {used['phase']}상에 이미 연결돼 있어요.")
+        raise ValueError(f"이 MA 번호는 이미 S/N {w['serial']}(LOT {w['lot_no']})에 연결돼 있어요. "
+                         "잘못 연결했다면 그 S/N에서 연결을 회수한 뒤 다시 시도해줘.")
+
+
+def _link_ma_conn(conn, lot, insp, unit_id, idx, ma_raw, actor, actor_id):
+    """MA 번호 연결 본문(이미 _insp_begin으로 잠긴 트랜잭션 안). 새로 쓴 결과 행 목록을 돌려준다."""
+    items = json.loads(insp["items_json"])
+    ma_item = next((i for i in items if i["input_type"] == "ma_link"), None)
+    if not ma_item:
+        raise ValueError("이 검사에는 MA 번호 항목이 없어요.")
+    key = ma_item["key"]
+    try:
+        idx = int(idx)
+    except (TypeError, ValueError):
+        raise SlotError("칸 번호가 올바르지 않아요.", key)
+    if not 1 <= idx <= ma_item["required_n"]:
+        raise SlotError("칸 번호가 범위를 벗어났어요.", key, idx)
+    phase = _PHASES[idx - 1]
+    sp_rev, sp_items, copy_vals = None, [], {}
+    try:
+        comp_raw, comp_key = normalize_ma_number(ma_raw)
+        _link_guard(conn, lot, insp, unit_id, "ma", phase, comp_key)
+        model = json.loads(insp["model_snapshot_json"])
+        if not model.get("pcode"):  # 비155V: 스피드 기록에서 불러와 복사 (155V는 스피드 없이 연결만)
+            rec = conn.execute("SELECT id FROM speed_records WHERE ma_key=?", (comp_key,)).fetchone()
+            if not rec:
+                raise ValueError("스피드 검사 기록이 없어요. 먼저 스피드 검사를 등록해줘.")
+            sp = conn.execute("SELECT v.*, m.model_no FROM speed_record_revisions v JOIN product_models m "
+                              "ON m.id=v.model_id WHERE v.record_id=? ORDER BY v.rev DESC LIMIT 1",
+                              (rec["id"],)).fetchone()
+            if sp["model_id"] != lot["model_id"]:
+                raise ValueError(f"모델이 달라요. 스피드 기록은 {sp['model_no']}, 이 LOT은 {model.get('model_no')}이에요.")
+            if sp["phase"] != phase:
+                raise ValueError(f"상이 달라요. 스피드 기록은 {sp['phase']}상인데 이 칸은 {phase}상이에요.")
+            sp_rev = sp["id"]
+            sp_items = [i for i in items if i.get("source") == "speed" and idx <= i["required_n"]]
+            for it in sp_items:  # 활성 연결이 없는 칸의 기존 값은 동결 회수 뒤 남은 낡은 값이라 새 rev로 덮는다
+                copy_vals[it["key"]] = sp[it["speed_field"]]
+    except SlotError:
+        raise
+    except ValueError as e:
+        raise SlotError(str(e), key, idx)
+    roster, serial = _unit_roster_serial(conn, insp, unit_id)
+    rows, copied = [], []
+    for it in sp_items:  # 판정은 S/N 스냅샷 항목의 한계로 다시 한다(스피드 기록 당시 한계와 무관)
+        v = copy_vals[it["key"]]
+        verdict = judge_measure(it, v)
+        rev = _insert_result_row(conn, insp["id"], unit_id, it["key"], idx, None, "link", v, v, 0, verdict, None,
+                                 roster, serial, lot["lot_revision"], actor, actor_id)
+        rows.append({"item_key": it["key"], "idx": idx, "rev": rev, "value": v, "verdict": verdict, "is_missing": 0})
+        copied.append({"item_key": it["key"], "idx": idx, "rev": rev, "value": v, "verdict": verdict})
+    rev = _insert_result_row(conn, insp["id"], unit_id, key, idx, None, "link", comp_raw, comp_key, 0, "recorded",
+                             None, roster, serial, lot["lot_revision"], actor, actor_id)
+    rows.append({"item_key": key, "idx": idx, "rev": rev, "value": comp_key, "verdict": "recorded", "is_missing": 0})
+    _link_event(conn, insp, lot, unit_id, "ma", phase, "link", comp_raw, comp_key, sp_rev, None, copied, None,
+                actor, actor_id)
+    return rows
+
+
+@_write_retry
+def link_ma_to_unit(lot_id, unit_id, idx, ma_raw, actor, actor_id):
+    """S/N 한 칸(idx 1~3 = A·B·C상)에 MA 번호를 연결 → 새로 쓴 결과 행 목록. 거부는 SlotError(칸 메시지)."""
+    conn = get_conn()
+    try:
+        lot, insp = _insp_begin(conn, lot_id)
+        rows = _link_ma_conn(conn, lot, insp, unit_id, idx, ma_raw, actor, actor_id)
+        conn.commit()
+        return rows
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def unlink_component(lot_id, unit_id, kind, idx, reason, actor, actor_id):
+    """연결 회수(사유 필수). 일반: unlink 이벤트 + 그 칸의 ma_link·복사값에 회수 마커 행(rev+1).
+    동결(LOT 취소·S/N 제외·사용 금지): 부품이 영구히 묶이지 않도록 unlink 이벤트만 쓰고 결과 행은 쓰지 않는다."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise SlotError("연결을 회수하는 사유를 입력해줘.", None, idx)
+    conn = get_conn()
+    try:
+        lot = _pl_lock(conn, lot_id)  # 취소 LOT도 허용(동결 예외) — _insp_begin을 쓰지 않는다
+        insp = conn.execute("SELECT * FROM production_lot_inspections WHERE lot_id=?", (lot_id,)).fetchone()
+        if not insp:
+            raise ValueError("제품검사가 아직 시작되지 않았어요.")
+        u = conn.execute("SELECT lot_id, status FROM finished_units WHERE id=?", (unit_id,)).fetchone()
+        if not u or u["lot_id"] != lot_id:
+            raise ValueError("이 LOT의 완제품이 아니에요.")
+        try:
+            idx = int(idx)
+            if idx < 1:
+                raise IndexError
+            phase = _PHASES[idx - 1]
+        except (TypeError, ValueError, IndexError):
+            raise SlotError("칸 번호가 올바르지 않아요.", None, idx)
+        frozen = lot["status"] == "cancelled" or u["status"] != "active" or unit_is_unusable(unit_id, conn)
+        if unit_has_final_document(unit_id, conn):
+            raise ValueError(_FINAL_DOC_UNIT_MSG)
+        if not frozen and _unit_is_completed(conn, insp, unit_id):
+            raise ValueError(_COMPLETED_LINK_MSG)
+        ev = _active_link_by_slot(conn, unit_id, kind, phase)
+        if not ev:
+            raise ValueError("이 칸에는 연결된 부품이 없어요.")
+        copied = json.loads(ev["copied_json"] or "[]")
+        items = json.loads(insp["items_json"])
+        if not frozen:
+            keys = {c["item_key"] for c in copied}
+            if any(e["item_key"] in keys and e["state"] in _NG_OPEN_STATES
+                   for e in _ng_events_derived(conn, insp["id"], unit_id)):
+                raise ValueError("진행 중인 NG 사건이 있어서 연결을 회수할 수 없어요. 먼저 NG 사건을 처리해줘.")
+            roster, serial = _unit_roster_serial(conn, insp, unit_id)
+            slots = [(c["item_key"], c["idx"]) for c in copied]
+            if kind == "ma":
+                slots.append((next(i["key"] for i in items if i["input_type"] == "ma_link"), idx))
+            for k, ix in slots:
+                _insert_result_row(conn, insp["id"], unit_id, k, ix, None, "unlink", None, None, 1, "unlinked",
+                                   reason, roster, serial, lot["lot_revision"], actor, actor_id)
+        _link_event(conn, insp, lot, unit_id, kind, phase, "unlink", ev["comp_raw"], ev["comp_key"],
+                    ev["speed_revision_id"], ev["id"], None, reason, actor, actor_id, frozen)
+        conn.commit()
+        return {"frozen": frozen}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def unit_ma_links(unit_id):
+    """화면용(읽기): {idx(1~3): {ma_display, ma_key, record_id(스피드 기록 번호, 155V는 None), phase}} — 지금 활성인 MA 연결만."""
+    conn = get_conn()
+    try:
+        out = {}
+        for i, ph in enumerate(_PHASES, 1):
+            ev = _active_link_by_slot(conn, unit_id, "ma", ph)
+            if not ev:
+                continue
+            rid = None
+            if ev["speed_revision_id"]:
+                r = conn.execute("SELECT record_id FROM speed_record_revisions WHERE id=?",
+                                 (ev["speed_revision_id"],)).fetchone()
+                rid = r["record_id"] if r else None
+            out[i] = {"ma_display": ma_display(ev["comp_key"]), "ma_key": ev["comp_key"], "record_id": rid, "phase": ph}
+        return out
+    finally:
+        conn.close()
 
 
 def verify_lot_inspection_snapshot(lot_id):
@@ -5457,6 +5829,252 @@ def list_post_start_units(lot_id):
     return {"units": units, "events": ev}
 
 
+# ---------- 스피드 기록 (TASK #155 T4) ----------
+# 계약: speed_records / speed_record_revisions / unit_component_events는 append-only(UPDATE/DELETE 금지).
+# 스피드 기록 1건 = MA 번호 1개(= 상 1개). 정정은 회차(rev) 추가, 현재값 = MAX(rev). 정정은 S/N 연결 전에만 가능.
+
+MA_NO_RE = re.compile(r"^(\d{6})-?(\d{4})-(\d{2})$")  # MA 번호 형식의 단일 출처
+_MA_FORMAT_MSG = "MA 번호 모양이 달라요. 예: 260930-0012-01 또는 2609300012-01"
+_MA_DASHES = {c: "-" for c in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212, 0xFF0D)}
+SPEED_FIELD_LABELS = {"open_ms": "개방시간", "open_skew_ms": "개방 괴리차", "close_ms": "투입시간",
+                      "close_skew_ms": "투입 괴리차", "primary_gap": "1차 극간"}
+
+
+def normalize_ma_number(raw):
+    """MA 번호 → (원문 앞뒤 공백 제거본, 정규화 키=숫자 12자리). 표시용 정규형은 ma_display(key). 형식 오류는 ValueError."""
+    raw_clean = str(raw if raw is not None else "").translate(_MEASURE_WS).strip()
+    s = raw_clean.translate(_ITEM_NUM_MAP).translate(_MA_DASHES).upper()
+    if not s:
+        raise ValueError(_MA_FORMAT_MSG)
+    if re.search(r"\s", s):
+        raise ValueError("MA 번호 중간에 공백이 있어요. 공백 없이 입력해줘.")
+    m = MA_NO_RE.fullmatch(s)
+    if not m or not 1 <= int(m.group(1)[2:4]) <= 12 or not 1 <= int(m.group(1)[4:6]) <= 31:
+        raise ValueError(_MA_FORMAT_MSG)
+    return raw_clean, m.group(1) + m.group(2) + m.group(3)
+
+
+def ma_display(key):
+    return f"{key[:6]}-{key[6:10]}-{key[10:12]}" if key and len(key) == 12 else (key or "")
+
+
+def _active_link_by_comp(conn, kind, key):
+    """그 부품 키의 마지막 연결 이벤트가 link면 그 행(사용 중), 아니면 None."""
+    r = conn.execute("SELECT * FROM unit_component_events WHERE kind=? AND comp_key=? ORDER BY id DESC LIMIT 1",
+                     (kind, key)).fetchone()
+    return r if r and r["event_type"] == "link" else None
+
+
+def _active_link_by_slot(conn, unit_id, kind, phase):
+    r = conn.execute("SELECT * FROM unit_component_events WHERE unit_id=? AND kind=? AND phase=? "
+                     "ORDER BY id DESC LIMIT 1", (unit_id, kind, phase)).fetchone()
+    return r if r and r["event_type"] == "link" else None
+
+
+def _link_where(conn, ev):
+    """연결 이벤트 → {unit_id, serial, lot_id, lot_no} (안내 문구·화면 링크용)."""
+    u = conn.execute("SELECT u.lot_id, l.lot_no, (SELECT serial_raw FROM unit_serial_aliases a WHERE a.unit_id=u.id "
+                     "AND a.kind='current') AS serial FROM finished_units u JOIN production_lots l ON l.id=u.lot_id "
+                     "WHERE u.id=?", (ev["unit_id"],)).fetchone()
+    return {"unit_id": ev["unit_id"], "lot_id": u["lot_id"] if u else None, "lot_no": u["lot_no"] if u else "",
+            "serial": u["serial"] if u else "", "phase": ev["phase"]}
+
+
+def _speed_prepare(conn, model_id, phase, values):
+    """모델·상·5개 값 검증 → (모델행, 정규화 값 dict, 판정 dict, 한계 dict). 오류는 한국어 ValueError."""
+    m = conn.execute("SELECT * FROM product_models WHERE id=?", (model_id,)).fetchone()
+    if not m or not m["is_active"]:
+        raise ValueError("사용 중인 모델을 선택해줘.")
+    if m["pcode"]:
+        raise ValueError("155V 모델은 스피드 검사가 없어요. 기본검사에서 MA 번호를 직접 입력해줘.")
+    v = conn.execute("SELECT version, items_json FROM product_model_item_versions WHERE model_id=? "
+                     "ORDER BY version DESC LIMIT 1", (model_id,)).fetchone()
+    by_field = {}
+    if v:
+        for it in json.loads(v["items_json"]):
+            if it.get("source") == "speed":
+                by_field[it["speed_field"]] = it
+    if not by_field:
+        raise ValueError("이 모델에는 스피드 검사 항목이 설정돼 있지 않아요. 관리자에게 모델 항목 설정을 요청해줘.")
+    phase = (phase or "").strip().upper()
+    if phase not in (("A",) if m["phase_type"] == "single" else ("A", "B", "C")):
+        raise ValueError("상을 올바르게 선택해줘." if m["phase_type"] == "three" else "단상 모델은 A상만 있어요.")
+    norm, verdicts, limits = {}, {}, {}
+    values = values or {}
+    for f in _SPEED_FIELDS:
+        label = SPEED_FIELD_LABELS[f]
+        if str(values.get(f) if values.get(f) is not None else "").strip() == "":
+            raise ValueError(f"{label}을(를) 입력해줘. 5개 값이 모두 필요해요.")
+        try:
+            x = parse_measure_number(values[f])
+        except ValueError as e:
+            raise ValueError(f"{label}: {e}")
+        if _Dec(x) < 0:
+            raise ValueError(f"{label}은(는) 0 이상이어야 해요.")
+        it = by_field.get(f)
+        norm[f] = x
+        verdicts[f] = judge_measure(it, x) if it else "recorded"
+        limits[f] = {"item_key": it["key"] if it else None, "lower": it.get("lower") if it else None,
+                     "upper": it.get("upper") if it else None, "item_version": v["version"]}
+    return m, phase, norm, verdicts, limits
+
+
+def _speed_hash(record_id, rev, model_id, phase, norm, verdicts, limits, reason):
+    return _sha({"record_id": record_id, "rev": rev, "model_id": model_id, "phase": phase, "values": norm,
+                 "verdicts": verdicts, "limits": limits, "reason": reason})
+
+
+def _speed_insert_rev(conn, record_id, rev, model_id, phase, norm, verdicts, limits, reason, actor, actor_id):
+    conn.execute(
+        "INSERT INTO speed_record_revisions (record_id, rev, model_id, phase, open_ms, open_skew_ms, close_ms, "
+        "close_skew_ms, primary_gap, verdicts_json, limits_json, reason, entered_by, entered_by_user_id, "
+        "entered_at, content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (record_id, rev, model_id, phase, norm["open_ms"], norm["open_skew_ms"], norm["close_ms"],
+         norm["close_skew_ms"], norm["primary_gap"], _canon(verdicts), _canon(limits), reason, actor, actor_id,
+         _utc_now(), _speed_hash(record_id, rev, model_id, phase, norm, verdicts, limits, reason)))
+
+
+@_write_retry
+def create_speed_record(ma_raw, model_id, phase, values, actor, actor_id):
+    """스피드 기록 새로 만들기 → record_id. MA 번호 중복·형식 오류·155V·항목 미설정·값 누락은 ValueError."""
+    raw_clean, key = normalize_ma_number(ma_raw)
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        dup = conn.execute("SELECT id FROM speed_records WHERE ma_key=?", (key,)).fetchone()
+        if dup:
+            raise ValueError(f"이 MA 번호의 스피드 기록이 이미 있어요 (기록 #{dup['id']}). 값을 고치려면 정정해줘.")
+        m, phase, norm, verdicts, limits = _speed_prepare(conn, model_id, phase, values)
+        cur = conn.execute("INSERT INTO speed_records (ma_raw, ma_key, created_by, created_by_user_id, created_at) "
+                           "VALUES (?,?,?,?,?)", (raw_clean, key, actor, actor_id, _utc_now()))
+        rid = cur.lastrowid
+        _speed_insert_rev(conn, rid, 1, model_id, phase, norm, verdicts, limits, None, actor, actor_id)
+        conn.commit()
+        return rid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@_write_retry
+def correct_speed_record(record_id, base_rev, model_id, phase, values, reason, actor, actor_id):
+    """스피드 기록 정정(새 회차 추가) → 새 rev. 사유 필수·base_rev 일치·S/N 연결 전에만."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("정정 사유를 입력해줘.")
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        rec = conn.execute("SELECT * FROM speed_records WHERE id=?", (record_id,)).fetchone()
+        if not rec:
+            raise ValueError("스피드 기록을 찾을 수 없어요.")
+        cur = conn.execute("SELECT * FROM speed_record_revisions WHERE record_id=? ORDER BY rev DESC LIMIT 1",
+                           (record_id,)).fetchone()
+        try:
+            base = int(base_rev)
+        except (TypeError, ValueError):
+            base = None
+        if base != cur["rev"]:
+            raise ValueError(f"그 사이에 정정됐어요(현재 {cur['rev']}회차). 새로고침해줘.")
+        ln = _active_link_by_comp(conn, "ma", rec["ma_key"])
+        if ln:
+            w = _link_where(conn, ln)
+            raise ValueError(f"이 MA는 S/N {w['serial']}에 연결돼 있어서 스피드 기록을 고칠 수 없어요. "
+                             "값을 고치려면 그 S/N에서 값을 정정하거나(정정 권한 필요), 연결을 회수해줘.")
+        m, phase, norm, verdicts, limits = _speed_prepare(conn, model_id, phase, values)
+        if (cur["model_id"], cur["phase"]) == (int(model_id), phase) and all(cur[f] == norm[f] for f in _SPEED_FIELDS):
+            raise ValueError("변경 없음 — 현재 값과 같아요.")
+        rev = cur["rev"] + 1
+        _speed_insert_rev(conn, record_id, rev, model_id, phase, norm, verdicts, limits, reason, actor, actor_id)
+        conn.commit()
+        return rev
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+_SPEED_CUR_SQL = ("SELECT r.id AS record_id, r.ma_raw, r.ma_key, r.created_by, r.created_at, v.rev, v.model_id, "
+                  "v.phase, v.open_ms, v.open_skew_ms, v.close_ms, v.close_skew_ms, v.primary_gap, "
+                  "v.verdicts_json, v.limits_json, v.entered_by, v.entered_at, m.model_no "
+                  "FROM speed_records r JOIN speed_record_revisions v ON v.record_id=r.id AND v.rev="
+                  "(SELECT MAX(x.rev) FROM speed_record_revisions x WHERE x.record_id=r.id) "
+                  "JOIN product_models m ON m.id=v.model_id")
+
+
+def _speed_row(conn, r):
+    d = dict(r)
+    d["verdicts"] = json.loads(d["verdicts_json"])
+    d["limits"] = json.loads(d["limits_json"])
+    d["has_fail"] = any(x == "fail" for x in d["verdicts"].values())
+    d["ma_display"] = ma_display(d["ma_key"])
+    ln = _active_link_by_comp(conn, "ma", d["ma_key"])
+    d["link"] = _link_where(conn, ln) if ln else None
+    return d
+
+
+def list_speed_records(query=None, model_id=None, status=None, limit=300):
+    """현재 회차 기준 스피드 기록 목록(최신순). status: None/'unlinked'/'linked'."""
+    sql, args = _SPEED_CUR_SQL + " WHERE 1=1", []
+    q = re.sub(r"[\s-]", "", str(query or ""))
+    if q:
+        sql += " AND (r.ma_key LIKE ? OR r.ma_raw LIKE ?)"
+        args += [f"%{q}%", f"%{str(query).strip()}%"]
+    if model_id:
+        sql += " AND v.model_id=?"
+        args.append(int(model_id))
+    sql += " ORDER BY r.id DESC LIMIT ?"
+    args.append(int(limit))
+    conn = get_conn()
+    try:
+        rows = [_speed_row(conn, r) for r in conn.execute(sql, args).fetchall()]
+    finally:
+        conn.close()
+    if status == "linked":
+        rows = [r for r in rows if r["link"]]
+    elif status == "unlinked":
+        rows = [r for r in rows if not r["link"]]
+    return rows
+
+
+def get_speed_record(record_id):
+    """상세: 현재 회차 + 전체 회차 이력(오래된 순) + 연결 상태. 없으면 None."""
+    conn = get_conn()
+    try:
+        r = conn.execute(_SPEED_CUR_SQL + " WHERE r.id=?", (record_id,)).fetchone()
+        if not r:
+            return None
+        d = _speed_row(conn, r)
+        revs = []
+        for x in conn.execute("SELECT v.*, m.model_no FROM speed_record_revisions v JOIN product_models m "
+                              "ON m.id=v.model_id WHERE v.record_id=? ORDER BY v.rev", (record_id,)).fetchall():
+            y = dict(x)
+            y["verdicts"] = json.loads(y["verdicts_json"])
+            revs.append(y)
+        d["revisions"] = revs
+        return d
+    finally:
+        conn.close()
+
+
+def speed_models():
+    """스피드 입력 화면의 모델 목록 — 사용 중이고 155V가 아니며 스피드 항목이 설정된 모델 (모델행 + 한계 dict)."""
+    out = []
+    for m in list_product_models():
+        if not m["is_active"] or m["pcode"]:
+            continue
+        cur = get_current_model_items(m["id"])
+        sp = {i["speed_field"]: i for i in (cur["items"] if cur else []) if i.get("source") == "speed"}
+        if sp:
+            d = dict(m)
+            d["limits"] = {f: {"lower": i.get("lower"), "upper": i.get("upper")} for f, i in sp.items()}
+            out.append(d)
+    return out
+
+
 # ---------- 제품검사 S/N 완료·재개 (TASK #145 패키지 1D-c1) ----------
 # 계약: lot_inspection_unit_events는 append-only(UPDATE/DELETE 금지). 완료 = "검사 입력 끝"이지 합격이 아니다.
 # 완료 요청은 '대기'를 저장하지 않고 한 트랜잭션에서 전 조건을 다시 검증해 성공하면 complete 이벤트만 만든다.
@@ -5485,7 +6103,7 @@ def _results_digest(conn, inspection_id, unit_id):
 
 def digest_from_results(results):
     """get_unit_results()가 돌려준 값(화면에 그린 것)에서 같은 digest를 계산 — 화면과 digest가 어긋나지 않게."""
-    return _digest_rows([s["current"] for slots in results.values() for s in slots.values()])
+    return _digest_rows([s["current"] for slots in results.values() for s in slots.values() if s["current"]])
 
 
 def unit_results_digest(lot_id, unit_id):
@@ -6009,11 +6627,11 @@ def submit_ng_retest(lot_id, unit_id, ng_event_id, entries, extra_item_keys, see
         items = {i["key"]: i for i in json.loads(insp["items_json"])}
         key0 = ev["item_key"]
         it0 = items.get(key0)
-        if not it0 or it0["input_type"] not in ("numeric", "ok_ng"):
-            raise ValueError("숫자·적합/부적합 항목만 재검사할 수 있어요.")
+        if not it0 or it0["input_type"] not in JUDGED_TYPES:
+            raise ValueError("숫자·각도·적합/부적합 항목만 재검사할 수 있어요.")
         busy = {e["item_key"] for e in _ng_events_derived(conn, insp["id"], unit_id) if e["state"] in _NG_OPEN_STATES}
         for k in extra:
-            if k == key0 or k not in items or items[k]["input_type"] not in ("numeric", "ok_ng"):
+            if k == key0 or k not in items or items[k]["input_type"] not in JUDGED_TYPES:
                 raise ValueError("영향 항목이 올바르지 않아요.")
             if k in busy:
                 raise NgBlocked([_blk("ng_extra_busy", f"{items[k]['name']}: 이미 진행 중인 NG 사건이 있어요.", k,
@@ -6281,7 +6899,7 @@ def _snapshot_rows(rows):
 
 
 def _ng_snapshot_events(evs):
-    """제출 스냅샷(schema 2)의 NG 섹션 — 사건 헤더·로그 전체(승인자가 요청 사유와 재검사 이력을 보게)."""
+    """제출 스냅샷(schema 2 이상)의 NG 섹션 — 사건 헤더·로그 전체(승인자가 요청 사유와 재검사 이력을 보게)."""
     keep = ("seq", "log_type", "action_kind", "round_no", "outcome", "close_kind", "reason", "memo",
             "actor_name", "actor_user_id", "at", "event_hash")
     return [{"id": e["id"], "item_key": e["item_key"], "event_no": e["event_no"], "state": e["state"],
@@ -6591,7 +7209,7 @@ def submit_product_report(lot_id, unit_id, actor, actor_id, expected_digest, app
         hist = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? "
                             "ORDER BY item_key, idx, rev", (insp["id"], unit_id)).fetchall()
         snapshot = {
-            "schema": 2,
+            "schema": 3,
             "inspection": {"id": insp["id"], "snapshot_hash": insp["snapshot_hash"],
                            "item_version": insp["item_version"], "started_at": insp["started_at"], "items": items},
             "lot": json.loads(insp["lot_snapshot_json"]), "model": json.loads(insp["model_snapshot_json"]),
@@ -6603,6 +7221,7 @@ def submit_product_report(lot_id, unit_id, actor, actor_id, expected_digest, app
                            "by_user_id": cev["by_user_id"], "source": cev["source"], "results_digest": cev["results_digest"]},
             "missing_count": sum(1 for r in rows if r["is_missing"]),
             "ng": {"events": _ng_snapshot_events(gate["events"])},
+            "links": _links_snapshot(conn, unit_id),
         }
         sj = _canon(snapshot)
         try:
@@ -6839,12 +7458,172 @@ def get_product_report(revision_id):
     return d
 
 
+def _links_snapshot(conn, unit_id):
+    """제출 스냅샷용 활성 연결 목록(상 순). comp_raw는 표시 정규형, 155V는 speed_* None. 같은 트랜잭션 conn으로 읽을 것."""
+    out = []
+    for ph in _PHASES:
+        ev = _active_link_by_slot(conn, unit_id, "ma", ph)
+        if not ev:
+            continue
+        sp = conn.execute("SELECT v.id, v.record_id, v.rev, v.content_hash FROM speed_record_revisions v WHERE v.id=?",
+                          (ev["speed_revision_id"],)).fetchone() if ev["speed_revision_id"] else None
+        out.append({"kind": ev["kind"], "phase": ph, "comp_raw": ma_display(ev["comp_key"]),
+                    "speed_record_id": sp["record_id"] if sp else None, "speed_rev": sp["rev"] if sp else None,
+                    "speed_content_hash": sp["content_hash"] if sp else None,
+                    "linked_at": ev["at"], "linked_by": ev["by_name"]})
+    return out
+
+
+def verify_unit_links(inspection_id, unit_id=None):
+    """연결 이벤트(unit_component_events)를 스피드 회차·S/N 결과 행과 대조(읽기 전용) → {ok, events, errors}.
+    link/unlink 순서(unlink.ref_event_id = 같은 칸의 직전 link), 활성 연결 부품 1:1, copied_json ↔ 스피드 회차 ↔ 복사 행,
+    회수 마커 ↔ unlink 이벤트 정합을 본다."""
+    errors = []
+    conn = get_conn()
+    try:
+        insp = conn.execute("SELECT * FROM production_lot_inspections WHERE id=?", (inspection_id,)).fetchone()
+        if not insp:
+            return {"ok": False, "events": 0, "errors": ["검사 기록을 찾을 수 없어요."]}
+        items = json.loads(insp["items_json"])
+        by_key = {i["key"]: i for i in items}
+        ma_item = next((i for i in items if i["input_type"] == "ma_link"), None)
+        lot = conn.execute("SELECT model_id FROM production_lots WHERE id=?", (insp["lot_id"],)).fetchone()
+        w, a = "inspection_id=?", [inspection_id]
+        if unit_id is not None:
+            w += " AND unit_id=?"
+            a.append(unit_id)
+        evs = [dict(r) for r in conn.execute(f"SELECT * FROM unit_component_events WHERE {w} ORDER BY id", a)]
+        by_id = {e["id"]: e for e in evs}
+        slot_state = {}   # (unit, kind, phase) -> 직전 link 이벤트 id 또는 None
+        slot_frozen = {}  # (unit, kind, phase) -> 마지막 unlink가 동결 회수인지
+        for e in evs:
+            k = (e["unit_id"], e["kind"], e["phase"])
+            tag = f"이벤트 #{e['id']}"
+            if e["event_type"] == "link":
+                if slot_state.get(k):
+                    errors.append(f"{tag}: 이미 연결된 칸에 link가 또 있어요.")
+                slot_state[k] = e["id"]
+                slot_frozen[k] = False
+                if e["kind"] == "ma":
+                    _verify_ma_link(conn, e, tag, by_key, ma_item, lot, errors)
+            elif e["event_type"] == "unlink":
+                ref = e["ref_event_id"]
+                if not slot_state.get(k) or ref != slot_state[k]:
+                    errors.append(f"{tag}: unlink가 같은 칸의 직전 link를 가리키지 않아요.")
+                elif by_id.get(ref, {}).get("comp_key") != e["comp_key"]:
+                    errors.append(f"{tag}: unlink 부품 번호가 link와 달라요.")
+                else:
+                    _verify_unlink_markers(conn, e, by_id[ref], tag, ma_item, errors)
+                slot_state[k] = None
+                slot_frozen[k] = bool(e["frozen"])
+            else:
+                errors.append(f"{tag}: 알 수 없는 이벤트 종류({e['event_type']}).")
+        # 활성 연결의 부품 번호는 전체에서 1:1 (이 검사 밖의 연결까지 포함해 본다)
+        active_keys = {}
+        for r in conn.execute("SELECT e.* FROM unit_component_events e WHERE e.id=(SELECT MAX(x.id) FROM "
+                              "unit_component_events x WHERE x.unit_id=e.unit_id AND x.kind=e.kind AND x.phase=e.phase)"):
+            if r["event_type"] == "link":
+                active_keys.setdefault((r["kind"], r["comp_key"]), []).append(r["unit_id"])
+        for (kind, ck), us in active_keys.items():
+            if len(us) > 1 and (unit_id in us if unit_id is not None else any(u in {e["unit_id"] for e in evs} for u in us)):
+                errors.append(f"부품 {ck}가 여러 칸에 동시에 연결돼 있어요.")
+        # 결과 행 쪽: 연결 행이 현재값인데 활성 연결이 없거나, 마커에 대응 이벤트가 없는 경우
+        if ma_item:
+            rows = conn.execute(f"SELECT * FROM lot_inspection_results WHERE inspection_id=?"
+                                + (" AND unit_id=?" if unit_id is not None else "") + " ORDER BY unit_id, item_key, idx, rev",
+                                [inspection_id] + ([unit_id] if unit_id is not None else [])).fetchall()
+            last = {}
+            for r in rows:
+                last[(r["unit_id"], r["item_key"], r["idx"])] = r
+                if r["entry_type"] == "unlink":
+                    has = any(e["unit_id"] == r["unit_id"] and e["phase"] == _PHASES[r["idx"] - 1] and e["event_type"] == "unlink"
+                              for e in evs)
+                    if not has:
+                        errors.append(f"결과 행(S/N {r['unit_id']} {r['item_key']}-{r['idx']} {r['rev']}회차): 회수 마커에 대응하는 unlink 이벤트가 없어요.")
+            for (u, key, idx), r in last.items():
+                if key == ma_item["key"] and r["entry_type"] == "link":
+                    sk = (u, "ma", _PHASES[idx - 1])
+                    if slot_state.get(sk) is None and not slot_frozen.get(sk):  # 동결 회수는 결과 행을 남겨둔다
+                        errors.append(f"S/N {u} {key}-{idx}: 현재 값이 연결인데 활성 연결 이벤트가 없어요.")
+        return {"ok": not errors, "events": len(evs), "errors": errors}
+    finally:
+        conn.close()
+
+
+def _verify_ma_link(conn, e, tag, by_key, ma_item, lot, errors):
+    copied = json.loads(e["copied_json"] or "[]")
+    sp = conn.execute("SELECT * FROM speed_record_revisions WHERE id=?", (e["speed_revision_id"],)).fetchone() \
+        if e["speed_revision_id"] else None
+    if e["speed_revision_id"] and not sp:
+        errors.append(f"{tag}: 스피드 회차를 찾을 수 없어요.")
+    if sp:
+        rec = conn.execute("SELECT ma_key FROM speed_records WHERE id=?", (sp["record_id"],)).fetchone()
+        if not rec or rec["ma_key"] != e["comp_key"]:
+            errors.append(f"{tag}: 스피드 기록의 MA 번호와 연결 부품 번호가 달라요.")
+        if sp["phase"] != e["phase"]:
+            errors.append(f"{tag}: 스피드 기록의 상과 연결 칸의 상이 달라요.")
+        if lot and sp["model_id"] != lot["model_id"]:
+            errors.append(f"{tag}: 스피드 기록의 모델과 LOT 모델이 달라요.")
+        want = {k for k, it in by_key.items() if it.get("source") == "speed"}
+        if {c["item_key"] for c in copied} != want:
+            errors.append(f"{tag}: 복사된 항목 목록이 스냅샷의 스피드 항목과 달라요.")
+        if _verify_hash_of_rev(sp) is False:
+            errors.append(f"{tag}: 스피드 회차의 내용 해시가 맞지 않아요.")
+    elif copied:
+        errors.append(f"{tag}: 스피드 회차 없이 복사 기록이 있어요.")
+    idx = _PHASES.index(e["phase"]) + 1
+    for c in copied:
+        it = by_key.get(c["item_key"])
+        row = conn.execute("SELECT * FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? AND item_key=? "
+                           "AND idx=? AND rev=?", (e["inspection_id"], e["unit_id"], c["item_key"], c["idx"], c["rev"])).fetchone()
+        if not it or not row or row["entry_type"] != "link":
+            errors.append(f"{tag}: 복사 행({c['item_key']}-{c['idx']} {c['rev']}회차)을 찾을 수 없어요.")
+            continue
+        if row["value"] != c["value"] or row["verdict"] != c["verdict"]:
+            errors.append(f"{tag}: 복사 행({c['item_key']}-{c['idx']})의 값·판정이 연결 기록과 달라요.")
+        if sp and it.get("speed_field") and sp[it["speed_field"]] != c["value"]:
+            errors.append(f"{tag}: 복사값({c['item_key']})이 스피드 회차의 값과 달라요.")
+        if c["idx"] != idx:
+            errors.append(f"{tag}: 복사 행의 칸 번호가 연결 칸과 달라요.")
+    if ma_item:
+        mrow = conn.execute("SELECT 1 FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? AND item_key=? "
+                            "AND idx=? AND entry_type='link' AND value=?", (e["inspection_id"], e["unit_id"], ma_item["key"],
+                                                                         idx, e["comp_key"])).fetchone()
+        if not mrow:
+            errors.append(f"{tag}: MA 번호 결과 행을 찾을 수 없어요.")
+
+
+def _verify_hash_of_rev(sp):
+    """스피드 회차 content_hash 재계산 → 일치 여부."""
+    norm = {f: sp[f] for f in _SPEED_FIELDS}
+    return _speed_hash(sp["record_id"], sp["rev"], sp["model_id"], sp["phase"], norm, json.loads(sp["verdicts_json"]),
+                       json.loads(sp["limits_json"]), sp["reason"]) == sp["content_hash"]
+
+
+def _verify_unlink_markers(conn, e, link_ev, tag, ma_item, errors):
+    """일반 회수(frozen=0)는 연결 때 쓴 모든 칸(복사 행 + MA 행)에 마커가 있어야 하고, 동결 회수(frozen=1)는 하나도 없어야 한다."""
+    slots = [(c["item_key"], c["idx"], c["rev"]) for c in json.loads(link_ev["copied_json"] or "[]")]
+    if ma_item:  # MA 슬롯 행의 rev는 copied_json에 없어서 rev 조건 없이 사유로 대응시킨다
+        slots.append((ma_item["key"], _PHASES.index(link_ev["phase"]) + 1, 0))
+    have = 0
+    for k, ix, rv in slots:
+        m = conn.execute("SELECT 1 FROM lot_inspection_results WHERE inspection_id=? AND unit_id=? AND item_key=? AND idx=? "
+                         "AND entry_type='unlink' AND rev>? AND reason IS ?", (link_ev["inspection_id"], link_ev["unit_id"],
+                                                                              k, ix, rv, e["reason"])).fetchone()
+        have += 1 if m else 0
+    if e["frozen"]:
+        if have:
+            errors.append(f"{tag}: 동결 회수인데 결과 마커가 있어요({have}개).")
+    elif have != len(slots):
+        errors.append(f"{tag}: 일반 회수인데 회수 마커가 빠졌어요({have}/{len(slots)}).")
+
+
 def verify_product_report(revision_id, photo_dir=None):
     """저장된 값에서 해시 체인·스냅샷·현재 결과를 다시 계산해 대조(읽기 전용).
     photo_dir를 주면 스냅샷 사진 파일의 존재·sha256도 확인한다(None이면 photo_ok=None).
     live_digest_ok는 승인 대기·승인 상태일 때만 의미가 있어 그 외엔 None."""
     out = {"ok": False, "chain_ok": False, "content_ok": False, "live_digest_ok": None, "photo_ok": None,
-           "problems": []}
+           "links_ok": None, "problems": []}
     conn = get_conn()
     try:
         rev = conn.execute("SELECT r.*, i.lot_id FROM product_report_revisions r JOIN production_lot_inspections i "
@@ -6880,8 +7659,9 @@ def verify_product_report(revision_id, photo_dir=None):
                 out["problems"].append("현재 결과 값이 제출 당시와 달라요.")
         if photo_dir is not None:
             photo_ok = True
+            photo_keys = {i["key"] for i in snap["inspection"]["items"] if i.get("input_type") == "photo"}
             for s in snap["slots"]:
-                if s["verdict"] != "recorded":
+                if s["verdict"] != "recorded" or s["item_key"] not in photo_keys:  # 기록용 숫자도 recorded라 사진 항목만 확인
                     continue
                 p = os.path.join(photo_dir, os.path.basename(s["value"] or ""))
                 try:
@@ -6893,7 +7673,15 @@ def verify_product_report(revision_id, photo_dir=None):
                     photo_ok = False
                     out["problems"].append(f"사진 파일 확인 실패: {s['item_key']}-{s['idx']}")
             out["photo_ok"] = photo_ok
-        out["ok"] = chain and content and out["live_digest_ok"] is not False and out["photo_ok"] is not False
+        if snap.get("schema", 1) >= 3:  # schema 1·2는 links 없음 — 건너뛴다
+            vl = verify_unit_links(rev["inspection_id"], rev["unit_id"])
+            out["links_ok"] = vl["ok"]
+            out["problems"].extend("연결 검증: " + x for x in vl["errors"])
+            if state in ("submitted", "approved") and _links_snapshot(conn, rev["unit_id"]) != snap.get("links"):
+                out["links_ok"] = False
+                out["problems"].append("현재 MA 연결이 제출 당시와 달라요.")
+        out["ok"] = (chain and content and out["live_digest_ok"] is not False and out["photo_ok"] is not False
+                     and out.get("links_ok") is not False)
         return out
     finally:
         conn.close()

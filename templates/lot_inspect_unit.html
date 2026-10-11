@@ -90,6 +90,23 @@
              background: var(--bg); border-top: 1px solid var(--border); box-shadow: 0 -4px 10px rgba(36,52,79,.08); }
   #saveBar button { min-height: 52px; width: 100%; font-size: 17px; margin: 0; }
   @media (max-width: 480px) { .slot { padding: 10px; } .slot > span { font-size: 18px; } }
+  /* ---- MA 연결 슬롯: [#번호 A상][MA번호·칩] / 메타 / [입력 + 버튼] 순서 고정 ----
+     (small이 order:4라 입력(3)과 버튼(4) 사이에 끼어드는 문제를 막기 위해 메타를 번호·본문 바로 아래로 올림) */
+  .ma-slot > small { order: 2; font-size: 13px; }
+  .ma-slot > span { font-size: 18px; }
+  .ma-slot > span .badge { margin: 0 0 0 6px; vertical-align: middle; font-size: 12px; }
+  .ma-slot > span.muted { font-size: 15px; }
+  .ma-slot > small a { display: inline-flex; align-items: center; min-height: 32px; color: var(--primary); font-weight: 600; }
+  .ma-slot > .maIn, .ma-slot > .maReason { margin: 4px 0 0; font-size: 18px; }
+  .ma-slot > .maLink, .ma-slot > .maUnlink { margin: 4px 0 0; min-width: 96px; font-size: 16px; }
+  .ma-slot > .maIn:disabled, .ma-slot > .maReason:disabled, .ma-slot > .maLink:disabled, .ma-slot > .maUnlink:disabled { opacity: .5; cursor: not-allowed; }
+  /* 회수는 되돌리는 동작이라 빨강 대신 주황 계열(빨강은 규격이탈/NG 전용) */
+  .ma-slot > .maUnlink { color: #92400e; border-color: #b45309; }
+  .ma-slot > .maUnlink:hover:not(:disabled) { background: #fef3c7; }
+  @media (max-width: 480px) {
+    .ma-slot > .maIn, .ma-slot > .maReason { flex: 1 1 100% !important; }
+    .ma-slot > .maLink, .ma-slot > .maUnlink { flex: 1 1 100%; min-height: 52px !important; }
+  }
   /* ---- 제품 성적서 패널 (stageBanner와 같은 남색 왼쪽 띠·제목 위계) ---- */
   #reportPanel { border-left: 4px solid var(--primary); padding: 14px; }
   #reportPanel > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 18px !important; line-height: 1.35; color: var(--primary-dark); margin-bottom: 4px; }
@@ -262,7 +279,9 @@
   <div id="reportMsg" class="slot-msg" style="margin-top:6px;"></div>
 </div>
 
-<div id="inspectRoot" data-done="{{ 1 if is_done else 0 }}" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
+<div id="inspectRoot" data-done="{{ 1 if is_done else 0 }}" data-save-url="{{ url_for('lot_inspect_save', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
+     data-link-url="{{ url_for('lot_inspect_ma_link', lot_id=lot['id'], unit_id=unit['unit_id']) }}"
+     data-unlink-url="{{ url_for('lot_inspect_ma_unlink', lot_id=lot['id'], unit_id=unit['unit_id']) }}">
 {% for it in items %}
 <div class="card item" data-item-key="{{ it['key'] }}">
   <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }} <small class="muted">{{ it['spec_text'] if it['input_type'] != 'photo' else '' }} · {% if it['input_type'] == 'photo' %}필요 {{ it['required_n'] }}장{% else %}{{ it['required_n'] }}개{% endif %}</small></h3>
@@ -311,8 +330,44 @@
     <div class="slot-msg"></div>
   </div>
   {% endfor %}
+  {% elif it['input_type'] == 'ma_link' %}
+  {# MA 번호 연결 슬롯 — 입력은 저장 버튼이 아니라 연결/회수 버튼(별도 라우트)으로만 한다 #}
+  {% set frozen_ui = cancelled or unit['status'] != 'active' or unit['unusable'] %}
+  {% set link_ok = can_input and (not read_only) and (not unit['unusable']) and (not report_final) and (not is_done) %}
+  <p class="muted" style="margin:4px 0;">{% if is_155v %}155V 모델이라 MA 번호를 직접 연결해요.{% else %}MA 번호를 연결하면 스피드 기록에서 불러와요.{% endif %} 개별 S/N 수입검사 연동 대상 아님 — 샘플검사 품목</p>
+  {% if is_done and not frozen_ui and not report_final %}<p class="muted" style="margin:4px 0;">완료된 S/N이에요. 먼저 완료를 취소(재개)한 뒤에 MA를 연결하거나 회수할 수 있어요.</p>{% endif %}
+  {% for idx in range(1, it['required_n'] + 1) %}
+  {% set sl = results.get(it['key'], {}).get(idx) %}
+  {% set c = sl['current'] if sl else none %}
+  {% set lk = ma_links.get(idx) %}
+  <div class="slot ma-slot" data-item-key="{{ it['key'] }}" data-idx="{{ idx }}">
+    <b>#{{ idx }}{% if it['required_n'] > 1 %} {{ ['A', 'B', 'C'][idx - 1] }}상{% endif %}</b>
+    {% if c %}
+      <span>{{ lk['ma_display'] if lk else c['value_input'] }} <span class="badge pass">연결됨</span></span>
+      <small class="muted">{% if lk and lk['record_id'] %}<a href="{{ url_for('speed_test_detail', record_id=lk['record_id']) }}">스피드 기록 #{{ lk['record_id'] }}</a>{% else %}직접 연결{% endif %} · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}</small>
+      {% if can_link and not report_final %}
+      <input type="text" class="maReason" placeholder="회수 사유(필수)" style="order:3; min-height:48px; flex:1 1 180px;" {{ 'disabled' if (is_done and not frozen_ui) else '' }}>
+      <button type="button" class="btn secondary maUnlink" style="order:4; min-height:48px;" {{ 'disabled' if (is_done and not frozen_ui) else '' }}>연결 회수</button>
+      {% endif %}
+    {% else %}
+      <span class="muted">미연결 <span class="badge pending">연결 전</span></span>
+      {% if can_input and not report_final and not read_only and not unit['unusable'] %}
+      <input type="text" class="maIn" placeholder="예: 260930-0012-01" maxlength="40" autocomplete="off" style="order:3; min-height:48px; flex:1 1 180px;" {{ '' if link_ok else 'disabled' }}>
+      <button type="button" class="btn maLink" style="order:4; min-height:48px;" {{ '' if link_ok else 'disabled' }}>연결</button>
+      {% endif %}
+    {% endif %}
+    {% if sl and sl['history'] | length > 1 %}
+    <details><summary>이력 보기</summary>
+      <ul>{% for h in sl['history'] %}
+        <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}MA 연결: {{ h['value_input'] or h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}</li>
+      {% endfor %}</ul>
+    </details>
+    {% endif %}
+    <div class="slot-msg"></div>
+  </div>
+  {% endfor %}
   {% else %}
-  {% if editable and it['input_type'] == 'numeric' and it['required_n'] > 1 %}
+  {% if editable and it['input_type'] in ('numeric', 'angle', 'record_num') and not it.get('source') and it['required_n'] > 1 %}
   <details>
     <summary>붙여넣기</summary>
     <textarea class="paste" rows="2" placeholder="탭·줄바꿈·세미콜론으로 구분 (쉼표는 구분자가 아니에요)"></textarea>
@@ -327,9 +382,9 @@
     <b>#{{ idx }}</b>
     {% if c %}
       <span class="{{ 'v-fail' if c['verdict'] == 'fail' else ('v-pass' if c['verdict'] == 'pass' else '') }}">
-        {{ '결측' if c['is_missing'] else c['value'] }} · {{ verdict_labels.get(c['verdict'], c['verdict']) }}
+        {{ '결측' if c['is_missing'] else c['value'] }} · {{ '기록됨' if c['verdict'] == 'recorded' else verdict_labels.get(c['verdict'], c['verdict']) }}
       </span>
-      <small class="muted">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'retest' %} · 재검사: {{ c['reason'] or '' }}{% endif %}</small>
+      <small class="muted">{{ c['rev'] }}회차 · {{ c['entered_by'] or '' }} · {{ c['entered_at'] | datetime_korean }}{% if c['entry_type'] == 'correction' %} · 정정: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'retest' %} · 재검사: {{ c['reason'] or '' }}{% elif c['entry_type'] == 'link' %} · MA 연결{% endif %}</small>
       {% if editable %}
       <button type="button" class="btn secondary corrBtn"
         {% if c['entered_by_user_id'] != me_id and not can_correct_others %}disabled data-noperm="1" title="다른 사람이 입력한 값은 정정 권한이 필요해요"{% endif %}>정정</button>
@@ -338,14 +393,23 @@
       {% if sl['history'] | length > 1 %}
       <details><summary>이력 보기</summary>
         <ul>{% for h in sl['history'] %}
-          <li>{{ h['rev'] }}회차: {{ '결측' if h['is_missing'] else h['value'] }} ({{ verdict_labels.get(h['verdict'], h['verdict']) }}) · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}{% if not h['roster_member'] %} · 시작 후 합류{% endif %}{% if h['serial_at_entry'] %} · 당시 S/N {{ h['serial_at_entry'] }}{% endif %}</li>
+          <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}{{ '결측' if h['is_missing'] else h['value'] }} ({{ '기록됨' if h['verdict'] == 'recorded' else verdict_labels.get(h['verdict'], h['verdict']) }}){% if h['entry_type'] == 'link' %} · MA 연결{% endif %}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['reason'] and h['entry_type'] != 'unlink' %} · 사유: {{ h['reason'] }}{% endif %}{% if not h['roster_member'] %} · 시작 후 합류{% endif %}{% if h['serial_at_entry'] %} · 당시 S/N {{ h['serial_at_entry'] }}{% endif %}</li>
         {% endfor %}</ul>
       </details>
       {% endif %}
+    {% elif it.get('source') == 'speed' %}
+      <span class="muted">MA 번호를 연결하면 자동으로 채워져요</span>
     {% elif editable and not is_done %}
       {{ entry(it, 'new', false) }}
     {% else %}
       <span class="muted">미입력</span>
+    {% endif %}
+    {% if not c and sl and sl['history'] %}
+    <details><summary>이력 보기</summary>
+      <ul>{% for h in sl['history'] %}
+        <li>{{ h['rev'] }}회차: {% if h['entry_type'] == 'unlink' %}연결 회수: {{ h['reason'] or '' }}{% else %}{{ h['value'] }}{% if h['entry_type'] == 'link' %} · MA 연결{% endif %}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}</li>
+      {% endfor %}</ul>
+    </details>
     {% endif %}
     <div class="slot-msg"></div>
   </div>
@@ -395,7 +459,7 @@
 
   function collect() {
     var out = [];
-    root.querySelectorAll('.slot:not(.photo-slot)').forEach(function (slot) {
+    root.querySelectorAll('.slot:not(.photo-slot):not(.ma-slot)').forEach(function (slot) {
       var en = slot.querySelector('.entry[data-mode="new"]');
       if (!en) {
         var corr = slot.querySelector('.corr');
@@ -575,6 +639,38 @@
 })();
 </script>
 {% endif %}
+<script>
+(function () {
+  var root = document.getElementById('inspectRoot');
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  function post(slot, url, body, btn) {
+    var msg = slot.querySelector('.slot-msg'); msg.textContent = '';
+    if (root.querySelector('.entry .val') && Array.prototype.some.call(root.querySelectorAll('.entry .val'), function (v) { return v.value.trim() !== ''; })
+        && !confirm('저장하지 않은 입력이 있어요. 연결/회수하면 화면이 새로고침돼서 사라져요. 계속할까?')) return;
+    btn.disabled = true;
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+                body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) { location.reload(); return; }
+        btn.disabled = false; msg.textContent = d.error || '처리하지 못했어요.';
+      }).catch(function () { btn.disabled = false; msg.textContent = '서버와 통신하지 못했어요.'; });
+  }
+  root.addEventListener('click', function (ev) {
+    var t = ev.target, slot = t.closest('.ma-slot');
+    if (!slot) return;
+    var idx = parseInt(slot.dataset.idx, 10);
+    if (t.classList.contains('maLink')) {
+      var ma = slot.querySelector('.maIn').value.trim();
+      if (!ma) { slot.querySelector('.slot-msg').textContent = 'MA 번호를 입력해줘.'; return; }
+      post(slot, root.dataset.linkUrl, {idx: idx, ma: ma}, t);
+    } else if (t.classList.contains('maUnlink')) {
+      var rs = slot.querySelector('.maReason').value.trim();
+      if (!rs) { slot.querySelector('.slot-msg').textContent = '연결을 회수하는 사유를 입력해줘.'; return; }
+      post(slot, root.dataset.unlinkUrl, {idx: idx, reason: rs}, t);
+    }
+  });
+})();
+</script>
 <script src="{{ url_for('static', filename='signature_pad.js') }}"></script>
 <script>
 (function () {

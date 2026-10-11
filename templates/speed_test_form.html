@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}스피드 검사 입력 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .card form { max-width: 560px; }
+  .card form label { display: block; margin: 14px 0 4px; font-size: 14px; font-weight: 600; color: var(--primary-dark); }
+  .card form input[type=text], .card form select { min-height: 48px; font-size: 18px; width: 100%; box-sizing: border-box; margin: 0; }
+  .card form input[readonly] { background: #ECEEF2; color: #4b5563; }
+  .card form .spLimit { font-weight: 500; font-size: 13px; color: #4b5563; margin-left: 4px; }
+  .card form p.muted { margin: 14px 0; font-size: 13px; line-height: 1.6; }
+  .card form button[type=submit] { width: 100%; min-height: 52px; font-size: 17px; margin: 0; }
+</style>
+<h2>{% if record %}스피드 기록 정정: {{ record['ma_display'] }}{% else %}스피드 검사 입력{% endif %}</h2>
+<p><a href="{{ url_for('speed_test_detail', record_id=record['record_id']) if record else url_for('speed_test_list') }}">← 돌아가기</a></p>
+<div class="card">
+  <form method="POST" action="{{ url_for('speed_test_correct', record_id=record['record_id']) if record else url_for('speed_test_new') }}">
+    {% if record %}<input type="hidden" name="base_rev" value="{{ record['rev'] }}">{% endif %}
+    <label>MA 번호</label>
+    <input type="text" name="ma" value="{{ ma }}" placeholder="260930-0012-01" autocomplete="off" {{ 'readonly' if record else 'required' }}>
+    <label>모델</label>
+    <select name="model_id" id="spModel" required>
+      {% for m in models %}<option value="{{ m['id'] }}" data-phase="{{ m['phase_type'] }}" {{ 'selected' if sel_model == m['id']|string else '' }}>{{ m['model_no'] }}</option>{% endfor %}
+    </select>
+    <label>상</label>
+    <select name="phase" id="spPhase">
+      {% for p in ['A', 'B', 'C'] %}<option value="{{ p }}" {{ 'selected' if sel_phase == p else '' }}>{{ p }}상</option>{% endfor %}
+    </select>
+    {% for f in fields %}
+    <label>{{ field_labels[f] }}{% if f == 'primary_gap' %} (mm){% else %} (ms){% endif %} <small class="muted spLimit" data-field="{{ f }}"></small></label>
+    <input type="text" name="{{ f }}" value="{{ vals.get(f, '') }}" inputmode="decimal" autocomplete="off" required>
+    {% endfor %}
+    {% if record %}<label>정정 사유 (필수)</label><input type="text" name="reason" required>{% endif %}
+    <p class="muted">5개 값이 모두 필요해요. 불합격이면 저장은 되지만, S/N에 연결하면 불합격(NG)으로 처리돼요.</p>
+    <button type="submit">저장</button>
+  </form>
+</div>
+<script>
+  var SP_MODELS = {{ models | map(attribute='id') | list | tojson }};
+  var SP_LIMITS = {{ models | map(attribute='limits') | list | tojson }};
+  var SP_PHASE = {{ models | map(attribute='phase_type') | list | tojson }};
+  function spRefresh() {
+    var i = document.getElementById('spModel').selectedIndex;
+    var lim = SP_LIMITS[i] || {};
+    document.querySelectorAll('.spLimit').forEach(function (el) {
+      var l = lim[el.dataset.field];
+      el.textContent = !l ? '' : (l.lower != null && l.upper != null ? l.lower + ' ~ ' + l.upper :
+                           l.upper != null ? '기준 ' + l.upper + ' 이하' : l.lower != null ? '기준 ' + l.lower + ' 이상' : '기록용');
+    });
+    var single = SP_PHASE[i] === 'single', ph = document.getElementById('spPhase');
+    Array.prototype.forEach.call(ph.options, function (o) { o.disabled = single && o.value !== 'A'; });
+    if (single) ph.value = 'A';
+  }
+  document.getElementById('spModel').addEventListener('change', spRefresh);
+  spRefresh();
+</script>
+{% endblock %}

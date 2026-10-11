@@ -11,8 +11,9 @@
     #itemRows td:nth-child(3) input, #itemRows td:nth-child(4) input { min-width: 58px; }
     #itemRows td:nth-child(5) input, #itemRows td:nth-child(6) input { min-width: 48px; }
     #itemRows td:nth-child(7) select { min-width: 72px; }
-    #itemRows td:nth-child(8) { white-space: nowrap; }
-    #itemRows td:nth-child(8) button { white-space: nowrap; padding: 8px 10px; }
+    #itemRows td:nth-child(8) select { min-width: 96px; }
+    #itemRows td:nth-child(9) { white-space: nowrap; }
+    #itemRows td:nth-child(9) button { white-space: nowrap; padding: 8px 10px; }
   }
   /* 좁은 폭: 항목 행을 카드형(라벨+입력)으로. 라벨은 CSS nth-child로 붙여 마크업 불변 */
   @media (max-width: 640px) {
@@ -30,9 +31,10 @@
     #itemRows td:nth-child(5)::before { content: "소수 자릿수"; }
     #itemRows td:nth-child(6)::before { content: "필요 개수"; }
     #itemRows td:nth-child(7)::before { content: "없음 허용"; }
-    #itemRows td:nth-child(1), #itemRows td:nth-child(2), #itemRows td:nth-child(7), #itemRows td:nth-child(8) { grid-column: 1 / -1; }
-    #itemRows td:nth-child(8)::before { content: none; }
-    #itemRows td:nth-child(8) button { width: 100%; min-height: 44px; }
+    #itemRows td:nth-child(8)::before { content: "스피드 값"; }
+    #itemRows td:nth-child(1), #itemRows td:nth-child(2), #itemRows td:nth-child(7), #itemRows td:nth-child(8), #itemRows td:nth-child(9) { grid-column: 1 / -1; }
+    #itemRows td:nth-child(9)::before { content: none; }
+    #itemRows td:nth-child(9) button { width: 100%; min-height: 44px; }
     #itemRows input, #itemRows select { min-height: 44px; }
   }
 </style>
@@ -54,6 +56,9 @@
     <option value="0" {{ '' if it.get('allow_missing') in (1, '1') else 'selected' }}>불가</option>
     <option value="1" {{ 'selected' if it.get('allow_missing') in (1, '1') else '' }}>허용</option>
   </select></td>
+  <td><select name="speed_field" {{ 'disabled' if disabled else '' }}>
+    {% for k, label in speed_labels.items() %}<option value="{{ k }}" {{ 'selected' if (it.get('speed_field') or '') == k else '' }}>{{ label }}</option>{% endfor %}
+  </select></td>
   {% if not disabled %}<td><button type="button" class="btn secondary" style="margin-top:0;" onclick="this.closest('tr').remove();">삭제</button></td>{% endif %}
 </tr>
 {% endmacro %}
@@ -63,10 +68,11 @@
   {% if copied_from %}<p class="muted">{{ copied_from }} 모델의 항목을 불러왔어요. 고친 뒤 저장해야 반영돼요.</p>{% endif %}
   {% if not editable %}<p class="muted">항목 설정은 admin 계정만 바꿀 수 있어요.</p>{% endif %}
   <p class="muted">숫자 항목은 하한·상한 중 하나 이상이 필요해요. 필요 개수는 측정 횟수(사진 항목은 필요한 사진 수)예요.</p>
+  <p class="muted">각도 항목은 하한이 상한보다 커도 돼요. 예: 357 ~ 3은 0도를 지나가는 범위예요. 기록용 숫자와 MA 번호 항목은 하한·상한이 쓰이지 않아요. 스피드 값은 MA 번호에 연결된 스피드 검사 기록에서 자동으로 채울 항목에만 골라요.</p>
   <form method="POST" action="{{ url_for('product_model_items', model_id=model['id']) }}">
     <div style="overflow-x:auto;">
       <table id="itemTable">
-        <thead><tr><th>항목 이름</th><th>입력 방식</th><th>하한</th><th>상한</th><th>소수 자릿수</th><th>필요 개수</th><th>없음 허용</th>{% if editable %}<th></th>{% endif %}</tr></thead>
+        <thead><tr><th>항목 이름</th><th>입력 방식</th><th>하한</th><th>상한</th><th>소수 자릿수</th><th>필요 개수</th><th>없음 허용</th><th>스피드 값</th>{% if editable %}<th></th>{% endif %}</tr></thead>
         <tbody id="itemRows">
           {% for it in items %}{{ item_row(it, not editable) }}{% endfor %}
         </tbody>

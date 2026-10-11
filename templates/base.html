@@ -374,6 +374,7 @@
     <button type="button" onclick="toggleNav(this)">🧪 제품검사 ▾</button>
     <div class="menu">
       <a href="{{ url_for('production_lot_list') }}">생산 LOT</a>
+      {% if 'process_input' in perms or 'process_lot' in perms or 'process_link' in perms %}<a href="{{ url_for('speed_test_list') }}">스피드 검사</a>{% endif %}
       <a href="{{ url_for('product_report_list') }}">제품 성적서 승인</a>
     </div>
   </div>

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}스피드 기록 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  .card > p { font-size: 15px; line-height: 1.6; }
+  .card table th { white-space: nowrap; font-size: 13px; color: #4b5563; }
+  .card table td { font-size: 15px; line-height: 1.5; vertical-align: top; }
+  .card table td a, .card > p a { display: inline-flex; align-items: center; min-height: 32px; color: var(--primary); }
+  .card > p > a.btn { display: flex; align-items: center; justify-content: center; min-height: 48px; }
+  @media (min-width: 561px) { .card > p > a.btn { display: inline-flex; padding: 0 20px; } }
+</style>
+<h2>스피드 기록 #{{ rec['record_id'] }} — {{ rec['ma_display'] }}</h2>
+<p><a href="{{ url_for('speed_test_list') }}">← 목록으로</a></p>
+<div class="card">
+  <p>모델 {{ rec['model_no'] }} · {{ rec['phase'] }}상 · 현재 {{ rec['rev'] }}회차 · 입력 {{ rec['entered_by'] or '' }} ({{ rec['entered_at'] | datetime_korean }})</p>
+  <p>연결 상태: {% if rec['link'] %}연결됨 — <a href="{{ url_for('production_lot_detail', lot_id=rec['link']['lot_id']) }}">LOT {{ rec['link']['lot_no'] }}</a> / S/N {{ rec['link']['serial'] }} ({{ rec['link']['phase'] }}상){% else %}미연결{% endif %}</p>
+  <table>
+    <thead><tr><th>항목</th><th>값</th><th>판정</th><th>기준(입력 당시)</th></tr></thead>
+    <tbody>
+      {% for f in fields %}
+      {% set lim = rec['limits'][f] %}
+      <tr>
+        <td>{{ field_labels[f] }}</td>
+        <td>{{ rec[f] }}</td>
+        <td>{{ {'pass': '합격', 'fail': '불합격', 'recorded': '기록됨'}.get(rec['verdicts'][f], rec['verdicts'][f]) }}</td>
+        <td>{% if lim['lower'] is none and lim['upper'] is none %}-{% else %}{{ lim['lower'] if lim['lower'] is not none else '' }} ~ {{ lim['upper'] if lim['upper'] is not none else '' }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if can_correct and not rec['link'] %}<p><a class="btn secondary" href="{{ url_for('speed_test_correct', record_id=rec['record_id']) }}">정정</a></p>
+  {% elif rec['link'] %}<p class="muted">S/N에 연결돼 있어서 고칠 수 없어요. 값을 고치려면 그 S/N에서 정정하거나 연결을 회수해줘.</p>{% endif %}
+</div>
+<div class="card" style="overflow-x:auto;">
+  <h3 style="margin-top:0; font-size:15px;">회차 이력</h3>
+  <table>
+    <thead><tr><th>회차</th><th>모델/상</th>{% for f in fields %}<th>{{ field_labels[f] }}</th>{% endfor %}<th>사유</th><th>입력자</th><th>시각</th></tr></thead>
+    <tbody>
+      {% for v in rec['revisions'] %}
+      <tr>
+        <td>{{ v['rev'] }}</td><td>{{ v['model_no'] }} / {{ v['phase'] }}</td>
+        {% for f in fields %}<td>{{ v[f] }}</td>{% endfor %}
+        <td>{{ v['reason'] or '' }}</td><td>{{ v['entered_by'] or '' }}</td><td>{{ v['entered_at'] | datetime_korean }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

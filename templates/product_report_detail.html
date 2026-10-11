@@ -104,6 +104,22 @@
 <div class="card" id="ngLegacyNote"><small class="muted">NG 사건 기능 도입 전에 제출된 성적서예요(NG 사건 정보 없음).</small></div>
 {% endif %}
 
+{% if snap.get('links') %}
+<div class="card" id="linkSection">
+  <h3 style="margin-top:0; font-size:15px;">MA 연결 (제출 당시)</h3>
+  <style>
+    #linkSection ul { list-style: none; margin: 0; padding: 0; }
+    #linkSection li { margin-top: 6px; padding: 10px 12px; border-radius: 8px; background: #ECEEF2; border-left: 4px solid var(--primary); font-size: 14px; line-height: 1.6; word-break: break-word; }
+    #linkSection li a { display: inline-flex; align-items: center; min-height: 32px; color: var(--primary-dark); font-weight: 600; }
+  </style>
+  <ul>
+  {% for l in snap['links'] %}
+    <li>{{ l['phase'] }}상 · MA {{ l['comp_raw'] }} · {% if l['speed_record_id'] %}<a href="{{ url_for('speed_test_detail', record_id=l['speed_record_id']) }}">스피드 기록 #{{ l['speed_record_id'] }} ({{ l['speed_rev'] }}회차)</a>{% else %}직접 연결{% endif %} · {{ l['linked_by'] or '' }} · {{ l['linked_at'] | datetime_korean }}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% for it in snap['inspection']['items'] %}
 <div class="card item">
   <h3 style="margin-top:0; font-size:15px;">{{ it['name'] }}</h3>
@@ -120,7 +136,7 @@
     {% if hist | length > 1 %}
     <details><summary>정정 이력 ({{ hist | length }}회차)</summary>
       <ul>{% for h in hist %}
-        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['entry_type'] == 'retest' %} · 재검사{% endif %}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
+        <li>{{ h['rev'] }}회차: {% if it['input_type'] == 'photo' %}<a href="{{ url_for('product_inspection_photo_file', filename=h['value']) }}" target="_blank">사진 보기</a>{% elif h['entry_type'] == 'unlink' %}회수{% else %}{{ '결측' if h['is_missing'] else h['value'] }}{% endif %} · {{ h['entered_by'] or '' }} · {{ h['entered_at'] | datetime_korean }}{% if h['entry_type'] == 'retest' %} · 재검사{% elif h['entry_type'] == 'link' %} · 연결{% elif h['entry_type'] == 'unlink' %} · 연결 회수{% endif %}{% if h['reason'] %} · 사유: {{ h['reason'] }}{% endif %}</li>
       {% endfor %}</ul>
     </details>
     {% endif %}

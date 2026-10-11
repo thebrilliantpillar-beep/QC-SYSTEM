@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}스피드 검사 — Chardon QMS{% endblock %}
+{% block content %}
+<style>
+  form.card input[type=text], form.card select, form.card button { min-height: 48px; margin: 0; font-size: 16px; }
+  .card table th { white-space: nowrap; font-size: 13px; color: #4b5563; }
+  .card table td { font-size: 15px; line-height: 1.5; vertical-align: top; }
+  .card table td:first-child { white-space: nowrap; font-weight: 600; }
+  .card table td a { display: inline-flex; align-items: center; min-height: 32px; color: var(--primary); }
+  .card table td:nth-child(7) { min-width: 180px; }
+  .card table td:nth-child(2), .card table td:nth-child(3), .card table td:nth-child(4) { white-space: nowrap; }
+  @media (max-width: 560px) {
+    form.card select, form.card button { flex: 1 1 100%; }
+    .btn { display: flex; align-items: center; justify-content: center; min-height: 48px; }
+  }
+</style>
+<h2>스피드 검사 기록</h2>
+{% if 'process_input' in perms %}<p><a class="btn" href="{{ url_for('speed_test_new') }}">스피드 검사 입력</a></p>{% endif %}
+<form method="GET" action="{{ url_for('speed_test_list') }}" class="card" style="display:flex; gap:8px; flex-wrap:wrap;">
+  <input type="text" name="q" value="{{ q }}" placeholder="MA 번호 검색" style="flex:1; min-width:160px;">
+  <select name="model_id">
+    <option value="">모든 모델</option>
+    {% for m in models %}<option value="{{ m['id'] }}" {{ 'selected' if model_id == m['id']|string else '' }}>{{ m['model_no'] }}</option>{% endfor %}
+  </select>
+  <select name="status">
+    <option value="" {{ 'selected' if not status else '' }}>전체</option>
+    <option value="unlinked" {{ 'selected' if status == 'unlinked' else '' }}>미연결</option>
+    <option value="linked" {{ 'selected' if status == 'linked' else '' }}>연결됨</option>
+  </select>
+  <button type="submit">검색</button>
+</form>
+<div class="card" style="overflow-x:auto;">
+  <table>
+    <thead><tr><th>MA 번호</th><th>모델</th><th>상</th><th>판정</th><th>회차</th><th>입력자</th><th>연결</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><a href="{{ url_for('speed_test_detail', record_id=r['record_id']) }}">{{ r['ma_display'] }}</a></td>
+        <td>{{ r['model_no'] }}</td>
+        <td>{{ r['phase'] }}</td>
+        <td>{{ '불합격' if r['has_fail'] else '합격' }}</td>
+        <td>{{ r['rev'] }}</td>
+        <td>{{ r['entered_by'] or '' }}</td>
+        <td>{% if r['link'] %}연결됨 — <a href="{{ url_for('production_lot_detail', lot_id=r['link']['lot_id']) }}">LOT {{ r['link']['lot_no'] }}</a> / S/N {{ r['link']['serial'] }}{% else %}미연결{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="text-align:center; color:var(--muted);">기록이 없어요.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

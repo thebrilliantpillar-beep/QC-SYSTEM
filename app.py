@@ -267,7 +267,7 @@ PERM_GROUPS = [
         ("process_input",     "제품검사 입력(S/N 검사 완료 요청 포함)"),
         ("process_lot",       "제품검사 LOT 관리 (생산 LOT 발급·확정·S/N 추가·제외·취소)"),
         ("process_correct",   "제품검사 결과 정정·완료 취소"),
-        ("process_link",      "하우징·MA 부품 연결·분리 (준비중)"),
+        ("process_link",      "하우징·MA 부품 연결·분리 (MA 연결 회수는 사용 가능, 하우징은 준비중)"),
         ("process_ng_cancel", "NG 사건 취소 (값이 합격으로 정정된 사건만, 사유 필수 · 직접 체크한 계정만)"),
         ("process_review",    "제품검사 검토 (준비중)"),
         ("process_submit",    "제품검사 승인 요청(성적서 제출)"),
@@ -10732,7 +10732,17 @@ def production_lot_inspection_start(lot_id):
 def _spec_text(it):
     if it["input_type"] == "ok_ng":
         return "적합 / 부적합"
+    if it["input_type"] == "record_num":
+        return "기록용 (판정 없음)"
+    if it["input_type"] == "ma_link":
+        return "MA 번호 (연결)"
     lo, up = it.get("lower"), it.get("upper")
+    if it["input_type"] == "angle":
+        if lo is None or up is None:
+            return "각도 (한계 없음)"
+        return f"{lo}° ~ {up}°" + (" (0°를 지나는 범위)" if float(lo) > float(up) else "")
+    if lo is None and up is None:
+        return "한계 없음"
     if lo is not None and up is not None:
         return f"{lo} ~ {up}"
     return f"≥ {lo}" if lo is not None else f"≤ {up}"
@@ -10816,6 +10826,8 @@ def lot_inspect_unit(lot_id, unit_id):
         read_only=lot["status"] == "cancelled" or unit["status"] != "active",
         cancelled=lot["status"] == "cancelled",
         can_input="process_input" in perms, can_correct_others="process_correct" in perms,
+        can_link="process_link" in perms, ma_links=db.unit_ma_links(unit_id),
+        is_155v=bool(insp["model_snapshot"].get("pcode")),
         me=_actor_name(), me_id=g.user["id"], ng_summary=_ng_summary_map(insp).get(unit_id),
         **_unit_report_panel(lot, unit, results, db.list_unit_events(insp["id"], unit_id)))
 
@@ -10864,6 +10876,67 @@ def lot_inspect_save(lot_id, unit_id):
     res = db.get_unit_results(db.get_lot_inspection(lot_id)["id"], unit_id)
     rows = [res[e["item_key"]][int(e["idx"])]["current"] for e in entries]
     return jsonify({"ok": True, "saved": n, "rows": rows})
+
+
+# ---- 제품검사 MA 연결·회수 (TASK #155 T5) ----
+# 연결은 process_input 단독, 회수는 process_link 단독(두 코드를 같이 넘기면 OR이라 구멍). 응답 모양은 lot_inspect_save와 같다.
+def _link_payload():
+    p = request.get_json(silent=True) if request.is_json else request.form
+    return p if hasattr(p, "get") else {}
+
+
+def _link_fail(lot_id, unit_id, msg, status=400, slot=None):
+    if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": False, "error": msg, "slot": slot}), status
+    flash(msg)
+    return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ma-link", methods=["POST"])
+@perm_required("process_input")
+def lot_inspect_ma_link(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    writable, why = db.lot_inspection_writable(lot_id)
+    if not writable:
+        return _link_fail(lot_id, unit_id, why, 409)
+    p = _link_payload()
+    try:
+        rows = db.link_ma_to_unit(lot_id, unit_id, p.get("idx"), p.get("ma"), _actor_name(), g.user["id"])
+    except db.SlotError as e:
+        return _link_fail(lot_id, unit_id, str(e), 400, {"item_key": e.item_key, "idx": e.idx})
+    except ValueError as e:
+        return _link_fail(lot_id, unit_id, str(e), 409)
+    lot = db.get_production_lot(lot_id)
+    record_change("제품검사 MA 연결", "production_lot", lot_id,
+                  f"{lot['lot_no']} / 완제품 {unit_id} / {p.get('idx')}번 칸 / MA {db.ma_display(rows[-1]['value'])}")
+    if not (request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"):
+        flash("MA 번호를 연결했어요.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "rows": rows})
+
+
+@app.route("/production-lots/<int:lot_id>/inspect/units/<int:unit_id>/ma-unlink", methods=["POST"])
+@perm_required("process_link")
+def lot_inspect_ma_unlink(lot_id, unit_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    p = _link_payload()
+    try:  # 사전 점검 없음 — 취소 LOT·제외·사용 금지는 동결 예외로 풀 수 있어야 해서 DB 함수가 판단한다
+        r = db.unlink_component(lot_id, unit_id, "ma", p.get("idx"), p.get("reason"), _actor_name(), g.user["id"])
+    except db.SlotError as e:
+        return _link_fail(lot_id, unit_id, str(e), 400, {"item_key": e.item_key, "idx": e.idx})
+    except ValueError as e:
+        return _link_fail(lot_id, unit_id, str(e), 409)
+    lot = db.get_production_lot(lot_id)
+    record_change("제품검사 MA 연결 회수", "production_lot", lot_id,
+                  f"{lot['lot_no']} / 완제품 {unit_id} / {p.get('idx')}번 칸 / 사유: {(p.get('reason') or '').strip()}")
+    if not (request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"):
+        flash("MA 연결을 회수했어요.")
+        return redirect(url_for("lot_inspect_unit", lot_id=lot_id, unit_id=unit_id))
+    return jsonify({"ok": True, "frozen": r["frozen"]})
 
 
 # ---- 제품검사 S/N 완료·재개 (TASK #145 패키지 1D-c1) ----
@@ -11031,7 +11104,7 @@ def lot_ng_events(lot_id, unit_id):
 
     def cells(key):
         return [{"idx": i, "rev": s["current"]["rev"], "value": s["current"]["value"], "verdict": s["current"]["verdict"],
-                 "is_missing": s["current"]["is_missing"]} for i, s in sorted(results.get(key, {}).items())]
+                 "is_missing": s["current"]["is_missing"]} for i, s in sorted(results.get(key, {}).items()) if s["current"]]
     for e in evs:
         e["item"] = items.get(e["item_key"])
         c = cells(e["item_key"])
@@ -11040,10 +11113,10 @@ def lot_ng_events(lot_id, unit_id):
         # 교착: 미종결인데 현재 fail 칸이 없다 — 사건 취소(4b-2) 전에는 풀 수 없다
         e["deadlock"] = e["unresolved"] and not e["fail_cells"]
         e["can_retest"] = e["unresolved"] and bool(e["fail_cells"]) and e["item"] is not None \
-            and e["item"]["input_type"] in ("numeric", "ok_ng")
+            and e["item"]["input_type"] in db.JUDGED_TYPES
         e["rounds"] = [json.loads(l["payload_json"]) for l in e["logs"] if l["log_type"] == "retest_round"]
     extra_candidates = [{"item": it, "cells": cells(k)} for k, it in items.items()
-                        if it["input_type"] in ("numeric", "ok_ng") and k not in busy and results.get(k)]
+                        if it["input_type"] in db.JUDGED_TYPES and k not in busy and results.get(k)]
     perms = _user_perms(g.user)
     final_doc = db.unit_has_final_document(unit_id)
     unusable = bool(unit["unusable"])
@@ -11291,7 +11364,7 @@ def _unit_report_panel(lot, unit, results, events):
                        "sig_url": f"/static/signatures/user_{uid}_default.png" if has_sig else None,
                        "blockers": blockers, "show_submit": "process_submit" in ex and state not in ("submitted", "approved"),
                        "can_revoke": "process_final" in ex and state == "approved",
-                       "missing_count": sum(1 for sl in slots if sl["current"]["is_missing"]),
+                       "missing_count": sum(1 for sl in slots if sl["current"] and sl["current"]["is_missing"]),
                        "ng_special_waiting": ng_special_waiting,
                        "unusable": bool(unit.get("unusable")),
                        "ng_deadlock": not unusable_active and any(b["code"] == "ng_unresolved" for b in ng["blockers"])}}
@@ -11724,8 +11797,12 @@ def lot_inspect_photo_save(lot_id, unit_id):
 
 # ---- 제품검사 항목 설정 (TASK #136 패키지 1D-a) ----
 _ITEM_FORM_FIELDS = ("key", "name", "input_type", "lower", "upper", "display_digits",
-                     "required_n", "allow_missing")
-_ITEM_TYPE_LABELS = {"numeric": "숫자", "ok_ng": "적합/부적합", "photo": "사진"}
+                     "required_n", "allow_missing", "speed_field")
+_ITEM_TYPE_LABELS = {"numeric": "숫자", "ok_ng": "적합/부적합", "photo": "사진",
+                     "angle": "각도(범위, 0도 걸침 가능)", "record_num": "기록용 숫자(판정 없음)",
+                     "ma_link": "MA 번호(스피드 연결)"}
+_SPEED_FIELD_LABELS = {"": "없음", "open_ms": "개방시간", "open_skew_ms": "개방 괴리차",
+                       "close_ms": "투입시간", "close_skew_ms": "투입 괴리차", "primary_gap": "1차 극간"}
 
 
 def _items_from_form(form):
@@ -11741,7 +11818,8 @@ def _render_model_items(model, items, copied_from=None):
                            copied_from=copied_from,
                            versions=db.list_model_item_versions(model["id"]),
                            other_models=[m for m in db.list_product_models() if m["id"] != model["id"]],
-                           editable=_admin_only_ok(), type_labels=_ITEM_TYPE_LABELS)
+                           editable=_admin_only_ok(), type_labels=_ITEM_TYPE_LABELS,
+                           speed_labels=_SPEED_FIELD_LABELS)
 
 
 def _admin_only_ok():
@@ -11783,6 +11861,102 @@ def product_model_items(model_id):
             flash(str(e))
     cur = db.get_current_model_items(model_id)
     return _render_model_items(model, cur["items"] if cur else [])
+
+
+# ---- 스피드 검사 기록 (TASK #155 T4) ----
+# 열람은 4개 권한 중 하나(OR), 입력·정정은 process_input 단독(두 개를 같이 넘기면 OR이라 구멍).
+_SPEED_READ_PERMS = ("process_lot", "process_input", "process_link", "process_correct")
+
+
+def _speed_values(form):
+    return {f: form.get(f, "") for f in db._SPEED_FIELDS}
+
+
+def _render_speed_form(record=None, **kw):
+    return render_template("speed_test_form.html", record=record, models=db.speed_models(),
+                           field_labels=db.SPEED_FIELD_LABELS, fields=db._SPEED_FIELDS, **kw)
+
+
+@app.route("/speed-tests")
+@perm_required(*_SPEED_READ_PERMS)
+def speed_test_list():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    q = request.args.get("q", "").strip()
+    model_id = request.args.get("model_id", "").strip()
+    status = request.args.get("status", "")
+    status = status if status in ("linked", "unlinked") else ""
+    rows = db.list_speed_records(q, int(model_id) if model_id.isdigit() else None, status or None)
+    return render_template("speed_test_list.html", rows=rows, q=q, model_id=model_id, status=status,
+                           models=db.list_product_models(active=True), field_labels=db.SPEED_FIELD_LABELS)
+
+
+@app.route("/speed-tests/new", methods=["GET", "POST"])
+@perm_required("process_input")
+def speed_test_new():
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    sel_model = request.values.get("model_id", "")
+    sel_phase = request.values.get("phase", "A")
+    if request.method == "POST":
+        vals = _speed_values(request.form)
+        ma = request.form.get("ma", "")
+        try:
+            rid = db.create_speed_record(ma, request.form.get("model_id"), sel_phase, vals,
+                                         _actor_name(), g.user["id"])
+        except ValueError as e:
+            flash(str(e))
+            return _render_speed_form(sel_model=sel_model, sel_phase=sel_phase, ma=ma, vals=vals)
+        rec = db.get_speed_record(rid)
+        record_change("스피드 기록 등록", "speed_record", rid, f"MA {rec['ma_display']} / {rec['model_no']} / {sel_phase}상")
+        flash(f"스피드 기록 #{rid} ({rec['ma_display']})을 저장했어요."
+              + (" 불합격 값이 있어요. 저장은 되지만, S/N에 연결하면 불합격(NG)으로 처리돼요." if rec["has_fail"] else ""))
+        return redirect(url_for("speed_test_new", model_id=sel_model, phase=sel_phase))
+    return _render_speed_form(sel_model=sel_model, sel_phase=sel_phase, ma="", vals={})
+
+
+@app.route("/speed-tests/<int:record_id>")
+@perm_required(*_SPEED_READ_PERMS)
+def speed_test_detail(record_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    rec = db.get_speed_record(record_id)
+    if not rec:
+        flash("스피드 기록을 찾을 수 없어요.")
+        return redirect(url_for("speed_test_list"))
+    return render_template("speed_test_detail.html", rec=rec, field_labels=db.SPEED_FIELD_LABELS,
+                           fields=db._SPEED_FIELDS, can_correct="process_input" in _user_perms(g.user))
+
+
+@app.route("/speed-tests/<int:record_id>/correct", methods=["GET", "POST"])
+@perm_required("process_input")
+def speed_test_correct(record_id):
+    guard = _traceability_gate()
+    if guard:
+        return guard
+    rec = db.get_speed_record(record_id)
+    if not rec:
+        flash("스피드 기록을 찾을 수 없어요.")
+        return redirect(url_for("speed_test_list"))
+    if request.method == "POST":
+        vals = _speed_values(request.form)
+        model_id, phase = request.form.get("model_id", ""), request.form.get("phase", "")
+        try:
+            rev = db.correct_speed_record(record_id, request.form.get("base_rev"), model_id, phase, vals,
+                                          request.form.get("reason"), _actor_name(), g.user["id"])
+        except ValueError as e:
+            flash(str(e))
+            return _render_speed_form(record=rec, sel_model=model_id, sel_phase=phase, ma=rec["ma_display"], vals=vals)
+        record_change("스피드 기록 정정", "speed_record", record_id,
+                      f"MA {rec['ma_display']} / {rev}회차 / 사유: {request.form.get('reason', '').strip()}")
+        flash(f"{rev}회차로 정정했어요.")
+        return redirect(url_for("speed_test_detail", record_id=record_id))
+    cur_vals = {f: rec[f] for f in db._SPEED_FIELDS}
+    return _render_speed_form(record=rec, sel_model=str(rec["model_id"]), sel_phase=rec["phase"],
+                              ma=rec["ma_display"], vals=cur_vals)
 
 
 def _trace_perm_holders():
